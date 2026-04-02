@@ -1,0 +1,4 @@
+Contact: mailto:homefoliomarketing@gmail.com
+Preferred-Languages: en
+Canonical: https://firmfunds.ca/.well-known/security.txt
+Expires: 2027-04-01T00:00:00.000Z

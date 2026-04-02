@@ -1,0 +1,610 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { logAuditEvent } from '@/lib/audit'
+
+// ============================================================================
+// Types
+// ============================================================================
+
+interface ActionResult {
+  success: boolean
+  error?: string
+  data?: Record<string, any>
+}
+
+// ============================================================================
+// Helper: get authenticated admin user
+// ============================================================================
+
+async function getAuthenticatedAdmin() {
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+  if (authError || !user) {
+    return { error: 'Not authenticated', user: null, profile: null, supabase }
+  }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) {
+    return { error: 'User profile not found', user, profile: null, supabase }
+  }
+
+  if (!['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return { error: 'Insufficient permissions', user, profile, supabase }
+  }
+
+  return { error: null, user, profile, supabase }
+}
+
+// ============================================================================
+// Brokerage CRUD
+// ============================================================================
+
+export async function createBrokerage(input: {
+  name: string
+  email: string
+  brand?: string
+  address?: string
+  phone?: string
+  referralFeePercentage: number
+  transactionSystem?: string
+  notes?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.name.trim()) return { success: false, error: 'Brokerage name is required' }
+    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+    if (input.referralFeePercentage < 0 || input.referralFeePercentage > 1) {
+      return { success: false, error: 'Referral fee must be between 0 and 1 (e.g., 0.20 for 20%)' }
+    }
+
+    const { data: brokerage, error: insertError } = await supabase
+      .from('brokerages')
+      .insert({
+        name: input.name.trim(),
+        email: input.email.trim().toLowerCase(),
+        brand: input.brand?.trim() || null,
+        address: input.address?.trim() || null,
+        phone: input.phone?.trim() || null,
+        referral_fee_percentage: input.referralFeePercentage,
+        transaction_system: input.transactionSystem?.trim() || null,
+        notes: input.notes?.trim() || null,
+        status: 'active',
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Brokerage create error:', insertError.message)
+      return { success: false, error: `Failed to create brokerage: ${insertError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.create',
+      entityType: 'brokerage',
+      entityId: brokerage.id,
+      metadata: { name: input.name, email: input.email },
+    })
+
+    return { success: true, data: brokerage }
+  } catch (err: any) {
+    console.error('Brokerage create error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function updateBrokerage(input: {
+  id: string
+  name: string
+  email: string
+  brand?: string
+  address?: string
+  phone?: string
+  referralFeePercentage: number
+  transactionSystem?: string
+  notes?: string
+  status: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.name.trim()) return { success: false, error: 'Brokerage name is required' }
+    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+
+    const { data: brokerage, error: updateError } = await supabase
+      .from('brokerages')
+      .update({
+        name: input.name.trim(),
+        email: input.email.trim().toLowerCase(),
+        brand: input.brand?.trim() || null,
+        address: input.address?.trim() || null,
+        phone: input.phone?.trim() || null,
+        referral_fee_percentage: input.referralFeePercentage,
+        transaction_system: input.transactionSystem?.trim() || null,
+        notes: input.notes?.trim() || null,
+        status: input.status,
+      })
+      .eq('id', input.id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Brokerage update error:', updateError.message)
+      return { success: false, error: `Failed to update brokerage: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.update',
+      entityType: 'brokerage',
+      entityId: input.id,
+      metadata: { name: input.name, status: input.status },
+    })
+
+    return { success: true, data: brokerage }
+  } catch (err: any) {
+    console.error('Brokerage update error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Agent CRUD
+// ============================================================================
+
+export async function createAgent(input: {
+  brokerageId: string
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string
+  recoNumber?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.firstName.trim()) return { success: false, error: 'First name is required' }
+    if (!input.lastName.trim()) return { success: false, error: 'Last name is required' }
+    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+    if (!input.brokerageId) return { success: false, error: 'Brokerage is required' }
+
+    // Verify brokerage exists
+    const { data: brokerage } = await supabase
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+    const { data: agent, error: insertError } = await supabase
+      .from('agents')
+      .insert({
+        brokerage_id: input.brokerageId,
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
+        email: input.email.trim().toLowerCase(),
+        phone: input.phone?.trim() || null,
+        reco_number: input.recoNumber?.trim() || null,
+        status: 'active',
+        flagged_by_brokerage: false,
+        outstanding_recovery: 0,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Agent create error:', insertError.message)
+      return { success: false, error: `Failed to create agent: ${insertError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'agent.create',
+      entityType: 'agent',
+      entityId: agent.id,
+      metadata: { name: `${input.firstName} ${input.lastName}`, email: input.email, brokerage_id: input.brokerageId },
+    })
+
+    return { success: true, data: agent }
+  } catch (err: any) {
+    console.error('Agent create error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Bulk import agents from parsed spreadsheet data
+// ============================================================================
+
+interface BulkAgentRow {
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string
+  recoNumber?: string
+}
+
+interface BulkImportResult {
+  success: boolean
+  error?: string
+  data?: {
+    imported: number
+    skipped: number
+    errors: string[]
+  }
+}
+
+export async function bulkImportAgents(input: {
+  brokerageId: string
+  agents: BulkAgentRow[]
+}): Promise<BulkImportResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.brokerageId) return { success: false, error: 'Brokerage is required' }
+    if (!input.agents || input.agents.length === 0) return { success: false, error: 'No agents to import' }
+    if (input.agents.length > 200) return { success: false, error: 'Maximum 200 agents per import' }
+
+    // Verify brokerage exists
+    const { data: brokerage } = await supabase
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+    // Get existing agent emails for this brokerage to skip duplicates
+    const { data: existingAgents } = await supabase
+      .from('agents')
+      .select('email')
+      .eq('brokerage_id', input.brokerageId)
+
+    const existingEmails = new Set((existingAgents || []).map(a => a.email.toLowerCase()))
+
+    const errors: string[] = []
+    let imported = 0
+    let skipped = 0
+
+    for (let i = 0; i < input.agents.length; i++) {
+      const row = input.agents[i]
+      const rowNum = i + 2 // +2 because row 1 is header, data starts row 2
+
+      // Validate required fields
+      if (!row.firstName?.trim() || !row.lastName?.trim() || !row.email?.trim()) {
+        errors.push(`Row ${rowNum}: Missing required field (first name, last name, or email)`)
+        skipped++
+        continue
+      }
+
+      // Basic email validation
+      const email = row.email.trim().toLowerCase()
+      if (!email.includes('@') || !email.includes('.')) {
+        errors.push(`Row ${rowNum}: Invalid email "${row.email}"`)
+        skipped++
+        continue
+      }
+
+      // Skip duplicates
+      if (existingEmails.has(email)) {
+        errors.push(`Row ${rowNum}: ${row.firstName} ${row.lastName} (${email}) already exists — skipped`)
+        skipped++
+        continue
+      }
+
+      const { error: insertError } = await supabase
+        .from('agents')
+        .insert({
+          brokerage_id: input.brokerageId,
+          first_name: row.firstName.trim(),
+          last_name: row.lastName.trim(),
+          email,
+          phone: row.phone?.trim() || null,
+          reco_number: row.recoNumber?.trim() || null,
+          status: 'active',
+          flagged_by_brokerage: false,
+          outstanding_recovery: 0,
+        })
+
+      if (insertError) {
+        errors.push(`Row ${rowNum}: Failed to import ${row.firstName} ${row.lastName} — ${insertError.message}`)
+        skipped++
+      } else {
+        existingEmails.add(email) // prevent dupes within same batch
+        imported++
+      }
+    }
+
+    await logAuditEvent({
+      action: 'agent.bulk_import',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      metadata: { brokerage_name: brokerage.name, imported, skipped, total_rows: input.agents.length },
+    })
+
+    return {
+      success: true,
+      data: { imported, skipped, errors },
+    }
+  } catch (err: any) {
+    console.error('Bulk import error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred during import' }
+  }
+}
+
+export async function updateAgent(input: {
+  id: string
+  brokerageId: string
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string
+  recoNumber?: string
+  status: string
+  flaggedByBrokerage: boolean
+  outstandingRecovery: number
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.firstName.trim()) return { success: false, error: 'First name is required' }
+    if (!input.lastName.trim()) return { success: false, error: 'Last name is required' }
+    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+
+    const { data: agent, error: updateError } = await supabase
+      .from('agents')
+      .update({
+        brokerage_id: input.brokerageId,
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
+        email: input.email.trim().toLowerCase(),
+        phone: input.phone?.trim() || null,
+        reco_number: input.recoNumber?.trim() || null,
+        status: input.status,
+        flagged_by_brokerage: input.flaggedByBrokerage,
+        outstanding_recovery: input.outstandingRecovery,
+      })
+      .eq('id', input.id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Agent update error:', updateError.message)
+      return { success: false, error: `Failed to update agent: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'agent.update',
+      entityType: 'agent',
+      entityId: input.id,
+      metadata: { name: `${input.firstName} ${input.lastName}`, status: input.status },
+    })
+
+    return { success: true, data: agent }
+  } catch (err: any) {
+    console.error('Agent update error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Create Auth User + Profile (for agent or brokerage admin login)
+// ============================================================================
+
+export async function createUserAccount(input: {
+  email: string
+  password: string
+  fullName: string
+  role: 'agent' | 'brokerage_admin'
+  agentId?: string
+  brokerageId?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+    if (!input.password || input.password.length < 8) return { success: false, error: 'Password must be at least 8 characters' }
+    if (!input.fullName.trim()) return { success: false, error: 'Full name is required' }
+
+    // Create auth user via Supabase admin API
+    // Note: We use the regular signup since we don't have service_role access from server actions
+    // The user will need to confirm their email or we can auto-confirm via Supabase dashboard settings
+    const { data: authData, error: signUpError } = await supabase.auth.admin.createUser({
+      email: input.email.trim().toLowerCase(),
+      password: input.password,
+      email_confirm: true,
+    })
+
+    if (signUpError) {
+      console.error('Auth user create error:', signUpError.message)
+      return { success: false, error: `Failed to create user account: ${signUpError.message}` }
+    }
+
+    if (!authData.user) {
+      return { success: false, error: 'User creation returned no user object' }
+    }
+
+    // Create user_profile record
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .insert({
+        id: authData.user.id,
+        email: input.email.trim().toLowerCase(),
+        role: input.role,
+        full_name: input.fullName.trim(),
+        agent_id: input.agentId || null,
+        brokerage_id: input.brokerageId || null,
+        is_active: true,
+      })
+
+    if (profileError) {
+      console.error('Profile create error:', profileError.message)
+      return { success: false, error: `User created but profile failed: ${profileError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'user.create',
+      entityType: 'user',
+      entityId: authData.user.id,
+      metadata: { email: input.email, role: input.role, full_name: input.fullName },
+    })
+
+    return { success: true, data: { userId: authData.user.id } }
+  } catch (err: any) {
+    console.error('User account create error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// EFT Transfer Tracking
+// ============================================================================
+
+export async function recordEftTransfer(input: {
+  dealId: string
+  amount: number
+  date: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (input.amount <= 0) return { success: false, error: 'Amount must be greater than 0' }
+    if (input.amount > 25000) return { success: false, error: 'Maximum EFT transfer is $25,000 per day' }
+
+    // Fetch current deal
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, status, advance_amount, eft_transfers')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+    if (deal.status !== 'funded') return { success: false, error: 'EFT transfers can only be recorded on funded deals' }
+
+    // Add new transfer to the JSONB array
+    const existingTransfers = deal.eft_transfers || []
+    const newTransfer = {
+      amount: input.amount,
+      date: input.date,
+      confirmed: false,
+    }
+    const updatedTransfers = [...existingTransfers, newTransfer]
+
+    const { data: updatedDeal, error: updateError } = await supabase
+      .from('deals')
+      .update({ eft_transfers: updatedTransfers })
+      .eq('id', input.dealId)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('EFT transfer error:', updateError.message)
+      return { success: false, error: `Failed to record transfer: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'eft.record',
+      entityType: 'deal',
+      entityId: input.dealId,
+      metadata: { amount: input.amount, date: input.date },
+    })
+
+    return { success: true, data: updatedDeal }
+  } catch (err: any) {
+    console.error('EFT transfer error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function confirmEftTransfer(input: {
+  dealId: string
+  transferIndex: number
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, eft_transfers')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+
+    const transfers = deal.eft_transfers || []
+    if (input.transferIndex < 0 || input.transferIndex >= transfers.length) {
+      return { success: false, error: 'Invalid transfer index' }
+    }
+
+    transfers[input.transferIndex].confirmed = true
+
+    const { data: updatedDeal, error: updateError } = await supabase
+      .from('deals')
+      .update({ eft_transfers: transfers })
+      .eq('id', input.dealId)
+      .select()
+      .single()
+
+    if (updateError) {
+      return { success: false, error: `Failed to confirm transfer: ${updateError.message}` }
+    }
+
+    return { success: true, data: updatedDeal }
+  } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function removeEftTransfer(input: {
+  dealId: string
+  transferIndex: number
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, eft_transfers')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+
+    const transfers = deal.eft_transfers || []
+    if (input.transferIndex < 0 || input.transferIndex >= transfers.length) {
+      return { success: false, error: 'Invalid transfer index' }
+    }
+
+    transfers.splice(input.transferIndex, 1)
+
+    const { data: updatedDeal, error: updateError } = await supabase
+      .from('deals')
+      .update({ eft_transfers: transfers })
+      .eq('id', input.dealId)
+      .select()
+      .single()
+
+    if (updateError) {
+      return { success: false, error: `Failed to remove transfer: ${updateError.message}` }
+    }
+
+    return { success: true, data: updatedDeal }
+  } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}

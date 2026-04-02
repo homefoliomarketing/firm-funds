@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  /* Firm Funds Brand Colors */
+  --ff-charcoal: #2D2D2D;
+  --ff-charcoal-dark: #1E1E1E;
+  --ff-charcoal-light: #3D3D3D;
+  --ff-sand: #C4B098;
+  --ff-sand-light: #D4C4AD;
+  --ff-sand-dark: #A8926F;
+  --ff-silver: #B8B8B8;
+  --ff-silver-light: #D0D0D0;
+  --ff-cream: #F5F3EF;
+  --ff-white: #FFFFFF;
+
+  --background: var(--ff-cream);
+  --foreground: var(--ff-charcoal);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ff-charcoal: var(--ff-charcoal);
+  --color-ff-charcoal-dark: var(--ff-charcoal-dark);
+  --color-ff-charcoal-light: var(--ff-charcoal-light);
+  --color-ff-sand: var(--ff-sand);
+  --color-ff-sand-light: var(--ff-sand-light);
+  --color-ff-sand-dark: var(--ff-sand-dark);
+  --color-ff-silver: var(--ff-silver);
+  --color-ff-silver-light: var(--ff-silver-light);
+  --color-ff-cream: var(--ff-cream);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', 'Geist Sans', Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Firm Funds utility classes */
+.ff-gradient-charcoal {
+  background: linear-gradient(135deg, #1E1E1E 0%, #2D2D2D 50%, #3D3D3D 100%);
+}
+
+.ff-gradient-sand {
+  background: linear-gradient(135deg, #A8926F 0%, #C4B098 50%, #D4C4AD 100%);
+}
+
+.ff-text-shadow {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
