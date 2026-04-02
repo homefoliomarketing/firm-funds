@@ -278,7 +278,7 @@ export default function AgentsPage() {
               >
                 <ChevronLeft size={18} />
               </button>
-              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-20 w-auto" />
+              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-28 w-auto" />
               <div>
                 <p className="text-sm font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Agents</p>
               </div>

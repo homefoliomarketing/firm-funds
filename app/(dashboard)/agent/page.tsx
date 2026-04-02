@@ -127,7 +127,7 @@ export default function AgentDashboard() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-3">
-              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-20 w-auto" />
+              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-28 w-auto" />
               <div>
                 <p className="text-sm font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Agent Portal</p>
               </div>
