@@ -165,22 +165,21 @@ export default function BrokerageDashboard() {
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <div>
-                <p className="text-sm font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
-                  Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}
-                </p>
-              </div>
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+                Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}
+              </p>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#C4B098' }}>{profile?.full_name}</span>
+              <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <ThemeToggle />
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
                 style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#C4B098' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
               >
                 <LogOut size={14} />
@@ -203,7 +202,7 @@ export default function BrokerageDashboard() {
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
-            { label: 'Total Deals', value: deals.length.toString(), icon: FileText, accent: '#C4B098' },
+            { label: 'Total Deals', value: deals.length.toString(), icon: FileText, accent: '#5FA873' },
             { label: 'Active Deals', value: activeDeals.toString(), icon: FileText, accent: '#3D5A99' },
             { label: 'Referral Fees Earned', value: formatCurrency(totalReferralFees), icon: DollarSign, accent: '#1A7A2E' },
             { label: 'Registered Agents', value: agents.length.toString(), icon: Users, accent: '#5B3D99' },

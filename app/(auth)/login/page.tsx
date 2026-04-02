@@ -82,8 +82,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(145deg, #121212 0%, #181818 40%, #1E1E1E 100%)' : 'linear-gradient(145deg, #1E1E1E 0%, #2D2D2D 40%, #3D3D3D 100%)' }}>
       {/* Subtle decorative elements */}
-      <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #C4B098, transparent)', filter: 'blur(80px)' }} />
-      <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #C4B098, transparent)', filter: 'blur(60px)' }} />
+      <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(80px)' }} />
+      <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(60px)' }} />
 
       <div className="absolute top-4 right-4"><ThemeToggle /></div>
 
@@ -91,7 +91,7 @@ export default function LoginPage() {
         {/* Logo / Brand Area */}
         <div className="text-center mb-8">
           <img src="/brand/white.png" alt="Firm Funds" className="h-48 w-auto mx-auto mb-5" />
-          <p className="text-sm font-medium tracking-wide" style={{ color: '#C4B098', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+          <p className="text-sm font-medium tracking-wide" style={{ color: '#5FA873', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
             Commission Advance Portal
           </p>
         </div>
@@ -126,7 +126,7 @@ export default function LoginPage() {
                   color: colors.inputText,
                   background: colors.inputBg,
                 }}
-                onFocus={(e) => { e.target.style.borderColor = '#C4B098'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(196, 176, 152, 0.25)' : '0 0 0 3px rgba(196, 176, 152, 0.15)' }}
+                onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
                 onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
                 placeholder="you@example.com"
               />
@@ -148,7 +148,7 @@ export default function LoginPage() {
                   color: colors.inputText,
                   background: colors.inputBg,
                 }}
-                onFocus={(e) => { e.target.style.borderColor = '#C4B098'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(196, 176, 152, 0.25)' : '0 0 0 3px rgba(196, 176, 152, 0.15)' }}
+                onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
                 onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
                 placeholder="Enter your password"
               />
@@ -160,9 +160,9 @@ export default function LoginPage() {
                 onClick={handleForgotPassword}
                 disabled={resetting}
                 className="text-xs font-medium transition-colors"
-                style={{ color: '#C4B098' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#A8926F'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#C4B098'}
+                style={{ color: '#5FA873' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#3D7A4F'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#5FA873'}
               >
                 {resetting ? 'Sending...' : 'Forgot password?'}
               </button>

@@ -175,20 +175,19 @@ export default function AdminDashboard() {
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <div>
-                <p className="text-sm font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Admin Dashboard</p>
-              </div>
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Admin Dashboard</p>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#C4B098' }}>{profile?.full_name}</span>
+              <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <ThemeToggle />
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
                 style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#C4B098' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
               >
                 <LogOut size={14} />
@@ -211,10 +210,10 @@ export default function AdminDashboard() {
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
-            { label: 'Total Deals', value: stats.totalDeals.toString(), icon: FileText, accent: '#C4B098', link: null },
+            { label: 'Total Deals', value: stats.totalDeals.toString(), icon: FileText, accent: '#5FA873', link: null },
             { label: 'Total Advanced', value: formatCurrency(stats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
             { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#3D5A99', link: '/admin/brokerages' },
-            { label: 'Registered Agents', value: stats.totalAgents.toString(), icon: Users, accent: '#C4B098', link: '/admin/brokerages' },
+            { label: 'Registered Agents', value: stats.totalAgents.toString(), icon: Users, accent: '#5FA873', link: '/admin/brokerages' },
           ].map((card) => (
             <div
               key={card.label}
@@ -423,7 +422,7 @@ export default function AdminDashboard() {
                     placeholder="Search by property address..."
                     className="pl-9 pr-4 py-2 rounded-lg text-sm outline-none w-full sm:w-72"
                     style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = `0 0 0 2px rgba(196,176,152,${isDark ? '0.25' : '0.15'})` }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = `0 0 0 2px rgba(95,168,115,${isDark ? '0.25' : '0.15'})` }}
                     onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                   />
                 </div>

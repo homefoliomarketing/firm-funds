@@ -233,9 +233,9 @@ export default function AgentDealDetailPage() {
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <div className="w-px h-6" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <button
                 onClick={() => router.push('/agent')}
                 className="transition-colors"
@@ -285,8 +285,8 @@ export default function AgentDealDetailPage() {
               const isActive = status === deal.status
               const isPast = ['under_review', 'approved', 'funded', 'repaid', 'closed'].indexOf(deal.status) > index
               const isDenied = deal.status === 'denied'
-              const barColor = isDenied ? '#F0C5C5' : isActive ? '#C4B098' : isPast ? '#1A7A2E' : '#E8E4DF'
-              const labelColor = isDenied ? '#993D3D' : isActive ? '#C4B098' : isPast ? '#1A7A2E' : '#D0D0D0'
+              const barColor = isDenied ? '#F0C5C5' : isActive ? '#5FA873' : isPast ? '#1A7A2E' : '#E8E4DF'
+              const labelColor = isDenied ? '#993D3D' : isActive ? '#5FA873' : isPast ? '#1A7A2E' : '#D0D0D0'
               return (
                 <div key={status} className="flex-1">
                   <div className="h-2 rounded-full" style={{ background: barColor }} />
@@ -366,35 +366,35 @@ export default function AgentDealDetailPage() {
                     <div className="space-y-4 text-sm">
                       <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Street Address</label>
-                        <input type="text" value={editStreetAddress} onChange={(e) => setEditStreetAddress(e.target.value)} placeholder="123 Main Street" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                        <input type="text" value={editStreetAddress} onChange={(e) => setEditStreetAddress(e.target.value)} placeholder="123 Main Street" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         <div>
                           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>City</label>
-                          <input type="text" value={editCity} onChange={(e) => setEditCity(e.target.value)} placeholder="Toronto" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                          <input type="text" value={editCity} onChange={(e) => setEditCity(e.target.value)} placeholder="Toronto" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Province</label>
-                          <input type="text" value={editProvince} onChange={(e) => setEditProvince(e.target.value)} placeholder="Ontario" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                          <input type="text" value={editProvince} onChange={(e) => setEditProvince(e.target.value)} placeholder="Ontario" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Postal Code</label>
-                          <input type="text" value={editPostalCode} onChange={(e) => setEditPostalCode(e.target.value)} placeholder="M5V 1A1" maxLength={7} className="w-full rounded-lg px-3 py-2.5 text-sm outline-none uppercase" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                          <input type="text" value={editPostalCode} onChange={(e) => setEditPostalCode(e.target.value)} placeholder="M5V 1A1" maxLength={7} className="w-full rounded-lg px-3 py-2.5 text-sm outline-none uppercase" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Closing Date</label>
-                          <input type="date" value={editClosingDate} onChange={(e) => setEditClosingDate(e.target.value)} min={new Date(Date.now() + 86400000).toISOString().split('T')[0]} className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                          <input type="date" value={editClosingDate} onChange={(e) => setEditClosingDate(e.target.value)} min={new Date(Date.now() + 86400000).toISOString().split('T')[0]} className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Gross Commission ($)</label>
-                          <input type="number" value={editGrossCommission} onChange={(e) => setEditGrossCommission(e.target.value)} min="0" step="0.01" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                          <input type="number" value={editGrossCommission} onChange={(e) => setEditGrossCommission(e.target.value)} min="0" step="0.01" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                         </div>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Brokerage Split (%)</label>
-                        <input type="number" value={editBrokerageSplitPct} onChange={(e) => setEditBrokerageSplitPct(e.target.value)} min="0" max="100" step="0.1" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
+                        <input type="number" value={editBrokerageSplitPct} onChange={(e) => setEditBrokerageSplitPct(e.target.value)} min="0" max="100" step="0.1" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }} onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }} onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }} />
                       </div>
                     </div>
                     <div className="flex gap-3 mt-5">

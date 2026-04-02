@@ -126,11 +126,10 @@ export default function AgentDashboard() {
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <div>
-                <p className="text-sm font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Agent Portal</p>
-              </div>
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Agent Portal</p>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: colors.gold }}>{profile?.full_name}</span>

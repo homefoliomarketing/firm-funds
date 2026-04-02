@@ -344,7 +344,8 @@ export default function DealDetailPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors" style={{ color: 'white' }}
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-lg font-medium tracking-wide" style={{ color: 'white', fontFamily: 'var(--font-geist-sans), sans-serif' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                 <ArrowLeft className="w-4 h-4" />

@@ -442,7 +442,7 @@ export default function ReportsPage() {
       <div className="min-h-screen" style={{ background: colors.pageBg }}>
         <header style={{ background: colors.headerBgGradient }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <button onClick={() => router.push('/admin')} className="flex items-center gap-2 text-sm" style={{ color: '#C4B098' }}>
+            <button onClick={() => router.push('/admin')} className="flex items-center gap-2 text-sm" style={{ color: '#5FA873' }}>
               <ArrowLeft size={16} /> Back to Dashboard
             </button>
           </div>
@@ -475,21 +475,18 @@ export default function ReportsPage() {
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <div className="w-px h-6" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <button
                 onClick={() => router.push('/admin')}
-                className="flex items-center gap-2 text-sm transition-colors"
-                style={{ color: '#888' }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#C4B098' }}
+                className="flex items-center gap-2 text-lg font-medium tracking-wide transition-colors"
+                style={{ color: '#888', fontFamily: 'var(--font-geist-sans), sans-serif' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#5FA873' }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = '#888' }}
               >
                 <ArrowLeft size={16} /> Dashboard
               </button>
-              <div className="w-px h-6" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <div className="flex items-center gap-2">
-                <BarChart3 size={18} style={{ color: '#C4B098' }} />
-                <p className="text-sm font-medium tracking-wide text-white">Reports</p>
-              </div>
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Reports</p>
             </div>
             <div className="flex items-center gap-3">
               {/* Export buttons */}
@@ -617,7 +614,7 @@ export default function ReportsPage() {
         {/* KPI Cards Row 1: Revenue Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
           {[
-            { label: 'Total Revenue', value: formatCurrency(metrics.totalRevenue), icon: DollarSign, accent: '#C4B098', sub: 'Discount fees earned' },
+            { label: 'Total Revenue', value: formatCurrency(metrics.totalRevenue), icon: DollarSign, accent: '#5FA873', sub: 'Discount fees earned' },
             { label: 'Total Advanced', value: formatCurrency(metrics.totalAdvanced), icon: TrendingUp, accent: '#5B3D99', sub: 'Capital deployed' },
             { label: 'Net Profit', value: formatCurrency(metrics.totalProfit), icon: DollarSign, accent: '#1A7A2E', sub: 'After referral fees' },
             { label: 'Referral Fees Paid', value: formatCurrency(metrics.totalReferralFeesPaid), icon: Building2, accent: '#3D5A99', sub: 'To partner brokerages' },
@@ -644,7 +641,7 @@ export default function ReportsPage() {
         {/* KPI Cards Row 2: Performance Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
-            { label: 'Total Deals', value: metrics.totalDeals.toString(), icon: FileText, accent: '#C4B098' },
+            { label: 'Total Deals', value: metrics.totalDeals.toString(), icon: FileText, accent: '#5FA873' },
             { label: 'Avg Discount Fee', value: formatCurrencyFull(metrics.avgDiscountFee), icon: DollarSign, accent: '#995C1A' },
             { label: 'Avg Days to Close', value: `${Math.round(metrics.avgDaysToClose)} days`, icon: Clock, accent: '#0D7A5F' },
             { label: 'Conversion Rate', value: `${metrics.conversionRate.toFixed(1)}%`, icon: Percent, accent: '#5B3D99' },
@@ -864,7 +861,7 @@ export default function ReportsPage() {
                 <div className="px-6 py-5">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     {[
-                      { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: '#C4B098' },
+                      { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: '#5FA873' },
                       { label: 'Funded', value: selectedBrokerage.fundedDeals.toString(), accent: '#1A7A2E' },
                       { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: '#5B3D99' },
                       { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: '#3D5A99' },
@@ -1021,7 +1018,7 @@ function buildPrintHTML(metrics: ReportMetrics, dateRange: DateRange, customStar
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1E1E1E; margin: 40px; line-height: 1.5; }
     h1 { font-size: 24px; margin-bottom: 4px; }
-    h2 { font-size: 16px; margin-top: 28px; margin-bottom: 12px; color: #333; border-bottom: 2px solid #C4B098; padding-bottom: 4px; }
+    h2 { font-size: 16px; margin-top: 28px; margin-bottom: 12px; color: #333; border-bottom: 2px solid #5FA873; padding-bottom: 4px; }
     .subtitle { color: #888; font-size: 13px; margin-bottom: 24px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
     .kpi { padding: 16px; background: #f9f8f6; border-radius: 8px; border: 1px solid #eee; }

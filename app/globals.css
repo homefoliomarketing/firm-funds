@@ -5,9 +5,9 @@
   --ff-charcoal: #2D2D2D;
   --ff-charcoal-dark: #1E1E1E;
   --ff-charcoal-light: #3D3D3D;
-  --ff-sand: #C4B098;
-  --ff-sand-light: #D4C4AD;
-  --ff-sand-dark: #A8926F;
+  --ff-sand: #5FA873;
+  --ff-sand-light: #7BC48D;
+  --ff-sand-dark: #3D7A4F;
   --ff-silver: #B8B8B8;
   --ff-silver-light: #D0D0D0;
   --ff-cream: #F5F3EF;
@@ -47,7 +47,7 @@ body {
 }
 
 .ff-gradient-sand {
-  background: linear-gradient(135deg, #A8926F 0%, #C4B098 50%, #D4C4AD 100%);
+  background: linear-gradient(135deg, #3D7A4F 0%, #5FA873 50%, #7BC48D 100%);
 }
 
 .ff-text-shadow {

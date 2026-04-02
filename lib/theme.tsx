@@ -83,9 +83,9 @@ export const lightColors: ThemeColors = {
   textMuted: '#B8B8B8',
   textFaint: '#D0D0D0',
 
-  gold: '#C4B098',
-  goldDark: '#A8926F',
-  goldBg: '#FFF8ED',
+  gold: '#5FA873',
+  goldDark: '#3D7A4F',
+  goldBg: '#EDFAF0',
 
   border: '#E8E4DF',
   borderLight: '#F0EDE8',
@@ -133,9 +133,9 @@ export const darkColors: ThemeColors = {
   textMuted: '#666666',
   textFaint: '#444444',
 
-  gold: '#C4B098',
-  goldDark: '#D4C0A8',
-  goldBg: '#201C0E',
+  gold: '#5FA873',
+  goldDark: '#7BC48D',
+  goldBg: '#0E2016',
 
   border: '#2E2E2E',
   borderLight: '#282828',

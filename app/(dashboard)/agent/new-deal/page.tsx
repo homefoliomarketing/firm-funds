@@ -177,7 +177,7 @@ export default function NewDealPage() {
 
   const inputStyle = { border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }
   const inputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098'
+    e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873'
     e.currentTarget.style.borderColor = colors.gold
   }
   const inputBlur = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -190,9 +190,9 @@ export default function NewDealPage() {
       {/* Header */}
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3 py-5">
+          <div className="flex items-center gap-4 py-5">
             <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-            <div className="w-px h-6" style={{ background: 'rgba(255,255,255,0.15)' }} />
+            <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
             <button
               onClick={() => router.push('/agent')}
               className="transition-colors"

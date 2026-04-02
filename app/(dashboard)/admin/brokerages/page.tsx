@@ -105,8 +105,8 @@ export default function BrokeragesPage() {
   // ---- Input style helpers ----
   const inputStyle = { background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }
   const onFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    e.currentTarget.style.borderColor = '#C4B098'
-    e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098'
+    e.currentTarget.style.borderColor = '#5FA873'
+    e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873'
   }
   const onBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     e.currentTarget.style.borderColor = colors.inputBorder
@@ -493,29 +493,28 @@ export default function BrokeragesPage() {
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => router.push('/admin')}
                 className="p-1.5 rounded-lg transition-colors"
-                style={{ color: '#C4B098' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(196,176,152,0.1)'}
+                style={{ color: '#5FA873' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(95,168,115,0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 <ChevronLeft size={20} />
               </button>
               <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
-              <div>
-                <p className="text-sm font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Brokerages</p>
-              </div>
+              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Brokerages</p>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#C4B098' }}>{profile?.full_name}</span>
+              <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <ThemeToggle />
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
                 style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#C4B098' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
               >
                 <LogOut size={14} />
@@ -572,7 +571,7 @@ export default function BrokeragesPage() {
               <button
                 onClick={() => setShowCreateForm(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
-                style={{ background: '#C4B098', color: '#1E1E1E' }}
+                style={{ background: '#5FA873', color: '#1E1E1E' }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
               >
@@ -667,7 +666,7 @@ export default function BrokeragesPage() {
                 >Cancel</button>
                 <button type="submit" disabled={submitting}
                   className="flex-1 px-4 py-2.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
-                  style={{ background: '#C4B098', color: '#1E1E1E' }}
+                  style={{ background: '#5FA873', color: '#1E1E1E' }}
                 >{submitting ? 'Saving...' : createRosterFile ? 'Save Brokerage & Import Agents' : 'Save Brokerage'}</button>
               </div>
             </form>
@@ -796,7 +795,7 @@ export default function BrokeragesPage() {
                             >Cancel</button>
                             <button type="submit" disabled={submitting}
                               className="flex-1 px-4 py-2.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
-                              style={{ background: '#C4B098', color: '#1E1E1E' }}
+                              style={{ background: '#5FA873', color: '#1E1E1E' }}
                             >{submitting ? 'Saving...' : 'Save Changes'}</button>
                           </div>
                         </form>
@@ -901,7 +900,7 @@ export default function BrokeragesPage() {
                               >Cancel</button>
                               <button type="submit" disabled={submitting}
                                 className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-                                style={{ background: '#C4B098', color: '#1E1E1E' }}
+                                style={{ background: '#5FA873', color: '#1E1E1E' }}
                               >{submitting ? 'Adding...' : 'Add Agent'}</button>
                             </div>
                           </form>

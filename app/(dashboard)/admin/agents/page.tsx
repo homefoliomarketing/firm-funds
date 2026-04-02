@@ -273,7 +273,7 @@ export default function AgentsPage() {
                 onClick={() => router.push('/admin')}
                 className="p-2 rounded-lg transition-colors"
                 style={{ color: colors.textSecondary }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#C4B098' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#5FA873' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textSecondary }}
               >
                 <ChevronLeft size={18} />
@@ -284,13 +284,13 @@ export default function AgentsPage() {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#C4B098' }}>{profile?.full_name}</span>
+              <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <ThemeToggle />
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
                 style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#C4B098' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
               >
                 <LogOut size={14} />
@@ -343,7 +343,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, firstName: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 />
               </div>
@@ -355,7 +355,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, lastName: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 />
               </div>
@@ -367,7 +367,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 />
               </div>
@@ -379,7 +379,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 />
               </div>
@@ -391,7 +391,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, recoNumber: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 />
               </div>
@@ -402,7 +402,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, brokerageId: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 >
                   <option value="">Select a brokerage</option>
@@ -424,7 +424,7 @@ export default function AgentsPage() {
                   onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                   style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                   onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                 />
                 <p className="text-xs mt-2" style={{ color: colors.textMuted }}>If you provide a password, a login account will be created for this agent. You can also create the account later.</p>
@@ -449,9 +449,9 @@ export default function AgentsPage() {
                 onClick={handleCreateAgent}
                 disabled={isSaving}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                style={{ background: '#C4B098' }}
-                onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#D4C0A8' }}
-                onMouseLeave={(e) => e.currentTarget.style.background = '#C4B098'}
+                style={{ background: '#5FA873' }}
+                onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#7BC48D' }}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
               >
                 {isSaving ? 'Saving...' : 'Save Agent'}
               </button>
@@ -464,9 +464,9 @@ export default function AgentsPage() {
           <button
             onClick={() => setShowCreateForm(true)}
             className="mb-6 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-            style={{ background: '#C4B098' }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#D4C0A8'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#C4B098'}
+            style={{ background: '#5FA873' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#7BC48D'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
           >
             <Plus size={16} />
             Add Agent
@@ -531,7 +531,7 @@ export default function AgentsPage() {
                 placeholder="Search by name, email, or brokerage..."
                 className="pl-9 pr-4 py-2 rounded-lg text-sm outline-none w-full sm:w-80"
                 style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = `0 0 0 2px rgba(196,176,152,${isDark ? '0.25' : '0.15'})` }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = `0 0 0 2px rgba(95,168,115,${isDark ? '0.25' : '0.15'})` }}
                 onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
               />
             </div>
@@ -629,7 +629,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       />
                     </div>
@@ -641,7 +641,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       />
                     </div>
@@ -653,7 +653,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       />
                     </div>
@@ -665,7 +665,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditForm({ ...editForm, phone: e.target.value || null })}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       />
                     </div>
@@ -677,7 +677,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditForm({ ...editForm, reco_number: e.target.value || null })}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       />
                     </div>
@@ -688,7 +688,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditForm({ ...editForm, brokerage_id: e.target.value })}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       >
                         {brokerages.map(b => (
@@ -703,7 +703,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditStatus(e.target.value)}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       >
                         <option value="active">Active</option>
@@ -719,7 +719,7 @@ export default function AgentsPage() {
                         onChange={(e) => setEditOutstandingRecovery(parseFloat(e.target.value) || 0)}
                         className="w-full px-4 py-2 rounded-lg text-sm outline-none"
                         style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = '#C4B098'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(95,168,115,0.25)' : '0 0 0 2px #5FA873' }}
                         onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
                       />
                     </div>
@@ -731,7 +731,7 @@ export default function AgentsPage() {
                         checked={editFlaggedByBrokerage}
                         onChange={(e) => setEditFlaggedByBrokerage(e.target.checked)}
                         className="w-4 h-4 rounded"
-                        style={{ border: `1px solid ${colors.inputBorder}`, accentColor: '#C4B098' }}
+                        style={{ border: `1px solid ${colors.inputBorder}`, accentColor: '#5FA873' }}
                       />
                       <span className="text-sm" style={{ color: colors.textSecondary }}>Flagged by Brokerage</span>
                     </label>
@@ -754,9 +754,9 @@ export default function AgentsPage() {
                       onClick={handleEditAgent}
                       disabled={isSaving}
                       className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                      style={{ background: '#C4B098' }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#D4C0A8' }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#C4B098'}
+                      style={{ background: '#5FA873' }}
+                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#7BC48D' }}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
                     >
                       {isSaving ? 'Saving...' : 'Save Changes'}
                     </button>
