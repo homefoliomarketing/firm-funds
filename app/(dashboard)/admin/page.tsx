@@ -214,7 +214,7 @@ export default function AdminDashboard() {
             { label: 'Total Deals', value: stats.totalDeals.toString(), icon: FileText, accent: '#C4B098', link: null },
             { label: 'Total Advanced', value: formatCurrency(stats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
             { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#3D5A99', link: '/admin/brokerages' },
-            { label: 'Registered Agents', value: stats.totalAgents.toString(), icon: Users, accent: '#C4B098', link: '/admin/agents' },
+            { label: 'Registered Agents', value: stats.totalAgents.toString(), icon: Users, accent: '#C4B098', link: '/admin/brokerages' },
           ].map((card) => (
             <div
               key={card.label}
@@ -249,16 +249,6 @@ export default function AdminDashboard() {
           >
             <Building2 size={16} style={{ color: colors.gold }} />
             Manage Brokerages
-          </button>
-          <button
-            onClick={() => router.push('/admin/agents')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <Users size={16} style={{ color: colors.gold }} />
-            Manage Agents
           </button>
           <button
             onClick={() => router.push('/admin/reports')}
@@ -298,6 +288,65 @@ export default function AdminDashboard() {
             )
           })}
         </div>
+
+        {/* Action Needed Section */}
+        {(() => {
+          const needsReview = allDeals.filter(d => d.status === 'under_review')
+          const needsFunding = allDeals.filter(d => d.status === 'approved')
+          const needsEft = allDeals.filter(d => {
+            if (d.status !== 'funded') return false
+            const transfers = d.eft_transfers || []
+            const totalSent = transfers.reduce((sum: number, t: any) => sum + t.amount, 0)
+            return totalSent < d.advance_amount
+          })
+          const actionItems = [
+            ...needsReview.map(d => ({ ...d, actionType: 'review' as const, actionLabel: 'Needs Review', actionColor: '#3D5A99', actionBg: '#F0F4FF', actionBorder: '#C5D3F0' })),
+            ...needsFunding.map(d => ({ ...d, actionType: 'fund' as const, actionLabel: 'Ready to Fund', actionColor: '#1A7A2E', actionBg: '#EDFAF0', actionBorder: '#B8E6C4' })),
+            ...needsEft.map(d => ({ ...d, actionType: 'eft' as const, actionLabel: 'EFT Incomplete', actionColor: '#5B3D99', actionBg: '#F5F0FF', actionBorder: '#D5C5F0' })),
+          ]
+          if (actionItems.length === 0) return null
+          return (
+            <div className="mb-6 rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <AlertCircle size={16} style={{ color: colors.warningText }} />
+                <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Action Needed</h3>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>
+                  {actionItems.length}
+                </span>
+              </div>
+              <div className="divide-y" style={{ borderColor: colors.divider }}>
+                {actionItems.slice(0, 8).map(item => (
+                  <div
+                    key={item.id}
+                    className="px-5 py-3 flex items-center justify-between cursor-pointer transition-colors"
+                    onClick={() => router.push(`/admin/deals/${item.id}`)}
+                    onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap"
+                        style={{ background: item.actionBg, color: item.actionColor, border: `1px solid ${item.actionBorder}` }}>
+                        {item.actionLabel}
+                      </span>
+                      <span className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{item.property_address}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(item.status) ? colors.errorText : colors.successText }}>
+                        {new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(item.advance_amount)}
+                      </span>
+                      <ChevronRight size={14} style={{ color: colors.textFaint }} />
+                    </div>
+                  </div>
+                ))}
+                {actionItems.length > 8 && (
+                  <div className="px-5 py-2 text-center">
+                    <span className="text-xs font-medium" style={{ color: colors.textMuted }}>+{actionItems.length - 8} more items needing attention</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Status Filter Tabs */}
         <div className="flex flex-wrap gap-2 mb-6">

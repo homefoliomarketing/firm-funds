@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { LogOut, Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, bulkImportAgents } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents } from '@/lib/actions/admin-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -93,6 +93,10 @@ export default function BrokeragesPage() {
   const [importingFor, setImportingFor] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null)
   const [createRosterFile, setCreateRosterFile] = useState<File | null>(null)
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
+  const [editAgentForm, setEditAgentForm] = useState<AgentFormData & { status: string; flaggedByBrokerage: boolean; outstandingRecovery: string }>(
+    { firstName: '', lastName: '', email: '', phone: '', recoNumber: '', status: 'active', flaggedByBrokerage: false, outstandingRecovery: '0' }
+  )
 
   const router = useRouter()
   const supabase = createClient()
@@ -278,6 +282,40 @@ export default function BrokeragesPage() {
     setSubmitting(false)
   }
 
+  const openEditAgent = (agent: Agent, brokerageId: string) => {
+    setEditAgentForm({
+      firstName: agent.first_name, lastName: agent.last_name, email: agent.email,
+      phone: agent.phone || '', recoNumber: agent.reco_number || '',
+      status: agent.status, flaggedByBrokerage: agent.flagged_by_brokerage,
+      outstandingRecovery: (agent.outstanding_recovery || 0).toString(),
+    })
+    setEditingAgentId(agent.id)
+  }
+
+  const handleEditAgentSubmit = async (e: React.FormEvent, agentId: string, brokerageId: string) => {
+    e.preventDefault()
+    if (!editAgentForm.firstName.trim() || !editAgentForm.lastName.trim() || !editAgentForm.email.trim()) {
+      setStatusMessage({ type: 'error', text: 'First name, last name, and email are required' }); return
+    }
+    setSubmitting(true)
+    const result = await updateAgent({
+      id: agentId, brokerageId,
+      firstName: editAgentForm.firstName, lastName: editAgentForm.lastName,
+      email: editAgentForm.email, phone: editAgentForm.phone || undefined,
+      recoNumber: editAgentForm.recoNumber || undefined,
+      status: editAgentForm.status, flaggedByBrokerage: editAgentForm.flaggedByBrokerage,
+      outstandingRecovery: parseFloat(editAgentForm.outstandingRecovery) || 0,
+    })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Agent updated successfully' })
+      setEditingAgentId(null)
+      await loadBrokerages()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to update agent' })
+    }
+    setSubmitting(false)
+  }
+
   // ---- Bulk import ----
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, brokerageId: string) => {
     const file = e.target.files?.[0]
@@ -359,11 +397,40 @@ export default function BrokeragesPage() {
     }
   }
 
-  // ---- Filtering ----
-  const filteredBrokerages = brokerages.filter(b =>
-    b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    b.email.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // ---- Filtering (searches brokerage name/email AND agent names) ----
+  const q = searchQuery.toLowerCase().trim()
+  const filteredBrokerages = brokerages.filter(b => {
+    if (!q) return true
+    // Match brokerage fields
+    if (b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q)) return true
+    if (b.brand && b.brand.toLowerCase().includes(q)) return true
+    // Match agent names within this brokerage
+    if (b.agents.some(a =>
+      `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) ||
+      a.email.toLowerCase().includes(q)
+    )) return true
+    return false
+  })
+
+  // Auto-expand brokerages where the match is on an agent (not the brokerage itself)
+  const agentMatchBrokerageIds = q ? brokerages
+    .filter(b => {
+      const brokerageMatch = b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q) || (b.brand && b.brand.toLowerCase().includes(q))
+      if (brokerageMatch) return false // don't auto-expand if the brokerage itself matches
+      return b.agents.some(a =>
+        `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) ||
+        a.email.toLowerCase().includes(q)
+      )
+    })
+    .map(b => b.id)
+    : []
+
+  // If searching and we have agent matches, auto-expand those
+  useEffect(() => {
+    if (agentMatchBrokerageIds.length === 1) {
+      setExpandedId(agentMatchBrokerageIds[0])
+    }
+  }, [searchQuery])
 
   // ---- Loading skeleton ----
   if (loading) {
@@ -494,8 +561,8 @@ export default function BrokeragesPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search brokerages..."
-                className="pl-9 pr-4 py-2 rounded-lg text-sm outline-none w-full sm:w-64"
+                placeholder="Search brokerages or agents..."
+                className="pl-9 pr-4 py-2 rounded-lg text-sm outline-none w-full sm:w-72"
                 style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                 onFocus={onFocus}
                 onBlur={onBlur}
@@ -888,6 +955,7 @@ export default function BrokeragesPage() {
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Phone</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>RECO #</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
+                                  <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}></th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -895,11 +963,95 @@ export default function BrokeragesPage() {
                                   .sort((a, b) => a.last_name.localeCompare(b.last_name))
                                   .map((agent, idx) => {
                                     const agentBadge = getStatusBadgeStyle(agent.status)
+                                    const isAgentMatch = q && (
+                                      `${agent.first_name} ${agent.last_name}`.toLowerCase().includes(q) ||
+                                      agent.email.toLowerCase().includes(q)
+                                    )
+                                    const isEditing = editingAgentId === agent.id
+
+                                    if (isEditing) {
+                                      return (
+                                        <tr key={agent.id} style={{ background: colors.goldBg, borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}>
+                                          <td className="px-3 py-2" colSpan={6}>
+                                            <form onSubmit={(e) => handleEditAgentSubmit(e, agent.id, brokerage.id)} className="space-y-3">
+                                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                                                <div>
+                                                  <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>First Name *</label>
+                                                  <input value={editAgentForm.firstName} onChange={(e) => setEditAgentForm({ ...editAgentForm, firstName: e.target.value })}
+                                                    className="w-full px-3 py-1.5 rounded-lg text-sm outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Last Name *</label>
+                                                  <input value={editAgentForm.lastName} onChange={(e) => setEditAgentForm({ ...editAgentForm, lastName: e.target.value })}
+                                                    className="w-full px-3 py-1.5 rounded-lg text-sm outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Email *</label>
+                                                  <input type="email" value={editAgentForm.email} onChange={(e) => setEditAgentForm({ ...editAgentForm, email: e.target.value })}
+                                                    className="w-full px-3 py-1.5 rounded-lg text-sm outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Phone</label>
+                                                  <input value={editAgentForm.phone} onChange={(e) => setEditAgentForm({ ...editAgentForm, phone: e.target.value })}
+                                                    className="w-full px-3 py-1.5 rounded-lg text-sm outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                                                </div>
+                                                <div>
+                                                  <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>RECO #</label>
+                                                  <input value={editAgentForm.recoNumber} onChange={(e) => setEditAgentForm({ ...editAgentForm, recoNumber: e.target.value })}
+                                                    className="w-full px-3 py-1.5 rounded-lg text-sm outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-4">
+                                                <div className="flex items-center gap-2">
+                                                  <label className="text-xs font-semibold" style={{ color: colors.textMuted }}>Status:</label>
+                                                  <select value={editAgentForm.status} onChange={(e) => setEditAgentForm({ ...editAgentForm, status: e.target.value })}
+                                                    className="px-2 py-1 rounded text-xs outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur}>
+                                                    <option value="active">Active</option>
+                                                    <option value="suspended">Suspended</option>
+                                                  </select>
+                                                </div>
+                                                <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: colors.textSecondary }}>
+                                                  <input type="checkbox" checked={editAgentForm.flaggedByBrokerage}
+                                                    onChange={(e) => setEditAgentForm({ ...editAgentForm, flaggedByBrokerage: e.target.checked })} />
+                                                  Flagged by Brokerage
+                                                </label>
+                                                <div className="flex items-center gap-1.5">
+                                                  <label className="text-xs font-semibold" style={{ color: colors.textMuted }}>Recovery $:</label>
+                                                  <input type="number" step="0.01" min="0" value={editAgentForm.outstandingRecovery}
+                                                    onChange={(e) => setEditAgentForm({ ...editAgentForm, outstandingRecovery: e.target.value })}
+                                                    className="w-24 px-2 py-1 rounded text-xs outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                                                </div>
+                                                <div className="flex-1" />
+                                                <button type="button" onClick={() => setEditingAgentId(null)}
+                                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                                                  style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                                                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                                                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                                                  Cancel
+                                                </button>
+                                                <button type="submit" disabled={submitting}
+                                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50"
+                                                  style={{ background: '#1A7A2E' }}
+                                                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#156A24' }}
+                                                  onMouseLeave={(e) => e.currentTarget.style.background = '#1A7A2E'}>
+                                                  {submitting ? 'Saving...' : 'Save'}
+                                                </button>
+                                              </div>
+                                            </form>
+                                          </td>
+                                        </tr>
+                                      )
+                                    }
+
                                     return (
                                       <tr key={agent.id}
-                                        style={{ borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                        style={{
+                                          borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none',
+                                          background: isAgentMatch ? colors.goldBg : undefined,
+                                          borderLeft: isAgentMatch ? `3px solid ${colors.gold}` : undefined,
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = isAgentMatch ? colors.goldBg : colors.tableRowHoverBg}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = isAgentMatch ? colors.goldBg : 'transparent'}
                                       >
                                         <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>
                                           <div className="flex items-center gap-2">
@@ -920,6 +1072,17 @@ export default function BrokeragesPage() {
                                           >
                                             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
                                           </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                          <button
+                                            onClick={() => openEditAgent(agent, brokerage.id)}
+                                            className="text-xs px-2 py-1 rounded transition-colors"
+                                            style={{ color: colors.textMuted }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.color = colors.gold; e.currentTarget.style.background = colors.goldBg }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent' }}
+                                          >
+                                            <Edit2 size={13} />
+                                          </button>
                                         </td>
                                       </tr>
                                     )

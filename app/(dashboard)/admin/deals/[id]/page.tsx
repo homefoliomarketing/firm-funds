@@ -6,13 +6,16 @@ import { useRouter, useParams } from 'next/navigation'
 import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
-  ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip
+  ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
+  StickyNote, AlertCircle
 } from 'lucide-react'
 import {
   updateDealStatus,
   toggleChecklistItem as serverToggleChecklistItem,
   deleteDocument as serverDeleteDocument,
   getDocumentSignedUrl,
+  saveAdminNotes,
+  deleteDeal,
 } from '@/lib/actions/deal-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
@@ -28,6 +31,7 @@ interface Deal {
   repayment_date: string | null; eft_transfers: { amount: number; date: string; confirmed: boolean }[] | null
   source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
+  admin_notes: string | null
 }
 
 interface ChecklistItem {
@@ -76,9 +80,6 @@ const STATUS_LABELS: Record<string, string> = {
   funded: 'Funded', repaid: 'Repaid', closed: 'Closed', denied: 'Denied', cancelled: 'Cancelled',
 }
 
-// Using SHARED_STATUS_BADGE_STYLES from @/lib/constants
-
-// Categorize checklist items into logical groups for the redesigned UI
 interface ChecklistCategory {
   label: string
   icon: any
@@ -116,7 +117,6 @@ const CATEGORY_RULES: { label: string; icon: any; color: string; bg: string; bor
   },
 ]
 
-// Match a checklist item's document_type keyword to actual uploaded docs
 const DOC_TYPE_KEYWORDS: Record<string, string[]> = {
   aps: ['aps', 'agreement of purchase'],
   trade_record: ['trade record', 'deal sheet'],
@@ -144,7 +144,6 @@ function categorizeChecklist(items: ChecklistItem[], docs: DealDocument[]): Chec
       const rule = CATEGORY_RULES.find(r => r.label === cat.label)!
       if (rule.keywords.some(kw => itemLower.includes(kw))) {
         cat.items.push(item)
-        // Find matching docs for this checklist item
         for (const [docType, keywords] of Object.entries(DOC_TYPE_KEYWORDS)) {
           if (keywords.some(kw => itemLower.includes(kw))) {
             const matchingDocs = docs.filter(d => d.document_type === docType)
@@ -160,7 +159,6 @@ function categorizeChecklist(items: ChecklistItem[], docs: DealDocument[]): Chec
     if (!matched) uncategorized.push(item)
   }
 
-  // Put uncategorized items into the first category that has items, or the last one
   if (uncategorized.length > 0) {
     const target = categories.find(c => c.items.length > 0) || categories[categories.length - 1]
     target.items.push(...uncategorized)
@@ -195,6 +193,11 @@ export default function DealDetailPage() {
   const [eftAmount, setEftAmount] = useState('')
   const [eftDate, setEftDate] = useState(new Date().toISOString().split('T')[0])
   const [eftSaving, setEftSaving] = useState(false)
+  const [adminNotes, setAdminNotes] = useState('')
+  const [adminNotesSaving, setAdminNotesSaving] = useState(false)
+  const [adminNotesLastSaved, setAdminNotesLastSaved] = useState<string | null>(null)
+  // delete confirm state removed — using simple confirm() for testing phase
+  const [deleting, setDeleting] = useState(false)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -211,6 +214,7 @@ export default function DealDetailPage() {
     const { data: dealData, error: dealError } = await supabase.from('deals').select('*').eq('id', dealId).single()
     if (dealError || !dealData) { router.push('/admin'); return }
     setDeal(dealData)
+    setAdminNotes(dealData.admin_notes || '')
     const { data: agentData } = await supabase.from('agents').select('*').eq('id', dealData.agent_id).single()
     setAgent(agentData)
     const { data: brokerageData } = await supabase.from('brokerages').select('*').eq('id', dealData.brokerage_id).single()
@@ -267,6 +271,21 @@ export default function DealDetailPage() {
     setStatusMessage({ type: 'success', text: 'Document deleted' })
   }
 
+  const handleSaveAdminNotes = async () => {
+    if (!deal) return
+    setAdminNotesSaving(true)
+    const result = await saveAdminNotes({ dealId: deal.id, adminNotes })
+    if (result.success) {
+      setAdminNotesLastSaved(new Date().toISOString())
+      setStatusMessage({ type: 'success', text: 'Admin notes saved' })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to save notes' })
+    }
+    setAdminNotesSaving(false)
+  }
+
+  // handleDeleteDeal inlined in the button's onClick for simplicity during testing phase
+
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -277,7 +296,6 @@ export default function DealDetailPage() {
   const formatDate = (date: string) => new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
   const formatDateTime = (date: string) => new Date(date).toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-  // statusBadge now uses shared getStatusBadgeStyle from constants
   const statusBadge = getStatusBadgeStyle
 
   const checkedCount = checklist.filter(c => c.is_checked).length
@@ -296,671 +314,684 @@ export default function DealDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             {[1,2,3].map(i => (
-              <div key={i} className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="h-4 w-32 rounded animate-pulse mb-4" style={{ background: colors.skeletonBase }} />
-                {[1,2,3].map(j => (<div key={j} className="h-3 w-full rounded animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />))}
-              </div>
+              <div key={i} className="rounded-xl p-6 h-40" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }} />
             ))}
           </div>
           <div className="space-y-6">
             {[1,2].map(i => (
-              <div key={i} className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="h-3 w-16 rounded animate-pulse mb-4" style={{ background: colors.skeletonBase }} />
-                {[1,2,3].map(j => (<div key={j} className="h-3 w-full rounded animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />))}
-              </div>
+              <div key={i} className="rounded-xl p-6 h-48" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }} />
             ))}
           </div>
         </div>
       </main>
     </div>
   )
-  if (!deal) return (<div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}><div style={{ color: colors.textMuted }} className="text-lg">Deal not found</div></div>)
 
-  const availableActions = STATUS_FLOW[deal.status] || []
+  if (!deal || !agent || !brokerage) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}>
+      <div style={{ color: colors.textMuted }}>Deal not found</div>
+    </div>
+  )
+
+  const nextStatuses = STATUS_FLOW[deal.status] || []
+  const categorizedChecklist = categorizeChecklist(checklist, documents)
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
-      {/* Header */}
+      {/* HEADER */}
       <header style={{ background: colors.headerBgGradient }}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => router.push('/admin')}
-                className="transition-colors"
-                style={{ color: '#888' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#C4B098'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#888'}
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <div>
-                {/* Breadcrumb */}
-                <div className="flex items-center gap-1.5 text-xs mb-0.5">
-                  <button onClick={() => router.push('/admin')} className="transition-colors" style={{ color: '#888' }} onMouseEnter={(e) => e.currentTarget.style.color = '#C4B098'} onMouseLeave={(e) => e.currentTarget.style.color = '#888'}>Dashboard</button>
-                  <span style={{ color: '#555' }}>/</span>
-                  <span style={{ color: '#C4B098' }}>Deal Detail</span>
-                </div>
-                <h1 className="text-lg font-bold text-white">{deal.property_address}</h1>
-                <p className="text-xs" style={{ color: colors.textMuted }}>Submitted {formatDateTime(deal.created_at)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <ThemeToggle />
-              <span
-                className="inline-flex px-3 py-1.5 text-sm font-semibold rounded-lg"
-                style={statusBadge(deal.status)}
-              >
-                {STATUS_LABELS[deal.status]}
-              </span>
-            </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors" style={{ color: 'white' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+              <ArrowLeft className="w-4 h-4" />
+              Back to Deals
+            </button>
+            <ThemeToggle />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold mb-2" style={{ color: 'white' }}>{deal.property_address}</h1>
+            <p style={{ color: 'rgba(255,255,255,0.8)' }}>Deal ID: {deal.id}</p>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Status Message */}
-        {statusMessage && (
-          <div
-            className="mb-6 p-4 rounded-xl text-sm font-medium"
-            style={statusMessage.type === 'success'
-              ? { background: colors.successBg, border: `1px solid ${colors.successBorder}`, color: colors.successText }
-              : { background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }
-            }
-          >
+      {/* STATUS MESSAGE TOAST */}
+      {statusMessage && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="rounded-lg p-4 animate-fadeIn" style={{
+            background: statusMessage.type === 'success' ? colors.successBg : colors.errorBg,
+            border: `1px solid ${statusMessage.type === 'success' ? colors.successBorder : colors.errorBorder}`,
+            color: statusMessage.type === 'success' ? colors.successText : colors.errorText,
+          }}>
             {statusMessage.text}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Deal Pipeline */}
-        <div className="rounded-xl mb-6 p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-          <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: colors.gold }}>Deal Pipeline</h3>
-          <div className="flex items-center gap-1.5">
-            {['under_review', 'approved', 'funded', 'repaid', 'closed'].map((status, index) => {
-              const isActive = status === deal.status
-              const isPast = ['under_review', 'approved', 'funded', 'repaid', 'closed'].indexOf(deal.status) > index
-              const isDenied = deal.status === 'denied'
-              const barColor = isDenied ? '#F0C5C5' : isActive ? '#C4B098' : isPast ? '#1A7A2E' : '#E8E4DF'
-              const labelColor = isDenied ? '#993D3D' : isActive ? '#C4B098' : isPast ? '#1A7A2E' : '#D0D0D0'
-              return (
-                <div key={status} className="flex-1">
-                  <div className="h-2 rounded-full" style={{ background: barColor }} />
-                  <p className={`text-xs mt-1.5 text-center ${isActive ? 'font-bold' : isPast ? 'font-medium' : ''}`} style={{ color: labelColor }}>
-                    {STATUS_LABELS[status]}
-                  </p>
-                </div>
-              )
-            })}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* DEAL PIPELINE */}
+        <div className="mb-6">
+          <div className="flex justify-between mb-2">
+            <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Deal Pipeline</span>
+            <span className="text-sm" style={{ color: colors.textMuted }}>{checklistPct}% complete</span>
           </div>
-          {deal.status === 'denied' && (
-            <div className="mt-4 p-3 rounded-lg" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
-              <p className="text-sm" style={{ color: colors.errorText }}><strong>Denied:</strong> {deal.denial_reason || 'No reason provided'}</p>
+          <div className="w-full rounded-full h-2" style={{ background: colors.border }}>
+            <div className="h-2 rounded-full transition-all" style={{ width: `${checklistPct}%`, background: colors.gold }} />
+          </div>
+        </div>
+
+        {/* STICKY ACTION BAR */}
+        <div className="sticky top-0 z-20 mb-6 rounded-lg p-4" style={{
+          background: colors.cardBg,
+          border: `1px solid ${colors.border}`,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        }}>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              {statusBadge(deal.status) && (
+                <div style={statusBadge(deal.status)}>
+                  {STATUS_LABELS[deal.status]}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {nextStatuses.map(status => {
+                const config = ACTION_CONFIG[status]
+                const Icon = config.icon
+                return (
+                  <button
+                    key={status}
+                    onClick={() => handleStatusChange(status)}
+                    disabled={updating}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white transition disabled:opacity-50"
+                    style={{ background: config.bg }}
+                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = config.hoverBg }}
+                    onMouseLeave={(e) => e.currentTarget.style.background = config.bg}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {config.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* DENIAL REASON TEXTAREA IN ACTION BAR */}
+          {showDenialInput && (
+            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
+              <label className="block text-sm font-medium mb-2" style={{ color: colors.textPrimary }}>Denial Reason</label>
+              <textarea
+                value={denialReason}
+                onChange={(e) => setDenialReason(e.target.value)}
+                placeholder="Explain why this deal is being denied..."
+                className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none"
+                style={{
+                  background: colors.inputBg,
+                  borderColor: colors.inputBorder,
+                  color: colors.inputText,
+                  minHeight: '80px',
+                }}
+              />
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => handleStatusChange('denied')}
+                  disabled={updating || !denialReason.trim()}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
+                  style={{ background: '#993D3D' }}
+                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#892D2D' }}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#993D3D'}
+                >
+                  Confirm Denial
+                </button>
+                <button
+                  onClick={() => { setShowDenialInput(false); setDenialReason('') }}
+                  className="px-4 py-2 rounded-lg font-medium transition"
+                  style={{ background: colors.border, color: colors.textPrimary }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column */}
-          <div className="lg:col-span-2 space-y-6">
+        {/* EFT SECTION - ONLY FOR FUNDED/REPAID */}
+        {['funded', 'repaid'].includes(deal.status) && (
+          <div className="mb-8 rounded-xl p-6" style={{
+            background: colors.cardBg,
+            border: `1px solid ${colors.border}`,
+          }}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <Banknote className="w-6 h-6" style={{ color: colors.gold }} />
+                EFT Transfers
+              </h2>
+              <button
+                onClick={() => setShowEftForm(!showEftForm)}
+                className="px-4 py-2 rounded-lg font-medium text-white transition"
+                style={{ background: colors.gold }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                {showEftForm ? 'Cancel' : 'Record Transfer'}
+              </button>
+            </div>
 
-            {/* Deal Details */}
-            <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <MapPin size={16} style={{ color: colors.gold }} />
-                <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Deal Details</h3>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-2 gap-5 text-sm">
-                  <div><p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Property Address</p><p className="font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</p></div>
-                  <div><p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Closing Date</p><p className="font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p></div>
-                  <div><p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Days Until Closing</p><p className="font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p></div>
-                  <div><p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Source</p><p className="font-medium" style={{ color: colors.textPrimary }}>{deal.source === 'manual_portal' ? 'Agent Portal' : deal.source === 'nexone_auto' ? 'Nexone Auto' : deal.source}</p></div>
-                  {deal.funding_date && (<div><p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Funding Date</p><p className="font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.funding_date)}</p></div>)}
-                  {deal.repayment_date && (<div><p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Repayment Date</p><p className="font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.repayment_date)}</p></div>)}
+            {showEftForm && (
+              <div className="mb-6 p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Amount (CAD)</label>
+                    <input
+                      type="number"
+                      value={eftAmount}
+                      onChange={(e) => setEftAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{
+                        background: colors.cardBg,
+                        borderColor: colors.inputBorder,
+                        color: colors.inputText,
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Transfer Date</label>
+                    <input
+                      type="date"
+                      value={eftDate}
+                      onChange={(e) => setEftDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{
+                        background: colors.cardBg,
+                        borderColor: colors.inputBorder,
+                        color: colors.inputText,
+                      }}
+                    />
+                  </div>
                 </div>
-                {deal.notes && (
-                  <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                    <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textSecondary }}>Notes</p>
-                    <p className="text-sm whitespace-pre-line" style={{ color: colors.textPrimary }}>{deal.notes.replace(/^Transaction type: \w+\n?/, '').trim() || 'No additional notes'}</p>
+                <button
+                  onClick={async () => {
+                    if (!eftAmount || !eftDate) return
+                    setEftSaving(true)
+                    const result = await recordEftTransfer({
+                      dealId: deal.id,
+                      amount: parseFloat(eftAmount),
+                      date: eftDate,
+                    })
+                    if (result.success) {
+                      setDeal(prev => prev ? { ...prev, ...result.data } : null)
+                      setEftAmount('')
+                      setEftDate(new Date().toISOString().split('T')[0])
+                      setShowEftForm(false)
+                      setStatusMessage({ type: 'success', text: 'EFT transfer recorded' })
+                    } else {
+                      setStatusMessage({ type: 'error', text: result.error || 'Failed to record transfer' })
+                    }
+                    setEftSaving(false)
+                  }}
+                  disabled={eftSaving || !eftAmount || !eftDate}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
+                  style={{ background: '#1A7A2E' }}
+                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#156A24' }}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#1A7A2E'}
+                >
+                  Record Transfer
+                </button>
+              </div>
+            )}
+
+            {deal.eft_transfers && deal.eft_transfers.length > 0 ? (
+              <div className="space-y-3">
+                {deal.eft_transfers.map((eft, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                    <div>
+                      <p className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(eft.amount)}</p>
+                      <p className="text-sm" style={{ color: colors.textMuted }}>{formatDate(eft.date)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {eft.confirmed ? (
+                        <span className="px-3 py-1 rounded-full text-sm font-medium" style={{ background: colors.successBg, color: colors.successText }}>
+                          Confirmed
+                        </span>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            const result = await confirmEftTransfer({ dealId: deal.id, transferIndex: idx })
+                            if (result.success) {
+                              setDeal(prev => prev ? { ...prev, ...result.data } : null)
+                            }
+                          }}
+                          className="px-3 py-1 rounded-full text-sm font-medium transition"
+                          style={{ background: colors.warningBg, color: colors.warningText }}
+                        >
+                          Confirm
+                        </button>
+                      )}
+                      <button
+                        onClick={async () => {
+                          const result = await removeEftTransfer({ dealId: deal.id, transferIndex: idx })
+                          if (result.success) {
+                            setDeal(prev => prev ? { ...prev, ...result.data } : null)
+                          }
+                        }}
+                        className="p-2 rounded-lg transition-colors"
+                        style={{ color: colors.errorText }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = colors.errorBg}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: colors.textMuted }}>No EFT transfers recorded yet</p>
+            )}
+          </div>
+        )}
+
+        {/* MAIN CONTENT GRID - Deal Details, Financial, Admin Notes (left 2/3) + Agent/Brokerage (right 1/3) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="lg:col-span-2 space-y-6">
+            {/* DEAL DETAILS */}
+            <div className="rounded-xl p-6" style={{
+              background: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <FileText className="w-5 h-5" style={{ color: colors.gold }} />
+                Deal Details
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Property Address</p>
+                  <p className="font-semibold flex items-start gap-2 mt-1" style={{ color: colors.textPrimary }}>
+                    <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    {deal.property_address}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Closing Date</p>
+                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
+                </div>
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Days Until Closing</p>
+                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p>
+                </div>
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Source</p>
+                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{deal.source}</p>
+                </div>
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Created</p>
+                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{formatDateTime(deal.created_at)}</p>
+                </div>
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Last Updated</p>
+                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{formatDateTime(deal.updated_at)}</p>
+                </div>
+              </div>
+              {deal.denial_reason && (
+                <div className="mt-6 p-4 rounded-lg" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
+                  <p className="text-sm font-medium" style={{ color: colors.errorText }}>Denial Reason</p>
+                  <p className="mt-2" style={{ color: colors.errorText }}>{deal.denial_reason}</p>
+                </div>
+              )}
+            </div>
+
+            {/* FINANCIAL BREAKDOWN */}
+            <div className="rounded-xl p-6" style={{
+              background: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <DollarSign className="w-5 h-5" style={{ color: colors.gold }} />
+                Financial Breakdown
+              </h2>
+              <div className="space-y-3">
+                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span style={{ color: colors.textMuted }}>Gross Commission</span>
+                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span>
+                </div>
+                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span style={{ color: colors.textMuted }}>Brokerage Split</span>
+                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{deal.brokerage_split_pct}%</span>
+                </div>
+                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span style={{ color: colors.textMuted }}>Net Commission</span>
+                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span>
+                </div>
+                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span style={{ color: colors.textMuted }}>Discount Fee</span>
+                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.discount_fee)}</span>
+                </div>
+                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span style={{ color: colors.textMuted }}>Advance Amount</span>
+                  <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.advance_amount)}</span>
+                </div>
+                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <span style={{ color: colors.textMuted }}>Brokerage Referral Fee</span>
+                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.brokerage_referral_fee)}</span>
+                </div>
+                <div className="flex justify-between pt-3 rounded-lg p-3" style={{ background: colors.goldBg }}>
+                  <span className="font-semibold" style={{ color: colors.gold }}>Amount Due from Brokerage</span>
+                  <span className="font-bold text-lg" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ADMIN NOTES */}
+            <div className="rounded-xl p-6" style={{
+              background: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <StickyNote className="w-5 h-5" style={{ color: colors.gold }} />
+                Admin Notes
+              </h2>
+              <textarea
+                value={adminNotes}
+                onChange={(e) => setAdminNotes(e.target.value)}
+                placeholder="Internal notes (not visible to agents)..."
+                className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none mb-3"
+                style={{
+                  background: colors.inputBg,
+                  borderColor: colors.inputBorder,
+                  color: colors.inputText,
+                  minHeight: '120px',
+                }}
+              />
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={handleSaveAdminNotes}
+                  disabled={adminNotesSaving}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
+                  style={{ background: '#3D5A99' }}
+                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#2D4A89' }}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#3D5A99'}
+                >
+                  {adminNotesSaving ? 'Saving...' : 'Save Notes'}
+                </button>
+                {adminNotesLastSaved && (
+                  <p className="text-sm" style={{ color: colors.textMuted }}>
+                    Saved: {formatDateTime(adminNotesLastSaved)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* AGENT & BROKERAGE CARDS (right 1/3) */}
+          <div className="space-y-6">
+            {/* AGENT CARD */}
+            <div className="rounded-xl p-6" style={{
+              background: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <User className="w-5 h-5" style={{ color: colors.gold }} />
+                Agent
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Name</p>
+                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
+                </div>
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Email</p>
+                  <p className="font-semibold break-all" style={{ color: colors.textPrimary }}>{agent.email}</p>
+                </div>
+                {agent.phone && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>Phone</p>
+                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.phone}</p>
+                  </div>
+                )}
+                {agent.reco_number && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>RECO Number</p>
+                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.reco_number}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Status</p>
+                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.status}</p>
+                </div>
+                {agent.flagged_by_brokerage && (
+                  <div className="p-2 rounded-lg" style={{ background: colors.warningBg }}>
+                    <p className="text-sm font-medium" style={{ color: colors.warningText }}>Flagged by Brokerage</p>
+                  </div>
+                )}
+                {agent.outstanding_recovery !== null && agent.outstanding_recovery > 0 && (
+                  <div className="p-2 rounded-lg" style={{ background: colors.errorBg }}>
+                    <p className="text-sm font-medium" style={{ color: colors.errorText }}>Outstanding Recovery: {formatCurrency(agent.outstanding_recovery)}</p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Financial Breakdown */}
-            <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <DollarSign size={16} style={{ color: colors.gold }} />
-                <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Financial Breakdown</h3>
-              </div>
-              <div className="p-6">
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Gross Commission</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span></div>
-                  <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Brokerage Split ({deal.brokerage_split_pct}%)</span><span className="font-medium" style={{ color: colors.errorText }}>-{formatCurrency(deal.gross_commission - deal.net_commission)}</span></div>
-                  <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}><span className="font-medium" style={{ color: colors.textPrimary }}>Agent Net Commission</span><span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span></div>
-                  <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Discount Fee ($0.75/$1K/day × {deal.days_until_closing} days)</span><span className="font-medium" style={{ color: colors.errorText }}>-{formatCurrency(deal.discount_fee)}</span></div>
-                  <div className="flex justify-between items-center rounded-xl px-5 py-4 -mx-1 mt-2" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}>
-                    <span className="font-bold text-base" style={{ color: colors.successText }}>Advance to Agent</span>
-                    <span className="font-black text-xl" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</span>
-                  </div>
+            {/* BROKERAGE CARD */}
+            <div className="rounded-xl p-6" style={{
+              background: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <Building2 className="w-5 h-5" style={{ color: colors.gold }} />
+                Brokerage
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Name</p>
+                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.name}</p>
                 </div>
-
-                <div className="mt-6 pt-5" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                  <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Firm Funds Revenue</h4>
-                  <div className="space-y-2.5 text-sm">
-                    <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Total Discount Fee Earned</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.discount_fee)}</span></div>
-                    <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Brokerage Referral Fee ({((brokerage?.referral_fee_percentage || 0.20) * 100).toFixed(0)}%)</span><span className="font-medium" style={{ color: colors.errorText }}>-{formatCurrency(deal.brokerage_referral_fee)}</span></div>
-                    <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}><span className="font-semibold" style={{ color: colors.textPrimary }}>Net Revenue to Firm Funds</span><span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.discount_fee - deal.brokerage_referral_fee)}</span></div>
+                {brokerage.brand && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>Brand</p>
+                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.brand}</p>
                   </div>
-                </div>
-
-                <div className="mt-6 pt-5" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                  <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Settlement at Closing</h4>
-                  <div className="space-y-2.5 text-sm">
-                    <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Agent Net Commission (held in trust)</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span></div>
-                    <div className="flex justify-between"><span style={{ color: colors.textSecondary }}>Less: Brokerage Referral Fee</span><span className="font-medium" style={{ color: colors.errorText }}>-{formatCurrency(deal.brokerage_referral_fee)}</span></div>
-                    <div className="flex justify-between pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}><span className="font-semibold" style={{ color: colors.textPrimary }}>Brokerage EFT to Firm Funds</span><span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission - deal.brokerage_referral_fee)}</span></div>
-                    <p className="text-xs" style={{ color: colors.textFaint }}>Brokerage retains their referral fee and sends the remainder to Firm Funds at closing.</p>
+                )}
+                {brokerage.address && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>Address</p>
+                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.address}</p>
                   </div>
+                )}
+                {brokerage.phone && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>Phone</p>
+                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.phone}</p>
+                  </div>
+                )}
+                {brokerage.email && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>Email</p>
+                    <p className="font-semibold break-all" style={{ color: colors.textPrimary }}>{brokerage.email}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm" style={{ color: colors.textMuted }}>Status</p>
+                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.status}</p>
                 </div>
+                {brokerage.referral_fee_percentage !== null && (
+                  <div>
+                    <p className="text-sm" style={{ color: colors.textMuted }}>Referral Fee %</p>
+                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.referral_fee_percentage}%</p>
+                  </div>
+                )}
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* EFT Transfer Tracking — Only for funded deals */}
-            {(deal.status === 'funded' || deal.status === 'repaid') && (
-              <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <div className="flex items-center gap-2">
-                    <Banknote size={16} style={{ color: colors.gold }} />
-                    <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>EFT Transfers</h3>
-                  </div>
-                  {!showEftForm && (
-                    <button
-                      onClick={() => setShowEftForm(true)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                      style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = isDark ? '#1A3420' : '#D5F0DC'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = colors.successBg}
-                    >
-                      + Record Transfer
-                    </button>
-                  )}
-                </div>
-                <div className="p-6">
-                  {/* Add transfer form */}
-                  {showEftForm && (
-                    <div className="rounded-lg p-4 mb-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
-                      <div className="grid grid-cols-2 gap-4 mb-3">
-                        <div>
-                          <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Amount ($)</label>
-                          <input
-                            type="number" value={eftAmount} onChange={(e) => setEftAmount(e.target.value)}
-                            placeholder="25000" min="0" max="25000" step="0.01"
-                            className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                            style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                            onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
-                            onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
-                          />
-                          <p className="text-xs mt-1" style={{ color: colors.textFaint }}>Max $25,000 per transfer</p>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Date</label>
-                          <input
-                            type="date" value={eftDate} onChange={(e) => setEftDate(e.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                            style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                            onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.boxShadow = isDark ? '0 0 0 2px rgba(196,176,152,0.25)' : '0 0 0 2px #C4B098' }}
-                            onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setShowEftForm(false); setEftAmount(''); setEftDate(new Date().toISOString().split('T')[0]) }}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                          style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const amt = parseFloat(eftAmount)
-                            if (!amt || amt <= 0 || amt > 25000 || !eftDate) return
-                            setEftSaving(true)
-                            const result = await recordEftTransfer({ dealId: deal.id, amount: amt, date: eftDate })
-                            if (result.success && result.data) {
-                              setDeal({ ...deal, eft_transfers: result.data.eft_transfers })
-                              setShowEftForm(false); setEftAmount(''); setEftDate(new Date().toISOString().split('T')[0])
-                              setStatusMessage({ type: 'success', text: `EFT transfer of ${formatCurrency(amt)} recorded.` })
-                            } else {
-                              setStatusMessage({ type: 'error', text: result.error || 'Failed to record transfer' })
-                            }
-                            setEftSaving(false)
-                          }}
-                          disabled={eftSaving || !eftAmount || parseFloat(eftAmount) <= 0}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50"
-                          style={{ background: '#1A7A2E' }}
-                          onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#156A24' }}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#1A7A2E'}
-                        >
-                          {eftSaving ? 'Saving...' : 'Save Transfer'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Transfer list */}
-                  {(() => {
-                    const transfers = deal.eft_transfers || []
-                    const totalSent = transfers.reduce((sum, t) => sum + t.amount, 0)
-                    const remaining = deal.advance_amount - totalSent
-
-                    return (
-                      <>
-                        {transfers.length === 0 ? (
-                          <p className="text-sm" style={{ color: colors.textMuted }}>No EFT transfers recorded yet.</p>
-                        ) : (
-                          <div className="space-y-2 mb-4">
-                            {transfers.map((transfer, idx) => (
-                              <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-lg" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
-                                <div className="flex items-center gap-3">
-                                  <span className={`w-2 h-2 rounded-full`} style={{ background: transfer.confirmed ? colors.successText : colors.warningText }} />
-                                  <div>
-                                    <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(transfer.amount)}</span>
-                                    <span className="text-xs ml-2" style={{ color: colors.textMuted }}>{formatDate(transfer.date)}</span>
-                                  </div>
-                                  <span className="text-xs px-2 py-0.5 rounded-md" style={transfer.confirmed
-                                    ? { background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }
-                                    : { background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }
-                                  }>
-                                    {transfer.confirmed ? 'Confirmed' : 'Pending'}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {!transfer.confirmed && (
-                                    <button
-                                      onClick={async () => {
-                                        const result = await confirmEftTransfer({ dealId: deal.id, transferIndex: idx })
-                                        if (result.success && result.data) setDeal({ ...deal, eft_transfers: result.data.eft_transfers })
-                                      }}
-                                      className="text-xs px-2 py-1 rounded transition-colors"
-                                      style={{ color: colors.successText }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = colors.successBg}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                    >
-                                      Confirm
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={async () => {
-                                      if (!confirm('Remove this transfer?')) return
-                                      const result = await removeEftTransfer({ dealId: deal.id, transferIndex: idx })
-                                      if (result.success && result.data) {
-                                        setDeal({ ...deal, eft_transfers: result.data.eft_transfers })
-                                        setStatusMessage({ type: 'success', text: 'Transfer removed.' })
-                                      }
-                                    }}
-                                    className="p-1 rounded transition-colors opacity-40 hover:opacity-100"
-                                    style={{ color: colors.errorText }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = colors.errorBg}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Summary bar */}
-                        <div className="rounded-lg p-4" style={{ background: isDark ? '#101520' : '#F0F4FF', border: `1px solid ${isDark ? '#203050' : '#C5D3F0'}` }}>
-                          <div className="flex justify-between text-sm mb-2">
-                            <span style={{ color: colors.textSecondary }}>Total Advance</span>
-                            <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.advance_amount)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm mb-2">
-                            <span style={{ color: colors.textSecondary }}>Total Sent ({transfers.length} transfer{transfers.length !== 1 ? 's' : ''})</span>
-                            <span className="font-semibold" style={{ color: colors.successText }}>{formatCurrency(totalSent)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                            <span className="font-semibold" style={{ color: remaining > 0 ? colors.warningText : colors.successText }}>{remaining > 0 ? 'Remaining' : 'Fully Sent'}</span>
-                            <span className="font-bold" style={{ color: remaining > 0 ? colors.warningText : colors.successText }}>{remaining > 0 ? formatCurrency(remaining) : '✓'}</span>
-                          </div>
-                          {/* Progress bar */}
-                          <div className="w-full rounded-full h-1.5 mt-3" style={{ background: colors.skeletonHighlight }}>
-                            <div
-                              className="h-1.5 rounded-full transition-all duration-300"
-                              style={{ width: `${Math.min(100, (totalSent / deal.advance_amount) * 100)}%`, background: totalSent >= deal.advance_amount ? colors.successText : colors.gold }}
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {/* Underwriting Checklist — Grouped */}
-            {(() => {
-              const groupedChecklist = categorizeChecklist(checklist, documents)
-              return (
-                <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                  <div
-                    className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                    style={{ borderBottom: checklistExpanded ? `1px solid ${colors.border}` : 'none' }}
+        {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS RIGHT) */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-6" style={{ color: colors.textPrimary }}>Underwriting</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* LEFT: CHECKLIST */}
+            <div className="space-y-4">
+              {categorizedChecklist.map((category, catIdx) => (
+                <div key={catIdx} className="rounded-xl overflow-hidden" style={{
+                  background: colors.cardBg,
+                  border: `1px solid ${colors.border}`,
+                }}>
+                  <button
                     onClick={() => setChecklistExpanded(!checklistExpanded)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    className="w-full px-6 py-4 flex items-center justify-between font-semibold transition"
+                    style={{ background: category.bg, color: category.color, borderBottom: `2px solid ${category.border}` }}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <Shield size={16} style={{ color: colors.gold }} />
-                        <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Underwriting Checklist</h3>
-                      </div>
-                      <span
-                        className="text-xs font-semibold px-2.5 py-0.5 rounded-md"
-                        style={checklistPct === 100
-                          ? { background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }
-                          : checklistPct > 50
-                            ? { background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }
-                            : { background: colors.tableHeaderBg, color: colors.textSecondary, border: `1px solid ${colors.divider}` }
-                        }
-                      >
-                        {checkedCount}/{totalChecklist} ({checklistPct}%)
-                      </span>
+                      <category.icon className="w-5 h-5" />
+                      {category.label}
+                      <span className="ml-2 text-sm" style={{ opacity: 0.7 }}>({category.items.filter(i => i.is_checked).length}/{category.items.length})</span>
                     </div>
-                    {checklistExpanded ? <ChevronUp size={16} style={{ color: colors.textFaint }} /> : <ChevronDown size={16} style={{ color: colors.textFaint }} />}
-                  </div>
+                    {checklistExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                  </button>
+
                   {checklistExpanded && (
-                    <div className="p-6">
-                      {/* Overall Progress Bar */}
-                      <div className="w-full rounded-full h-2 mb-6" style={{ background: colors.skeletonHighlight }}>
-                        <div
-                          className="h-2 rounded-full transition-all duration-300"
-                          style={{
-                            width: `${checklistPct}%`,
-                            background: checklistPct === 100 ? '#1A7A2E' : checklistPct > 50 ? '#C4B098' : '#3D5A99'
-                          }}
-                        />
-                      </div>
-
-                      <div className="space-y-5">
-                        {groupedChecklist.map((category) => {
-                          const CatIcon = category.icon
-                          const catChecked = category.items.filter(i => i.is_checked).length
-                          const catTotal = category.items.length
-                          return (
-                            <div key={category.label}>
-                              {/* Category Header */}
-                              <div className="flex items-center gap-2 mb-2.5">
-                                <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: category.bg }}>
-                                  <CatIcon size={13} style={{ color: category.color }} />
-                                </div>
-                                <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: category.color }}>{category.label}</h4>
-                                <span className="text-xs font-medium" style={{ color: catChecked === catTotal ? colors.successText : colors.textSecondary }}>
-                                  {catChecked}/{catTotal}
-                                </span>
-                              </div>
-
-                              {/* Category Items */}
-                              <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${category.border}` }}>
-                                {category.items.map((item, idx) => {
-                                  const linkedDocs = category.matchingDocs.get(item.id) || []
-                                  return (
-                                    <div
-                                      key={item.id}
-                                      style={{ borderBottom: idx < category.items.length - 1 ? `1px solid ${category.border}40` : 'none' }}
-                                    >
-                                      <div
-                                        className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
-                                        style={{ background: item.is_checked ? `${category.bg}80` : 'transparent' }}
-                                        onClick={() => handleChecklistToggle(item)}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = item.is_checked ? `${category.bg}` : colors.cardHoverBg}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = item.is_checked ? `${category.bg}80` : 'transparent'}
-                                      >
-                                        {item.is_checked
-                                          ? <CheckCircle2 size={18} style={{ color: colors.successText }} className="flex-shrink-0" />
-                                          : <Circle size={18} style={{ color: colors.textFaint }} className="flex-shrink-0" />
-                                        }
-                                        <div className="flex-1 min-w-0">
-                                          <span className="text-sm" style={{ color: item.is_checked ? colors.textSecondary : colors.textPrimary }}>
-                                            {item.checklist_item}
-                                          </span>
-                                          {/* Linked documents */}
-                                          {linkedDocs.length > 0 && (
-                                            <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                              {linkedDocs.map(doc => (
-                                                <button
-                                                  key={doc.id}
-                                                  onClick={(e) => { e.stopPropagation(); handleDocumentDownload(doc) }}
-                                                  className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md transition-colors"
-                                                  style={{ background: '#F0F4FF', color: '#3D5A99', border: '1px solid #C5D3F0' }}
-                                                  onMouseEnter={(e) => { e.currentTarget.style.background = '#E0EAFF' }}
-                                                  onMouseLeave={(e) => { e.currentTarget.style.background = '#F0F4FF' }}
-                                                >
-                                                  <Paperclip size={10} />
-                                                  {doc.file_name.length > 25 ? doc.file_name.slice(0, 22) + '...' : doc.file_name}
-                                                </button>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                        {item.checked_at && <span className="text-xs flex-shrink-0" style={{ color: colors.textFaint }}>{formatDateTime(item.checked_at)}</span>}
-                                      </div>
-                                    </div>
-                                  )
-                                })}
+                    <div className="divide-y" style={{ borderColor: colors.border }}>
+                      {category.items.map(item => {
+                        const matchingDocs = category.matchingDocs.get(item.id) || []
+                        return (
+                          <div key={item.id} className="px-6 py-4">
+                            <div className="flex items-start gap-3 mb-2">
+                              <button
+                                onClick={() => handleChecklistToggle(item)}
+                                className="mt-1 flex-shrink-0 transition"
+                              >
+                                {item.is_checked ? (
+                                  <CheckCircle2 className="w-5 h-5" style={{ color: colors.gold }} />
+                                ) : (
+                                  <Circle className="w-5 h-5" style={{ color: colors.textMuted }} />
+                                )}
+                              </button>
+                              <div className="flex-1">
+                                <p style={{ color: colors.textPrimary, textDecoration: item.is_checked ? 'line-through' : 'none', opacity: item.is_checked ? 0.6 : 1 }}>
+                                  {item.checklist_item}
+                                </p>
+                                {item.checked_at && (
+                                  <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                                    Checked: {formatDateTime(item.checked_at)}
+                                  </p>
+                                )}
                               </div>
                             </div>
-                          )
-                        })}
-                      </div>
+                            {matchingDocs.length > 0 && (
+                              <div className="ml-8 mt-3 space-y-1">
+                                {matchingDocs.map(doc => (
+                                  <a
+                                    key={doc.id}
+                                    onClick={() => handleDocumentDownload(doc)}
+                                    className="text-sm flex items-center gap-2 cursor-pointer transition"
+                                    style={{ color: colors.gold }}
+                                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                                  >
+                                    <FileText className="w-4 h-4" />
+                                    {doc.file_name}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
-              )
-            })()}
+              ))}
+            </div>
 
-            {/* Documents */}
-            <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <div
-                className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                style={{ borderBottom: docsExpanded ? `1px solid ${colors.border}` : 'none' }}
+            {/* RIGHT: DOCUMENTS */}
+            <div className="rounded-xl overflow-hidden" style={{
+              background: colors.cardBg,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <button
                 onClick={() => setDocsExpanded(!docsExpanded)}
-                onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                className="w-full px-6 py-4 flex items-center justify-between font-semibold transition"
+                style={{ background: colors.goldBg, color: colors.gold, borderBottom: `2px solid ${colors.gold}` }}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <Paperclip size={16} style={{ color: colors.gold }} />
-                    <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Documents</h3>
-                  </div>
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md" style={{ background: colors.tableHeaderBg, color: colors.textSecondary, border: `1px solid ${colors.divider}` }}>
-                    {documents.length} file{documents.length !== 1 ? 's' : ''}
-                  </span>
+                  <Paperclip className="w-5 h-5" />
+                  Documents
+                  <span className="ml-2 text-sm" style={{ opacity: 0.7 }}>({documents.length})</span>
                 </div>
-                {docsExpanded ? <ChevronUp size={16} style={{ color: colors.textFaint }} /> : <ChevronDown size={16} style={{ color: colors.textFaint }} />}
-              </div>
+                {docsExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              </button>
+
               {docsExpanded && (
-                <div className="p-6">
-                  {documents.length === 0 ? (
-                    <div className="text-center py-6">
-                      <FileText className="mx-auto mb-3" size={32} style={{ color: colors.textFaint }} />
-                      <p className="text-sm" style={{ color: colors.textSecondary }}>No documents uploaded yet</p>
-                      {agent && deal.status === 'under_review' && (
-                        <p className="text-xs mt-2 px-4 py-2 rounded-lg inline-block" style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}`, color: colors.warningText }}>
-                          Reminder: Reach out to {agent.first_name} ({agent.email}) to upload supporting documents.
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {documents.map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="flex items-center justify-between p-3 rounded-lg transition-colors"
-                          style={{ background: colors.tableHeaderBg }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                          onMouseLeave={(e) => e.currentTarget.style.background = colors.tableHeaderBg}
-                        >
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <FileText size={18} style={{ color: colors.gold }} className="flex-shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
-                              <p className="text-xs" style={{ color: colors.textSecondary }}>{getDocTypeLabel(doc.document_type)} · {formatFileSize(doc.file_size)} · {formatDateTime(doc.created_at)}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                            <button
-                              onClick={() => handleDocumentDownload(doc)}
-                              className="p-2 rounded-lg transition-colors"
-                              style={{ color: colors.textSecondary }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = '#3D5A99'; e.currentTarget.style.background = '#F0F4FF' }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.background = 'transparent' }}
-                              title="Download"
-                            >
-                              <Download size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleDocumentDelete(doc)}
-                              className="p-2 rounded-lg transition-colors"
-                              style={{ color: colors.textSecondary }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = colors.errorText; e.currentTarget.style.background = colors.errorBg }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.background = 'transparent' }}
-                              title="Delete"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: colors.border }}>
+                  {documents.length > 0 ? (
+                    documents.map(doc => (
+                      <div key={doc.id} className="px-6 py-4">
+                        <div className="flex items-start gap-3 mb-2">
+                          <FileText className="w-5 h-5 mt-1 flex-shrink-0" style={{ color: colors.gold }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold break-words" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
+                            <p className="text-sm" style={{ color: colors.textMuted }}>{getDocTypeLabel(doc.document_type)}</p>
+                            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                              {formatFileSize(doc.file_size)} • Uploaded {formatDate(doc.created_at)}
+                            </p>
                           </div>
                         </div>
-                      ))}
+                        <div className="flex gap-2 mt-3 ml-8">
+                          <button
+                            onClick={() => handleDocumentDownload(doc)}
+                            className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
+                            style={{ background: colors.inputBg, color: colors.gold }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                            onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                          >
+                            <Download className="w-4 h-4" />
+                            Download
+                          </button>
+                          <button
+                            onClick={() => handleDocumentDelete(doc)}
+                            className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
+                            style={{ background: colors.errorBg, color: colors.errorText }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-6 py-8 text-center">
+                      <p style={{ color: colors.textMuted }}>No documents uploaded yet</p>
                     </div>
                   )}
                 </div>
               )}
             </div>
           </div>
+        </div>
 
-          {/* Right Column - Sidebar */}
-          <div className="space-y-6">
-
-            {/* Actions */}
-            {availableActions.length > 0 && (
-              <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Actions</h3>
-                </div>
-                <div className="p-4 space-y-3">
-                  {showDenialInput && (
-                    <div className="mb-3">
-                      <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textSecondary }}>Reason for denial *</label>
-                      <textarea
-                        value={denialReason}
-                        onChange={(e) => setDenialReason(e.target.value)}
-                        placeholder="Explain why this deal is being denied..."
-                        rows={3}
-                        className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none"
-                        style={{ border: `1px solid ${colors.border}`, color: colors.textPrimary, background: colors.pageBg }}
-                        onFocus={(e) => e.currentTarget.style.boxShadow = `0 0 0 2px ${colors.gold}`}
-                        onBlur={(e) => e.currentTarget.style.boxShadow = 'none'}
-                      />
-                    </div>
-                  )}
-                  {availableActions.map((nextStatus) => {
-                    const action = ACTION_CONFIG[nextStatus]
-                    if (!action) return null
-                    const Icon = action.icon
-                    if (nextStatus === 'denied' && showDenialInput) {
-                      return (
-                        <div key={nextStatus} className="flex gap-2">
-                          <button
-                            onClick={() => handleStatusChange('denied')}
-                            disabled={updating || !denialReason.trim()}
-                            className="flex-1 flex items-center justify-center gap-2 text-white py-2.5 px-4 rounded-lg font-medium text-sm disabled:opacity-50 transition-colors"
-                            style={{ background: colors.errorText }}
-                            onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#892D2D' }}
-                            onMouseLeave={(e) => e.currentTarget.style.background = colors.errorText}
-                          >
-                            <XCircle size={16} />{updating ? 'Updating...' : 'Confirm Denial'}
-                          </button>
-                          <button
-                            onClick={() => { setShowDenialInput(false); setDenialReason('') }}
-                            className="px-3 py-2.5 rounded-lg text-sm transition-colors"
-                            style={{ border: `1px solid ${colors.border}`, color: colors.textSecondary }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = colors.tableHeaderBg}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      )
-                    }
-                    return (
-                      <button
-                        key={nextStatus}
-                        onClick={() => handleStatusChange(nextStatus)}
-                        disabled={updating}
-                        className="w-full flex items-center justify-center gap-2 text-white py-2.5 px-4 rounded-lg font-medium text-sm disabled:opacity-50 transition-colors"
-                        style={{ background: action.bg }}
-                        onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = action.hoverBg }}
-                        onMouseLeave={(e) => e.currentTarget.style.background = action.bg}
-                      >
-                        <Icon size={16} />{updating ? 'Updating...' : action.label}
-                      </button>
-                    )
-                  })}
-                  {deal.status === 'approved' && (
-                    <p className="text-xs text-center mt-2" style={{ color: colors.textFaint }}>Marking as funded will recalculate financials based on today&apos;s date.</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Agent Card */}
-            {agent && (
-              <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <User size={14} style={{ color: colors.gold }} />
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Agent</h3>
-                </div>
-                <div className="p-4 space-y-3 text-sm">
-                  <div><p className="text-xs" style={{ color: colors.textSecondary }}>Name</p><p className="font-medium" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p></div>
-                  <div><p className="text-xs" style={{ color: colors.textSecondary }}>Email</p><p className="font-medium" style={{ color: colors.textPrimary }}>{agent.email}</p></div>
-                  {agent.phone && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>Phone</p><p className="font-medium" style={{ color: colors.textPrimary }}>{agent.phone}</p></div>)}
-                  {agent.reco_number && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>RECO #</p><p className="font-medium" style={{ color: colors.textPrimary }}>{agent.reco_number}</p></div>)}
-                  <div><p className="text-xs" style={{ color: colors.textSecondary }}>Status</p><p className="font-medium" style={{ color: agent.status === 'active' ? colors.successText : colors.errorText }}>{agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}</p></div>
-                  {agent.flagged_by_brokerage && (
-                    <div className="flex items-start gap-2 p-3 rounded-lg" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
-                      <AlertTriangle size={16} style={{ color: colors.errorText }} className="mt-0.5 flex-shrink-0" />
-                      <p className="text-xs font-medium" style={{ color: colors.errorText }}>This agent has been flagged by their brokerage</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Brokerage Card */}
-            {brokerage && (
-              <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <Building2 size={14} style={{ color: colors.gold }} />
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Brokerage</h3>
-                </div>
-                <div className="p-4 space-y-3 text-sm">
-                  <div><p className="text-xs" style={{ color: colors.textSecondary }}>Name</p><p className="font-medium" style={{ color: colors.textPrimary }}>{brokerage.name}</p></div>
-                  {brokerage.brand && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>Brand</p><p className="font-medium" style={{ color: colors.textPrimary }}>{brokerage.brand}</p></div>)}
-                  {brokerage.email && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>Email</p><p className="font-medium" style={{ color: colors.textPrimary }}>{brokerage.email}</p></div>)}
-                  {brokerage.phone && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>Phone</p><p className="font-medium" style={{ color: colors.textPrimary }}>{brokerage.phone}</p></div>)}
-                  {brokerage.referral_fee_percentage && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>Referral Fee</p><p className="font-medium" style={{ color: colors.textPrimary }}>{(brokerage.referral_fee_percentage * 100).toFixed(0)}%</p></div>)}
-                  {brokerage.transaction_system && (<div><p className="text-xs" style={{ color: colors.textSecondary }}>Transaction System</p><p className="font-medium" style={{ color: colors.textPrimary }}>{brokerage.transaction_system}</p></div>)}
-                </div>
-              </div>
-            )}
-          </div>
+        {/* DELETE DEAL — simple confirm for testing phase */}
+        <div className="text-center py-8">
+          <button
+            onClick={async () => {
+              if (!confirm(`Delete deal "${deal.property_address}"? This cannot be undone.`)) return
+              setDeleting(true)
+              const result = await deleteDeal({ dealId: deal.id })
+              if (result.success) { router.push('/admin') }
+              else { setStatusMessage({ type: 'error', text: result.error || 'Failed to delete deal' }); setDeleting(false) }
+            }}
+            disabled={deleting}
+            className="text-sm font-medium transition-colors disabled:opacity-50"
+            style={{ color: colors.errorText }}
+            onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
+            onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
+          >
+            {deleting ? 'Deleting...' : 'Delete Deal'}
+          </button>
         </div>
       </main>
     </div>

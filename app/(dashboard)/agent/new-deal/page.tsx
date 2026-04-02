@@ -278,7 +278,7 @@ export default function NewDealPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Transaction Type *</label>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Your Representation *</label>
                   <select
                     value={transactionType} onChange={(e) => setTransactionType(e.target.value)}
                     className="w-full rounded-lg px-4 py-2.5 text-sm outline-none" style={inputStyle}
@@ -286,8 +286,9 @@ export default function NewDealPage() {
                   >
                     <option value="buy">Buyer Side</option>
                     <option value="sell">Seller / Listing Side</option>
-                    <option value="both">Both Sides</option>
+                    <option value="both">Both Sides (Double-End)</option>
                   </select>
+                  <p className="text-xs mt-1" style={{ color: colors.textFaint }}>Which side of the deal are you representing?</p>
                 </div>
               </div>
             </div>
@@ -422,8 +423,8 @@ export default function NewDealPage() {
                     <span className="font-medium" style={{ color: colors.textPrimary }}>{new Date(closingDate + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span style={{ color: colors.textMuted }}>Transaction Type</span>
-                    <span className="font-medium capitalize" style={{ color: colors.textPrimary }}>{transactionType === 'buy' ? 'Buyer Side' : transactionType === 'sell' ? 'Seller / Listing Side' : 'Both Sides'}</span>
+                    <span style={{ color: colors.textMuted }}>Representation</span>
+                    <span className="font-medium capitalize" style={{ color: colors.textPrimary }}>{transactionType === 'buy' ? 'Buyer Side' : transactionType === 'sell' ? 'Seller / Listing Side' : 'Both Sides (Double-End)'}</span>
                   </div>
                 </div>
 

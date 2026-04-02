@@ -53,6 +53,7 @@ export default function BrokerageDashboard() {
   const [loading, setLoading] = useState(true)
   const [uploadingDeal, setUploadingDeal] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [dealTradeRecords, setDealTradeRecords] = useState<Set<string>>(new Set()) // deal IDs that have trade records
   const [dealsPage, setDealsPage] = useState(1)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
@@ -71,6 +72,18 @@ export default function BrokerageDashboard() {
         setBrokerage(brokerageData)
         const { data: dealData } = await supabase.from('deals').select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage)').eq('brokerage_id', profileData.brokerage_id).order('created_at', { ascending: false })
         setDeals(dealData || [])
+        // Check which deals have trade records uploaded
+        if (dealData && dealData.length > 0) {
+          const dealIds = dealData.map((d: any) => d.id)
+          const { data: tradeRecDocs } = await supabase
+            .from('deal_documents')
+            .select('deal_id')
+            .in('deal_id', dealIds)
+            .eq('document_type', 'trade_record')
+          if (tradeRecDocs) {
+            setDealTradeRecords(new Set(tradeRecDocs.map((d: any) => d.deal_id)))
+          }
+        }
         const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profileData.brokerage_id).order('last_name', { ascending: true })
         setAgents(agentData || [])
       }
@@ -107,6 +120,7 @@ export default function BrokerageDashboard() {
     const result = await uploadDocument(formData)
     if (result.success) {
       setUploadMessage({ type: 'success', text: `Trade record "${file.name}" uploaded successfully.` })
+      setDealTradeRecords(prev => new Set([...prev, dealId]))
     } else {
       setUploadMessage({ type: 'error', text: result.error || 'Upload failed' })
     }
@@ -276,7 +290,16 @@ export default function BrokerageDashboard() {
                             Agent: {deal.agent?.first_name} {deal.agent?.last_name} | Submitted {formatDate(deal.created_at)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                          {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md"
+                              style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}
+                            >
+                              <AlertTriangle size={11} />
+                              Trade Record Needed
+                            </span>
+                          )}
                           <span
                             className="inline-flex px-2.5 py-1 text-xs font-semibold rounded-md"
                             style={getStatusBadgeStyle(deal.status)}

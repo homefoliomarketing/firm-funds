@@ -576,26 +576,81 @@ export default function AgentDealDetailPage() {
               </div>
             </div>
 
-            {/* Documents helper */}
-            <div className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
-              <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>Documents We Need</h4>
+            {/* Documents checklist - dynamic, shows what's uploaded vs missing */}
+            {(() => {
+              const requiredDocs = [
+                { type: 'aps', label: 'Agreement of Purchase and Sale', required: true },
+                { type: 'trade_record', label: 'Trade Record Sheet', required: true, note: 'Uploaded by your brokerage' },
+                { type: 'notice_of_fulfillment', label: 'Notice of Fulfillment / Waiver', required: false },
+                { type: 'amendment', label: 'Amendments', required: false },
+              ]
+              const firstTimeDocs = [
+                { type: 'kyc_fintrac', label: 'FINTRAC / ID Documents', required: true },
+                { type: 'id_verification', label: 'Void Cheque or Banking Info', required: true },
+              ]
+              const uploadedTypes = new Set(documents.map(d => d.document_type))
+              const allDocs = [...requiredDocs, ...firstTimeDocs]
+              const missingRequired = allDocs.filter(d => d.required && !uploadedTypes.has(d.type))
+              const allUploaded = missingRequired.length === 0
 
-              <p className="text-xs font-semibold mt-2 mb-1" style={{ color: colors.textPrimary }}>Each Advance</p>
-              <div className="text-xs space-y-1.5" style={{ color: colors.textSecondary }}>
-                <p>• Agreement of Purchase and Sale &amp; Confirmation of Co-operation, including all attached Schedules</p>
-                <p>• Amendments <span style={{ color: colors.textMuted }}>(if applicable)</span></p>
-                <p>• Notice of Fulfillment / Waiver <span style={{ color: colors.textMuted }}>(if applicable)</span></p>
-                <p>• Trade Record Sheet</p>
-              </div>
+              return (
+                <div className="rounded-xl p-4" style={{
+                  background: allUploaded ? colors.successBg : colors.tableHeaderBg,
+                  border: `1px solid ${allUploaded ? colors.successBorder : colors.border}`
+                }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Document Checklist</h4>
+                    {allUploaded ? (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>Complete</span>
+                    ) : (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>{missingRequired.length} needed</span>
+                    )}
+                  </div>
 
-              <p className="text-xs font-semibold mt-3 mb-1" style={{ color: colors.textPrimary }}>First Time Only</p>
-              <div className="text-xs space-y-1.5" style={{ color: colors.textSecondary }}>
-                <p>• FINTRAC / Identification Documents</p>
-                <p>• Void Cheque or Banking Information</p>
-              </div>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textPrimary }}>Each Advance</p>
+                  <div className="space-y-1.5 mb-3">
+                    {requiredDocs.map(doc => {
+                      const uploaded = uploadedTypes.has(doc.type)
+                      return (
+                        <div key={doc.type} className="flex items-start gap-2">
+                          {uploaded
+                            ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
+                            : <AlertTriangle size={14} style={{ color: doc.required ? colors.warningText : colors.textFaint, marginTop: 1 }} />
+                          }
+                          <div>
+                            <span className="text-xs" style={{ color: uploaded ? colors.successText : (doc.required ? colors.textPrimary : colors.textSecondary) }}>
+                              {doc.label}
+                            </span>
+                            {doc.note && <span className="text-xs ml-1" style={{ color: colors.textFaint }}>({doc.note})</span>}
+                            {!doc.required && !uploaded && <span className="text-xs ml-1" style={{ color: colors.textFaint }}>(if applicable)</span>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
 
-              <p className="text-xs mt-3" style={{ color: colors.textMuted }}>Uploading all documents upfront helps us process your advance faster.</p>
-            </div>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textPrimary }}>First Time Only</p>
+                  <div className="space-y-1.5 mb-3">
+                    {firstTimeDocs.map(doc => {
+                      const uploaded = uploadedTypes.has(doc.type)
+                      return (
+                        <div key={doc.type} className="flex items-start gap-2">
+                          {uploaded
+                            ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
+                            : <AlertTriangle size={14} style={{ color: colors.warningText, marginTop: 1 }} />
+                          }
+                          <span className="text-xs" style={{ color: uploaded ? colors.successText : colors.textPrimary }}>
+                            {doc.label}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Uploading all documents upfront helps us process your advance faster.</p>
+                </div>
+              )
+            })()}
           </div>
         </div>
       </main>

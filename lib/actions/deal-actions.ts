@@ -831,3 +831,36 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
+
+// ============================================================================
+// Save Admin Notes
+// ============================================================================
+
+export async function saveAdminNotes(input: { dealId: string; adminNotes: string }): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { error: updateError } = await supabase
+      .from('deals')
+      .update({ admin_notes: input.adminNotes.trim() || null })
+      .eq('id', input.dealId)
+
+    if (updateError) {
+      console.error('Admin notes save error:', updateError.message)
+      return { success: false, error: `Failed to save notes: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'deal.admin_notes_updated',
+      entityType: 'deal',
+      entityId: input.dealId,
+      metadata: { updated_by: user.id },
+    })
+
+    return { success: true, data: { admin_notes: input.adminNotes.trim() || null } }
+  } catch (err: any) {
+    console.error('Admin notes save error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
