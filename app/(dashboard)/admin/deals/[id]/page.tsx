@@ -342,12 +342,15 @@ export default function DealDetailPage() {
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors" style={{ color: 'white' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <ArrowLeft className="w-4 h-4" />
-              Back to Deals
-            </button>
+            <div className="flex items-center gap-4">
+              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-12 w-auto" />
+              <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors" style={{ color: 'white' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <ArrowLeft className="w-4 h-4" />
+                Back to Deals
+              </button>
+            </div>
             <ThemeToggle />
           </div>
           <div>

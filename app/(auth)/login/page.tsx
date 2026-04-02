@@ -90,7 +90,7 @@ export default function LoginPage() {
       <div className="relative max-w-md w-full mx-4">
         {/* Logo / Brand Area */}
         <div className="text-center mb-8">
-          <img src="/brand/logo-white.png" alt="Firm Funds" className="h-24 w-auto mx-auto mb-3" />
+          <img src="/brand/logo-white.png" alt="Firm Funds" className="h-32 w-auto mx-auto mb-3" />
           <p className="text-sm font-medium tracking-wide" style={{ color: '#C4B098', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
             Commission Advance Portal
           </p>

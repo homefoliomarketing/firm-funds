@@ -17,6 +17,10 @@ export const metadata: Metadata = {
   title: "Firm Funds - Commission Advance Portal",
   description: "Firm Funds Incorporated - Commission advance platform for Ontario real estate agents. Get early access to your pending commissions when deals go firm.",
   robots: { index: false, follow: false },
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({
