@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -85,7 +84,6 @@ export default function LoginPage() {
       <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(80px)' }} />
       <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(60px)' }} />
 
-      <div className="absolute top-4 right-4"><ThemeToggle /></div>
 
       <div className="relative max-w-md w-full mx-4">
         {/* Logo / Brand Area */}

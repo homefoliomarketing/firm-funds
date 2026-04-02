@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Upload, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Upload, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 interface Deal {
   id: string
@@ -174,17 +174,7 @@ export default function BrokerageDashboard() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
-              <ThemeToggle />
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
-                style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
-              >
-                <LogOut size={14} />
-                Sign out
-              </button>
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
@@ -203,9 +193,9 @@ export default function BrokerageDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
             { label: 'Total Deals', value: deals.length.toString(), icon: FileText, accent: '#5FA873' },
-            { label: 'Active Deals', value: activeDeals.toString(), icon: FileText, accent: '#3D5A99' },
+            { label: 'Active Deals', value: activeDeals.toString(), icon: FileText, accent: '#5FA873' },
             { label: 'Referral Fees Earned', value: formatCurrency(totalReferralFees), icon: DollarSign, accent: '#1A7A2E' },
-            { label: 'Registered Agents', value: agents.length.toString(), icon: Users, accent: '#5B3D99' },
+            { label: 'Registered Agents', value: agents.length.toString(), icon: Users, accent: '#5FA873' },
           ].map((card) => (
             <div
               key={card.label}

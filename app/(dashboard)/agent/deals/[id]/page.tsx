@@ -9,7 +9,7 @@ import {
   CheckCircle2, AlertTriangle, Pencil, Save, X
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 import {
   MAX_UPLOAD_SIZE_BYTES,
   ALLOWED_UPLOAD_EXTENSIONS,
@@ -62,6 +62,11 @@ export default function AgentDealDetailPage() {
   const dealId = params.id as string
   const supabase = createClient()
   const { colors, isDark } = useTheme()
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   useEffect(() => { loadDealData() }, [dealId])
 
@@ -257,7 +262,7 @@ export default function AgentDealDetailPage() {
               >
                 {formatStatusLabel(deal.status)}
               </span>
-              <ThemeToggle />
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>

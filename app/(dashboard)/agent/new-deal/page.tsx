@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent } from 'lucide-react'
 import { submitDeal, calculateDealPreview } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 export default function NewDealPage() {
   const [profile, setProfile] = useState<any>(null)
@@ -42,6 +42,11 @@ export default function NewDealPage() {
 
   const router = useRouter()
   const supabase = createClient()
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   useEffect(() => {
     async function loadAgent() {
@@ -207,7 +212,7 @@ export default function NewDealPage() {
               <p className="text-xs" style={{ color: colors.textMuted }}>Submit a commission advance for a firm deal</p>
             </div>
             <div className="ml-auto">
-              <ThemeToggle />
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>

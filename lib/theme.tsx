@@ -215,7 +215,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle('dark', mode === 'dark')
   }, [mode])
 
-  const toggle = () => setMode(prev => prev === 'light' ? 'dark' : 'light')
+  // Light mode disabled — always dark
+  const toggle = () => {}
 
   const value: ThemeContextType = {
     mode,

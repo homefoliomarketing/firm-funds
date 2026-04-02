@@ -20,7 +20,7 @@ import {
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
@@ -204,6 +204,11 @@ export default function DealDetailPage() {
   const supabase = createClient()
   const { colors, isDark } = useTheme()
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
   useEffect(() => { loadDealData() }, [dealId])
 
   async function loadDealData() {
@@ -352,7 +357,7 @@ export default function DealDetailPage() {
                 Back to Deals
               </button>
             </div>
-            <ThemeToggle />
+            <SignOutModal onConfirm={handleLogout} />
           </div>
           <div>
             <h1 className="text-3xl font-bold mb-2" style={{ color: 'white' }}>{deal.property_address}</h1>

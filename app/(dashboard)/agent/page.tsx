@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp, PlusCircle, Eye, ChevronRight } from 'lucide-react'
+import { FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp, PlusCircle, Eye, ChevronRight } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 interface Deal {
   id: string
@@ -133,17 +133,7 @@ export default function AgentDashboard() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: colors.gold }}>{profile?.full_name}</span>
-              <ThemeToggle />
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
-                style={{ color: colors.textSecondary, border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = colors.gold }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textSecondary }}
-              >
-                <LogOut size={14} />
-                Sign out
-              </button>
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>

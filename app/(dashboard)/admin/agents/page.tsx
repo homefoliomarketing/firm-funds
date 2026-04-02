@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { LogOut, ChevronLeft, Search, X, ChevronRight, Plus, Edit2, CheckCircle, AlertCircle } from 'lucide-react'
 import { createAgent, updateAgent, createUserAccount } from '@/lib/actions/admin-actions'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 interface Agent {
   id: string
@@ -285,7 +285,7 @@ export default function AgentsPage() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
-              <ThemeToggle />
+              <SignOutModal onConfirm={handleLogout} />
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"

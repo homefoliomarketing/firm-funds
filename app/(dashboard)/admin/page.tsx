@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, Trash2, BarChart3 } from 'lucide-react'
+import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, Trash2, BarChart3 } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { deleteDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 interface DashboardStats {
   totalDeals: number
@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [deletingDealId, setDeletingDealId] = useState<string | null>(null)
+  const [kpiRange, setKpiRange] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('all')
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
@@ -169,6 +170,31 @@ export default function AdminDashboard() {
     return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
   }
 
+  // Filter deals by KPI time range
+  const getFilteredDeals = () => {
+    if (kpiRange === 'all') return allDeals
+    const now = new Date()
+    let cutoff: Date
+    switch (kpiRange) {
+      case 'day': cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break
+      case 'week': cutoff = new Date(now.getTime() - 7 * 86400000); break
+      case 'month': cutoff = new Date(now.getFullYear(), now.getMonth(), 1); break
+      case 'year': cutoff = new Date(now.getFullYear(), 0, 1); break
+    }
+    return allDeals.filter(d => new Date(d.created_at) >= cutoff)
+  }
+
+  const filteredDeals = getFilteredDeals()
+  const filteredStats = {
+    totalDeals: filteredDeals.length,
+    totalAdvanced: filteredDeals.filter(d => d.status === 'funded').reduce((sum, d) => sum + Number(d.advance_amount), 0),
+    underReviewDeals: filteredDeals.filter(d => d.status === 'under_review').length,
+    approvedDeals: filteredDeals.filter(d => d.status === 'approved').length,
+    fundedDeals: filteredDeals.filter(d => d.status === 'funded').length,
+  }
+
+  const kpiRangeLabel = { day: 'Today', week: 'This Week', month: 'This Month', year: 'This Year', all: 'All Time' }
+
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
       {/* Header */}
@@ -182,37 +208,46 @@ export default function AdminDashboard() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
-              <ThemeToggle />
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
-                style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
-              >
-                <LogOut size={14} />
-                Sign out
-              </button>
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>
-            Welcome back, {profile?.full_name?.split(' ')[0]}
-          </h2>
-          <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds today.</p>
+        {/* Welcome + Time Range Toggle */}
+        <div className="flex items-end justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>
+              Welcome back, {profile?.full_name?.split(' ')[0]}
+            </h2>
+            <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds{kpiRange === 'all' ? '' : ` — ${kpiRangeLabel[kpiRange].toLowerCase()}`}.</p>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            {(['day', 'week', 'month', 'year', 'all'] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => setKpiRange(range)}
+                className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={{
+                  background: kpiRange === range ? colors.gold : 'transparent',
+                  color: kpiRange === range ? '#FFFFFF' : colors.textMuted,
+                }}
+                onMouseEnter={(e) => { if (kpiRange !== range) e.currentTarget.style.color = colors.textPrimary }}
+                onMouseLeave={(e) => { if (kpiRange !== range) e.currentTarget.style.color = colors.textMuted }}
+              >
+                {range === 'day' ? 'D' : range === 'week' ? 'W' : range === 'month' ? 'M' : range === 'year' ? 'Y' : 'All'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
-            { label: 'Total Deals', value: stats.totalDeals.toString(), icon: FileText, accent: '#5FA873', link: null },
-            { label: 'Total Advanced', value: formatCurrency(stats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
-            { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#3D5A99', link: '/admin/brokerages' },
+            { label: 'Total Deals', value: filteredStats.totalDeals.toString(), icon: FileText, accent: '#5FA873', link: null },
+            { label: 'Total Advanced', value: formatCurrency(filteredStats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
+            { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#5FA873', link: '/admin/brokerages' },
             { label: 'Registered Agents', value: stats.totalAgents.toString(), icon: Users, accent: '#5FA873', link: '/admin/brokerages' },
           ].map((card) => (
             <div
@@ -264,9 +299,9 @@ export default function AdminDashboard() {
         {/* Pipeline Status Row — Clickable Filters */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           {[
-            { label: 'Under Review', filterValue: 'under_review', value: stats.underReviewDeals, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
-            { label: 'Approved', filterValue: 'approved', value: stats.approvedDeals, color: '#1A7A2E', bg: '#EDFAF0', border: '#B8E6C4' },
-            { label: 'Funded', filterValue: 'funded', value: stats.fundedDeals, color: '#5B3D99', bg: '#F5F0FF', border: '#D5C5F0' },
+            { label: 'Under Review', filterValue: 'under_review', value: filteredStats.underReviewDeals, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
+            { label: 'Approved', filterValue: 'approved', value: filteredStats.approvedDeals, color: '#1A7A2E', bg: '#EDFAF0', border: '#B8E6C4' },
+            { label: 'Funded', filterValue: 'funded', value: filteredStats.fundedDeals, color: '#5B3D99', bg: '#F5F0FF', border: '#D5C5F0' },
           ].map((status) => {
             const isActive = statusFilter === status.filterValue
             return (

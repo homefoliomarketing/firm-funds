@@ -10,7 +10,7 @@ import {
 import { useTheme } from '@/lib/theme'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 // ============================================================================
 // Types
@@ -288,6 +288,11 @@ export default function ReportsPage() {
   const supabase = createClient()
   const { colors, isDark } = useTheme()
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
   const loadMetrics = useCallback(async (range: DateRange, startDate?: string, endDate?: string) => {
     setLoading(true)
     setError(null)
@@ -512,7 +517,7 @@ export default function ReportsPage() {
                 <FileText size={13} />
                 {exporting === 'pdf' ? 'Generating...' : 'PDF Report'}
               </button>
-              <ThemeToggle />
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
@@ -615,9 +620,9 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
           {[
             { label: 'Total Revenue', value: formatCurrency(metrics.totalRevenue), icon: DollarSign, accent: '#5FA873', sub: 'Discount fees earned' },
-            { label: 'Total Advanced', value: formatCurrency(metrics.totalAdvanced), icon: TrendingUp, accent: '#5B3D99', sub: 'Capital deployed' },
+            { label: 'Total Advanced', value: formatCurrency(metrics.totalAdvanced), icon: TrendingUp, accent: '#5FA873', sub: 'Capital deployed' },
             { label: 'Net Profit', value: formatCurrency(metrics.totalProfit), icon: DollarSign, accent: '#1A7A2E', sub: 'After referral fees' },
-            { label: 'Referral Fees Paid', value: formatCurrency(metrics.totalReferralFeesPaid), icon: Building2, accent: '#3D5A99', sub: 'To partner brokerages' },
+            { label: 'Referral Fees Paid', value: formatCurrency(metrics.totalReferralFeesPaid), icon: Building2, accent: '#5FA873', sub: 'To partner brokerages' },
           ].map((card) => (
             <div
               key={card.label}
@@ -642,9 +647,9 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
             { label: 'Total Deals', value: metrics.totalDeals.toString(), icon: FileText, accent: '#5FA873' },
-            { label: 'Avg Discount Fee', value: formatCurrencyFull(metrics.avgDiscountFee), icon: DollarSign, accent: '#995C1A' },
-            { label: 'Avg Days to Close', value: `${Math.round(metrics.avgDaysToClose)} days`, icon: Clock, accent: '#0D7A5F' },
-            { label: 'Conversion Rate', value: `${metrics.conversionRate.toFixed(1)}%`, icon: Percent, accent: '#5B3D99' },
+            { label: 'Avg Discount Fee', value: formatCurrencyFull(metrics.avgDiscountFee), icon: DollarSign, accent: '#5FA873' },
+            { label: 'Avg Days to Close', value: `${Math.round(metrics.avgDaysToClose)} days`, icon: Clock, accent: '#5FA873' },
+            { label: 'Conversion Rate', value: `${metrics.conversionRate.toFixed(1)}%`, icon: Percent, accent: '#5FA873' },
           ].map((card) => (
             <div
               key={card.label}
@@ -863,8 +868,8 @@ export default function ReportsPage() {
                     {[
                       { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: '#5FA873' },
                       { label: 'Funded', value: selectedBrokerage.fundedDeals.toString(), accent: '#1A7A2E' },
-                      { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: '#5B3D99' },
-                      { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: '#3D5A99' },
+                      { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: '#5FA873' },
+                      { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: '#5FA873' },
                     ].map(card => (
                       <div key={card.label} className="rounded-lg p-4" style={{ background: colors.pageBg, border: `1px solid ${colors.border}` }}>
                         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>

@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents } from '@/lib/actions/admin-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
-import ThemeToggle from '@/components/ThemeToggle'
+import SignOutModal from '@/components/SignOutModal'
 
 // ============================================================================
 // Types
@@ -509,17 +509,7 @@ export default function BrokeragesPage() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
-              <ThemeToggle />
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors"
-                style={{ color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#5FA873' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888' }}
-              >
-                <LogOut size={14} />
-                Sign out
-              </button>
+              <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
