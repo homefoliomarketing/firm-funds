@@ -49,6 +49,7 @@ export interface ReportMetrics {
     id: string
     name: string
     brand: string | null
+    status: string
     totalDeals: number
     fundedDeals: number
     totalAdvanced: number
@@ -110,7 +111,9 @@ async function getAuthenticatedAdmin() {
 // ============================================================================
 
 export async function fetchReportMetrics(input: {
-  dateRange: 'last_7' | 'last_30' | 'last_90' | 'ytd' | 'all'
+  dateRange: 'last_7' | 'last_30' | 'last_90' | 'ytd' | 'all' | 'custom'
+  customStart?: string  // ISO date string
+  customEnd?: string    // ISO date string
 }): Promise<ActionResult<ReportMetrics>> {
   const { error: authErr, supabase } = await getAuthenticatedAdmin()
   if (authErr || !supabase) return { success: false, error: authErr || 'Authentication failed' }
@@ -118,50 +121,73 @@ export async function fetchReportMetrics(input: {
   try {
     // Calculate date filter
     const now = new Date()
-    let dateFilter: string | null = null
+    let dateFilterStart: string | null = null
+    let dateFilterEnd: string | null = null
 
     switch (input.dateRange) {
       case 'last_7': {
         const d = new Date(now)
         d.setDate(d.getDate() - 7)
-        dateFilter = d.toISOString()
+        dateFilterStart = d.toISOString()
         break
       }
       case 'last_30': {
         const d = new Date(now)
         d.setDate(d.getDate() - 30)
-        dateFilter = d.toISOString()
+        dateFilterStart = d.toISOString()
         break
       }
       case 'last_90': {
         const d = new Date(now)
         d.setDate(d.getDate() - 90)
-        dateFilter = d.toISOString()
+        dateFilterStart = d.toISOString()
         break
       }
       case 'ytd': {
-        dateFilter = new Date(now.getFullYear(), 0, 1).toISOString()
+        dateFilterStart = new Date(now.getFullYear(), 0, 1).toISOString()
+        break
+      }
+      case 'custom': {
+        if (input.customStart) {
+          dateFilterStart = new Date(input.customStart + 'T00:00:00').toISOString()
+        }
+        if (input.customEnd) {
+          // End of the selected day
+          dateFilterEnd = new Date(input.customEnd + 'T23:59:59.999').toISOString()
+        }
         break
       }
       case 'all':
       default:
-        dateFilter = null
+        dateFilterStart = null
     }
 
-    // Fetch all deals with agent and brokerage data
+    // Fetch all deals with agent and brokerage data, AND all brokerages
     let query = supabase
       .from('deals')
       .select('*, agent:agents(first_name, last_name), brokerage:brokerages(name, brand)')
       .order('created_at', { ascending: false })
 
-    if (dateFilter) {
-      query = query.gte('created_at', dateFilter)
+    if (dateFilterStart) {
+      query = query.gte('created_at', dateFilterStart)
+    }
+    if (dateFilterEnd) {
+      query = query.lte('created_at', dateFilterEnd)
     }
 
-    const { data: deals, error: dealsErr } = await query
+    const [
+      { data: deals, error: dealsErr },
+      { data: allBrokerages, error: brokErr },
+    ] = await Promise.all([
+      query,
+      supabase.from('brokerages').select('id, name, brand, status').order('name'),
+    ])
 
     if (dealsErr) {
       return { success: false, error: `Failed to fetch deals: ${dealsErr.message}` }
+    }
+    if (brokErr) {
+      return { success: false, error: `Failed to fetch brokerages: ${brokErr.message}` }
     }
 
     const allDeals = deals || []
@@ -228,27 +254,45 @@ export async function fetchReportMetrics(input: {
       }
     })
 
-    // Brokerage performance
+    // Brokerage performance — seed from ALL brokerages so ones with 0 deals still show
     const brokerageMap = new Map<string, {
       id: string
       name: string
       brand: string | null
+      status: string
       totalDeals: number
       fundedDeals: number
       totalAdvanced: number
       totalReferralFees: number
     }>()
 
+    // Pre-populate every brokerage (even those with no deals)
+    for (const brok of (allBrokerages || [])) {
+      brokerageMap.set(brok.id, {
+        id: brok.id,
+        name: brok.name,
+        brand: brok.brand,
+        status: brok.status,
+        totalDeals: 0,
+        fundedDeals: 0,
+        totalAdvanced: 0,
+        totalReferralFees: 0,
+      })
+    }
+
+    // Now layer on deal data
     for (const deal of allDeals) {
       const brokId = deal.brokerage_id
       if (!brokId) continue
 
+      // If somehow a brokerage wasn't in the list, add it
       if (!brokerageMap.has(brokId)) {
         const brokData = deal.brokerage as { name: string; brand: string | null } | null
         brokerageMap.set(brokId, {
           id: brokId,
           name: brokData?.name || 'Unknown',
           brand: brokData?.brand || null,
+          status: 'active',
           totalDeals: 0,
           fundedDeals: 0,
           totalAdvanced: 0,
@@ -311,6 +355,150 @@ export async function fetchReportMetrics(input: {
         monthlyTrends,
         brokeragePerformance,
         exportDeals,
+      },
+    }
+  } catch (err) {
+    return { success: false, error: `Unexpected error: ${err instanceof Error ? err.message : 'Unknown'}` }
+  }
+}
+
+// ============================================================================
+// Brokerage Detail Report
+// ============================================================================
+
+export interface BrokerageDetail {
+  id: string
+  name: string
+  brand: string | null
+  status: string
+  email: string | null
+  phone: string | null
+  referralFeePercentage: number
+  totalDeals: number
+  fundedDeals: number
+  totalAdvanced: number
+  totalReferralFees: number
+  totalRevenue: number
+  avgDealSize: number
+  avgDaysToClose: number
+  pipeline: Record<string, number>
+  agents: {
+    id: string
+    name: string
+    totalDeals: number
+    fundedDeals: number
+    totalAdvanced: number
+  }[]
+  recentDeals: {
+    id: string
+    property_address: string
+    status: string
+    advance_amount: number
+    discount_fee: number
+    closing_date: string
+    agent_name: string
+    created_at: string
+  }[]
+}
+
+export async function fetchBrokerageDetail(input: {
+  brokerageId: string
+}): Promise<ActionResult<BrokerageDetail>> {
+  const { error: authErr, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !supabase) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Fetch brokerage, its agents, and all its deals in parallel
+    const [
+      { data: brokerage, error: brokErr },
+      { data: agents, error: agentsErr },
+      { data: deals, error: dealsErr },
+    ] = await Promise.all([
+      supabase.from('brokerages').select('*').eq('id', input.brokerageId).single(),
+      supabase.from('agents').select('id, first_name, last_name, status').eq('brokerage_id', input.brokerageId).order('last_name'),
+      supabase.from('deals').select('*, agent:agents(first_name, last_name)').eq('brokerage_id', input.brokerageId).order('created_at', { ascending: false }),
+    ])
+
+    if (brokErr || !brokerage) {
+      return { success: false, error: 'Brokerage not found' }
+    }
+
+    const allDeals = deals || []
+    const allAgents = agents || []
+    const fundedStatuses = ['funded', 'repaid', 'closed']
+    const fundedDeals = allDeals.filter(d => fundedStatuses.includes(d.status))
+
+    const totalRevenue = fundedDeals.reduce((s, d) => s + Number(d.discount_fee || 0), 0)
+    const totalAdvanced = fundedDeals.reduce((s, d) => s + Number(d.advance_amount || 0), 0)
+    const totalReferralFees = fundedDeals.reduce((s, d) => s + Number(d.brokerage_referral_fee || 0), 0)
+    const avgDaysToClose = fundedDeals.length > 0
+      ? fundedDeals.reduce((s, d) => s + Number(d.days_until_closing || 0), 0) / fundedDeals.length
+      : 0
+
+    // Pipeline
+    const pipeline: Record<string, number> = {}
+    for (const d of allDeals) {
+      pipeline[d.status] = (pipeline[d.status] || 0) + 1
+    }
+
+    // Agent performance
+    const agentMap = new Map<string, { id: string; name: string; totalDeals: number; fundedDeals: number; totalAdvanced: number }>()
+    for (const agent of allAgents) {
+      agentMap.set(agent.id, {
+        id: agent.id,
+        name: `${agent.first_name} ${agent.last_name}`,
+        totalDeals: 0,
+        fundedDeals: 0,
+        totalAdvanced: 0,
+      })
+    }
+    for (const deal of allDeals) {
+      if (!deal.agent_id) continue
+      const entry = agentMap.get(deal.agent_id)
+      if (entry) {
+        entry.totalDeals++
+        if (fundedStatuses.includes(deal.status)) {
+          entry.fundedDeals++
+          entry.totalAdvanced += Number(deal.advance_amount || 0)
+        }
+      }
+    }
+
+    // Recent deals (last 20)
+    const recentDeals = allDeals.slice(0, 20).map(d => {
+      const agent = d.agent as { first_name: string; last_name: string } | null
+      return {
+        id: d.id,
+        property_address: d.property_address,
+        status: d.status,
+        advance_amount: Number(d.advance_amount || 0),
+        discount_fee: Number(d.discount_fee || 0),
+        closing_date: d.closing_date,
+        agent_name: agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown',
+        created_at: d.created_at,
+      }
+    })
+
+    return {
+      success: true,
+      data: {
+        id: brokerage.id,
+        name: brokerage.name,
+        brand: brokerage.brand,
+        status: brokerage.status,
+        email: brokerage.email,
+        phone: brokerage.phone,
+        referralFeePercentage: Number(brokerage.referral_fee_percentage || 0),
+        totalDeals: allDeals.length,
+        fundedDeals: fundedDeals.length,
+        totalAdvanced,
+        totalReferralFees,
+        totalRevenue,
+        avgDealSize: fundedDeals.length > 0 ? totalAdvanced / fundedDeals.length : 0,
+        avgDaysToClose,
+        pipeline,
+        agents: Array.from(agentMap.values()).sort((a, b) => b.totalAdvanced - a.totalAdvanced),
+        recentDeals,
       },
     }
   } catch (err) {

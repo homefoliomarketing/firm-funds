@@ -423,7 +423,7 @@ export default function AdminDashboard() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
-                          <td className="px-6 py-4 text-sm font-bold" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
+                          <td className="px-6 py-4 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
                           <td className="px-6 py-4 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
                           <td className="px-6 py-4"><ChevronRight size={16} style={{ color: colors.textFaint }} /></td>
                           <td className="px-3 py-4">

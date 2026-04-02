@@ -5,20 +5,20 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   BarChart3, TrendingUp, DollarSign, Clock, ArrowLeft, Download, FileText,
-  Building2, Percent, Calendar, Activity, ChevronDown, ChevronUp,
+  Building2, Percent, Calendar, Activity, ChevronDown, ChevronUp, ChevronRight,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
-import { fetchReportMetrics, type ReportMetrics } from '@/lib/actions/report-actions'
+import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
 import ThemeToggle from '@/components/ThemeToggle'
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type DateRange = 'last_7' | 'last_30' | 'last_90' | 'ytd' | 'all'
+type DateRange = 'last_7' | 'last_30' | 'last_90' | 'ytd' | 'all' | 'custom'
 
-const DATE_RANGE_LABELS: Record<DateRange, string> = {
+const DATE_RANGE_LABELS: Record<Exclude<DateRange, 'custom'>, string> = {
   last_7: 'Last 7 Days',
   last_30: 'Last 30 Days',
   last_90: 'Last 90 Days',
@@ -275,17 +275,27 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState<ReportMetrics | null>(null)
   const [dateRange, setDateRange] = useState<DateRange>('all')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
+  const [showCustomPicker, setShowCustomPicker] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [brokerageExpanded, setBrokerageExpanded] = useState(true)
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
+  // Brokerage drill-down
+  const [selectedBrokerage, setSelectedBrokerage] = useState<BrokerageDetail | null>(null)
+  const [brokerageLoading, setBrokerageLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
   const { colors, isDark } = useTheme()
 
-  const loadMetrics = useCallback(async (range: DateRange) => {
+  const loadMetrics = useCallback(async (range: DateRange, startDate?: string, endDate?: string) => {
     setLoading(true)
     setError(null)
-    const result = await fetchReportMetrics({ dateRange: range })
+    const result = await fetchReportMetrics({
+      dateRange: range,
+      customStart: startDate,
+      customEnd: endDate,
+    })
     if (result.success && result.data) {
       setMetrics(result.data)
     } else {
@@ -293,6 +303,15 @@ export default function ReportsPage() {
     }
     setLoading(false)
   }, [])
+
+  const handleBrokerageClick = async (brokerageId: string) => {
+    setBrokerageLoading(true)
+    const result = await fetchBrokerageDetail({ brokerageId })
+    if (result.success && result.data) {
+      setSelectedBrokerage(result.data)
+    }
+    setBrokerageLoading(false)
+  }
 
   useEffect(() => {
     // Auth check
@@ -311,7 +330,14 @@ export default function ReportsPage() {
 
   const handleDateChange = (range: DateRange) => {
     setDateRange(range)
+    setShowCustomPicker(false)
     loadMetrics(range)
+  }
+
+  const handleCustomDateApply = () => {
+    if (!customStart || !customEnd) return
+    setDateRange('custom')
+    loadMetrics('custom', customStart, customEnd)
   }
 
   // CSV Export
@@ -359,7 +385,7 @@ export default function ReportsPage() {
     setExporting('pdf')
 
     // Build a printable HTML document and trigger print
-    const printContent = buildPrintHTML(metrics, dateRange)
+    const printContent = buildPrintHTML(metrics, dateRange, customStart, customEnd)
     const printWindow = window.open('', '_blank')
     if (printWindow) {
       printWindow.document.write(printContent)
@@ -504,8 +530,8 @@ export default function ReportsPage() {
               Financial performance and pipeline analytics
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {(Object.entries(DATE_RANGE_LABELS) as [DateRange, string][]).map(([key, label]) => {
+          <div className="flex flex-wrap items-center gap-2">
+            {(Object.entries(DATE_RANGE_LABELS) as [Exclude<DateRange, 'custom'>, string][]).map(([key, label]) => {
               const isActive = dateRange === key
               return (
                 <button
@@ -523,8 +549,68 @@ export default function ReportsPage() {
                 </button>
               )
             })}
+            {/* Custom date toggle */}
+            {(() => {
+              const isCustom = dateRange === 'custom'
+              return (
+                <button
+                  onClick={() => setShowCustomPicker(!showCustomPicker)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
+                  style={isCustom
+                    ? { background: colors.gold, color: '#1E1E1E' }
+                    : { background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }
+                  }
+                  onMouseEnter={(e) => { if (!isCustom) e.currentTarget.style.background = colors.cardHoverBg }}
+                  onMouseLeave={(e) => { if (!isCustom) e.currentTarget.style.background = isCustom ? colors.gold : colors.cardBg }}
+                >
+                  <Calendar size={12} />
+                  {isCustom ? `${customStart} — ${customEnd}` : 'Custom'}
+                </button>
+              )
+            })()}
           </div>
         </div>
+
+        {/* Custom Date Picker */}
+        {showCustomPicker && (
+          <div
+            className="rounded-xl p-4 mb-6 flex flex-wrap items-end gap-4"
+            style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
+          >
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Start Date</label>
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>End Date</label>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+              />
+            </div>
+            <button
+              onClick={handleCustomDateApply}
+              disabled={!customStart || !customEnd}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
+              style={{ background: colors.gold, color: '#1E1E1E' }}
+            >
+              Apply
+            </button>
+          </div>
+        )}
 
         {/* KPI Cards Row 1: Revenue Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
@@ -696,14 +782,21 @@ export default function ReportsPage() {
                       {metrics.brokeragePerformance.map((brok, i) => (
                         <tr
                           key={brok.id}
+                          className="cursor-pointer"
                           style={{ borderBottom: i < metrics.brokeragePerformance.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                          onClick={() => handleBrokerageClick(brok.id)}
                           onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
                           <td className="px-6 py-4 text-sm font-bold" style={{ color: colors.textFaint }}>{i + 1}</td>
                           <td className="px-6 py-4">
-                            <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{brok.name}</p>
-                            {brok.brand && <p className="text-xs" style={{ color: colors.textMuted }}>{brok.brand}</p>}
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{brok.name}</p>
+                                {brok.brand && <p className="text-xs" style={{ color: colors.textMuted }}>{brok.brand}</p>}
+                              </div>
+                              <ChevronRight size={14} style={{ color: colors.textFaint }} />
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: colors.textPrimary }}>{brok.totalDeals}</td>
                           <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: colors.successText }}>{brok.fundedDeals}</td>
@@ -720,6 +813,175 @@ export default function ReportsPage() {
           )}
         </div>
       </main>
+
+      {/* Brokerage Detail Modal */}
+      {(selectedBrokerage || brokerageLoading) && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4"
+          style={{ background: colors.overlayBg }}
+          onClick={() => { if (!brokerageLoading) setSelectedBrokerage(null) }}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl"
+            style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: `0 25px 60px ${colors.shadowColor}` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {brokerageLoading ? (
+              <div className="p-8 text-center">
+                <div className="h-6 w-48 rounded-lg mx-auto mb-4 animate-pulse" style={{ background: colors.skeletonBase }} />
+                <div className="h-4 w-32 rounded mx-auto animate-pulse" style={{ background: colors.skeletonHighlight }} />
+              </div>
+            ) : selectedBrokerage && (
+              <>
+                {/* Modal Header */}
+                <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-xl font-bold" style={{ color: colors.textPrimary }}>{selectedBrokerage.name}</h3>
+                      <span
+                        className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
+                        style={getStatusBadgeStyle(selectedBrokerage.status)}
+                      >
+                        {formatStatusLabel(selectedBrokerage.status)}
+                      </span>
+                    </div>
+                    {selectedBrokerage.brand && <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>{selectedBrokerage.brand}</p>}
+                  </div>
+                  <button
+                    onClick={() => setSelectedBrokerage(null)}
+                    className="p-2 rounded-lg transition-colors text-sm"
+                    style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* KPI Cards */}
+                <div className="px-6 py-5">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    {[
+                      { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: '#C4B098' },
+                      { label: 'Funded', value: selectedBrokerage.fundedDeals.toString(), accent: '#1A7A2E' },
+                      { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: '#5B3D99' },
+                      { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: '#3D5A99' },
+                    ].map(card => (
+                      <div key={card.label} className="rounded-lg p-4" style={{ background: colors.pageBg, border: `1px solid ${colors.border}` }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
+                        <p className="text-xl font-bold mt-1" style={{ color: card.accent }}>{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    {[
+                      { label: 'Revenue', value: formatCurrency(selectedBrokerage.totalRevenue) },
+                      { label: 'Avg Deal Size', value: formatCurrency(selectedBrokerage.avgDealSize) },
+                      { label: 'Avg Days to Close', value: `${Math.round(selectedBrokerage.avgDaysToClose)} days` },
+                      { label: 'Referral Rate', value: `${(selectedBrokerage.referralFeePercentage * 100).toFixed(0)}%` },
+                    ].map(card => (
+                      <div key={card.label} className="rounded-lg p-4" style={{ background: colors.pageBg, border: `1px solid ${colors.border}` }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
+                        <p className="text-lg font-bold mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pipeline for this brokerage */}
+                  {Object.keys(selectedBrokerage.pipeline).length > 0 && (
+                    <div className="mb-6">
+                      <h4 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Pipeline</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(selectedBrokerage.pipeline).map(([status, count]) => (
+                          <span
+                            key={status}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold"
+                            style={getStatusBadgeStyle(status)}
+                          >
+                            {formatStatusLabel(status)}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Agent Performance */}
+                  {selectedBrokerage.agents.length > 0 && (
+                    <div className="mb-6">
+                      <h4 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Agent Performance</h4>
+                      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+                        <table className="w-full">
+                          <thead>
+                            <tr style={{ background: colors.tableHeaderBg }}>
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Deals</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Funded</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advanced</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedBrokerage.agents.map((agent, i) => (
+                              <tr key={agent.id} style={{ borderBottom: i < selectedBrokerage.agents.length - 1 ? `1px solid ${colors.divider}` : 'none' }}>
+                                <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.name}</td>
+                                <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{agent.totalDeals}</td>
+                                <td className="px-4 py-3 text-sm text-right font-medium" style={{ color: colors.successText }}>{agent.fundedDeals}</td>
+                                <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(agent.totalAdvanced)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent Deals */}
+                  {selectedBrokerage.recentDeals.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Recent Deals</h4>
+                      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+                        <table className="w-full">
+                          <thead>
+                            <tr style={{ background: colors.tableHeaderBg }}>
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedBrokerage.recentDeals.map((deal, i) => (
+                              <tr
+                                key={deal.id}
+                                className="cursor-pointer"
+                                style={{ borderBottom: i < selectedBrokerage.recentDeals.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                                onClick={() => { setSelectedBrokerage(null); router.push(`/admin/deals/${deal.id}`) }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
+                                    {formatStatusLabel(deal.status)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{deal.agent_name}</td>
+                                <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
+                                <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -728,8 +990,8 @@ export default function ReportsPage() {
 // PDF Print Template
 // ============================================================================
 
-function buildPrintHTML(metrics: ReportMetrics, dateRange: DateRange): string {
-  const rangeLabel = DATE_RANGE_LABELS[dateRange]
+function buildPrintHTML(metrics: ReportMetrics, dateRange: DateRange, customStart?: string, customEnd?: string): string {
+  const rangeLabel = dateRange === 'custom' ? `${customStart} to ${customEnd}` : DATE_RANGE_LABELS[dateRange as Exclude<DateRange, 'custom'>]
   const date = new Date().toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })
 
   const pipelineRows = Object.entries(metrics.pipeline)
