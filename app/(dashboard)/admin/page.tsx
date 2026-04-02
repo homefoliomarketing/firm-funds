@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { LogOut, FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, Trash2 } from 'lucide-react'
+import { LogOut, FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, Trash2, BarChart3 } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { deleteDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
@@ -259,6 +259,16 @@ export default function AdminDashboard() {
           >
             <Users size={16} style={{ color: colors.gold }} />
             Manage Agents
+          </button>
+          <button
+            onClick={() => router.push('/admin/reports')}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
+          >
+            <BarChart3 size={16} style={{ color: colors.gold }} />
+            Reports
           </button>
         </div>
 
