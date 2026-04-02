@@ -474,7 +474,7 @@ export default function ReportsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-4">
-              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-12 w-auto" />
+              <img src="/brand/logo-white.png" alt="Firm Funds" className="h-20 w-auto" />
               <div className="w-px h-6" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <button
                 onClick={() => router.push('/admin')}
