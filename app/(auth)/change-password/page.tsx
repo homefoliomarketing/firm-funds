@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
 
@@ -10,6 +11,7 @@ export default function ChangePasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const supabase = createClient()
   const { colors, isDark } = useTheme()
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -29,30 +31,55 @@ export default function ChangePasswordPage() {
     setLoading(true)
 
     try {
-      // Call our API route which uses service role client (bypasses RLS)
-      const response = await fetch('/api/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword }),
+      // Step 1: Update password + set metadata flag
+      // This talks DIRECTLY to Supabase (not through Netlify)
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+        data: { password_changed: true },
       })
 
-      const result = await response.json()
-
-      if (!result.success) {
-        setError(result.error || 'Failed to change password.')
+      if (updateError) {
+        setError(updateError.message)
         setLoading(false)
         return
       }
 
-      // Redirect based on role returned from API
-      const role = result.role || 'agent'
-      switch (role) {
-        case 'agent': router.push('/agent'); break
-        case 'brokerage_admin': router.push('/brokerage'); break
-        case 'firm_funds_admin':
-        case 'super_admin': router.push('/admin'); break
-        default: router.push('/agent')
+      // Step 2: Force a session refresh so the JWT cookie gets the new metadata
+      // Without this, the middleware might see the OLD JWT without password_changed
+      await supabase.auth.refreshSession()
+
+      // Step 3: Try to clear the DB flag via API route (fire-and-forget, non-blocking)
+      // If this hangs on Netlify, we don't care — the metadata flag is already set
+      // and the middleware checks metadata FIRST before the DB flag
+      fetch('/api/clear-reset-flag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(() => {}) // Silently ignore any failure
+
+      // Step 4: Get role for redirect (direct Supabase query, no Netlify)
+      const { data: { user } } = await supabase.auth.getUser()
+      let redirectPath = '/agent'
+
+      if (user) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+
+        if (profile) {
+          switch (profile.role) {
+            case 'agent': redirectPath = '/agent'; break
+            case 'brokerage_admin': redirectPath = '/brokerage'; break
+            case 'firm_funds_admin':
+            case 'super_admin': redirectPath = '/admin'; break
+          }
+        }
       }
+
+      // Step 5: Hard redirect (not router.push) to ensure middleware re-evaluates
+      // with the fresh cookies from refreshSession()
+      window.location.href = redirectPath
     } catch (err) {
       console.error('Change password error:', err)
       setError('Something went wrong. Please try again.')

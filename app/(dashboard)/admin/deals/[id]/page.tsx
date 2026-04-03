@@ -299,21 +299,25 @@ export default function DealDetailPage() {
     setUpdating(false)
   }
 
-  const fetchDocumentSignedUrl = async (doc: DealDocument) => {
-    const response = await fetch('/api/documents/signed-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ documentId: doc.id, filePath: doc.file_path, dealId: dealId }),
-    })
-    return await response.json()
+  // Generate signed URL client-side (direct to Supabase, no Netlify involved)
+  // Storage policies allow any authenticated user to read from deal-documents
+  const getSignedUrl = async (filePath: string) => {
+    const { data, error } = await supabase.storage
+      .from('deal-documents')
+      .createSignedUrl(filePath, 3600, { download: false })
+    if (error || !data?.signedUrl) {
+      console.error('Signed URL error:', error?.message)
+      return null
+    }
+    return data.signedUrl
   }
 
   const handleDocumentDownload = async (doc: DealDocument) => {
-    const result = await fetchDocumentSignedUrl(doc)
-    if (!result.success || !result.data?.signedUrl) {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to generate download link' }); return
+    const signedUrl = await getSignedUrl(doc.file_path)
+    if (!signedUrl) {
+      setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
     }
-    window.open(result.data.signedUrl, '_blank')
+    window.open(signedUrl, '_blank')
   }
 
   // Clean up blob URL when closing the viewer
@@ -332,15 +336,15 @@ export default function DealDetailPage() {
       return
     }
     setViewLoading(doc.id)
-    const result = await fetchDocumentSignedUrl(doc)
-    if (!result.success || !result.data?.signedUrl) {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to load document' })
+    const signedUrl = await getSignedUrl(doc.file_path)
+    if (!signedUrl) {
+      setStatusMessage({ type: 'error', text: 'Failed to load document' })
       setViewLoading(null)
       return
     }
     try {
       // Fetch as blob to bypass iframe/img content-blocking headers
-      const response = await fetch(result.data.signedUrl)
+      const response = await fetch(signedUrl)
       const arrayBuffer = await response.arrayBuffer()
       // Create blob with explicit MIME type so the browser knows how to render it
       const mimeType = isPdf ? 'application/pdf' : (response.headers.get('content-type') || 'image/png')
@@ -350,14 +354,14 @@ export default function DealDetailPage() {
       if (viewingDoc?.blobUrl) URL.revokeObjectURL(viewingDoc.blobUrl)
       setViewingDoc({
         blobUrl,
-        originalUrl: result.data.signedUrl,
+        originalUrl: signedUrl,
         fileName: doc.file_name,
         type: isImage ? 'image' : 'pdf',
       })
     } catch (err) {
       console.error('Blob fetch failed:', err)
       // Fallback: open in new tab if blob fetch fails
-      window.open(result.data.signedUrl, '_blank')
+      window.open(signedUrl, '_blank')
     }
     setViewLoading(null)
   }

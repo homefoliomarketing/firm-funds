@@ -137,16 +137,14 @@ export default function AgentDealDetailPage() {
   }
 
   const handleDocumentDownload = async (doc: DealDocument) => {
-    const response = await fetch('/api/documents/signed-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ documentId: doc.id, filePath: doc.file_path, dealId: dealId }),
-    })
-    const result = await response.json()
-    if (!result.success || !result.data?.signedUrl) {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to generate download link' }); return
+    // Generate signed URL client-side (direct to Supabase, no Netlify involved)
+    const { data, error } = await supabase.storage
+      .from('deal-documents')
+      .createSignedUrl(doc.file_path, 3600, { download: false })
+    if (error || !data?.signedUrl) {
+      setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
     }
-    window.open(result.data.signedUrl, '_blank')
+    window.open(data.signedUrl, '_blank')
   }
 
   const startEditing = () => {
