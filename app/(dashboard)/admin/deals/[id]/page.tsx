@@ -20,6 +20,7 @@ import {
   requestDocument,
   fulfillDocumentRequest,
   cancelDocumentRequest,
+  deleteDeal,
 } from '@/lib/actions/deal-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
@@ -1579,6 +1580,36 @@ export default function DealDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* DELETE DEAL (only for under_review, cancelled, or denied) */}
+        {deal && ['under_review', 'cancelled', 'denied'].includes(deal.status) && (
+          <div className="mt-6 rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.errorBorder}` }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold" style={{ color: colors.errorText }}>Delete This Deal</p>
+                <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Permanently removes this deal and all associated documents and checklist items. This cannot be undone.</p>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!confirm('Are you SURE you want to permanently delete this deal? This cannot be undone.')) return
+                  if (!confirm('This will delete the deal, all uploaded documents, and all checklist data. Last chance — proceed?')) return
+                  const result = await deleteDeal({ dealId: deal.id })
+                  if (result.success) {
+                    router.push('/admin')
+                  } else {
+                    setStatusMessage({ type: 'error', text: result.error || 'Failed to delete deal' })
+                  }
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-1.5 shrink-0"
+                style={{ background: '#DC2626' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#B91C1C'}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#DC2626'}
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete Deal
+              </button>
+            </div>
+          </div>
+        )}
 
       </main>
 
