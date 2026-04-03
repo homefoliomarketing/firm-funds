@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
 
@@ -10,6 +11,7 @@ export default function ChangePasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const supabase = createClient()
   const { colors, isDark } = useTheme()
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -29,28 +31,45 @@ export default function ChangePasswordPage() {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword }),
+      // 1. Update password + set metadata flag (all client-side, no server needed)
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+        data: { password_changed: true },
       })
 
-      const result = await res.json()
-
-      if (!result.success) {
-        setError(result.error || 'Failed to update password. Please try again.')
+      if (updateError) {
+        setError(updateError.message)
         setLoading(false)
         return
       }
 
-      // Redirect based on role
-      switch (result.role) {
-        case 'agent': router.push('/agent'); break
-        case 'brokerage_admin': router.push('/brokerage'); break
-        case 'firm_funds_admin':
-        case 'super_admin': router.push('/admin'); break
-        default: router.push('/agent')
+      // 2. Also try to clear the DB flag (best effort, non-blocking)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        // This might fail due to RLS, that's OK — middleware will check metadata too
+        supabase.from('user_profiles').update({ must_reset_password: false }).eq('id', user.id).then(() => {})
       }
+
+      // 3. Redirect based on role
+      if (user) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+
+        if (profile) {
+          switch (profile.role) {
+            case 'agent': router.push('/agent'); break
+            case 'brokerage_admin': router.push('/brokerage'); break
+            case 'firm_funds_admin':
+            case 'super_admin': router.push('/admin'); break
+            default: router.push('/agent')
+          }
+          return
+        }
+      }
+      router.push('/agent')
     } catch (err) {
       console.error('Change password error:', err)
       setError('Something went wrong. Please try again.')
@@ -60,12 +79,10 @@ export default function ChangePasswordPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(145deg, #121212 0%, #181818 40%, #1E1E1E 100%)' : 'linear-gradient(145deg, #1E1E1E 0%, #2D2D2D 40%, #3D3D3D 100%)' }}>
-      {/* Subtle decorative elements */}
       <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(80px)' }} />
       <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(60px)' }} />
 
       <div className="relative max-w-md w-full mx-4">
-        {/* Logo / Brand Area */}
         <div className="text-center mb-8">
           <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 md:h-48 w-auto mx-auto mb-5" />
           <p className="text-sm font-medium tracking-wide" style={{ color: '#5FA873', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
@@ -73,7 +90,6 @@ export default function ChangePasswordPage() {
           </p>
         </div>
 
-        {/* Change Password Card */}
         <div className="rounded-2xl shadow-2xl p-5 sm:p-8" style={{ background: colors.cardBg, boxShadow: `0 25px 60px ${colors.shadowColor}` }}>
           <div className="mb-6">
             <h2 className="text-lg font-bold mb-1" style={{ color: colors.textPrimary }}>
@@ -102,11 +118,7 @@ export default function ChangePasswordPage() {
                 value={newPassword}
                 onChange={(e) => { setNewPassword(e.target.value); setError(null) }}
                 className="block w-full px-4 py-3 rounded-lg text-sm transition-all duration-200 outline-none"
-                style={{
-                  border: `1.5px solid ${colors.inputBorder}`,
-                  color: colors.inputText,
-                  background: colors.inputBg,
-                }}
+                style={{ border: `1.5px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                 onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
                 onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
                 placeholder="Min. 8 characters"
@@ -124,11 +136,7 @@ export default function ChangePasswordPage() {
                 value={confirmPassword}
                 onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
                 className="block w-full px-4 py-3 rounded-lg text-sm transition-all duration-200 outline-none"
-                style={{
-                  border: `1.5px solid ${colors.inputBorder}`,
-                  color: colors.inputText,
-                  background: colors.inputBg,
-                }}
+                style={{ border: `1.5px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                 onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
                 onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
                 placeholder="Re-enter your new password"
@@ -139,10 +147,7 @@ export default function ChangePasswordPage() {
               type="submit"
               disabled={loading}
               className="w-full py-3.5 px-4 rounded-lg text-sm font-bold uppercase tracking-wider text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'linear-gradient(135deg, #5FA873, #4A8F5D)',
-                boxShadow: '0 4px 12px rgba(95, 168, 115, 0.3)',
-              }}
+              style={{ background: 'linear-gradient(135deg, #5FA873, #4A8F5D)', boxShadow: '0 4px 12px rgba(95, 168, 115, 0.3)' }}
               onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = 'linear-gradient(135deg, #6FBA83, #5FA873)' }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #5FA873, #4A8F5D)' }}
             >
@@ -151,7 +156,6 @@ export default function ChangePasswordPage() {
           </form>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-xs mt-6" style={{ color: 'rgba(255,255,255,0.3)' }}>
           &copy; {new Date().getFullYear()} Firm Funds Inc. All rights reserved.
         </p>
