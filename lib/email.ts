@@ -75,11 +75,11 @@ function wrap(body: string): string {
 // Helpers
 // ============================================================================
 
-function formatCurrency(cents: number): string {
+function formatCurrency(dollars: number): string {
   return new Intl.NumberFormat('en-CA', {
     style: 'currency',
     currency: 'CAD',
-  }).format(cents / 100)
+  }).format(dollars)
 }
 
 function statusLabel(status: string): string {
@@ -182,7 +182,7 @@ export async function sendStatusChangeNotification(params: {
   if (params.newStatus === 'approved') {
     extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Your advance has been approved and will be funded shortly. We\'ll send another notification once the funds are on the way.</p>'
   } else if (params.newStatus === 'funded') {
-    extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Great news — your advance has been funded! The EFT transfer is being processed and you should see the funds in your account within 1-2 business days.</p>'
+    extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Great news — your advance has been funded! Your EFT transfer is being processed and our goal is to have the funds in your account within 24 business hours. We\'ll keep you posted if anything changes.</p>'
   } else if (params.newStatus === 'denied' && params.denialReason) {
     extraMessage = `
       <div style="margin:16px 0 0; padding:12px 16px; background:#241010; border:1px solid #422020; border-radius:8px;">
