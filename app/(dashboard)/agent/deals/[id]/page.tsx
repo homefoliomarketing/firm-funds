@@ -239,7 +239,7 @@ export default function AgentDealDetailPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
               <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <button
                 onClick={() => router.push('/agent')}

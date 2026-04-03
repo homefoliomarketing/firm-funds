@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, Trash2, BarChart3 } from 'lucide-react'
+import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, BarChart3 } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
-import { deleteDeal } from '@/lib/actions/deal-actions'
+
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 
@@ -37,7 +37,6 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [deletingDealId, setDeletingDealId] = useState<string | null>(null)
   const [kpiRange, setKpiRange] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('all')
   const DEALS_PER_PAGE = 15
   const router = useRouter()
@@ -102,33 +101,6 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
-  }
-
-  const handleDeleteDeal = async (e: React.MouseEvent, dealId: string) => {
-    e.stopPropagation() // Don't navigate to deal detail
-    if (!confirm('Delete this deal? This cannot be undone.')) return
-    setDeletingDealId(dealId)
-    const result = await deleteDeal({ dealId })
-    if (result.success) {
-      setAllDeals(prev => prev.filter(d => d.id !== dealId))
-      setRecentDeals(prev => prev.filter(d => d.id !== dealId))
-      // Update stats
-      setStats(prev => {
-        const deleted = allDeals.find(d => d.id === dealId)
-        if (!deleted) return prev
-        return {
-          ...prev,
-          totalDeals: prev.totalDeals - 1,
-          underReviewDeals: deleted.status === 'under_review' ? prev.underReviewDeals - 1 : prev.underReviewDeals,
-          approvedDeals: deleted.status === 'approved' ? prev.approvedDeals - 1 : prev.approvedDeals,
-          fundedDeals: deleted.status === 'funded' ? prev.fundedDeals - 1 : prev.fundedDeals,
-          totalAdvanced: deleted.status === 'funded' ? prev.totalAdvanced - Number(deleted.advance_amount) : prev.totalAdvanced,
-        }
-      })
-    } else {
-      alert(result.error || 'Failed to delete deal')
-    }
-    setDeletingDealId(null)
   }
 
   if (loading) {
@@ -202,7 +174,7 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
               <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Admin Dashboard</p>
             </div>
@@ -297,7 +269,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Pipeline Status Row — Clickable Filters */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           {[
             { label: 'Under Review', filterValue: 'under_review', value: filteredStats.underReviewDeals, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
             { label: 'Approved', filterValue: 'approved', value: filteredStats.approvedDeals, color: '#1A7A2E', bg: '#EDFAF0', border: '#B8E6C4' },
@@ -483,7 +455,6 @@ export default function AdminDashboard() {
                         <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
                         <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing Date</th>
                         <th className="px-6 py-3.5 w-10"></th>
-                        <th className="px-3 py-3.5 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -509,19 +480,6 @@ export default function AdminDashboard() {
                           <td className="px-6 py-4 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
                           <td className="px-6 py-4 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
                           <td className="px-6 py-4"><ChevronRight size={16} style={{ color: colors.textFaint }} /></td>
-                          <td className="px-3 py-4">
-                            <button
-                              onClick={(e) => handleDeleteDeal(e, deal.id)}
-                              disabled={deletingDealId === deal.id}
-                              className="p-1.5 rounded-md transition-colors opacity-40 hover:opacity-100"
-                              style={{ color: colors.errorText }}
-                              onMouseEnter={(e) => e.currentTarget.style.background = colors.errorBg}
-                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                              title="Delete deal (testing only)"
-                            >
-                              {deletingDealId === deal.id ? <span className="text-xs">...</span> : <Trash2 size={14} />}
-                            </button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>

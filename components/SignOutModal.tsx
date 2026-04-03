@@ -46,7 +46,7 @@ export default function SignOutModal({ onConfirm }: SignOutModalProps) {
           onClick={() => !signingOut && setShowModal(false)}
         >
           <div
-            className="relative w-full max-w-sm mx-4 rounded-2xl p-8 text-center"
+            className="relative w-full max-w-sm mx-4 rounded-2xl p-5 sm:p-8 text-center"
             style={{
               background: colors.cardBg,
               border: `1px solid ${colors.cardBorder}`,

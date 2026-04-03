@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
+import { sendAgentInviteNotification } from '@/lib/email'
 
 // ============================================================================
 // Types
@@ -465,6 +466,158 @@ export async function createUserAccount(input: {
   } catch (err: any) {
     console.error('User account create error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Invite Agent: Create agent record + auth user + user_profile + send email
+// ============================================================================
+
+function generateTempPassword(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  let password = ''
+  for (let i = 0; i < 12; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return password
+}
+
+export async function inviteAgent(input: {
+  brokerageId: string
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string
+  recoNumber?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (!input.firstName.trim()) return { success: false, error: 'First name is required' }
+    if (!input.lastName.trim()) return { success: false, error: 'Last name is required' }
+    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+    if (!input.brokerageId) return { success: false, error: 'Brokerage is required' }
+
+    const email = input.email.trim().toLowerCase()
+
+    // Verify brokerage exists
+    const { data: brokerage } = await supabase
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+    // Check if agent email already exists
+    const { data: existingAgent } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle()
+
+    if (existingAgent) return { success: false, error: 'An agent with this email already exists' }
+
+    // 1. Create agent record
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .insert({
+        brokerage_id: input.brokerageId,
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
+        email,
+        phone: input.phone?.trim() || null,
+        reco_number: input.recoNumber?.trim() || null,
+        status: 'active',
+        flagged_by_brokerage: false,
+        outstanding_recovery: 0,
+      })
+      .select()
+      .single()
+
+    if (agentError || !agent) {
+      console.error('Agent create error:', agentError?.message)
+      return { success: false, error: `Failed to create agent record: ${agentError?.message || 'Unknown error'}` }
+    }
+
+    // 2. Create auth user via Supabase Admin API
+    const tempPassword = generateTempPassword()
+    const { data: authData, error: signUpError } = await supabase.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      email_confirm: true,
+    })
+
+    if (signUpError || !authData?.user) {
+      // Agent record was created but auth failed — this is a known gotcha
+      // Log it but don't roll back the agent record (admin can retry invite later)
+      console.error('Auth user create error:', signUpError?.message)
+      return {
+        success: false,
+        error: `Agent record created but login creation failed: ${signUpError?.message || 'Unknown error'}. This likely means the SUPABASE_SERVICE_ROLE_KEY is not set. Create the login manually via the Supabase dashboard.`,
+        data: { agentId: agent.id, agentCreated: true, loginCreated: false },
+      }
+    }
+
+    // 3. Create user_profile record
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .insert({
+        id: authData.user.id,
+        email,
+        role: 'agent',
+        full_name: `${input.firstName.trim()} ${input.lastName.trim()}`,
+        agent_id: agent.id,
+        brokerage_id: input.brokerageId,
+        is_active: true,
+      })
+
+    if (profileError) {
+      console.error('Profile create error:', profileError.message)
+      return {
+        success: false,
+        error: `Agent and login created, but profile link failed: ${profileError.message}. Fix manually in Supabase.`,
+        data: { agentId: agent.id, agentCreated: true, loginCreated: true, profileCreated: false },
+      }
+    }
+
+    // 4. Send invite email (fire-and-forget)
+    sendAgentInviteNotification({
+      agentFirstName: input.firstName.trim(),
+      agentEmail: email,
+      brokerageName: brokerage.name,
+      tempPassword,
+    })
+
+    // Audit log
+    await logAuditEvent({
+      action: 'agent.invite',
+      entityType: 'agent',
+      entityId: agent.id,
+      metadata: {
+        name: `${input.firstName} ${input.lastName}`,
+        email,
+        brokerage_id: input.brokerageId,
+        brokerage_name: brokerage.name,
+        invited_by: user.id,
+      },
+    })
+
+    return {
+      success: true,
+      data: {
+        agentId: agent.id,
+        userId: authData.user.id,
+        agentCreated: true,
+        loginCreated: true,
+        profileCreated: true,
+        emailSent: true,
+      },
+    }
+  } catch (err: any) {
+    console.error('Agent invite error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred during agent invitation' }
   }
 }
 

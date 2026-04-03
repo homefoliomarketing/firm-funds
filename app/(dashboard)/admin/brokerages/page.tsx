@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent } from '@/lib/actions/admin-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
@@ -90,6 +90,7 @@ export default function BrokeragesPage() {
     name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
+  const [sendInvite, setSendInvite] = useState(true)
   const [importingFor, setImportingFor] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null)
   const [createRosterFile, setCreateRosterFile] = useState<File | null>(null)
@@ -265,19 +266,46 @@ export default function BrokeragesPage() {
       setStatusMessage({ type: 'error', text: 'First name, last name, and email are required' }); return
     }
     setSubmitting(true)
-    const result = await createAgent({
-      brokerageId,
-      firstName: agentForm.firstName, lastName: agentForm.lastName,
-      email: agentForm.email, phone: agentForm.phone || undefined,
-      recoNumber: agentForm.recoNumber || undefined,
-    })
-    if (result.success) {
-      setStatusMessage({ type: 'success', text: 'Agent added successfully' })
-      setAgentForm(emptyAgentForm)
-      setShowAddAgentFor(null)
-      await loadBrokerages()
+
+    if (sendInvite) {
+      // Create agent record + auth user + send invite email
+      const result = await inviteAgent({
+        brokerageId,
+        firstName: agentForm.firstName, lastName: agentForm.lastName,
+        email: agentForm.email, phone: agentForm.phone || undefined,
+        recoNumber: agentForm.recoNumber || undefined,
+      })
+      if (result.success) {
+        setStatusMessage({ type: 'success', text: `Agent added and invite email sent to ${agentForm.email}` })
+        setAgentForm(emptyAgentForm)
+        setSendInvite(true)
+        setShowAddAgentFor(null)
+        await loadBrokerages()
+      } else {
+        // Check if agent was created but login failed
+        if (result.data?.agentCreated && !result.data?.loginCreated) {
+          setStatusMessage({ type: 'error', text: result.error || 'Agent added to roster but login creation failed. See error for details.' })
+          await loadBrokerages()
+        } else {
+          setStatusMessage({ type: 'error', text: result.error || 'Failed to invite agent' })
+        }
+      }
     } else {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to add agent' })
+      // Just create the agent record (no login, no email)
+      const result = await createAgent({
+        brokerageId,
+        firstName: agentForm.firstName, lastName: agentForm.lastName,
+        email: agentForm.email, phone: agentForm.phone || undefined,
+        recoNumber: agentForm.recoNumber || undefined,
+      })
+      if (result.success) {
+        setStatusMessage({ type: 'success', text: 'Agent added to roster (no login created)' })
+        setAgentForm(emptyAgentForm)
+        setShowAddAgentFor(null)
+        await loadBrokerages()
+      } else {
+        setStatusMessage({ type: 'error', text: result.error || 'Failed to add agent' })
+      }
     }
     setSubmitting(false)
   }
@@ -503,7 +531,7 @@ export default function BrokeragesPage() {
               >
                 <ChevronLeft size={20} />
               </button>
-              <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
               <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Brokerages</p>
             </div>
@@ -883,15 +911,31 @@ export default function BrokeragesPage() {
                               {renderInput('Phone', agentForm.phone, (v) => setAgentForm({ ...agentForm, phone: v }), { type: 'tel' })}
                               {renderInput('RECO Number', agentForm.recoNumber, (v) => setAgentForm({ ...agentForm, recoNumber: v }))}
                             </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <input
+                                type="checkbox"
+                                id={`invite-${brokerage.id}`}
+                                checked={sendInvite}
+                                onChange={(e) => setSendInvite(e.target.checked)}
+                                className="rounded"
+                                style={{ accentColor: '#5FA873' }}
+                              />
+                              <label htmlFor={`invite-${brokerage.id}`} className="text-xs font-medium cursor-pointer" style={{ color: colors.textPrimary }}>
+                                Create login & send invite email
+                              </label>
+                              <span className="text-xs" style={{ color: colors.textMuted }}>
+                                {sendInvite ? '(agent will receive a welcome email with temporary password)' : '(roster only — no login)'}
+                              </span>
+                            </div>
                             <div className="flex gap-3 pt-1">
-                              <button type="button" onClick={() => setShowAddAgentFor(null)}
+                              <button type="button" onClick={() => { setShowAddAgentFor(null); setSendInvite(true) }}
                                 className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
                                 style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
                               >Cancel</button>
                               <button type="submit" disabled={submitting}
                                 className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
                                 style={{ background: '#5FA873', color: '#1E1E1E' }}
-                              >{submitting ? 'Adding...' : 'Add Agent'}</button>
+                              >{submitting ? (sendInvite ? 'Inviting...' : 'Adding...') : (sendInvite ? 'Add & Invite Agent' : 'Add Agent')}</button>
                             </div>
                           </form>
                         )}

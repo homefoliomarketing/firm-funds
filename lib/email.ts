@@ -293,6 +293,62 @@ export async function sendDocumentRequestNotification(params: {
 }
 
 // ============================================================================
+// Email: Agent Invite → New Agent
+// ============================================================================
+
+export async function sendAgentInviteNotification(params: {
+  agentFirstName: string
+  agentEmail: string
+  brokerageName: string
+  tempPassword: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Welcome to Firm Funds — Your Account is Ready`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Welcome to Firm Funds!</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          Hi ${params.agentFirstName}, your Firm Funds portal account has been created. You can now submit commission advance requests online.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Brokerage</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.brokerageName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Email</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.agentEmail}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Temporary Password</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.tempPassword}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#999; font-size:13px;">
+          Please change your password after your first login.
+        </p>
+        <a href="${APP_URL}/login" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+          Log In to Firm Funds
+        </a>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send agent invite notification:', err)
+  }
+}
+
+// ============================================================================
 // Email: Document Uploaded → Admin
 // ============================================================================
 

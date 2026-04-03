@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2
+  StickyNote, AlertCircle, Undo2, Send
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -15,7 +15,7 @@ import {
   deleteDocument as serverDeleteDocument,
   getDocumentSignedUrl,
   saveAdminNotes,
-  deleteDeal,
+  requestDocument,
 } from '@/lib/actions/deal-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
@@ -215,8 +215,10 @@ export default function DealDetailPage() {
   const [adminNotes, setAdminNotes] = useState('')
   const [adminNotesSaving, setAdminNotesSaving] = useState(false)
   const [adminNotesLastSaved, setAdminNotesLastSaved] = useState<string | null>(null)
-  // delete confirm state removed — using simple confirm() for testing phase
-  const [deleting, setDeleting] = useState(false)
+  const [showDocRequest, setShowDocRequest] = useState(false)
+  const [docRequestType, setDocRequestType] = useState('')
+  const [docRequestMessage, setDocRequestMessage] = useState('')
+  const [docRequestSending, setDocRequestSending] = useState(false)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -319,7 +321,24 @@ export default function DealDetailPage() {
     setAdminNotesSaving(false)
   }
 
-  // handleDeleteDeal inlined in the button's onClick for simplicity during testing phase
+  const handleRequestDocument = async () => {
+    if (!deal || !docRequestType) return
+    setDocRequestSending(true)
+    const result = await requestDocument({
+      dealId: deal.id,
+      documentType: docRequestType,
+      message: docRequestMessage.trim() || undefined,
+    })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `Document request sent to ${agent?.email || 'agent'}` })
+      setShowDocRequest(false)
+      setDocRequestType('')
+      setDocRequestMessage('')
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send document request' })
+    }
+    setDocRequestSending(false)
+  }
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
@@ -378,7 +397,7 @@ export default function DealDetailPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-28 w-auto" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
               <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
               <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-lg font-medium tracking-wide" style={{ color: 'white', fontFamily: 'var(--font-geist-sans), sans-serif' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
@@ -1018,18 +1037,91 @@ export default function DealDetailPage() {
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <button
-                onClick={() => setDocsExpanded(!docsExpanded)}
-                className="w-full px-6 py-4 flex items-center justify-between font-semibold transition"
-                style={{ background: colors.goldBg, color: colors.gold, borderBottom: `2px solid ${colors.gold}` }}
-              >
-                <div className="flex items-center gap-3">
+              <div className="px-6 py-4 flex items-center justify-between"
+                style={{ background: colors.goldBg, borderBottom: `2px solid ${colors.gold}` }}>
+                <button
+                  onClick={() => setDocsExpanded(!docsExpanded)}
+                  className="flex items-center gap-3 font-semibold transition"
+                  style={{ color: colors.gold }}
+                >
                   <Paperclip className="w-5 h-5" />
                   Documents
                   <span className="ml-2 text-sm" style={{ opacity: 0.7 }}>({documents.length})</span>
+                  {docsExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </button>
+                <button
+                  onClick={() => setShowDocRequest(!showDocRequest)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  style={{ background: colors.gold, color: '#FFFFFF' }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Request Doc
+                </button>
+              </div>
+
+              {/* DOCUMENT REQUEST FORM */}
+              {showDocRequest && (
+                <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}`, background: colors.inputBg }}>
+                  <p className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>
+                    Request a document from {agent?.first_name || 'agent'}
+                  </p>
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium mb-1" style={{ color: colors.textMuted }}>Document Type</label>
+                    <select
+                      value={docRequestType}
+                      onChange={(e) => setDocRequestType(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{
+                        background: colors.cardBg,
+                        borderColor: colors.inputBorder,
+                        color: colors.inputText,
+                      }}
+                    >
+                      <option value="">Select document type...</option>
+                      {DOCUMENT_TYPES.map(dt => (
+                        <option key={dt.value} value={dt.value}>{dt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium mb-1" style={{ color: colors.textMuted }}>Message (optional)</label>
+                    <textarea
+                      value={docRequestMessage}
+                      onChange={(e) => setDocRequestMessage(e.target.value)}
+                      placeholder="Add any instructions or context for the agent..."
+                      className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none"
+                      style={{
+                        background: colors.cardBg,
+                        borderColor: colors.inputBorder,
+                        color: colors.inputText,
+                        minHeight: '60px',
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleRequestDocument}
+                      disabled={docRequestSending || !docRequestType}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
+                      style={{ background: colors.gold }}
+                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.opacity = '0.9' }}
+                      onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                    >
+                      <Send className="w-4 h-4" />
+                      {docRequestSending ? 'Sending...' : 'Send Request'}
+                    </button>
+                    <button
+                      onClick={() => { setShowDocRequest(false); setDocRequestType(''); setDocRequestMessage('') }}
+                      className="px-4 py-2 rounded-lg font-medium transition"
+                      style={{ background: colors.border, color: colors.textPrimary }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-                {docsExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-              </button>
+              )}
 
               {docsExpanded && (
                 <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: colors.border }}>
@@ -1081,25 +1173,6 @@ export default function DealDetailPage() {
           </div>
         </div>
 
-        {/* DELETE DEAL — simple confirm for testing phase */}
-        <div className="text-center py-8">
-          <button
-            onClick={async () => {
-              if (!confirm(`Delete deal "${deal.property_address}"? This cannot be undone.`)) return
-              setDeleting(true)
-              const result = await deleteDeal({ dealId: deal.id })
-              if (result.success) { router.push('/admin') }
-              else { setStatusMessage({ type: 'error', text: result.error || 'Failed to delete deal' }); setDeleting(false) }
-            }}
-            disabled={deleting}
-            className="text-sm font-medium transition-colors disabled:opacity-50"
-            style={{ color: colors.errorText }}
-            onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
-            onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
-          >
-            {deleting ? 'Deleting...' : 'Delete Deal'}
-          </button>
-        </div>
       </main>
     </div>
   )

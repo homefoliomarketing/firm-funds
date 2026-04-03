@@ -19,6 +19,7 @@ import {
   sendNewDealNotification,
   sendStatusChangeNotification,
   sendDocumentUploadedNotification,
+  sendDocumentRequestNotification,
 } from '@/lib/email'
 
 // ============================================================================
@@ -893,6 +894,71 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
     return { success: true }
   } catch (err: any) {
     console.error('Deal delete error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Server Action: Request document from agent (admin only)
+// ============================================================================
+
+export async function requestDocument(input: {
+  dealId: string
+  documentType: string
+  message?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Validate document type
+    if (!(VALID_DOCUMENT_TYPE_VALUES as readonly string[]).includes(input.documentType)) {
+      return { success: false, error: 'Invalid document type' }
+    }
+
+    // Fetch deal + agent info
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, property_address, agent_id')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('first_name, email')
+      .eq('id', deal.agent_id)
+      .single()
+
+    if (!agent?.email) return { success: false, error: 'Agent email not found' }
+
+    // Send the email notification
+    await sendDocumentRequestNotification({
+      dealId: deal.id,
+      propertyAddress: deal.property_address,
+      documentType: input.documentType,
+      agentEmail: agent.email,
+      agentFirstName: agent.first_name,
+      message: input.message?.trim() || undefined,
+    })
+
+    // Audit log
+    await logAuditEvent({
+      action: 'document.request',
+      entityType: 'deal',
+      entityId: deal.id,
+      metadata: {
+        document_type: input.documentType,
+        message: input.message?.trim() || null,
+        requested_by: user.id,
+        agent_email: agent.email,
+      },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Document request error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

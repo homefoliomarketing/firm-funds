@@ -88,14 +88,14 @@ export default function LoginPage() {
       <div className="relative max-w-md w-full mx-4">
         {/* Logo / Brand Area */}
         <div className="text-center mb-8">
-          <img src="/brand/white.png" alt="Firm Funds" className="h-48 w-auto mx-auto mb-5" />
+          <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 md:h-48 w-auto mx-auto mb-5" />
           <p className="text-sm font-medium tracking-wide" style={{ color: '#5FA873', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
             Commission Advance Portal
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="rounded-2xl shadow-2xl p-8" style={{ background: colors.cardBg, boxShadow: `0 25px 60px ${colors.shadowColor}` }}>
+        <div className="rounded-2xl shadow-2xl p-5 sm:p-8" style={{ background: colors.cardBg, boxShadow: `0 25px 60px ${colors.shadowColor}` }}>
           <form onSubmit={handleLogin} className="space-y-5">
             {error && (
               <div className="px-4 py-3 rounded-lg text-sm" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }}>
