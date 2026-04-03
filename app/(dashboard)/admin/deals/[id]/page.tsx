@@ -57,75 +57,213 @@ function loadPdfJs(): Promise<any> {
   return promise
 }
 
+const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2, 2.5, 3]
+const DEFAULT_ZOOM_INDEX = 1 // starts at 1x
+
 function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const pdfRef = useRef<any>(null)
   const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading')
-  const renderedRef = useRef(false)
+  const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX)
+  const [numPages, setNumPages] = useState(0)
 
+  // Load the PDF document once
   useEffect(() => {
-    if (renderedRef.current) return
-    renderedRef.current = true
-
     let cancelled = false
 
-    async function render() {
+    async function load() {
       try {
         const pdfjsLib = await loadPdfJs()
-        if (cancelled || !containerRef.current) return
-
+        if (cancelled) return
         const pdf = await pdfjsLib.getDocument({ data: pdfData.slice(0) }).promise
-        if (cancelled || !containerRef.current) return
-
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i)
-          const scale = 1.5
-          const viewport = page.getViewport({ scale })
-
-          const canvas = document.createElement('canvas')
-          canvas.width = viewport.width
-          canvas.height = viewport.height
-          canvas.style.width = '100%'
-          canvas.style.height = 'auto'
-          canvas.style.display = 'block'
-
-          if (i > 1) {
-            const sep = document.createElement('div')
-            sep.style.height = '4px'
-            sep.style.background = '#333'
-            containerRef.current.appendChild(sep)
-          }
-          containerRef.current.appendChild(canvas)
-
-          const ctx = canvas.getContext('2d')!
-          await page.render({ canvasContext: ctx, viewport }).promise
-        }
-
-        if (!cancelled) setStatus('done')
+        if (cancelled) return
+        pdfRef.current = pdf
+        setNumPages(pdf.numPages)
+        setStatus('done')
       } catch (err) {
-        console.error('PDF render error:', err)
+        console.error('PDF load error:', err)
         if (!cancelled) setStatus('error')
       }
     }
 
-    render()
+    load()
     return () => { cancelled = true }
   }, [pdfData])
 
+  // Render pages whenever zoom changes or PDF loads
+  useEffect(() => {
+    if (status !== 'done' || !pdfRef.current || !containerRef.current) return
+    let cancelled = false
+
+    async function renderPages() {
+      const pdf = pdfRef.current
+      const container = containerRef.current
+      if (!container) return
+
+      // Clear previous canvases (keep the zoom bar by only removing canvas/sep elements)
+      const toRemove = container.querySelectorAll('canvas, .pdf-page-sep')
+      toRemove.forEach((el: Element) => el.remove())
+
+      const scale = ZOOM_LEVELS[zoomIndex]
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        if (cancelled) return
+        const page = await pdf.getPage(i)
+        const viewport = page.getViewport({ scale })
+
+        const canvas = document.createElement('canvas')
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+        canvas.style.display = 'block'
+        // At zoom <= 1.5, fit to width; above that, allow horizontal scroll
+        if (scale <= 1.5) {
+          canvas.style.width = '100%'
+          canvas.style.height = 'auto'
+        } else {
+          canvas.style.width = `${viewport.width}px`
+          canvas.style.height = `${viewport.height}px`
+        }
+
+        if (i > 1) {
+          const sep = document.createElement('div')
+          sep.className = 'pdf-page-sep'
+          sep.style.height = '4px'
+          sep.style.background = '#333'
+          container.appendChild(sep)
+        }
+        container.appendChild(canvas)
+
+        const ctx = canvas.getContext('2d')!
+        await page.render({ canvasContext: ctx, viewport }).promise
+      }
+    }
+
+    renderPages()
+    return () => { cancelled = true }
+  }, [status, zoomIndex])
+
+  const zoomIn = () => setZoomIndex(i => Math.min(i + 1, ZOOM_LEVELS.length - 1))
+  const zoomOut = () => setZoomIndex(i => Math.max(i - 1, 0))
+  const zoomPct = Math.round(ZOOM_LEVELS[zoomIndex] * 100)
+
+  if (status === 'error') {
+    return (
+      <div className="flex items-center justify-center h-full p-6">
+        <p style={{ color: '#E07B7B', fontSize: 14 }}>Failed to render PDF</p>
+      </div>
+    )
+  }
+
   return (
-    <div ref={containerRef} style={{ padding: 0 }}>
-      {status === 'loading' && (
-        <div className="flex items-center justify-center p-8">
-          <div style={{
-            width: 32, height: 32, border: '3px solid #333', borderTopColor: '#5FA873',
-            borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-          }} />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Zoom toolbar */}
+      {status === 'done' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          padding: '6px 12px', borderBottom: '1px solid #333', background: '#1a1a1a', flexShrink: 0,
+        }}>
+          <button
+            onClick={zoomOut}
+            disabled={zoomIndex === 0}
+            style={{
+              width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
+              background: zoomIndex === 0 ? '#222' : '#2a2a2a', color: zoomIndex === 0 ? '#555' : '#ccc',
+              cursor: zoomIndex === 0 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >−</button>
+          <span style={{ color: '#aaa', fontSize: 12, fontWeight: 600, minWidth: 40, textAlign: 'center' }}>
+            {zoomPct}%
+          </span>
+          <button
+            onClick={zoomIn}
+            disabled={zoomIndex === ZOOM_LEVELS.length - 1}
+            style={{
+              width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
+              background: zoomIndex === ZOOM_LEVELS.length - 1 ? '#222' : '#2a2a2a',
+              color: zoomIndex === ZOOM_LEVELS.length - 1 ? '#555' : '#ccc',
+              cursor: zoomIndex === ZOOM_LEVELS.length - 1 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >+</button>
+          {numPages > 0 && (
+            <span style={{ color: '#666', fontSize: 11, marginLeft: 8 }}>
+              {numPages} page{numPages > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
       )}
-      {status === 'error' && (
-        <div className="flex items-center justify-center p-6">
-          <p style={{ color: '#E07B7B', fontSize: 14 }}>Failed to render PDF</p>
-        </div>
-      )}
+      {/* Scrollable PDF content */}
+      <div ref={containerRef} style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+        {status === 'loading' && (
+          <div className="flex items-center justify-center p-8">
+            <div style={{
+              width: 32, height: 32, border: '3px solid #333', borderTopColor: '#5FA873',
+              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+            }} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// Image Zoom Viewer — zoomable image viewer for the side panel
+// ============================================================================
+function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
+  const [zoomIndex, setZoomIndex] = useState(0)
+  const imgZoomLevels = [1, 1.5, 2, 2.5, 3]
+
+  const zoomIn = () => setZoomIndex(i => Math.min(i + 1, imgZoomLevels.length - 1))
+  const zoomOut = () => setZoomIndex(i => Math.max(i - 1, 0))
+  const zoomPct = Math.round(imgZoomLevels[zoomIndex] * 100)
+  const scale = imgZoomLevels[zoomIndex]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        padding: '6px 12px', borderBottom: '1px solid #333', background: '#1a1a1a', flexShrink: 0,
+      }}>
+        <button
+          onClick={zoomOut}
+          disabled={zoomIndex === 0}
+          style={{
+            width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
+            background: zoomIndex === 0 ? '#222' : '#2a2a2a', color: zoomIndex === 0 ? '#555' : '#ccc',
+            cursor: zoomIndex === 0 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >−</button>
+        <span style={{ color: '#aaa', fontSize: 12, fontWeight: 600, minWidth: 40, textAlign: 'center' }}>
+          {zoomPct}%
+        </span>
+        <button
+          onClick={zoomIn}
+          disabled={zoomIndex === imgZoomLevels.length - 1}
+          style={{
+            width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
+            background: zoomIndex === imgZoomLevels.length - 1 ? '#222' : '#2a2a2a',
+            color: zoomIndex === imgZoomLevels.length - 1 ? '#555' : '#ccc',
+            cursor: zoomIndex === imgZoomLevels.length - 1 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >+</button>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center', padding: 8 }}>
+        <img
+          src={src}
+          alt={alt}
+          style={{
+            width: scale === 1 ? '100%' : `${scale * 100}%`,
+            height: 'auto',
+            objectFit: 'contain',
+            borderRadius: 8,
+            transition: 'width 0.15s ease',
+          }}
+        />
+      </div>
     </div>
   )
 }
@@ -1911,16 +2049,9 @@ export default function DealDetailPage() {
             </div>
           </div>
           {/* Panel Content */}
-          <div style={{ flex: 1, overflow: 'auto' }}>
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {viewingDoc.type === 'image' ? (
-              <div className="flex items-center justify-center p-3">
-                <img
-                  src={viewingDoc.blobUrl}
-                  alt={viewingDoc.fileName}
-                  className="max-w-full rounded-lg"
-                  style={{ maxHeight: 'calc(100vh - 60px)', objectFit: 'contain' }}
-                />
-              </div>
+              <ImageZoomViewer src={viewingDoc.blobUrl} alt={viewingDoc.fileName} />
             ) : viewingDoc.pdfData ? (
               <PdfCanvasViewer pdfData={viewingDoc.pdfData} />
             ) : (
