@@ -469,23 +469,22 @@ export default function DealDetailPage() {
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
       {/* HEADER */}
       <header style={{ background: colors.headerBgGradient }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <button onClick={() => router.push('/admin')} className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-lg font-medium tracking-wide" style={{ color: 'white', fontFamily: 'var(--font-geist-sans), sans-serif' }}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
+              <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <button onClick={() => router.push('/admin')} className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors text-sm font-medium" style={{ color: 'white' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                <ArrowLeft className="w-4 h-4" />
-                Back to Deals
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Back
               </button>
             </div>
             <SignOutModal onConfirm={handleLogout} />
           </div>
           <div>
-            <h1 className="text-3xl font-bold mb-2" style={{ color: 'white' }}>{deal.property_address}</h1>
-            <p style={{ color: 'rgba(255,255,255,0.8)' }}>Deal ID: {deal.id}</p>
+            <h1 className="text-xl font-bold" style={{ color: 'white' }}>{deal.property_address}</h1>
           </div>
         </div>
       </header>
@@ -505,66 +504,56 @@ export default function DealDetailPage() {
 
       {/* FLAGGED AGENT WARNING BANNER */}
       {agent?.flagged_by_brokerage && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-          <div className="rounded-lg p-4 flex items-center gap-3" style={{
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
+          <div className="rounded-md px-3 py-2 flex items-center gap-2" style={{
             background: '#1a0a0a',
             border: '2px solid #dc2626',
             boxShadow: '0 0 15px rgba(220, 38, 38, 0.3)',
           }}>
-            <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: '#ef4444' }} />
-            <div>
-              <p className="font-bold text-base" style={{ color: '#ef4444' }}>
-                ⚠ AGENT FLAGGED BY BROKERAGE
-              </p>
-              <p className="text-sm mt-0.5" style={{ color: '#fca5a5' }}>
-                {agent.first_name} {agent.last_name} has been flagged by their brokerage. Review this deal carefully before proceeding.
-              </p>
-            </div>
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: '#ef4444' }} />
+            <p className="font-bold text-sm" style={{ color: '#ef4444' }}>
+              ⚠ AGENT FLAGGED BY BROKERAGE — {agent.first_name} {agent.last_name}. Review carefully.
+            </p>
           </div>
         </div>
       )}
 
       {/* OUTSTANDING RECOVERY WARNING BANNER */}
       {agent && agent.outstanding_recovery && agent.outstanding_recovery > 0 && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-          <div className="rounded-lg p-4 flex items-center gap-3" style={{
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
+          <div className="rounded-md px-3 py-2 flex items-center gap-2" style={{
             background: '#1a1400',
             border: '2px solid #d97706',
             boxShadow: '0 0 15px rgba(217, 119, 6, 0.2)',
           }}>
-            <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: '#f59e0b' }} />
-            <div>
-              <p className="font-bold text-base" style={{ color: '#f59e0b' }}>
-                OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-sm mt-0.5" style={{ color: '#fcd34d' }}>
-                {agent.first_name} {agent.last_name} has an unrecovered balance from a previous deal.
-              </p>
-            </div>
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: '#f59e0b' }} />
+            <p className="font-bold text-sm" style={{ color: '#f59e0b' }}>
+              OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })} — {agent.first_name} {agent.last_name}
+            </p>
           </div>
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* DEAL PIPELINE */}
-        <div className="mb-6">
-          <div className="flex justify-between mb-2">
-            <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>Deal Pipeline</span>
-            <span className="text-sm" style={{ color: colors.textMuted }}>{checklistPct}% complete</span>
+        <div className="mb-3">
+          <div className="flex justify-between mb-1">
+            <span className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Pipeline</span>
+            <span className="text-xs" style={{ color: colors.textMuted }}>{checklistPct}%</span>
           </div>
-          <div className="w-full rounded-full h-2" style={{ background: colors.border }}>
-            <div className="h-2 rounded-full transition-all" style={{ width: `${checklistPct}%`, background: colors.gold }} />
+          <div className="w-full rounded-full h-1.5" style={{ background: colors.border }}>
+            <div className="h-1.5 rounded-full transition-all" style={{ width: `${checklistPct}%`, background: colors.gold }} />
           </div>
         </div>
 
         {/* STICKY ACTION BAR */}
-        <div className="sticky top-0 z-20 mb-6 rounded-lg p-4" style={{
+        <div className="sticky top-0 z-20 mb-4 rounded-lg px-3 py-2" style={{
           background: colors.cardBg,
           border: `1px solid ${colors.border}`,
           boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
         }}>
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
               {statusBadge(deal.status) && (
                 <div style={statusBadge(deal.status)}>
                   {STATUS_LABELS[deal.status]}
@@ -572,7 +561,7 @@ export default function DealDetailPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {/* Forward transitions */}
               {nextStatuses.filter(s => !isBackwardTransition(s)).map(status => {
                 const config = ACTION_CONFIG[status]
@@ -583,7 +572,7 @@ export default function DealDetailPage() {
                     key={status}
                     onClick={() => handleStatusChange(status)}
                     disabled={updating}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white transition disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
                     style={{ background: config.bg }}
                     onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = config.hoverBg }}
                     onMouseLeave={(e) => e.currentTarget.style.background = config.bg}
@@ -703,13 +692,13 @@ export default function DealDetailPage() {
 
         {/* EFT SECTION - ONLY FOR FUNDED/REPAID */}
         {['funded', 'repaid'].includes(deal.status) && (
-          <div className="mb-8 rounded-xl p-6" style={{
+          <div className="mb-4 rounded-lg p-4" style={{
             background: colors.cardBg,
             border: `1px solid ${colors.border}`,
           }}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <Banknote className="w-6 h-6" style={{ color: colors.gold }} />
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <Banknote className="w-4 h-4" style={{ color: colors.gold }} />
                 EFT Transfers
               </h2>
               <button
@@ -839,121 +828,121 @@ export default function DealDetailPage() {
         )}
 
         {/* MAIN CONTENT GRID - Deal Details, Financial, Admin Notes (left 2/3) + Agent/Brokerage (right 1/3) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+          <div className="lg:col-span-2 space-y-4">
             {/* DEAL DETAILS */}
-            <div className="rounded-xl p-6" style={{
+            <div className="rounded-lg p-4" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <FileText className="w-5 h-5" style={{ color: colors.gold }} />
+              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <FileText className="w-4 h-4" style={{ color: colors.gold }} />
                 Deal Details
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Property Address</p>
-                  <p className="font-semibold flex items-start gap-2 mt-1" style={{ color: colors.textPrimary }}>
-                    <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Property Address</p>
+                  <p className="text-sm font-medium flex items-start gap-1" style={{ color: colors.textPrimary }}>
+                    <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
                     {deal.property_address}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Closing Date</p>
-                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Closing Date</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Days Until Closing</p>
-                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Days Until Closing</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p>
                 </div>
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Source</p>
-                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{deal.source}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Source</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.source}</p>
                 </div>
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Created</p>
-                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{formatDateTime(deal.created_at)}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Created</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDateTime(deal.created_at)}</p>
                 </div>
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Last Updated</p>
-                  <p className="font-semibold mt-1" style={{ color: colors.textPrimary }}>{formatDateTime(deal.updated_at)}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Last Updated</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDateTime(deal.updated_at)}</p>
                 </div>
               </div>
               {deal.denial_reason && (
-                <div className="mt-6 p-4 rounded-lg" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
-                  <p className="text-sm font-medium" style={{ color: colors.errorText }}>Denial Reason</p>
-                  <p className="mt-2" style={{ color: colors.errorText }}>{deal.denial_reason}</p>
+                <div className="mt-3 p-2 rounded" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
+                  <p className="text-xs font-medium" style={{ color: colors.errorText }}>Denial Reason</p>
+                  <p className="text-sm mt-1" style={{ color: colors.errorText }}>{deal.denial_reason}</p>
                 </div>
               )}
             </div>
 
             {/* FINANCIAL BREAKDOWN */}
-            <div className="rounded-xl p-6" style={{
+            <div className="rounded-lg p-4" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <DollarSign className="w-5 h-5" style={{ color: colors.gold }} />
+              <h2 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <DollarSign className="w-4 h-4" style={{ color: colors.gold }} />
                 Financial Breakdown
               </h2>
-              <div className="space-y-3">
-                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <div className="space-y-1">
+                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textMuted }}>Gross Commission</span>
-                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span>
+                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span>
                 </div>
-                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textMuted }}>Brokerage Split</span>
-                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{deal.brokerage_split_pct}%</span>
+                  <span className="font-medium" style={{ color: colors.textPrimary }}>{deal.brokerage_split_pct}%</span>
                 </div>
-                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textMuted }}>Net Commission</span>
-                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span>
+                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span>
                 </div>
-                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textMuted }}>Discount Fee</span>
-                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.discount_fee)}</span>
+                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.discount_fee)}</span>
                 </div>
-                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textMuted }}>Advance Amount</span>
                   <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.advance_amount)}</span>
                 </div>
-                <div className="flex justify-between pb-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
                   <span style={{ color: colors.textMuted }}>Brokerage Referral Fee</span>
-                  <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(deal.brokerage_referral_fee)}</span>
+                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.brokerage_referral_fee)}</span>
                 </div>
-                <div className="flex justify-between pt-3 rounded-lg p-3" style={{ background: colors.goldBg }}>
+                <div className="flex justify-between rounded px-2 py-1.5 text-sm mt-1" style={{ background: colors.goldBg }}>
                   <span className="font-semibold" style={{ color: colors.gold }}>Amount Due from Brokerage</span>
-                  <span className="font-bold text-lg" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
+                  <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
                 </div>
               </div>
             </div>
 
             {/* ADMIN NOTES */}
-            <div className="rounded-xl p-6" style={{
+            <div className="rounded-lg p-4" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <StickyNote className="w-5 h-5" style={{ color: colors.gold }} />
+              <h2 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <StickyNote className="w-4 h-4" style={{ color: colors.gold }} />
                 Admin Notes
               </h2>
               <textarea
                 value={adminNotes}
                 onChange={(e) => setAdminNotes(e.target.value)}
                 placeholder="Internal notes (not visible to agents)..."
-                className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none mb-3"
+                className="w-full px-3 py-2 rounded border text-sm resize-none focus:outline-none mb-2"
                 style={{
                   background: colors.inputBg,
                   borderColor: colors.inputBorder,
                   color: colors.inputText,
-                  minHeight: '120px',
+                  minHeight: '80px',
                 }}
               />
               <div className="flex items-center justify-between">
                 <button
                   onClick={handleSaveAdminNotes}
                   disabled={adminNotesSaving}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors"
                   style={{ background: '#3D5A99' }}
                   onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#2D4A89' }}
                   onMouseLeave={(e) => e.currentTarget.style.background = '#3D5A99'}
@@ -961,7 +950,7 @@ export default function DealDetailPage() {
                   {adminNotesSaving ? 'Saving...' : 'Save Notes'}
                 </button>
                 {adminNotesLastSaved && (
-                  <p className="text-sm" style={{ color: colors.textMuted }}>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>
                     Saved: {formatDateTime(adminNotesLastSaved)}
                   </p>
                 )}
@@ -970,100 +959,100 @@ export default function DealDetailPage() {
           </div>
 
           {/* AGENT & BROKERAGE CARDS (right 1/3) */}
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* AGENT CARD */}
-            <div className="rounded-xl p-6" style={{
+            <div className="rounded-lg p-4" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <User className="w-5 h-5" style={{ color: colors.gold }} />
+              <h3 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <User className="w-4 h-4" style={{ color: colors.gold }} />
                 Agent
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-1.5">
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Name</p>
-                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Name</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
                 </div>
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Email</p>
-                  <p className="font-semibold break-all" style={{ color: colors.textPrimary }}>{agent.email}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Email</p>
+                  <p className="text-sm font-medium break-all" style={{ color: colors.textPrimary }}>{agent.email}</p>
                 </div>
                 {agent.phone && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>Phone</p>
-                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.phone}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Phone</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.phone}</p>
                   </div>
                 )}
                 {agent.reco_number && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>RECO Number</p>
-                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.reco_number}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>RECO #</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.reco_number}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Status</p>
-                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{agent.status}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Status</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.status}</p>
                 </div>
                 {agent.flagged_by_brokerage && (
-                  <div className="p-2 rounded-lg" style={{ background: colors.warningBg }}>
-                    <p className="text-sm font-medium" style={{ color: colors.warningText }}>Flagged by Brokerage</p>
+                  <div className="px-2 py-1 rounded" style={{ background: colors.warningBg }}>
+                    <p className="text-xs font-medium" style={{ color: colors.warningText }}>Flagged by Brokerage</p>
                   </div>
                 )}
                 {agent.outstanding_recovery !== null && agent.outstanding_recovery > 0 && (
-                  <div className="p-2 rounded-lg" style={{ background: colors.errorBg }}>
-                    <p className="text-sm font-medium" style={{ color: colors.errorText }}>Outstanding Recovery: {formatCurrency(agent.outstanding_recovery)}</p>
+                  <div className="px-2 py-1 rounded" style={{ background: colors.errorBg }}>
+                    <p className="text-xs font-medium" style={{ color: colors.errorText }}>Recovery: {formatCurrency(agent.outstanding_recovery)}</p>
                   </div>
                 )}
               </div>
             </div>
 
             {/* BROKERAGE CARD */}
-            <div className="rounded-xl p-6" style={{
+            <div className="rounded-lg p-4" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <Building2 className="w-5 h-5" style={{ color: colors.gold }} />
+              <h3 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <Building2 className="w-4 h-4" style={{ color: colors.gold }} />
                 Brokerage
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-1.5">
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Name</p>
-                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.name}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Name</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.name}</p>
                 </div>
                 {brokerage.brand && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>Brand</p>
-                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.brand}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Brand</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.brand}</p>
                   </div>
                 )}
                 {brokerage.address && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>Address</p>
-                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.address}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Address</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.address}</p>
                   </div>
                 )}
                 {brokerage.phone && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>Phone</p>
-                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.phone}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Phone</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.phone}</p>
                   </div>
                 )}
                 {brokerage.email && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>Email</p>
-                    <p className="font-semibold break-all" style={{ color: colors.textPrimary }}>{brokerage.email}</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Email</p>
+                    <p className="text-sm font-medium break-all" style={{ color: colors.textPrimary }}>{brokerage.email}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-sm" style={{ color: colors.textMuted }}>Status</p>
-                  <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.status}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted }}>Status</p>
+                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.status}</p>
                 </div>
                 {brokerage.referral_fee_percentage !== null && (
                   <div>
-                    <p className="text-sm" style={{ color: colors.textMuted }}>Referral Fee %</p>
-                    <p className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.referral_fee_percentage}%</p>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Referral Fee %</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.referral_fee_percentage}%</p>
                   </div>
                 )}
               </div>
@@ -1072,8 +1061,8 @@ export default function DealDetailPage() {
         </div>
 
         {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS RIGHT) */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-6" style={{ color: colors.textPrimary }}>Underwriting</h2>
+        <div className="mb-4">
+          <h2 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Underwriting</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* LEFT: CHECKLIST */}
             <div className="space-y-2">
@@ -1150,21 +1139,21 @@ export default function DealDetailPage() {
             </div>
 
             {/* RIGHT: DOCUMENTS */}
-            <div className="rounded-xl overflow-hidden" style={{
+            <div className="rounded-lg overflow-hidden" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <div className="px-6 py-4 flex items-center justify-between"
-                style={{ background: colors.goldBg, borderBottom: `2px solid ${colors.gold}` }}>
+              <div className="px-4 py-2.5 flex items-center justify-between"
+                style={{ background: colors.goldBg, borderBottom: `1px solid ${colors.gold}` }}>
                 <button
                   onClick={() => setDocsExpanded(!docsExpanded)}
-                  className="flex items-center gap-3 font-semibold transition"
+                  className="flex items-center gap-2 text-sm font-semibold transition"
                   style={{ color: colors.gold }}
                 >
-                  <Paperclip className="w-5 h-5" />
+                  <Paperclip className="w-4 h-4" />
                   Documents
-                  <span className="ml-2 text-sm" style={{ opacity: 0.7 }}>({documents.length})</span>
-                  {docsExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                  <span className="ml-1 text-xs font-normal" style={{ opacity: 0.7 }}>({documents.length})</span>
+                  {docsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={() => setShowDocRequest(!showDocRequest)}

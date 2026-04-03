@@ -111,18 +111,18 @@ export default function AdminDashboard() {
             <div className="h-6 w-36 rounded-md animate-pulse" style={{ background: 'rgba(255,255,255,0.1)' }} />
           </div>
         </header>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="h-8 w-64 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
-          <div className="h-4 w-48 rounded mb-8 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
+          <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             {[1,2,3,4].map(i => (
-              <div key={i} className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                <div className="h-3 w-24 rounded animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-9 w-20 rounded-lg animate-pulse" style={{ background: colors.skeletonBase }} />
+              <div key={i} className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+                <div className="h-3 w-20 rounded animate-pulse mb-2" style={{ background: colors.skeletonHighlight }} />
+                <div className="h-7 w-16 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
               </div>
             ))}
           </div>
-          <div className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+          <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
             {[1,2,3,4,5].map(i => (
               <div key={i} className="flex gap-4 mb-4">
                 <div className="h-4 flex-1 rounded animate-pulse" style={{ background: colors.skeletonHighlight }} />
@@ -172,28 +172,28 @@ export default function AdminDashboard() {
       {/* Header */}
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Admin Dashboard</p>
+          <div className="flex justify-between items-center py-3">
+            <div className="flex items-center gap-3">
+              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
+              <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-sm font-medium tracking-wide text-white">Admin Dashboard</p>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Welcome + Time Range Toggle */}
-        <div className="flex items-end justify-between mb-8">
+        <div className="flex items-end justify-between mb-4">
           <div>
-            <h2 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>
+            <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
               Welcome back, {profile?.full_name?.split(' ')[0]}
             </h2>
-            <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds{kpiRange === 'all' ? '' : ` — ${kpiRangeLabel[kpiRange].toLowerCase()}`}.</p>
+            <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds{kpiRange === 'all' ? '' : ` — ${kpiRangeLabel[kpiRange].toLowerCase()}`}.</p>
           </div>
           <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
             {(['day', 'week', 'month', 'year', 'all'] as const).map((range) => (
@@ -215,7 +215,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           {[
             { label: 'Total Deals', value: filteredStats.totalDeals.toString(), icon: FileText, accent: '#5FA873', link: null },
             { label: 'Total Advanced', value: formatCurrency(filteredStats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
@@ -224,7 +224,7 @@ export default function AdminDashboard() {
           ].map((card) => (
             <div
               key={card.label}
-              className={`rounded-xl p-6 transition-all hover:shadow-lg ${card.link ? 'cursor-pointer' : ''}`}
+              className={`rounded-lg px-4 py-3 transition-all hover:shadow-lg ${card.link ? 'cursor-pointer' : ''}`}
               style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
               onClick={() => { if (card.link) router.push(card.link) }}
               onMouseEnter={(e) => { if (card.link) e.currentTarget.style.borderColor = card.accent }}
@@ -233,37 +233,37 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-3xl font-black mt-2" style={{ color: colors.textPrimary }}>{card.value}</p>
+                  <p className="text-xl font-black mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
                 </div>
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={22} style={{ color: card.accent }} />
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
+                  <card.icon size={18} style={{ color: card.accent }} />
                 </div>
               </div>
-              {card.link && <p className="text-xs mt-2 font-medium" style={{ color: card.accent }}>Click to manage →</p>}
+              {card.link && <p className="text-xs mt-1 font-medium" style={{ color: card.accent }}>Manage →</p>}
             </div>
           ))}
         </div>
 
         {/* Management Quick Links */}
-        <div className="flex flex-wrap gap-3 mb-8">
+        <div className="flex flex-wrap gap-2 mb-4">
           <button
             onClick={() => router.push('/admin/brokerages')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
             style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
             onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
             onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
           >
-            <Building2 size={16} style={{ color: colors.gold }} />
+            <Building2 size={14} style={{ color: colors.gold }} />
             Manage Brokerages
           </button>
           <button
             onClick={() => router.push('/admin/reports')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
             style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
             onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
             onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
           >
-            <BarChart3 size={16} style={{ color: colors.gold }} />
+            <BarChart3 size={14} style={{ color: colors.gold }} />
             Reports
           </button>
         </div>
@@ -272,7 +272,7 @@ export default function AdminDashboard() {
             and priority-sorted deal table handle the workflow cleanly */}
 
         {/* Status Filter Tabs */}
-        <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex flex-wrap gap-1.5 mb-3">
           {[
             { label: 'All', value: null },
             { label: 'Under Review', value: 'under_review' },
@@ -331,10 +331,10 @@ export default function AdminDashboard() {
           const paged = filtered.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
 
           return (
-            <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-              <div className="px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <div className="flex items-center gap-3">
-                  <h3 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+            <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+              <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>
                     {statusFilter ? `${statusFilter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} Deals` : 'All Deals'}
                   </h3>
                   {statusFilter && (
@@ -379,12 +379,12 @@ export default function AdminDashboard() {
                   <table className="w-full">
                     <thead>
                       <tr style={{ background: colors.tableHeaderBg }}>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Commission</th>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing Date</th>
-                        <th className="px-6 py-3.5 w-10"></th>
+                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Commission</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing</th>
+                        <th className="px-4 py-2 w-8"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -397,19 +397,19 @@ export default function AdminDashboard() {
                           onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          <td className="px-6 py-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
+                          <td className="px-4 py-2.5">
                             <span
-                              className="inline-flex px-2.5 py-1 text-xs font-semibold rounded-md"
+                              className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
                               style={getStatusBadgeStyle(deal.status)}
                             >
                               {formatStatusLabel(deal.status)}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
-                          <td className="px-6 py-4 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
-                          <td className="px-6 py-4 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
-                          <td className="px-6 py-4"><ChevronRight size={16} style={{ color: colors.textFaint }} /></td>
+                          <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
+                          <td className="px-4 py-2.5 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
+                          <td className="px-4 py-2.5 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
+                          <td className="px-4 py-2.5"><ChevronRight size={14} style={{ color: colors.textFaint }} /></td>
                         </tr>
                       ))}
                     </tbody>

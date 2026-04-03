@@ -277,14 +277,14 @@ export default function BrokerageDashboard() {
             <div className="h-6 w-36 rounded-md animate-pulse" style={{ background: 'rgba(255,255,255,0.1)' }} />
           </div>
         </header>
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="h-8 w-56 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
-          <div className="h-4 w-40 rounded mb-8 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
+          <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             {[1,2,3,4].map(i => (
-              <div key={i} className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                <div className="h-3 w-24 rounded animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-9 w-20 rounded-lg animate-pulse" style={{ background: colors.skeletonBase }} />
+              <div key={i} className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+                <div className="h-3 w-20 rounded animate-pulse mb-2" style={{ background: colors.skeletonHighlight }} />
+                <div className="h-7 w-16 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
               </div>
             ))}
           </div>
@@ -298,33 +298,33 @@ export default function BrokerageDashboard() {
       {/* Header */}
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10 hidden sm:block" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <p className="text-sm sm:text-lg font-medium tracking-wide text-white hidden sm:block" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+          <div className="flex justify-between items-center py-3">
+            <div className="flex items-center gap-3">
+              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
+              <div className="w-px h-8 hidden sm:block" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-xs sm:text-sm font-medium tracking-wide text-white hidden sm:block">
                 Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm hidden sm:inline" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs hidden sm:inline" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Welcome */}
-        <div className="mb-8">
-          <h2 className="text-xl sm:text-2xl font-bold" style={{ color: colors.textPrimary }}>
+        <div className="mb-4">
+          <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h2>
-          <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Manage your brokerage&apos;s commission advance activity.</p>
+          <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Manage your brokerage&apos;s commission advance activity.</p>
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           {[
             {
               label: 'Deals Submitted',
@@ -361,18 +361,18 @@ export default function BrokerageDashboard() {
           ].map((card) => (
             <div
               key={card.label}
-              className="rounded-xl p-5 sm:p-6 transition-shadow hover:shadow-lg cursor-pointer"
+              className="rounded-lg px-4 py-3 transition-shadow hover:shadow-lg cursor-pointer"
               style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
               onClick={card.onClick}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-2xl sm:text-3xl font-black mt-2" style={{ color: colors.textPrimary }}>{card.value}</p>
-                  <p className="text-xs mt-1" style={{ color: colors.textFaint }}>{card.subtitle}</p>
+                  <p className="text-xl font-black mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
+                  <p className="text-xs" style={{ color: colors.textFaint }}>{card.subtitle}</p>
                 </div>
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={20} style={{ color: card.accent }} />
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${card.accent}12` }}>
+                  <card.icon size={18} style={{ color: card.accent }} />
                 </div>
               </div>
             </div>
@@ -380,7 +380,7 @@ export default function BrokerageDashboard() {
         </div>
 
         {/* Tabbed Content */}
-        <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+        <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
           <div className="flex overflow-x-auto" style={{ borderBottom: `1px solid ${colors.border}` }}>
             {(['deals', 'agents', 'referrals'] as const).map((tab) => (
               <button
@@ -470,8 +470,8 @@ export default function BrokerageDashboard() {
                       </div>
 
                       {expandedDeal === deal.id && (
-                        <div className="px-4 sm:px-6 pb-6" style={{ background: colors.tableHeaderBg, borderBottom: `1px solid ${colors.divider}` }}>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-5">
+                        <div className="px-4 pb-4" style={{ background: colors.tableHeaderBg, borderBottom: `1px solid ${colors.divider}` }}>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Deal Details</h4>
                               <div className="space-y-2.5 text-sm">
@@ -633,28 +633,28 @@ export default function BrokerageDashboard() {
           {/* REFERRAL FEES TAB                                                */}
           {/* ================================================================ */}
           {activeTab === 'referrals' && (
-            <div className="p-4 sm:p-6">
+            <div className="p-4">
               {/* Summary Cards - Clickable */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div
-                  className="rounded-xl p-5 cursor-pointer transition-opacity hover:opacity-80"
+                  className="rounded-lg px-4 py-3 cursor-pointer transition-opacity hover:opacity-80"
                   style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}
                   onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
                 >
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText, opacity: 0.7 }}>Total Earned</p>
-                  <p className="text-2xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</p>
-                  <p className="text-xs mt-1" style={{ color: colors.successText, opacity: 0.6 }}>{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
-                  {referralFilter === 'earned' && <p className="text-xs mt-2 font-semibold" style={{ color: colors.successText }}>Show All</p>}
+                  <p className="text-xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</p>
+                  <p className="text-xs" style={{ color: colors.successText, opacity: 0.6 }}>{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
+                  {referralFilter === 'earned' && <p className="text-xs mt-1 font-semibold" style={{ color: colors.successText }}>Show All</p>}
                 </div>
                 <div
-                  className="rounded-xl p-5 cursor-pointer transition-opacity hover:opacity-80"
+                  className="rounded-lg px-4 py-3 cursor-pointer transition-opacity hover:opacity-80"
                   style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}
                   onClick={() => setReferralFilter(referralFilter === 'pending' ? 'all' : 'pending')}
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.warningText, opacity: 0.7 }}>Pending (Not Yet Funded)</p>
-                  <p className="text-2xl font-black mt-1" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</p>
-                  <p className="text-xs mt-1" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
-                  {referralFilter === 'pending' && <p className="text-xs mt-2 font-semibold" style={{ color: colors.warningText }}>Show All</p>}
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.warningText, opacity: 0.7 }}>Pending</p>
+                  <p className="text-xl font-black mt-1" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</p>
+                  <p className="text-xs" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
+                  {referralFilter === 'pending' && <p className="text-xs mt-1 font-semibold" style={{ color: colors.warningText }}>Show All</p>}
                 </div>
               </div>
 
