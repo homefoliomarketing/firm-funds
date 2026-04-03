@@ -166,28 +166,19 @@ export default function BrokerageDashboard() {
 
   // Sort deals by workflow priority
   const sortedDeals = useMemo(() => {
+    const getPriority = (deal: Deal) => {
+      if (deal.status === 'under_review' && !dealTradeRecords.has(deal.id)) return 0 // Needs trade record — most urgent
+      if (deal.status === 'under_review') return 1 // Under review, has trade record
+      if (deal.status === 'approved') return 2
+      if (deal.status === 'funded') return 3
+      return 4 // repaid, closed, denied, cancelled
+    }
     const sorted = [...deals]
     sorted.sort((a, b) => {
-      // Priority 1: Needing trade records (under_review/approved WITHOUT trade record)
-      const aNeedsRecord = ['under_review', 'approved'].includes(a.status) && !dealTradeRecords.has(a.id)
-      const bNeedsRecord = ['under_review', 'approved'].includes(b.status) && !dealTradeRecords.has(b.id)
-      if (aNeedsRecord && !bNeedsRecord) return -1
-      if (!aNeedsRecord && bNeedsRecord) return 1
-
-      // Priority 2: under_review/approved WITH trade records
-      const aInProgress = ['under_review', 'approved'].includes(a.status)
-      const bInProgress = ['under_review', 'approved'].includes(b.status)
-      if (aInProgress && !bInProgress) return -1
-      if (!aInProgress && bInProgress) return 1
-
-      // Priority 3: Funded deals
-      const aFunded = a.status === 'funded'
-      const bFunded = b.status === 'funded'
-      if (aFunded && !bFunded) return -1
-      if (!aFunded && bFunded) return 1
-
-      // Priority 4: Repaid/closed/denied/cancelled (bottom)
-      // Both are in same priority, sort by created_at descending
+      const pa = getPriority(a)
+      const pb = getPriority(b)
+      if (pa !== pb) return pa - pb
+      // Same priority — newest first
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
     return sorted
