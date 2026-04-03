@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { calculateDeal } from '@/lib/calculations'
 import { DealSubmissionSchema, DealStatusChangeSchema } from '@/lib/validations'
 import {
@@ -852,7 +852,9 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
       return { success: false, error: 'This deal can no longer be cancelled. Contact support if you need assistance.' }
     }
 
-    const { data: updatedDeal, error: updateError } = await supabase
+    // Use service role client for the update to bypass RLS
+    const adminClient = createServiceRoleClient()
+    const { data: updatedDeal, error: updateError } = await adminClient
       .from('deals')
       .update({ status: 'cancelled' })
       .eq('id', input.dealId)

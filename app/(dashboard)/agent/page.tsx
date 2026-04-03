@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp, PlusCircle, Eye, ChevronRight } from 'lucide-react'
+import { FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp, PlusCircle, Eye, ChevronRight, X } from 'lucide-react'
+import { cancelDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 
@@ -299,7 +300,7 @@ export default function AgentDashboard() {
                         </div>
                       </div>
 
-                      <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
+                      <div className="mt-5 pt-4 flex items-center gap-3" style={{ borderTop: `1px solid ${colors.border}` }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); router.push(`/agent/deals/${deal.id}`) }}
                           className="flex items-center gap-2 text-white px-4 py-2.5 rounded-lg font-medium text-sm transition-colors"
@@ -310,6 +311,27 @@ export default function AgentDashboard() {
                           <Eye size={16} />
                           View Deal & Upload Documents
                         </button>
+                        {['under_review', 'approved'].includes(deal.status) && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              if (!confirm('Are you sure you want to cancel this advance request? This cannot be undone.')) return
+                              const result = await cancelDeal({ dealId: deal.id })
+                              if (result.success) {
+                                setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, status: 'cancelled' } : d))
+                              } else {
+                                alert(result.error || 'Failed to cancel deal')
+                              }
+                            }}
+                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors"
+                            style={{ color: colors.errorText, border: `1px solid ${colors.errorBorder}`, background: colors.errorBg }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = colors.errorBorder}
+                            onMouseLeave={(e) => e.currentTarget.style.background = colors.errorBg}
+                          >
+                            <X size={14} />
+                            Cancel Advance
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
