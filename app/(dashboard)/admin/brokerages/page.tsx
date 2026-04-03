@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent } from '@/lib/actions/admin-actions'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail } from 'lucide-react'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail } from '@/lib/actions/admin-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
@@ -520,6 +520,20 @@ export default function BrokeragesPage() {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to archive agent' })
     }
     setArchivingAgentId(null)
+  }
+
+  const [resendingAgentId, setResendingAgentId] = useState<string | null>(null)
+
+  const handleResendWelcome = async (agentId: string, agentName: string) => {
+    if (!confirm(`Resend welcome email to ${agentName}? This will generate a new temporary password.`)) return
+    setResendingAgentId(agentId)
+    const result = await resendAgentWelcomeEmail({ agentId })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `Welcome email resent to ${agentName}` })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to resend email' })
+    }
+    setResendingAgentId(null)
   }
 
   const handleExpandAgent = async (agentId: string) => {
@@ -1643,6 +1657,19 @@ export default function BrokeragesPage() {
                                             >
                                               <Edit2 size={13} />
                                             </button>
+                                            {agent.status !== 'archived' && (
+                                              <button
+                                                onClick={() => handleResendWelcome(agent.id, `${agent.first_name} ${agent.last_name}`)}
+                                                disabled={resendingAgentId === agent.id}
+                                                className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                                style={{ color: colors.textMuted }}
+                                                onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.color = '#5FA873'; e.currentTarget.style.background = 'rgba(95,168,115,0.1)' } }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent' }}
+                                                title="Resend welcome email"
+                                              >
+                                                <Mail size={13} />
+                                              </button>
+                                            )}
                                             {agent.status !== 'archived' && (
                                               <button
                                                 onClick={() => handleArchiveAgent(agent.id, `${agent.first_name} ${agent.last_name}`)}

@@ -719,6 +719,120 @@ export async function inviteAgent(input: {
 }
 
 // ============================================================================
+// Resend welcome email to an agent (generates new temp password)
+// ============================================================================
+
+export async function resendAgentWelcomeEmail(input: {
+  agentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Get agent details
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, status, brokerage_id')
+      .eq('id', input.agentId)
+      .single()
+
+    if (agentError || !agent) return { success: false, error: 'Agent not found' }
+    if (agent.status === 'archived') return { success: false, error: 'Cannot send email to archived agent' }
+
+    // Get brokerage name
+    const { data: brokerage } = await supabase
+      .from('brokerages')
+      .select('name')
+      .eq('id', agent.brokerage_id)
+      .single()
+
+    const serviceClient = createServiceRoleClient()
+
+    // Check if auth user exists for this agent
+    const { data: profile } = await serviceClient
+      .from('user_profiles')
+      .select('id')
+      .eq('agent_id', agent.id)
+      .maybeSingle()
+
+    const tempPassword = generateTempPassword()
+
+    if (profile) {
+      // Auth user exists — reset their password
+      const { error: pwError } = await serviceClient.auth.admin.updateUserById(profile.id, {
+        password: tempPassword,
+      })
+
+      if (pwError) {
+        console.error('Password reset error:', pwError.message)
+        return { success: false, error: `Failed to reset password: ${pwError.message}` }
+      }
+
+      // Set must_reset_password flag
+      await serviceClient
+        .from('user_profiles')
+        .update({ must_reset_password: true })
+        .eq('id', profile.id)
+
+      // Clear any password_changed metadata so middleware forces change again
+      await serviceClient.auth.admin.updateUserById(profile.id, {
+        user_metadata: { password_changed: false },
+      })
+    } else {
+      // No auth user — create one (agent was added without invite)
+      const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
+        email: agent.email,
+        password: tempPassword,
+        email_confirm: true,
+      })
+
+      if (signUpError || !authData?.user) {
+        return { success: false, error: `Failed to create login: ${signUpError?.message || 'Unknown error'}` }
+      }
+
+      // Create user_profile
+      await serviceClient
+        .from('user_profiles')
+        .insert({
+          id: authData.user.id,
+          email: agent.email,
+          role: 'agent',
+          full_name: `${agent.first_name} ${agent.last_name}`,
+          agent_id: agent.id,
+          brokerage_id: agent.brokerage_id,
+          is_active: true,
+          must_reset_password: true,
+        })
+    }
+
+    // Send the welcome email
+    await sendAgentInviteNotification({
+      agentFirstName: agent.first_name,
+      agentEmail: agent.email,
+      brokerageName: brokerage?.name || 'Your Brokerage',
+      tempPassword,
+    })
+
+    await logAuditEvent({
+      action: 'agent.resend_welcome',
+      entityType: 'agent',
+      entityId: agent.id,
+      metadata: {
+        name: `${agent.first_name} ${agent.last_name}`,
+        email: agent.email,
+        resent_by: user.id,
+        had_existing_login: !!profile,
+      },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Resend welcome email error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // EFT Transfer Tracking
 // ============================================================================
 
