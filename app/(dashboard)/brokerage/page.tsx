@@ -1,9 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Upload, Paperclip, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
+  CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
+  TrendingUp, BarChart3,
+} from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
@@ -53,8 +57,10 @@ export default function BrokerageDashboard() {
   const [loading, setLoading] = useState(true)
   const [uploadingDeal, setUploadingDeal] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [dealTradeRecords, setDealTradeRecords] = useState<Set<string>>(new Set()) // deal IDs that have trade records
+  const [dealTradeRecords, setDealTradeRecords] = useState<Set<string>>(new Set())
   const [dealsPage, setDealsPage] = useState(1)
+  const [referralMonth, setReferralMonth] = useState<string>('all')
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
@@ -127,6 +133,103 @@ export default function BrokerageDashboard() {
     setUploadingDeal(null)
   }
 
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true)
+    try {
+      const params = new URLSearchParams()
+      if (referralMonth === 'all') {
+        params.set('all', 'true')
+      } else {
+        params.set('month', referralMonth)
+      }
+      const res = await fetch(`/api/reports/referral-fees?${params.toString()}`)
+      if (!res.ok) throw new Error('Failed to generate report')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = res.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'referral_fees.pdf'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Failed to download report. Please try again.')
+    }
+    setDownloadingPdf(false)
+  }
+
+  // =========================================================================
+  // Computed values
+  // =========================================================================
+
+  const earnedDeals = useMemo(() =>
+    deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status)), [deals])
+  const pendingDeals = useMemo(() =>
+    deals.filter(d => ['under_review', 'approved'].includes(d.status)), [deals])
+  const totalReferralFees = useMemo(() =>
+    earnedDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [earnedDeals])
+  const pendingReferralFees = useMemo(() =>
+    pendingDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [pendingDeals])
+
+  // Available months for filter (from deal closing dates)
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>()
+    deals.forEach(d => {
+      if (['funded', 'repaid', 'closed', 'under_review', 'approved'].includes(d.status) && d.closing_date) {
+        months.add(d.closing_date.slice(0, 7)) // YYYY-MM
+      }
+    })
+    return Array.from(months).sort().reverse()
+  }, [deals])
+
+  // Filtered referral deals by month
+  const filteredReferralDeals = useMemo(() => {
+    const allReferral = [...earnedDeals, ...pendingDeals]
+    if (referralMonth === 'all') return allReferral
+    return allReferral.filter(d => d.closing_date?.startsWith(referralMonth))
+  }, [earnedDeals, pendingDeals, referralMonth])
+
+  // Monthly summary for accounting breakdown
+  const monthlySummary = useMemo(() => {
+    const map = new Map<string, { earned: number; pending: number; dealCount: number; pendingCount: number }>()
+    earnedDeals.forEach(d => {
+      const month = d.closing_date?.slice(0, 7) || 'Unknown'
+      const entry = map.get(month) || { earned: 0, pending: 0, dealCount: 0, pendingCount: 0 }
+      entry.earned += d.brokerage_referral_fee
+      entry.dealCount += 1
+      map.set(month, entry)
+    })
+    pendingDeals.forEach(d => {
+      const month = d.closing_date?.slice(0, 7) || 'Unknown'
+      const entry = map.get(month) || { earned: 0, pending: 0, dealCount: 0, pendingCount: 0 }
+      entry.pending += d.brokerage_referral_fee
+      entry.pendingCount += 1
+      map.set(month, entry)
+    })
+    return Array.from(map.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([month, data]) => ({ month, ...data }))
+  }, [earnedDeals, pendingDeals])
+
+  // Average referral fee per deal
+  const avgFeePerDeal = earnedDeals.length > 0 ? totalReferralFees / earnedDeals.length : 0
+
+  // =========================================================================
+  // Format helpers
+  // =========================================================================
+
+  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+  const formatDate = (date: string) => new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+  const formatMonthLabel = (ym: string) => {
+    const [year, month] = ym.split('-').map(Number)
+    return new Date(year, month - 1, 1).toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })
+  }
+
+  // =========================================================================
+  // Loading state
+  // =========================================================================
+
   if (loading) {
     return (
       <div className="min-h-screen" style={{ background: colors.pageBg }}>
@@ -138,7 +241,7 @@ export default function BrokerageDashboard() {
         <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="h-8 w-56 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
           <div className="h-4 w-40 rounded mb-8 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
             {[1,2,3,4].map(i => (
               <div key={i} className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
                 <div className="h-3 w-24 rounded animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />
@@ -151,14 +254,6 @@ export default function BrokerageDashboard() {
     )
   }
 
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
-  const formatDate = (date: string) => new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-
-  // Status badge styles imported from shared constants (getStatusBadgeStyle, formatStatusLabel)
-
-  const totalReferralFees = deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status)).reduce((sum, d) => sum + d.brokerage_referral_fee, 0)
-  const activeDeals = deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length
-
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
       {/* Header */}
@@ -167,13 +262,13 @@ export default function BrokerageDashboard() {
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+              <div className="w-px h-10 hidden sm:block" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <p className="text-sm sm:text-lg font-medium tracking-wide text-white hidden sm:block" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
                 Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}
               </p>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+              <span className="text-sm hidden sm:inline" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
@@ -183,32 +278,57 @@ export default function BrokerageDashboard() {
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Welcome */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>
+          <h2 className="text-xl sm:text-2xl font-bold" style={{ color: colors.textPrimary }}>
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h2>
           <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Manage your brokerage&apos;s commission advance activity.</p>
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-8">
           {[
-            { label: 'Total Deals', value: deals.length.toString(), icon: FileText, accent: '#5FA873' },
-            { label: 'Active Deals', value: activeDeals.toString(), icon: FileText, accent: '#5FA873' },
-            { label: 'Referral Fees Earned', value: formatCurrency(totalReferralFees), icon: DollarSign, accent: '#1A7A2E' },
-            { label: 'Registered Agents', value: agents.length.toString(), icon: Users, accent: '#5FA873' },
+            {
+              label: 'Deals Submitted',
+              value: deals.length.toString(),
+              subtitle: `${pendingDeals.length} in progress`,
+              icon: FileText,
+              accent: '#5FA873',
+            },
+            {
+              label: 'Referral Fees Earned',
+              value: formatCurrency(totalReferralFees),
+              subtitle: `${earnedDeals.length} funded deal${earnedDeals.length !== 1 ? 's' : ''}`,
+              icon: DollarSign,
+              accent: '#1A7A2E',
+            },
+            {
+              label: 'Pending Fees',
+              value: formatCurrency(pendingReferralFees),
+              subtitle: `${pendingDeals.length} deal${pendingDeals.length !== 1 ? 's' : ''} awaiting funding`,
+              icon: TrendingUp,
+              accent: '#92700C',
+            },
+            {
+              label: 'Avg. Fee per Deal',
+              value: earnedDeals.length > 0 ? formatCurrency(avgFeePerDeal) : '—',
+              subtitle: `${agents.filter(a => a.status === 'active').length} active agent${agents.filter(a => a.status === 'active').length !== 1 ? 's' : ''}`,
+              icon: BarChart3,
+              accent: '#5FA873',
+            },
           ].map((card) => (
             <div
               key={card.label}
-              className="rounded-xl p-6 transition-shadow hover:shadow-lg"
+              className="rounded-xl p-5 sm:p-6 transition-shadow hover:shadow-lg"
               style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-3xl font-black mt-2" style={{ color: colors.textPrimary }}>{card.value}</p>
+                  <p className="text-2xl sm:text-3xl font-black mt-2" style={{ color: colors.textPrimary }}>{card.value}</p>
+                  <p className="text-xs mt-1" style={{ color: colors.textFaint }}>{card.subtitle}</p>
                 </div>
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={22} style={{ color: card.accent }} />
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${card.accent}12` }}>
+                  <card.icon size={20} style={{ color: card.accent }} />
                 </div>
               </div>
             </div>
@@ -217,12 +337,12 @@ export default function BrokerageDashboard() {
 
         {/* Tabbed Content */}
         <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex" style={{ borderBottom: `1px solid ${colors.border}` }}>
+          <div className="flex overflow-x-auto" style={{ borderBottom: `1px solid ${colors.border}` }}>
             {(['deals', 'agents', 'referrals'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className="px-6 py-3.5 text-sm font-semibold transition-colors"
+                className="px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap"
                 style={activeTab === tab
                   ? { color: colors.gold, borderBottom: `2px solid ${colors.gold}`, marginBottom: '-1px' }
                   : { color: colors.textMuted }
@@ -238,7 +358,7 @@ export default function BrokerageDashboard() {
           {/* Upload Status Message */}
           {uploadMessage && (
             <div
-              className="mx-6 mt-4 p-3 rounded-lg text-sm font-medium"
+              className="mx-4 sm:mx-6 mt-4 p-3 rounded-lg text-sm font-medium"
               style={uploadMessage.type === 'success'
                 ? { background: colors.successBg, border: `1px solid ${colors.successBorder}`, color: colors.successText }
                 : { background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }
@@ -248,7 +368,9 @@ export default function BrokerageDashboard() {
             </div>
           )}
 
-          {/* Deals Tab */}
+          {/* ================================================================ */}
+          {/* DEALS TAB                                                        */}
+          {/* ================================================================ */}
           {activeTab === 'deals' && (
             <>
               {deals.length === 0 ? (
@@ -267,22 +389,22 @@ export default function BrokerageDashboard() {
                   })().map((deal, i) => (
                     <div key={deal.id}>
                       <div
-                        className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
+                        className="px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
                         style={{ borderBottom: i < deals.length - 1 && expandedDeal !== deal.id ? `1px solid ${colors.divider}` : 'none' }}
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
                         onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
-                        <div className="flex-1">
-                          <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
                           <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
                             Agent: {deal.agent?.first_name} {deal.agent?.last_name} | Submitted {formatDate(deal.created_at)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                           {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
                             <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md"
+                              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md"
                               style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}
                             >
                               <AlertTriangle size={11} />
@@ -290,12 +412,12 @@ export default function BrokerageDashboard() {
                             </span>
                           )}
                           <span
-                            className="inline-flex px-2.5 py-1 text-xs font-semibold rounded-md"
+                            className="inline-flex px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md"
                             style={getStatusBadgeStyle(deal.status)}
                           >
                             {formatStatusLabel(deal.status)}
                           </span>
-                          <p className="text-sm font-bold w-28 text-right" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
+                          <p className="text-sm font-bold w-24 sm:w-28 text-right" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
                           {expandedDeal === deal.id
                             ? <ChevronUp size={16} style={{ color: colors.textFaint }} />
                             : <ChevronDown size={16} style={{ color: colors.textFaint }} />
@@ -304,12 +426,12 @@ export default function BrokerageDashboard() {
                       </div>
 
                       {expandedDeal === deal.id && (
-                        <div className="px-6 pb-6" style={{ background: colors.tableHeaderBg, borderBottom: `1px solid ${colors.divider}` }}>
+                        <div className="px-4 sm:px-6 pb-6" style={{ background: colors.tableHeaderBg, borderBottom: `1px solid ${colors.divider}` }}>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-5">
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Deal Details</h4>
                               <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Property</span><span className="font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</span></div>
+                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Property</span><span className="font-medium text-right" style={{ color: colors.textPrimary }}>{deal.property_address}</span></div>
                                 <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Closing Date</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</span></div>
                                 <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Days Until Closing</span><span className="font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing}</span></div>
                               </div>
@@ -369,7 +491,7 @@ export default function BrokerageDashboard() {
                     const totalPages = Math.ceil(deals.length / DEALS_PER_PAGE)
                     const page = Math.min(dealsPage, totalPages)
                     return (
-                      <div className="px-6 py-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}` }}>
+                      <div className="px-4 sm:px-6 py-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}` }}>
                         <p className="text-xs" style={{ color: colors.textMuted }}>
                           Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, deals.length)} of {deals.length}
                         </p>
@@ -400,7 +522,9 @@ export default function BrokerageDashboard() {
             </>
           )}
 
-          {/* Agents Tab */}
+          {/* ================================================================ */}
+          {/* AGENTS TAB                                                       */}
+          {/* ================================================================ */}
           {activeTab === 'agents' && (
             <>
               {agents.length === 0 ? (
@@ -414,36 +538,36 @@ export default function BrokerageDashboard() {
                   {agents.map((agent, i) => (
                     <div
                       key={agent.id}
-                      className="px-6 py-4 flex items-center justify-between transition-colors"
+                      className="px-4 sm:px-6 py-4 flex items-center justify-between transition-colors"
                       style={{ borderBottom: i < agents.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
                       onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
-                      <div>
-                        <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
-                        <p className="text-xs mt-1" style={{ color: colors.textMuted }}>{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
+                        <p className="text-xs mt-1 truncate" style={{ color: colors.textMuted }}>{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</p>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                         {agent.flagged_by_brokerage ? (
                           <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md"
+                            className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md"
                             style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}
                           >
                             <AlertTriangle size={12} />
-                            Flagged
+                            <span className="hidden sm:inline">Flagged</span>
                           </span>
                         ) : (
                           <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md"
+                            className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md"
                             style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}
                           >
                             <CheckCircle size={12} />
-                            Good Standing
+                            <span className="hidden sm:inline">Good Standing</span>
                           </span>
                         )}
                         <button
                           onClick={() => handleToggleFlag(agent.id, agent.flagged_by_brokerage)}
-                          className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
+                          className="text-xs px-2 sm:px-3 py-1.5 rounded-lg font-medium transition-colors"
                           style={agent.flagged_by_brokerage
                             ? { color: colors.successText, border: `1px solid ${colors.successBorder}` }
                             : { color: colors.errorText, border: `1px solid ${colors.errorBorder}` }
@@ -451,7 +575,7 @@ export default function BrokerageDashboard() {
                           onMouseEnter={(e) => e.currentTarget.style.background = agent.flagged_by_brokerage ? colors.successBg : colors.errorBg}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          {agent.flagged_by_brokerage ? 'Remove Flag' : 'Flag Agent'}
+                          {agent.flagged_by_brokerage ? 'Remove Flag' : 'Flag'}
                         </button>
                       </div>
                     </div>
@@ -461,78 +585,186 @@ export default function BrokerageDashboard() {
             </>
           )}
 
-          {/* Referral Fees Tab */}
+          {/* ================================================================ */}
+          {/* REFERRAL FEES TAB                                                */}
+          {/* ================================================================ */}
           {activeTab === 'referrals' && (
-            <>
-              {(() => {
-                const earnedDeals = deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
-                const pendingDeals = deals.filter(d => ['under_review', 'approved'].includes(d.status))
-                const pendingFees = pendingDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0)
-                return (
-                  <div className="p-6">
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      <div className="rounded-xl p-5" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText, opacity: 0.7 }}>Total Earned</p>
-                        <p className="text-2xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</p>
-                        <p className="text-xs mt-1" style={{ color: colors.successText, opacity: 0.6 }}>{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
-                      </div>
-                      <div className="rounded-xl p-5" style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.warningText, opacity: 0.7 }}>Pending (Not Yet Funded)</p>
-                        <p className="text-2xl font-black mt-1" style={{ color: colors.warningText }}>{formatCurrency(pendingFees)}</p>
-                        <p className="text-xs mt-1" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
-                      </div>
-                    </div>
+            <div className="p-4 sm:p-6">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div className="rounded-xl p-5" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText, opacity: 0.7 }}>Total Earned</p>
+                  <p className="text-2xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</p>
+                  <p className="text-xs mt-1" style={{ color: colors.successText, opacity: 0.6 }}>{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
+                </div>
+                <div className="rounded-xl p-5" style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.warningText, opacity: 0.7 }}>Pending (Not Yet Funded)</p>
+                  <p className="text-2xl font-black mt-1" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</p>
+                  <p className="text-xs mt-1" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
+                </div>
+              </div>
 
-                    {/* Fee Breakdown Table */}
-                    {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
-                      <div className="text-center py-8">
-                        <DollarSign className="mx-auto mb-3" size={32} style={{ color: colors.textFaint }} />
-                        <p className="text-sm" style={{ color: colors.textMuted }}>No referral fees yet. Fees are earned when deals are funded.</p>
-                      </div>
-                    ) : (
-                      <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Fee Breakdown by Deal</h4>
-                        <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
-                          <table className="w-full min-w-[600px]">
-                            <thead>
-                              <tr style={{ background: colors.tableHeaderBg }}>
-                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Discount Fee</th>
-                                <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Your Referral Fee</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[...earnedDeals, ...pendingDeals].map((deal, i) => {
-                                const isEarned = ['funded', 'repaid', 'closed'].includes(deal.status)
-                                return (
-                                  <tr key={deal.id} style={{ borderBottom: `1px solid ${colors.divider}` }}>
-                                    <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
-                                    <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{deal.agent?.first_name} {deal.agent?.last_name}</td>
-                                    <td className="px-4 py-3">
-                                      <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
-                                        {formatStatusLabel(deal.status)}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{formatCurrency(deal.discount_fee)}</td>
-                                    <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: isEarned ? colors.successText : colors.warningText }}>
-                                      {formatCurrency(deal.brokerage_referral_fee)}
-                                      {!isEarned && <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>(pending)</span>}
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
+              {/* Monthly Summary Section */}
+              {monthlySummary.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Monthly Summary</h4>
+                  <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+                    <table className="w-full min-w-[480px]">
+                      <thead>
+                        <tr style={{ background: colors.tableHeaderBg }}>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Month</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Funded Deals</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Earned</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Pending Deals</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Pending Fees</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlySummary.map((row, i) => (
+                          <tr key={row.month} style={{ borderBottom: i < monthlySummary.length - 1 ? `1px solid ${colors.divider}` : 'none' }}>
+                            <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatMonthLabel(row.month)}</td>
+                            <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{row.dealCount}</td>
+                            <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>{formatCurrency(row.earned)}</td>
+                            <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{row.pendingCount || '—'}</td>
+                            <td className="px-4 py-3 text-sm text-right" style={{ color: row.pending > 0 ? colors.warningText : colors.textFaint }}>{row.pending > 0 ? formatCurrency(row.pending) : '—'}</td>
+                          </tr>
+                        ))}
+                        {/* Totals */}
+                        <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
+                          <td className="px-4 py-3 text-sm font-bold" style={{ color: colors.textPrimary }}>Total</td>
+                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{earnedDeals.length}</td>
+                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</td>
+                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{pendingDeals.length}</td>
+                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                )
-              })()}
-            </>
+                </div>
+              )}
+
+              {/* Fee Breakdown with Filter + PDF Download */}
+              {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
+                <div className="text-center py-8">
+                  <DollarSign className="mx-auto mb-3" size={32} style={{ color: colors.textFaint }} />
+                  <p className="text-sm" style={{ color: colors.textMuted }}>No referral fees yet. Fees are earned when deals are funded.</p>
+                </div>
+              ) : (
+                <div>
+                  {/* Filter bar + Download */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Fee Breakdown by Deal</h4>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {/* Month filter */}
+                      <div className="flex items-center gap-2">
+                        <Calendar size={14} style={{ color: colors.textMuted }} />
+                        <select
+                          value={referralMonth}
+                          onChange={(e) => setReferralMonth(e.target.value)}
+                          className="text-xs rounded-lg px-3 py-1.5 font-medium"
+                          style={{
+                            background: colors.inputBg,
+                            border: `1px solid ${colors.inputBorder}`,
+                            color: colors.inputText,
+                          }}
+                        >
+                          <option value="all">All Time</option>
+                          {availableMonths.map(m => (
+                            <option key={m} value={m}>{formatMonthLabel(m)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* PDF Download */}
+                      <button
+                        onClick={handleDownloadPdf}
+                        disabled={downloadingPdf}
+                        className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                        style={{
+                          background: colors.gold,
+                          color: '#fff',
+                          opacity: downloadingPdf ? 0.6 : 1,
+                        }}
+                        onMouseEnter={(e) => { if (!downloadingPdf) e.currentTarget.style.background = colors.goldDark }}
+                        onMouseLeave={(e) => e.currentTarget.style.background = colors.gold}
+                      >
+                        <Download size={13} />
+                        {downloadingPdf ? 'Generating...' : 'Download PDF Report'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+                    <table className="w-full min-w-[700px]">
+                      <thead>
+                        <tr style={{ background: colors.tableHeaderBg }}>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing Date</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Net Comm.</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Discount Fee</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Your Referral Fee</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredReferralDeals.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-8 text-center text-sm" style={{ color: colors.textMuted }}>
+                              No deals found for the selected period.
+                            </td>
+                          </tr>
+                        ) : (
+                          <>
+                            {filteredReferralDeals.map((deal) => {
+                              const isEarned = ['funded', 'repaid', 'closed'].includes(deal.status)
+                              return (
+                                <tr key={deal.id} style={{ borderBottom: `1px solid ${colors.divider}` }}>
+                                  <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
+                                  <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{deal.agent?.first_name} {deal.agent?.last_name}</td>
+                                  <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{formatDate(deal.closing_date)}</td>
+                                  <td className="px-4 py-3">
+                                    <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
+                                      {formatStatusLabel(deal.status)}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{formatCurrency(deal.net_commission)}</td>
+                                  <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{formatCurrency(deal.discount_fee)}</td>
+                                  <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: isEarned ? colors.successText : colors.warningText }}>
+                                    {formatCurrency(deal.brokerage_referral_fee)}
+                                    {!isEarned && <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>(pending)</span>}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                            {/* Totals row */}
+                            <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
+                              <td colSpan={4} className="px-4 py-3 text-sm font-bold" style={{ color: colors.textPrimary }}>
+                                Total ({filteredReferralDeals.length} deal{filteredReferralDeals.length !== 1 ? 's' : ''})
+                              </td>
+                              <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>
+                                {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.net_commission, 0))}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>
+                                {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.discount_fee, 0))}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>
+                                {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.brokerage_referral_fee, 0))}
+                              </td>
+                            </tr>
+                          </>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Accounting note */}
+                  <p className="text-xs mt-3" style={{ color: colors.textFaint }}>
+                    Referral fees are earned when deals reach &quot;Funded&quot; status. Download the PDF report for your accounting records.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </main>
