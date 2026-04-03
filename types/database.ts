@@ -145,11 +145,13 @@ export interface DealDocument {
 export interface UnderwritingChecklistItem {
   id: string
   deal_id: string
+  category: string
   checklist_item: string
   is_checked: boolean
   checked_by: string | null
   checked_at: string | null
   notes: string | null
+  sort_order: number
 }
 
 export interface UserProfile {

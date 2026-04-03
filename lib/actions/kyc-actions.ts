@@ -256,6 +256,13 @@ export async function verifyAgentKyc(input: {
     // Use service role to bypass RLS
     const serviceClient = createServiceRoleClient()
 
+    // Fetch the agent's full record (need kyc_document_path for auto-attaching)
+    const { data: fullAgent } = await serviceClient
+      .from('agents')
+      .select('kyc_document_path, kyc_document_type')
+      .eq('id', input.agentId)
+      .single()
+
     const { data: updatedAgent, error: updateError } = await serviceClient
       .from('agents')
       .update({
@@ -273,6 +280,68 @@ export async function verifyAgentKyc(input: {
       return { success: false, error: `Failed to verify agent: ${updateError.message}` }
     }
 
+    // ---------------------------------------------------------------
+    // Auto-check KYC checklist item on all of this agent's deals
+    // ---------------------------------------------------------------
+    try {
+      // Find all deals for this agent
+      const { data: agentDeals } = await serviceClient
+        .from('deals')
+        .select('id')
+        .eq('agent_id', input.agentId)
+
+      if (agentDeals && agentDeals.length > 0) {
+        const dealIds = agentDeals.map(d => d.id)
+
+        // Check off "Agent ID & KYC/FINTRAC verification" in underwriting_checklist
+        await serviceClient
+          .from('underwriting_checklist')
+          .update({
+            is_checked: true,
+            checked_by: profile.full_name || user.email || 'Admin (auto)',
+            checked_at: now,
+            notes: 'Auto-checked: Agent KYC verified',
+          })
+          .in('deal_id', dealIds)
+          .eq('checklist_item', 'Agent ID & KYC/FINTRAC verification')
+
+        // Auto-attach the agent's KYC document to each deal as a kyc_fintrac document
+        if (fullAgent?.kyc_document_path) {
+          for (const deal of agentDeals) {
+            // Check if a kyc_fintrac doc already exists for this deal
+            const { data: existingDoc } = await serviceClient
+              .from('deal_documents')
+              .select('id')
+              .eq('deal_id', deal.id)
+              .eq('document_type', 'kyc_fintrac')
+              .limit(1)
+              .single()
+
+            if (!existingDoc) {
+              const ext = fullAgent.kyc_document_path.split('.').pop() || 'jpg'
+              const fileName = `agent-kyc-id.${ext}`
+
+              await serviceClient
+                .from('deal_documents')
+                .insert({
+                  deal_id: deal.id,
+                  uploaded_by: user.id,
+                  document_type: 'kyc_fintrac',
+                  file_name: fileName,
+                  file_path: `agent-kyc/${fullAgent.kyc_document_path}`,
+                  file_size: 0, // Size unknown from storage reference
+                  upload_source: 'manual_upload',
+                  notes: `Auto-attached: Agent KYC ${fullAgent.kyc_document_type || 'ID'} verified by ${profile.full_name || user.email}`,
+                })
+            }
+          }
+        }
+      }
+    } catch (autoCheckErr: any) {
+      // Non-fatal — log but don't fail the KYC verification
+      console.error('Auto-check KYC checklist error (non-fatal):', autoCheckErr?.message)
+    }
+
     await logAuditEvent({
       action: 'agent.kyc_verify',
       entityType: 'agent',
@@ -280,6 +349,7 @@ export async function verifyAgentKyc(input: {
       metadata: {
         agent_name: `${agent.first_name} ${agent.last_name}`,
         verified_by: profile.full_name || user.email,
+        auto_checked_deals: 'yes',
       },
     })
 

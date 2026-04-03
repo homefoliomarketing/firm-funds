@@ -43,8 +43,8 @@ interface Deal {
 }
 
 interface ChecklistItem {
-  id: string; deal_id: string; checklist_item: string; is_checked: boolean
-  checked_by: string | null; checked_at: string | null; notes: string | null
+  id: string; deal_id: string; category: string; checklist_item: string; is_checked: boolean
+  checked_by: string | null; checked_at: string | null; notes: string | null; sort_order: number
 }
 
 interface DealDocument {
@@ -121,89 +121,49 @@ interface ChecklistCategory {
   matchingDocs: Map<string, DealDocument[]>
 }
 
-const CATEGORY_RULES: { label: string; icon: any; color: string; bg: string; border: string; keywords: string[] }[] = [
-  {
-    label: 'Agent Verification',
-    icon: User,
-    color: '#5B3D99',
-    bg: '#F5F0FF',
-    border: '#D5C5F0',
-    keywords: ['agent', 'kyc', 'fintrac', 'flagged', 'outstanding', 'recovery'],
-  },
-  {
-    label: 'Deal Document Review',
-    icon: FileText,
-    color: '#3D5A99',
-    bg: '#F0F4FF',
-    border: '#C5D3F0',
-    keywords: ['amendment', 'notice of fulfillment', 'waiver', 'closing date', 'commission amount', 'discount fee'],
-  },
-  {
-    label: 'Financial',
-    icon: DollarSign,
-    color: '#92700C',
-    bg: '#FFF8ED',
-    border: '#E8D5A8',
-    keywords: ['void cheque', 'banking information'],
-  },
-  {
-    label: 'Firm Funds Documents',
-    icon: Shield,
-    color: '#2D7A4F',
-    bg: '#F0FFF5',
-    border: '#B5E0C5',
-    keywords: ['commission purchase agreement', 'irrevocable direction to pay'],
-  },
-]
-
-const DOC_TYPE_KEYWORDS: Record<string, string[]> = {
-  aps: ['aps', 'agreement of purchase'],
-  trade_record: ['trade record', 'deal sheet'],
-  mls_listing: ['mls', 'listing'],
-  amendment: ['amendment'],
-  commission_agreement: ['commission agreement'],
-  direction_to_pay: ['direction to pay'],
-  notice_of_fulfillment: ['notice of fulfillment', 'waiver'],
-  kyc_fintrac: ['kyc', 'fintrac'],
-  id_verification: ['id verification', 'identity'],
+// Category display config — keyed by category name stored in DB
+const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; border: string }> = {
+  'Agent Verification': { icon: User, color: '#5B3D99', bg: '#F5F0FF', border: '#D5C5F0' },
+  'Deal Document Review': { icon: FileText, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
+  'Financial': { icon: DollarSign, color: '#92700C', bg: '#FFF8ED', border: '#E8D5A8' },
+  'Firm Funds Documents': { icon: Shield, color: '#2D7A4F', bg: '#F0FFF5', border: '#B5E0C5' },
 }
 
-function categorizeChecklist(items: ChecklistItem[], docs: DealDocument[]): ChecklistCategory[] {
-  const categories: ChecklistCategory[] = CATEGORY_RULES.map(rule => ({
-    ...rule,
-    items: [],
-    matchingDocs: new Map(),
-  }))
-  const uncategorized: ChecklistItem[] = []
+// Fallback style for any category not in the map
+const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: '#666', bg: '#F5F5F5', border: '#DDD' }
 
-  for (const item of items) {
-    const itemLower = item.checklist_item.toLowerCase()
-    let matched = false
-    for (const cat of categories) {
-      const rule = CATEGORY_RULES.find(r => r.label === cat.label)!
-      if (rule.keywords.some(kw => itemLower.includes(kw))) {
-        cat.items.push(item)
-        for (const [docType, keywords] of Object.entries(DOC_TYPE_KEYWORDS)) {
-          if (keywords.some(kw => itemLower.includes(kw))) {
-            const matchingDocs = docs.filter(d => d.document_type === docType)
-            if (matchingDocs.length > 0) {
-              cat.matchingDocs.set(item.id, matchingDocs)
-            }
-          }
-        }
-        matched = true
-        break
-      }
-    }
-    if (!matched) uncategorized.push(item)
+// Category display order
+const CATEGORY_ORDER = ['Agent Verification', 'Deal Document Review', 'Financial', 'Firm Funds Documents']
+
+function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
+  // Group items by their DB category, preserving sort_order within each group
+  const grouped = new Map<string, ChecklistItem[]>()
+  for (const item of items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))) {
+    const cat = item.category || 'Uncategorized'
+    if (!grouped.has(cat)) grouped.set(cat, [])
+    grouped.get(cat)!.push(item)
   }
 
-  if (uncategorized.length > 0) {
-    const target = categories.find(c => c.items.length > 0) || categories[categories.length - 1]
-    target.items.push(...uncategorized)
+  // Build categories in defined order, then append any extras
+  const result: ChecklistCategory[] = []
+  const orderedKeys = [...CATEGORY_ORDER, ...Array.from(grouped.keys()).filter(k => !CATEGORY_ORDER.includes(k))]
+
+  for (const key of orderedKeys) {
+    const catItems = grouped.get(key)
+    if (!catItems || catItems.length === 0) continue
+    const style = CATEGORY_STYLES[key] || DEFAULT_CATEGORY_STYLE
+    result.push({
+      label: key,
+      icon: style.icon,
+      color: style.color,
+      bg: style.bg,
+      border: style.border,
+      items: catItems,
+      matchingDocs: new Map(),
+    })
   }
 
-  return categories.filter(c => c.items.length > 0)
+  return result
 }
 
 const ACTION_CONFIG: Record<string, { label: string; icon: any; bg: string; hoverBg: string }> = {
@@ -525,7 +485,7 @@ export default function DealDetailPage() {
   )
 
   const nextStatuses = STATUS_FLOW[deal.status] || []
-  const categorizedChecklist = categorizeChecklist(checklist, documents)
+  const categorizedChecklist = categorizeChecklist(checklist)
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>

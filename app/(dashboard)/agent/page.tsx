@@ -122,34 +122,11 @@ export default function AgentDashboard() {
   const activeDeals = deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length
   const completedDeals = deals.filter(d => ['repaid', 'closed'].includes(d.status)).length
 
-  // ---- KYC Gate: Show onboarding flow if agent hasn't completed KYC ----
+  // KYC status — used to show banner and block new deal submission
+  const kycPending = agent && agent.kyc_status === 'pending'
+  const kycSubmitted = agent && agent.kyc_status === 'submitted'
+  const kycRejected = agent && agent.kyc_status === 'rejected'
   const kycNotVerified = agent && agent.kyc_status !== 'verified'
-
-  if (kycNotVerified) {
-    return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <header style={{ background: colors.headerBgGradient }}>
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-5">
-              <div className="flex items-center gap-4">
-                <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-                <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-                <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Agent Portal</p>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-sm" style={{ color: colors.gold }}>{profile?.full_name}</span>
-                <SignOutModal onConfirm={handleLogout} />
-              </div>
-            </div>
-          </div>
-        </header>
-        <AgentKycGate
-          agent={agent}
-          onKycSubmitted={() => window.location.reload()}
-        />
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
@@ -171,6 +148,25 @@ export default function AgentDashboard() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* KYC Banner — shown when identity verification is needed */}
+        {(kycPending || kycRejected) && (
+          <AgentKycGate
+            agent={agent}
+            onKycSubmitted={() => window.location.reload()}
+          />
+        )}
+        {kycSubmitted && (
+          <div className="mb-6 rounded-xl p-4 flex items-center gap-3"
+            style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}
+          >
+            <Clock size={18} style={{ color: '#7B9FE0', flexShrink: 0 }} />
+            <div>
+              <p className="text-sm font-medium" style={{ color: '#7B9FE0' }}>Identity verification submitted</p>
+              <p className="text-xs mt-0.5" style={{ color: '#6B8AC0' }}>Your ID is under review. You can browse your dashboard but deal submission is locked until verified.</p>
+            </div>
+          </div>
+        )}
+
         {/* Welcome + New Deal Button */}
         <div className="mb-8 flex justify-between items-start">
           <div>
@@ -182,11 +178,13 @@ export default function AgentDashboard() {
             )}
           </div>
           <button
-            onClick={() => router.push('/agent/new-deal')}
-            className="flex items-center gap-2 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors"
-            style={{ background: colors.headerBgGradient }}
-            onMouseEnter={(e) => e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = colors.headerBgGradient}
+            onClick={() => kycNotVerified ? null : router.push('/agent/new-deal')}
+            disabled={!!kycNotVerified}
+            className="flex items-center gap-2 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: kycNotVerified ? '#333' : colors.headerBgGradient }}
+            onMouseEnter={(e) => { if (!kycNotVerified) e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)' }}
+            onMouseLeave={(e) => { if (!kycNotVerified) e.currentTarget.style.background = colors.headerBgGradient }}
+            title={kycNotVerified ? 'Complete identity verification to submit deals' : 'Submit a new advance request'}
           >
             <PlusCircle size={16} />
             New Advance Request

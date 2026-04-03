@@ -241,30 +241,15 @@ export default function NewDealPage() {
               </div>
             </div>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => router.push('/agent')}
-              className="flex-1 text-white py-2.5 px-4 rounded-lg font-medium text-sm transition-colors"
-              style={{ background: colors.headerBgGradient }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = colors.headerBgGradient}
-            >
-              Back to Dashboard
-            </button>
-            <button
-              onClick={() => {
-                setSubmitted(false); setStreetAddress(''); setCity(''); setProvince('Ontario'); setPostalCode('')
-                setClosingDate(''); setGrossCommission(''); setBrokerageSplitPct(''); setTransactionType('buy'); setNotes(''); setPreview(null)
-                setIsFirm(false); setSelectedFiles([]); setUploadResults([])
-              }}
-              className="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-colors"
-              style={{ border: `1px solid ${colors.border}`, color: colors.textSecondary }}
-              onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-            >
-              Submit Another
-            </button>
-          </div>
+          <button
+            onClick={() => router.push('/agent')}
+            className="w-full text-white py-2.5 px-4 rounded-lg font-medium text-sm transition-colors"
+            style={{ background: colors.headerBgGradient }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = colors.headerBgGradient}
+          >
+            Back to Dashboard
+          </button>
         </div>
       </div>
     )
