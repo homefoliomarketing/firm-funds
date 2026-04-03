@@ -1817,25 +1817,12 @@ export default function DealDetailPage() {
                 />
               </div>
             ) : (
-              <object
-                data={`${viewingDoc.blobUrl}#toolbar=1&navpanes=0`}
-                type="application/pdf"
+              <iframe
+                src={`${viewingDoc.blobUrl}#toolbar=1&navpanes=0`}
+                title={viewingDoc.fileName}
                 className="w-full h-full border-0"
                 style={{ minHeight: 'calc(100vh - 48px)' }}
-              >
-                <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
-                  <p style={{ color: colors.textSecondary }} className="text-sm text-center">
-                    PDF preview not supported in this browser.
-                  </p>
-                  <button
-                    onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                    className="px-4 py-2 rounded text-sm font-medium"
-                    style={{ backgroundColor: colors.gold, color: '#fff' }}
-                  >
-                    Open in New Tab
-                  </button>
-                </div>
-              </object>
+              />
             )}
           </div>
         </div>
