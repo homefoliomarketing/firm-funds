@@ -135,7 +135,7 @@ const CATEGORY_RULES: { label: string; icon: any; color: string; bg: string; bor
     color: '#3D5A99',
     bg: '#F0F4FF',
     border: '#C5D3F0',
-    keywords: ['agreement of purchase', 'amendment', 'notice of fulfillment', 'waiver', 'deal is firm', 'closing date', 'trade record', 'commission amount', 'discount fee'],
+    keywords: ['amendment', 'notice of fulfillment', 'waiver', 'closing date', 'commission amount', 'discount fee'],
   },
   {
     label: 'Financial',
@@ -1318,50 +1318,61 @@ export default function DealDetailPage() {
                   </button>
 
                   {checklistExpanded && (
-                    <div className="divide-y" style={{ borderColor: colors.border }}>
+                    <div>
                       {category.items.map(item => {
                         const matchingDocs = category.matchingDocs.get(item.id) || []
+                        const checked = item.is_checked
                         return (
-                          <div key={item.id} className="px-4 py-2">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleChecklistToggle(item)}
-                                className="flex-shrink-0 transition"
-                              >
-                                {item.is_checked ? (
-                                  <CheckCircle2 className="w-4 h-4" style={{ color: colors.gold }} />
-                                ) : (
-                                  <Circle className="w-4 h-4" style={{ color: colors.textMuted }} />
-                                )}
-                              </button>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm" style={{ color: colors.textPrimary, textDecoration: item.is_checked ? 'line-through' : 'none', opacity: item.is_checked ? 0.6 : 1 }}>
-                                  {item.checklist_item}
-                                </p>
-                                {item.checked_at && (
-                                  <p className="text-xs" style={{ color: colors.textMuted }}>
-                                    {formatDateTime(item.checked_at)}
-                                  </p>
-                                )}
-                              </div>
+                          <div
+                            key={item.id}
+                            onClick={() => handleChecklistToggle(item)}
+                            className="flex items-start gap-3 px-4 py-3 cursor-pointer transition-all duration-200 select-none"
+                            style={{
+                              borderBottom: `1px solid ${colors.divider}`,
+                              background: checked ? `${colors.gold}08` : 'transparent',
+                            }}
+                            onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = `${colors.gold}0D` }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = checked ? `${colors.gold}08` : 'transparent' }}
+                          >
+                            <div className="flex-shrink-0 mt-0.5 transition-transform duration-200" style={{ transform: checked ? 'scale(1.1)' : 'scale(1)' }}>
+                              {checked ? (
+                                <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: colors.gold }}>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                </div>
+                              ) : (
+                                <div className="w-5 h-5 rounded-full border-2 transition-colors" style={{ borderColor: colors.textMuted }} />
+                              )}
                             </div>
-                            {matchingDocs.length > 0 && (
-                              <div className="ml-6 mt-1 space-y-0.5">
-                                {matchingDocs.map(doc => (
-                                  <a
-                                    key={doc.id}
-                                    onClick={() => handleDocumentDownload(doc)}
-                                    className="text-xs flex items-center gap-1.5 cursor-pointer transition"
-                                    style={{ color: colors.gold }}
-                                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
-                                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-                                  >
-                                    <FileText className="w-3 h-3" />
-                                    {doc.file_name}
-                                  </a>
-                                ))}
-                              </div>
-                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm transition-colors duration-200" style={{
+                                color: checked ? colors.textMuted : colors.textPrimary,
+                                fontWeight: checked ? 400 : 500,
+                              }}>
+                                {item.checklist_item}
+                              </p>
+                              {item.checked_at && (
+                                <p className="text-xs mt-0.5" style={{ color: colors.textFaint }}>
+                                  Completed {formatDateTime(item.checked_at)}
+                                </p>
+                              )}
+                              {matchingDocs.length > 0 && (
+                                <div className="mt-1.5 space-y-0.5">
+                                  {matchingDocs.map(doc => (
+                                    <a
+                                      key={doc.id}
+                                      onClick={(e) => { e.stopPropagation(); handleDocumentDownload(doc) }}
+                                      className="text-xs flex items-center gap-1.5 cursor-pointer transition"
+                                      style={{ color: colors.gold }}
+                                      onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                                      onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                                    >
+                                      <FileText className="w-3 h-3" />
+                                      {doc.file_name}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )
                       })}
