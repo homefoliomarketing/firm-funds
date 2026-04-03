@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
-import { clearMustResetPassword } from '@/lib/actions/auth-actions'
+import { changePasswordAndClearFlag } from '@/lib/actions/auth-actions'
 
 export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('')
@@ -12,7 +11,6 @@ export default function ChangePasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
   const { colors, isDark } = useTheme()
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -31,41 +29,28 @@ export default function ChangePasswordPage() {
 
     setLoading(true)
 
-    // 1. Update the password in Supabase Auth
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    })
+    try {
+      const result = await changePasswordAndClearFlag(newPassword)
 
-    if (updateError) {
-      setError(updateError.message)
-      setLoading(false)
-      return
-    }
-
-    // 2. Clear the must_reset_password flag (server action bypasses RLS)
-    await clearMustResetPassword()
-
-    // 3. Redirect to appropriate dashboard
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profile) {
-        switch (profile.role) {
-          case 'agent': router.push('/agent'); break
-          case 'brokerage_admin': router.push('/brokerage'); break
-          case 'firm_funds_admin':
-          case 'super_admin': router.push('/admin'); break
-          default: router.push('/agent')
-        }
+      if (!result.success) {
+        setError(result.error || 'Failed to update password. Please try again.')
+        setLoading(false)
         return
       }
+
+      // Redirect based on role
+      switch (result.role) {
+        case 'agent': router.push('/agent'); break
+        case 'brokerage_admin': router.push('/brokerage'); break
+        case 'firm_funds_admin':
+        case 'super_admin': router.push('/admin'); break
+        default: router.push('/agent')
+      }
+    } catch (err) {
+      console.error('Change password error:', err)
+      setError('Something went wrong. Please try again.')
+      setLoading(false)
     }
-    router.push('/agent')
   }
 
   return (
