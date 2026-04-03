@@ -1818,7 +1818,7 @@ export default function DealDetailPage() {
                   <button
                     onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
                     className="px-4 py-2 rounded text-sm font-medium"
-                    style={{ backgroundColor: colors.accent, color: '#fff' }}
+                    style={{ backgroundColor: colors.gold, color: '#fff' }}
                   >
                     Open in New Tab
                   </button>
