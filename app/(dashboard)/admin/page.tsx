@@ -268,35 +268,8 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* Pipeline Status Row — Clickable Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          {[
-            { label: 'Under Review', filterValue: 'under_review', value: filteredStats.underReviewDeals, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
-            { label: 'Approved', filterValue: 'approved', value: filteredStats.approvedDeals, color: '#1A7A2E', bg: '#EDFAF0', border: '#B8E6C4' },
-            { label: 'Funded', filterValue: 'funded', value: filteredStats.fundedDeals, color: '#5B3D99', bg: '#F5F0FF', border: '#D5C5F0' },
-          ].map((status) => {
-            const isActive = statusFilter === status.filterValue
-            return (
-              <div
-                key={status.label}
-                className="rounded-xl p-5 text-center cursor-pointer transition-all"
-                style={{
-                  background: status.bg,
-                  border: isActive ? `2px solid ${status.color}` : `1px solid ${status.border}`,
-                  boxShadow: isActive ? `0 2px 12px ${status.color}25` : 'none',
-                  transform: isActive ? 'scale(1.02)' : 'scale(1)',
-                }}
-                onClick={() => { setStatusFilter(isActive ? null : status.filterValue); setCurrentPage(1) }}
-              >
-                <p className="text-3xl font-black" style={{ color: status.color }}>{status.value}</p>
-                <p className="text-xs font-semibold uppercase tracking-wider mt-1" style={{ color: status.color, opacity: 0.7 }}>{status.label}</p>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Action Needed section removed — the status filter tabs below
-            and the deal table sorting handle the workflow naturally */}
+        {/* Pipeline cards + Action Needed section removed — status filter tabs
+            and priority-sorted deal table handle the workflow cleanly */}
 
         {/* Status Filter Tabs */}
         <div className="flex flex-wrap gap-2 mb-6">
