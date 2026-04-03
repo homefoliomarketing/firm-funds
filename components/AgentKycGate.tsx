@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Shield, Upload, CheckCircle, XCircle, Clock, AlertCircle, FileText } from 'lucide-react'
-import { submitAgentKyc } from '@/lib/actions/kyc-actions'
+import { Shield, Upload, CheckCircle, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
+import { submitAgentKyc, sendKycMobileLink } from '@/lib/actions/kyc-actions'
 import { useTheme } from '@/lib/theme'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeStyle } from '@/lib/constants'
 
@@ -24,6 +24,9 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [sendingMobileLink, setSendingMobileLink] = useState(false)
+  const [mobileLinkSent, setMobileLinkSent] = useState(false)
+  const [mobileLinkEmail, setMobileLinkEmail] = useState<string | null>(null)
 
   const inputStyle = { background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }
 
@@ -220,6 +223,59 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
         >
           {submitting ? 'Uploading...' : 'Submit for Verification'}
         </button>
+
+        {/* Divider */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
+          <div style={{ flex: 1, height: 1, background: colors.border }} />
+          <span style={{ color: colors.textMuted, fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>or</span>
+          <div style={{ flex: 1, height: 1, background: colors.border }} />
+        </div>
+
+        {/* Send to phone option */}
+        {mobileLinkSent ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
+            background: 'rgba(95,168,115,0.08)', border: '1px solid rgba(95,168,115,0.25)',
+            borderRadius: 8,
+          }}>
+            <Mail size={18} style={{ color: '#5FA873', flexShrink: 0 }} />
+            <div>
+              <div style={{ color: '#5FA873', fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+                Link sent!
+              </div>
+              <div style={{ color: colors.textSecondary, fontSize: 13 }}>
+                Check your email{mobileLinkEmail ? ` at ${mobileLinkEmail}` : ''} and open the link on your phone to take a photo of your ID.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={async () => {
+              setSendingMobileLink(true)
+              setError(null)
+              const result = await sendKycMobileLink()
+              if (result.success) {
+                setMobileLinkSent(true)
+                setMobileLinkEmail(result.data?.email || null)
+              } else {
+                setError(result.error || 'Failed to send link')
+              }
+              setSendingMobileLink(false)
+            }}
+            disabled={sendingMobileLink}
+            style={{
+              width: '100%', padding: '12px 20px', borderRadius: 8,
+              background: 'transparent', border: `1px solid ${colors.border}`,
+              color: colors.textSecondary, fontSize: 14, fontWeight: 500,
+              cursor: sendingMobileLink ? 'wait' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Smartphone size={16} />
+            {sendingMobileLink ? 'Sending...' : 'Need to use your phone? Send a link to your email'}
+          </button>
+        )}
 
         {/* Accepted IDs note */}
         <div style={{

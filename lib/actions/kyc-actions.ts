@@ -3,6 +3,8 @@
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
+import { sendKycMobileUploadLink } from '@/lib/email'
+import { randomBytes } from 'crypto'
 
 // ============================================================================
 // Types
@@ -454,5 +456,238 @@ export async function getAgentKycDocumentUrl(input: {
   } catch (err: any) {
     console.error('KYC document URL error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Agent KYC: Send mobile upload link (agent sends to their own email)
+// ============================================================================
+
+const KYC_TOKEN_EXPIRY_MINUTES = 30
+
+export async function sendKycMobileLink(): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+  if (authError || !user) return { success: false, error: 'Not authenticated' }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('agent_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'agent' || !profile.agent_id) {
+    return { success: false, error: 'Not authorized as an agent' }
+  }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    // Fetch agent details for the email
+    const { data: agent } = await serviceClient
+      .from('agents')
+      .select('id, first_name, email, kyc_status')
+      .eq('id', profile.agent_id)
+      .single()
+
+    if (!agent) return { success: false, error: 'Agent not found' }
+    if (agent.kyc_status === 'verified') {
+      return { success: false, error: 'Your identity has already been verified.' }
+    }
+
+    // Generate a secure one-time token
+    const token = randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + KYC_TOKEN_EXPIRY_MINUTES * 60 * 1000).toISOString()
+
+    // Invalidate any previous unused tokens for this agent
+    await serviceClient
+      .from('kyc_upload_tokens')
+      .update({ used_at: new Date().toISOString() })
+      .eq('agent_id', agent.id)
+      .is('used_at', null)
+
+    // Insert new token
+    const { error: insertError } = await serviceClient
+      .from('kyc_upload_tokens')
+      .insert({
+        agent_id: agent.id,
+        token,
+        expires_at: expiresAt,
+      })
+
+    if (insertError) {
+      console.error('KYC token insert error:', insertError.message)
+      return { success: false, error: 'Failed to generate upload link' }
+    }
+
+    // Build upload URL and send email
+    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
+    const uploadUrl = `${appUrl}/kyc-upload/${token}`
+
+    await sendKycMobileUploadLink({
+      agentEmail: agent.email,
+      agentFirstName: agent.first_name,
+      uploadUrl,
+      expiresInMinutes: KYC_TOKEN_EXPIRY_MINUTES,
+    })
+
+    await logAuditEvent({
+      action: 'agent.kyc_mobile_link_sent',
+      entityType: 'agent',
+      entityId: agent.id,
+      metadata: { email: agent.email },
+    })
+
+    return { success: true, data: { email: agent.email } }
+  } catch (err: any) {
+    console.error('Send KYC mobile link error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Agent KYC: Validate token and upload via mobile (PUBLIC — no auth required)
+// ============================================================================
+
+export async function submitKycViaMobileToken(input: {
+  token: string
+  formData: FormData
+}): Promise<ActionResult> {
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    // Look up the token
+    const { data: tokenRecord, error: tokenError } = await serviceClient
+      .from('kyc_upload_tokens')
+      .select('id, agent_id, expires_at, used_at')
+      .eq('token', input.token)
+      .single()
+
+    if (tokenError || !tokenRecord) {
+      return { success: false, error: 'Invalid or expired link. Please request a new one from your desktop.' }
+    }
+
+    // Check if already used
+    if (tokenRecord.used_at) {
+      return { success: false, error: 'This link has already been used. Please request a new one from your desktop.' }
+    }
+
+    // Check expiry
+    if (new Date(tokenRecord.expires_at) < new Date()) {
+      return { success: false, error: 'This link has expired. Please request a new one from your desktop.' }
+    }
+
+    // Validate file
+    const file = input.formData.get('file') as File | null
+    const documentType = input.formData.get('documentType') as string | null
+
+    if (!file) return { success: false, error: 'No file provided' }
+    if (!documentType) return { success: false, error: 'Document type is required' }
+
+    if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
+      return { success: false, error: 'File size exceeds 10MB limit' }
+    }
+
+    if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
+      return { success: false, error: 'Invalid file type. Please upload a JPEG, PNG, or PDF.' }
+    }
+
+    // Upload to agent-kyc bucket
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const filePath = `${tokenRecord.agent_id}/id-${Date.now()}.${fileExt}`
+
+    const { error: uploadError } = await serviceClient.storage
+      .from('agent-kyc')
+      .upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      })
+
+    if (uploadError) {
+      console.error('KYC mobile upload error:', uploadError.message)
+      return { success: false, error: `Upload failed: ${uploadError.message}` }
+    }
+
+    // Update agent record with KYC info
+    const now = new Date().toISOString()
+    const { error: updateError } = await serviceClient
+      .from('agents')
+      .update({
+        kyc_status: 'submitted',
+        kyc_submitted_at: now,
+        kyc_document_path: filePath,
+        kyc_document_type: documentType,
+        kyc_rejection_reason: null,
+      })
+      .eq('id', tokenRecord.agent_id)
+
+    if (updateError) {
+      console.error('Agent KYC update error (mobile):', updateError.message)
+      return { success: false, error: 'Failed to update your verification status' }
+    }
+
+    // Mark token as used
+    await serviceClient
+      .from('kyc_upload_tokens')
+      .update({ used_at: now })
+      .eq('id', tokenRecord.id)
+
+    await logAuditEvent({
+      action: 'agent.kyc_submit_mobile',
+      entityType: 'agent',
+      entityId: tokenRecord.agent_id,
+      metadata: { document_type: documentType, file_path: filePath },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('KYC mobile upload error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Agent KYC: Validate a mobile upload token (for the page to check status)
+// ============================================================================
+
+export async function validateKycToken(token: string): Promise<ActionResult> {
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    const { data: tokenRecord, error } = await serviceClient
+      .from('kyc_upload_tokens')
+      .select('id, agent_id, expires_at, used_at')
+      .eq('token', token)
+      .single()
+
+    if (error || !tokenRecord) {
+      return { success: false, error: 'invalid' }
+    }
+
+    if (tokenRecord.used_at) {
+      return { success: false, error: 'used' }
+    }
+
+    if (new Date(tokenRecord.expires_at) < new Date()) {
+      return { success: false, error: 'expired' }
+    }
+
+    // Fetch agent name for the UI
+    const { data: agent } = await serviceClient
+      .from('agents')
+      .select('first_name, last_name')
+      .eq('id', tokenRecord.agent_id)
+      .single()
+
+    return {
+      success: true,
+      data: {
+        agentName: agent ? `${agent.first_name} ${agent.last_name}` : 'Agent',
+      },
+    }
+  } catch (err: any) {
+    console.error('Validate KYC token error:', err?.message)
+    return { success: false, error: 'invalid' }
   }
 }

@@ -565,3 +565,40 @@ export async function sendClosingDateAlertDigest(params: {
     console.error('[email] Failed to send closing date alert digest:', err)
   }
 }
+
+// ============================================================================
+// 8. KYC Mobile Upload Link
+// ============================================================================
+
+export async function sendKycMobileUploadLink(params: {
+  agentEmail: string
+  agentFirstName: string
+  uploadUrl: string
+  expiresInMinutes: number
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  const body = `
+    <h2 style="margin:0 0 16px; color:#fff; font-size:20px;">Upload Your ID</h2>
+    <p>Hi ${params.agentFirstName},</p>
+    <p>You requested to upload your government-issued photo ID from your mobile device. Tap the button below to open the secure upload page.</p>
+    <div style="text-align:center; margin:28px 0;">
+      <a href="${params.uploadUrl}" style="display:inline-block; padding:16px 40px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:16px;">
+        Upload My ID
+      </a>
+    </div>
+    <p style="color:#999; font-size:13px;">This link expires in ${params.expiresInMinutes} minutes and can only be used once.</p>
+    <p style="color:#999; font-size:13px;">If you didn't request this, you can safely ignore this email.</p>`
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: 'Firm Funds — Upload Your ID From Your Phone',
+      html: wrap(body),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send KYC mobile upload link:', err)
+  }
+}
