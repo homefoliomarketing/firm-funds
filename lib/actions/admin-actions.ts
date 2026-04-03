@@ -470,6 +470,83 @@ export async function createUserAccount(input: {
 }
 
 // ============================================================================
+// Archive Agent: Soft-delete agent + deactivate login
+// ============================================================================
+
+export async function archiveAgent(input: {
+  agentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Fetch agent record
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, status, brokerage_id')
+      .eq('id', input.agentId)
+      .single()
+
+    if (agentError || !agent) return { success: false, error: 'Agent not found' }
+    if (agent.status === 'archived') return { success: false, error: 'Agent is already archived' }
+
+    // 1. Set agent status to archived
+    const { error: updateError } = await supabase
+      .from('agents')
+      .update({ status: 'archived' })
+      .eq('id', input.agentId)
+
+    if (updateError) {
+      console.error('Agent archive error:', updateError.message)
+      return { success: false, error: `Failed to archive agent: ${updateError.message}` }
+    }
+
+    // 2. Deactivate any linked user_profile (prevents login)
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('agent_id', input.agentId)
+      .maybeSingle()
+
+    if (profile) {
+      await supabase
+        .from('user_profiles')
+        .update({ is_active: false })
+        .eq('id', profile.id)
+
+      // 3. Also ban the auth user via service role client so they truly can't log in
+      try {
+        const serviceClient = createServiceRoleClient()
+        await serviceClient.auth.admin.updateUserById(profile.id, {
+          ban_duration: '876000h', // ~100 years (permanent ban)
+        })
+      } catch (err) {
+        // Non-fatal — profile deactivation is the primary gate
+        console.warn('[archiveAgent] Could not ban auth user:', err)
+      }
+    }
+
+    await logAuditEvent({
+      action: 'agent.archive',
+      entityType: 'agent',
+      entityId: input.agentId,
+      metadata: {
+        name: `${agent.first_name} ${agent.last_name}`,
+        email: agent.email,
+        brokerage_id: agent.brokerage_id,
+        archived_by: user.id,
+        had_login: !!profile,
+      },
+    })
+
+    return { success: true, data: { agentId: input.agentId } }
+  } catch (err: any) {
+    console.error('Agent archive error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Invite Agent: Create agent record + auth user + user_profile + send email
 // ============================================================================
 

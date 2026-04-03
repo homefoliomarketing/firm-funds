@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent } from '@/lib/actions/admin-actions'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff } from 'lucide-react'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent } from '@/lib/actions/admin-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
@@ -20,7 +20,7 @@ interface Agent {
   email: string
   phone: string | null
   reco_number: string | null
-  status: 'active' | 'suspended'
+  status: 'active' | 'suspended' | 'archived'
   flagged_by_brokerage: boolean
   outstanding_recovery: number
   created_at: string
@@ -91,6 +91,8 @@ export default function BrokeragesPage() {
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
+  const [showArchived, setShowArchived] = useState(false)
+  const [archivingAgentId, setArchivingAgentId] = useState<string | null>(null)
   const [importingFor, setImportingFor] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null)
   const [createRosterFile, setCreateRosterFile] = useState<File | null>(null)
@@ -421,8 +423,22 @@ export default function BrokeragesPage() {
       case 'active': return { bg: colors.successBg, text: colors.successText, border: colors.successBorder }
       case 'suspended': return { bg: colors.warningBg, text: colors.warningText, border: colors.warningBorder }
       case 'inactive': return { bg: colors.cardBg, text: colors.textMuted, border: colors.border }
+      case 'archived': return { bg: '#F2F2F0', text: '#5A5A5A', border: '#D0D0CC' }
       default: return { bg: colors.cardBg, text: colors.textMuted, border: colors.border }
     }
+  }
+
+  const handleArchiveAgent = async (agentId: string, agentName: string) => {
+    if (!confirm(`Archive "${agentName}"? They will be removed from the active roster and their login will be deactivated. Their deal history will be preserved.`)) return
+    setArchivingAgentId(agentId)
+    const result = await archiveAgent({ agentId })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `${agentName} has been archived` })
+      await loadBrokerages()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to archive agent' })
+    }
+    setArchivingAgentId(null)
   }
 
   // ---- Filtering (searches brokerage name/email AND agent names) ----
@@ -707,8 +723,12 @@ export default function BrokeragesPage() {
               const isExpanded = expandedId === brokerage.id
               const isEditing = editingBrokerageId === brokerage.id
               const badgeStyle = getStatusBadgeStyle(brokerage.status)
-              const agentCount = brokerage.agents.length
-              const activeAgents = brokerage.agents.filter(a => a.status === 'active').length
+              const allAgents = brokerage.agents
+              const nonArchivedAgents = allAgents.filter(a => a.status !== 'archived')
+              const archivedAgents = allAgents.filter(a => a.status === 'archived')
+              const visibleAgents = showArchived ? allAgents : nonArchivedAgents
+              const agentCount = visibleAgents.length
+              const activeAgents = allAgents.filter(a => a.status === 'active').length
 
               return (
                 <div key={brokerage.id} className="rounded-xl overflow-hidden transition-all"
@@ -846,9 +866,21 @@ export default function BrokeragesPage() {
                             <h4 className="text-sm font-bold" style={{ color: colors.textPrimary }}>
                               Agent Roster
                               <span className="font-normal ml-1.5" style={{ color: colors.textMuted }}>
-                                ({activeAgents} active{agentCount !== activeAgents ? `, ${agentCount} total` : ''})
+                                ({activeAgents} active{nonArchivedAgents.length !== activeAgents ? `, ${nonArchivedAgents.length} total` : ''}{archivedAgents.length > 0 ? `, ${archivedAgents.length} archived` : ''})
                               </span>
                             </h4>
+                            {archivedAgents.length > 0 && (
+                              <button
+                                onClick={() => setShowArchived(!showArchived)}
+                                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors"
+                                style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                              >
+                                {showArchived ? <EyeOff size={11} /> : <Eye size={11} />}
+                                {showArchived ? 'Hide Archived' : 'Show Archived'}
+                              </button>
+                            )}
                           </div>
                           {showAddAgentFor !== brokerage.id && (
                             <div className="flex items-center gap-2">
@@ -992,7 +1024,7 @@ export default function BrokeragesPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {brokerage.agents
+                                {visibleAgents
                                   .sort((a, b) => a.last_name.localeCompare(b.last_name))
                                   .map((agent, idx) => {
                                     const agentBadge = getStatusBadgeStyle(agent.status)
@@ -1041,6 +1073,7 @@ export default function BrokeragesPage() {
                                                     className="px-2 py-1 rounded text-xs outline-none" style={inputStyle} onFocus={onFocus} onBlur={onBlur}>
                                                     <option value="active">Active</option>
                                                     <option value="suspended">Suspended</option>
+                                                    <option value="archived">Archived</option>
                                                   </select>
                                                 </div>
                                                 <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: colors.textSecondary }}>
@@ -1107,15 +1140,31 @@ export default function BrokeragesPage() {
                                           </span>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                          <button
-                                            onClick={() => openEditAgent(agent, brokerage.id)}
-                                            className="text-xs px-2 py-1 rounded transition-colors"
-                                            style={{ color: colors.textMuted }}
-                                            onMouseEnter={(e) => { e.currentTarget.style.color = colors.gold; e.currentTarget.style.background = colors.goldBg }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent' }}
-                                          >
-                                            <Edit2 size={13} />
-                                          </button>
+                                          <div className="flex items-center justify-end gap-1">
+                                            <button
+                                              onClick={() => openEditAgent(agent, brokerage.id)}
+                                              className="text-xs px-2 py-1 rounded transition-colors"
+                                              style={{ color: colors.textMuted }}
+                                              onMouseEnter={(e) => { e.currentTarget.style.color = colors.gold; e.currentTarget.style.background = colors.goldBg }}
+                                              onMouseLeave={(e) => { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent' }}
+                                              title="Edit agent"
+                                            >
+                                              <Edit2 size={13} />
+                                            </button>
+                                            {agent.status !== 'archived' && (
+                                              <button
+                                                onClick={() => handleArchiveAgent(agent.id, `${agent.first_name} ${agent.last_name}`)}
+                                                disabled={archivingAgentId === agent.id}
+                                                className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                                style={{ color: colors.textMuted }}
+                                                onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.color = colors.errorText; e.currentTarget.style.background = colors.errorBg } }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent' }}
+                                                title="Archive agent"
+                                              >
+                                                <Archive size={13} />
+                                              </button>
+                                            )}
+                                          </div>
                                         </td>
                                       </tr>
                                     )
