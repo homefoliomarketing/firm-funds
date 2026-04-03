@@ -105,13 +105,13 @@ export const DEAL_STATUSES = {
 // =============================================================================
 
 export const STATUS_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  under_review: { bg: '#F0F4FF', text: '#3D5A99', border: '#C5D3F0' },
-  approved:     { bg: '#EDFAF0', text: '#1A7A2E', border: '#B8E6C4' },
-  funded:       { bg: '#F5F0FF', text: '#5B3D99', border: '#D5C5F0' },
-  repaid:       { bg: '#EDFAF5', text: '#0D7A5F', border: '#B8E6D8' },
-  closed:       { bg: '#F2F2F0', text: '#5A5A5A', border: '#D0D0CC' },
-  denied:       { bg: '#FFF0F0', text: '#993D3D', border: '#F0C5C5' },
-  cancelled:    { bg: '#FFF5ED', text: '#995C1A', border: '#F0D5B8' },
+  under_review: { bg: '#1A2240', text: '#7B9FE0', border: '#2D3A5C' },
+  approved:     { bg: '#0F2A18', text: '#5FA873', border: '#1E4A2C' },
+  funded:       { bg: '#1F1535', text: '#A385D0', border: '#352A50' },
+  repaid:       { bg: '#0F2A24', text: '#5FB8A0', border: '#1E4A3C' },
+  closed:       { bg: '#1A1A1A', text: '#808080', border: '#333333' },
+  denied:       { bg: '#2A1212', text: '#E07B7B', border: '#4A2020' },
+  cancelled:    { bg: '#2A1F0F', text: '#D4A04A', border: '#4A3820' },
 }
 
 /** Helper: get inline style object for a status badge */
