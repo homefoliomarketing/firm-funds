@@ -1,0 +1,351 @@
+import { Resend } from 'resend'
+
+// ============================================================================
+// Resend client (lazy singleton)
+// ============================================================================
+
+let resendClient: Resend | null = null
+
+function getResend(): Resend | null {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn('[email] RESEND_API_KEY not set — emails disabled')
+    return null
+  }
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY)
+  }
+  return resendClient
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const FROM_ADDRESS = 'Firm Funds <notifications@firmfunds.ca>'
+const ADMIN_EMAIL = 'bud@firmfunds.ca'
+const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
+
+// ============================================================================
+// Branded HTML wrapper
+// ============================================================================
+
+function wrap(body: string): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0; padding:0; background:#121212; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#121212; padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px; width:100%;">
+          <!-- Header -->
+          <tr>
+            <td style="padding:24px 32px; background:#1C1C1C; border-radius:12px 12px 0 0; border-bottom:2px solid #5FA873;">
+              <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="40" style="height:40px; width:auto;" />
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px; background:#1C1C1C; color:#E8E4DF; font-size:15px; line-height:1.6;">
+              ${body}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 32px; background:#161616; border-radius:0 0 12px 12px; text-align:center;">
+              <p style="margin:0; color:#666; font-size:12px;">
+                Firm Funds Incorporated &bull; Ontario, Canada<br/>
+                <a href="${APP_URL}" style="color:#5FA873; text-decoration:none;">firmfunds.ca</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function formatCurrency(cents: number): string {
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+  }).format(cents / 100)
+}
+
+function statusLabel(status: string): string {
+  return status
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function statusColor(status: string): string {
+  const map: Record<string, string> = {
+    under_review: '#3D8BF2',
+    approved: '#5FA873',
+    funded: '#8B5CF6',
+    denied: '#EF4444',
+    cancelled: '#888888',
+    repaid: '#06B6D4',
+    closed: '#666666',
+  }
+  return map[status] || '#5FA873'
+}
+
+// ============================================================================
+// Email: New Deal Submitted → Admin
+// ============================================================================
+
+export async function sendNewDealNotification(params: {
+  dealId: string
+  propertyAddress: string
+  advanceAmount: number
+  agentName: string
+  brokerageName: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `New Deal Submitted — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">New Deal Submitted</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          A new commission advance request has been submitted and is awaiting your review.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Property</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px; font-weight:600;">${params.propertyAddress}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Agent</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.agentName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Brokerage</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.brokerageName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Advance Amount</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:16px; font-weight:700;">${formatCurrency(params.advanceAmount)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <a href="${APP_URL}/admin/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+          Review Deal
+        </a>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send new deal notification:', err)
+  }
+}
+
+// ============================================================================
+// Email: Deal Status Changed → Agent
+// ============================================================================
+
+export async function sendStatusChangeNotification(params: {
+  dealId: string
+  propertyAddress: string
+  oldStatus: string
+  newStatus: string
+  agentEmail: string
+  agentFirstName: string
+  denialReason?: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const color = statusColor(params.newStatus)
+  const label = statusLabel(params.newStatus)
+
+  let extraMessage = ''
+  if (params.newStatus === 'approved') {
+    extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Your advance has been approved and will be funded shortly. We\'ll send another notification once the funds are on the way.</p>'
+  } else if (params.newStatus === 'funded') {
+    extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Great news — your advance has been funded! The EFT transfer is being processed and you should see the funds in your account within 1-2 business days.</p>'
+  } else if (params.newStatus === 'denied' && params.denialReason) {
+    extraMessage = `
+      <div style="margin:16px 0 0; padding:12px 16px; background:#241010; border:1px solid #422020; border-radius:8px;">
+        <p style="margin:0 0 4px; color:#F87171; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Reason</p>
+        <p style="margin:0; color:#E8E4DF; font-size:14px;">${params.denialReason}</p>
+      </div>`
+  }
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Deal Update: ${params.propertyAddress} — ${label}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E8E4DF; font-size:20px;">Deal Status Updated</h2>
+        <p style="margin:0 0 20px; color:#999;">
+          Hi ${params.agentFirstName}, the status of your deal has been updated.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:16px; background:#222; border-radius:8px;">
+              <p style="margin:0 0 12px; color:#E8E4DF; font-size:15px; font-weight:600;">${params.propertyAddress}</p>
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:4px 12px; background:rgba(136,136,136,0.15); border-radius:6px; color:#888; font-size:13px; font-weight:600;">
+                    ${statusLabel(params.oldStatus)}
+                  </td>
+                  <td style="padding:0 12px; color:#666; font-size:16px;">&rarr;</td>
+                  <td style="padding:4px 12px; background:${color}22; border-radius:6px; color:${color}; font-size:13px; font-weight:600;">
+                    ${label}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        ${extraMessage}
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View Deal
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send status change notification:', err)
+  }
+}
+
+// ============================================================================
+// Email: Document Requested → Agent
+// ============================================================================
+
+export async function sendDocumentRequestNotification(params: {
+  dealId: string
+  propertyAddress: string
+  documentType: string
+  agentEmail: string
+  agentFirstName: string
+  message?: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const messageBlock = params.message
+    ? `<div style="margin:16px 0 0; padding:12px 16px; background:#222; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
+        <p style="margin:0; color:#E8E4DF; font-size:14px;">${params.message}</p>
+       </div>`
+    : ''
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Document Requested — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Document Requested</h2>
+        <p style="margin:0 0 20px; color:#999;">
+          Hi ${params.agentFirstName}, Firm Funds has requested a document for your deal.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Property</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.propertyAddress}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Document Type</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        ${messageBlock}
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            Upload Document
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send document request notification:', err)
+  }
+}
+
+// ============================================================================
+// Email: Document Uploaded → Admin
+// ============================================================================
+
+export async function sendDocumentUploadedNotification(params: {
+  dealId: string
+  propertyAddress: string
+  documentType: string
+  fileName: string
+  agentName: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `Document Uploaded — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Document Uploaded</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          An agent has uploaded a new document for review.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Property</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.propertyAddress}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Agent</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.agentName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Document Type</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">File</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.fileName}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <a href="${APP_URL}/admin/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+          Review Deal
+        </a>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send document uploaded notification:', err)
+  }
+}

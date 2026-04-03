@@ -15,6 +15,11 @@ import {
   calcDaysUntilClosing,
 } from '@/lib/constants'
 import { logAuditEvent } from '@/lib/audit'
+import {
+  sendNewDealNotification,
+  sendStatusChangeNotification,
+  sendDocumentUploadedNotification,
+} from '@/lib/email'
 
 // ============================================================================
 // Types
@@ -229,6 +234,15 @@ export async function submitDeal(formData: {
       },
     })
 
+    // Email notification → admin
+    sendNewDealNotification({
+      dealId: newDeal.id,
+      propertyAddress: validation.data.propertyAddress,
+      advanceAmount: calc.advanceAmount,
+      agentName: `${agentData.first_name} ${agentData.last_name}`,
+      brokerageName: brokerage?.name || 'Unknown Brokerage',
+    })
+
     return {
       success: true,
       data: {
@@ -375,6 +389,26 @@ export async function updateDealStatus(input: {
         recalculated: input.newStatus === 'funded',
       },
     })
+
+    // Email notification → agent
+    // Look up the agent's email and name
+    const { data: agentInfo } = await supabase
+      .from('agents')
+      .select('first_name, last_name, email')
+      .eq('id', deal.agent_id)
+      .single()
+
+    if (agentInfo?.email) {
+      sendStatusChangeNotification({
+        dealId: deal.id,
+        propertyAddress: deal.property_address,
+        oldStatus: deal.status,
+        newStatus: input.newStatus,
+        agentEmail: agentInfo.email,
+        agentFirstName: agentInfo.first_name,
+        denialReason: input.denialReason,
+      })
+    }
 
     return {
       success: true,
@@ -614,6 +648,25 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
         file_size: file.size,
       },
     })
+
+    // Email notification → admin (only when agent uploads, not admin-to-admin)
+    if (profile.role === 'agent' || profile.role === 'brokerage_admin') {
+      // Look up deal info + agent name for the email
+      const { data: dealInfo } = await supabase
+        .from('deals')
+        .select('property_address, agent_id, agents(first_name, last_name)')
+        .eq('id', dealId)
+        .single()
+
+      const agent = (dealInfo as any)?.agents
+      sendDocumentUploadedNotification({
+        dealId,
+        propertyAddress: dealInfo?.property_address || 'Unknown Property',
+        documentType,
+        fileName: file.name,
+        agentName: agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown Agent',
+      })
+    }
 
     return {
       success: true,
