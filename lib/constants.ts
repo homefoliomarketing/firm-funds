@@ -166,7 +166,7 @@ export const ALLOWED_KYC_MIME_TYPES = [
 ] as const
 
 /** RECO Public Register URL */
-export const RECO_PUBLIC_REGISTER_URL = 'https://www.reco.on.ca/RegistrantSearch'
+export const RECO_PUBLIC_REGISTER_URL = 'https://registrantsearch.reco.on.ca/'
 
 /** Helper: format status string for display */
 export function formatStatusLabel(status: string) {
