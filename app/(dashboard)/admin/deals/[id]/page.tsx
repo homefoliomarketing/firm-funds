@@ -1259,18 +1259,15 @@ export default function DealDetailPage() {
                 <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: colors.border }}>
                   {documents.length > 0 ? (
                     documents.map(doc => (
-                      <div key={doc.id} className="px-6 py-4">
-                        <div className="flex items-start gap-3 mb-2">
-                          <FileText className="w-5 h-5 mt-1 flex-shrink-0" style={{ color: colors.gold }} />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold break-words" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
-                            <p className="text-sm" style={{ color: colors.textMuted }}>{getDocTypeLabel(doc.document_type)}</p>
-                            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
-                              {formatFileSize(doc.file_size)} • Uploaded {formatDate(doc.created_at)}
-                            </p>
-                          </div>
+                      <div key={doc.id} className="px-4 py-2 flex items-center gap-3">
+                        <FileText className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
+                          <p className="text-xs" style={{ color: colors.textMuted }}>
+                            {getDocTypeLabel(doc.document_type)} • {formatFileSize(doc.file_size)} • {formatDate(doc.created_at)}
+                          </p>
                         </div>
-                        <div className="flex gap-2 mt-3 ml-8">
+                        <div className="flex gap-1.5 flex-shrink-0">
                           {(() => {
                             const ext = doc.file_name.toLowerCase().split('.').pop() || ''
                             const isViewable = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
@@ -1278,42 +1275,40 @@ export default function DealDetailPage() {
                               <button
                                 onClick={() => handleDocumentView(doc)}
                                 disabled={viewLoading === doc.id}
-                                className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
+                                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
                                 style={{ background: colors.gold, color: '#fff', opacity: viewLoading === doc.id ? 0.6 : 1 }}
                                 onMouseEnter={(e) => { if (viewLoading !== doc.id) e.currentTarget.style.background = colors.goldDark }}
                                 onMouseLeave={(e) => e.currentTarget.style.background = colors.gold}
                               >
-                                <Eye className="w-4 h-4" />
-                                {viewLoading === doc.id ? 'Loading...' : 'View'}
+                                <Eye className="w-3 h-3" />
+                                {viewLoading === doc.id ? '...' : 'View'}
                               </button>
                             ) : null
                           })()}
                           <button
                             onClick={() => handleDocumentDownload(doc)}
-                            className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
                             style={{ background: colors.inputBg, color: colors.gold }}
                             onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
                             onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
                           >
-                            <Download className="w-4 h-4" />
-                            Download
+                            <Download className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => handleDocumentDelete(doc)}
-                            className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
                             style={{ background: colors.errorBg, color: colors.errorText }}
                             onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
                             onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                           >
-                            <Trash2 className="w-4 h-4" />
-                            Delete
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="px-6 py-8 text-center">
-                      <p style={{ color: colors.textMuted }}>No documents uploaded yet</p>
+                    <div className="px-4 py-6 text-center">
+                      <p className="text-sm" style={{ color: colors.textMuted }}>No documents uploaded yet</p>
                     </div>
                   )}
                 </div>
