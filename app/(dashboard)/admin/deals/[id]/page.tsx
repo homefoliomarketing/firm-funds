@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import {
@@ -25,6 +25,124 @@ import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokera
 import { getStatusBadgeStyle } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+
+// ============================================================================
+// PDF Canvas Viewer — renders PDFs via pdf.js (CDN) to canvas, no browser plugin needed
+// ============================================================================
+function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const renderedRef = useRef(false)
+
+  useEffect(() => {
+    if (renderedRef.current) return
+    renderedRef.current = true
+
+    let cancelled = false
+
+    async function render() {
+      try {
+        // Load pdf.js from CDN
+        if (!(window as any).pdfjsLib) {
+          await new Promise<void>((resolve, reject) => {
+            const script = document.createElement('script')
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'
+            script.type = 'module'
+            // For module scripts, we need a different loading approach
+            script.onerror = reject
+            document.head.appendChild(script)
+
+            // Use dynamic import instead since pdf.js 4.x is ESM
+            const importScript = document.createElement('script')
+            importScript.type = 'module'
+            importScript.textContent = `
+              import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+              window.pdfjsLib = pdfjsLib;
+              window.dispatchEvent(new Event('pdfjsReady'));
+            `
+            document.head.appendChild(importScript)
+
+            const onReady = () => {
+              window.removeEventListener('pdfjsReady', onReady)
+              resolve()
+            }
+            window.addEventListener('pdfjsReady', onReady)
+            // Timeout after 10s
+            setTimeout(() => reject(new Error('pdf.js load timeout')), 10000)
+          })
+        }
+
+        if (cancelled) return
+
+        const pdfjsLib = (window as any).pdfjsLib
+        const pdf = await pdfjsLib.getDocument({ data: pdfData.slice(0) }).promise
+
+        if (cancelled || !containerRef.current) return
+
+        // Render each page to a canvas
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const scale = 1.5
+          const viewport = page.getViewport({ scale })
+
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          canvas.style.width = '100%'
+          canvas.style.height = 'auto'
+          canvas.style.display = 'block'
+
+          if (i > 1) {
+            // Add a subtle separator between pages
+            const sep = document.createElement('div')
+            sep.style.height = '4px'
+            sep.style.background = '#333'
+            containerRef.current.appendChild(sep)
+          }
+
+          containerRef.current.appendChild(canvas)
+
+          const ctx = canvas.getContext('2d')!
+          await page.render({ canvasContext: ctx, viewport }).promise
+        }
+
+        setLoading(false)
+      } catch (err) {
+        console.error('PDF render error:', err)
+        if (!cancelled) {
+          setError('Failed to render PDF')
+          setLoading(false)
+        }
+      }
+    }
+
+    render()
+    return () => { cancelled = true }
+  }, [pdfData])
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full p-6">
+        <p style={{ color: '#E07B7B', fontSize: 14 }}>{error}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={containerRef} style={{ padding: 0 }}>
+      {loading && (
+        <div className="flex items-center justify-center p-8">
+          <div style={{
+            width: 32, height: 32, border: '3px solid #333', borderTopColor: '#5FA873',
+            borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+          }} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
@@ -222,7 +340,7 @@ export default function DealDetailPage() {
   const [docRequestType, setDocRequestType] = useState('')
   const [docRequestMessage, setDocRequestMessage] = useState('')
   const [docRequestSending, setDocRequestSending] = useState(false)
-  const [viewingDoc, setViewingDoc] = useState<{ blobUrl: string; originalUrl: string; fileName: string; type: 'pdf' | 'image' } | null>(null)
+  const [viewingDoc, setViewingDoc] = useState<{ blobUrl: string; originalUrl: string; fileName: string; type: 'pdf' | 'image'; pdfData?: ArrayBuffer } | null>(null)
   const [viewLoading, setViewLoading] = useState<string | null>(null)
   const router = useRouter()
   const params = useParams()
@@ -357,6 +475,7 @@ export default function DealDetailPage() {
         originalUrl: signedUrl,
         fileName: doc.file_name,
         type: isImage ? 'image' : 'pdf',
+        ...(isPdf ? { pdfData: arrayBuffer } : {}),
       })
     } catch (err) {
       console.error('Blob fetch failed:', err)
@@ -1805,10 +1924,10 @@ export default function DealDetailPage() {
               </button>
             </div>
           </div>
-          {/* Panel Content — uses blob URL to bypass content-blocking */}
-          <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {/* Panel Content */}
+          <div style={{ flex: 1, overflow: 'auto' }}>
             {viewingDoc.type === 'image' ? (
-              <div className="flex items-center justify-center p-3" style={{ height: '100%', overflow: 'auto' }}>
+              <div className="flex items-center justify-center p-3">
                 <img
                   src={viewingDoc.blobUrl}
                   alt={viewingDoc.fileName}
@@ -1816,12 +1935,21 @@ export default function DealDetailPage() {
                   style={{ maxHeight: 'calc(100vh - 60px)', objectFit: 'contain' }}
                 />
               </div>
+            ) : viewingDoc.pdfData ? (
+              <PdfCanvasViewer pdfData={viewingDoc.pdfData} />
             ) : (
-              <embed
-                src={viewingDoc.blobUrl}
-                type="application/pdf"
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-              />
+              <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+                <p style={{ color: colors.textSecondary }} className="text-sm text-center">
+                  Unable to render PDF.
+                </p>
+                <button
+                  onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                  className="px-4 py-2 rounded text-sm font-medium"
+                  style={{ backgroundColor: colors.gold, color: '#fff' }}
+                >
+                  Open in New Tab
+                </button>
+              </div>
             )}
           </div>
         </div>
