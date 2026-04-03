@@ -490,8 +490,11 @@ export async function archiveAgent(input: {
     if (agentError || !agent) return { success: false, error: 'Agent not found' }
     if (agent.status === 'archived') return { success: false, error: 'Agent is already archived' }
 
+    // Use service role client to bypass RLS for all mutations
+    const serviceClient = createServiceRoleClient()
+
     // 1. Set agent status to archived
-    const { error: updateError } = await supabase
+    const { error: updateError } = await serviceClient
       .from('agents')
       .update({ status: 'archived' })
       .eq('id', input.agentId)
@@ -502,21 +505,20 @@ export async function archiveAgent(input: {
     }
 
     // 2. Deactivate any linked user_profile (prevents login)
-    const { data: profile } = await supabase
+    const { data: profile } = await serviceClient
       .from('user_profiles')
       .select('id')
       .eq('agent_id', input.agentId)
       .maybeSingle()
 
     if (profile) {
-      await supabase
+      await serviceClient
         .from('user_profiles')
         .update({ is_active: false })
         .eq('id', profile.id)
 
-      // 3. Also ban the auth user via service role client so they truly can't log in
+      // 3. Also ban the auth user so they truly can't log in
       try {
-        const serviceClient = createServiceRoleClient()
         await serviceClient.auth.admin.updateUserById(profile.id, {
           ban_duration: '876000h', // ~100 years (permanent ban)
         })
