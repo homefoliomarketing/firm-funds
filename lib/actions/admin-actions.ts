@@ -187,7 +187,8 @@ export async function createAgent(input: {
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-    const { data: agent, error: insertError } = await supabase
+    const serviceClient = createServiceRoleClient()
+    const { data: agent, error: insertError } = await serviceClient
       .from('agents')
       .insert({
         brokerage_id: input.brokerageId,
@@ -303,7 +304,8 @@ export async function bulkImportAgents(input: {
         continue
       }
 
-      const { error: insertError } = await supabase
+      const serviceClient = createServiceRoleClient()
+      const { error: insertError } = await serviceClient
         .from('agents')
         .insert({
           brokerage_id: input.brokerageId,
@@ -363,7 +365,8 @@ export async function updateAgent(input: {
     if (!input.lastName.trim()) return { success: false, error: 'Last name is required' }
     if (!input.email.trim()) return { success: false, error: 'Email is required' }
 
-    const { data: agent, error: updateError } = await supabase
+    const serviceClient = createServiceRoleClient()
+    const { data: agent, error: updateError } = await serviceClient
       .from('agents')
       .update({
         brokerage_id: input.brokerageId,
@@ -598,8 +601,11 @@ export async function inviteAgent(input: {
 
     if (existingAgent) return { success: false, error: 'An agent with this email already exists' }
 
+    // Use service role client for all mutations (bypasses RLS)
+    const serviceClient = createServiceRoleClient()
+
     // 1. Create agent record
-    const { data: agent, error: agentError } = await supabase
+    const { data: agent, error: agentError } = await serviceClient
       .from('agents')
       .insert({
         brokerage_id: input.brokerageId,
@@ -620,18 +626,8 @@ export async function inviteAgent(input: {
       return { success: false, error: `Failed to create agent record: ${agentError?.message || 'Unknown error'}` }
     }
 
-    // 2. Create auth user via service-role client (bypasses RLS for admin operations)
+    // 2. Create auth user
     const tempPassword = generateTempPassword()
-    let serviceClient
-    try {
-      serviceClient = createServiceRoleClient()
-    } catch (err: any) {
-      return {
-        success: false,
-        error: `Agent record created but login creation failed: ${err.message}`,
-        data: { agentId: agent.id, agentCreated: true, loginCreated: false },
-      }
-    }
 
     const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email,
@@ -670,8 +666,8 @@ export async function inviteAgent(input: {
       }
     }
 
-    // 4. Send invite email (fire-and-forget)
-    sendAgentInviteNotification({
+    // 4. Send invite email
+    await sendAgentInviteNotification({
       agentFirstName: input.firstName.trim(),
       agentEmail: email,
       brokerageName: brokerage.name,

@@ -549,7 +549,11 @@ export async function getDocumentSignedUrl(input: {
   if (authErr) return { success: false, error: authErr }
 
   try {
-    const { data, error } = await supabase.storage
+    // Use service role client to bypass RLS/storage policies
+    const { createServiceRoleClient } = await import('@/lib/supabase/server')
+    const serviceClient = createServiceRoleClient()
+
+    const { data, error } = await serviceClient.storage
       .from('deal-documents')
       .createSignedUrl(input.filePath, 3600, { download: false })
 
