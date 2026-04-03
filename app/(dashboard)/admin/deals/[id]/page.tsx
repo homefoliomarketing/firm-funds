@@ -418,9 +418,18 @@ export default function DealDetailPage() {
     const result = await updateClosingDate({ dealId: deal.id, newClosingDate })
     if (result.success && result.data) {
       setClosingDateComparison({ old: result.data.old, new: result.data.new })
-      // Refresh deal data
-      const { data: refreshed } = await supabase.from('deals').select('*').eq('id', deal.id).single()
-      if (refreshed) setDeal(refreshed)
+      // Update deal state directly from server response
+      const updated = result.data.new
+      setDeal({
+        ...deal,
+        closing_date: updated.closing_date,
+        days_until_closing: updated.days_until_closing,
+        discount_fee: updated.discount_fee,
+        advance_amount: updated.advance_amount,
+        brokerage_referral_fee: updated.brokerage_referral_fee,
+        amount_due_from_brokerage: updated.amount_due_from_brokerage,
+      })
+      setEditingClosingDate(false)
       setStatusMessage({ type: 'success', text: 'Closing date updated and financials recalculated' })
     } else {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update closing date' })
