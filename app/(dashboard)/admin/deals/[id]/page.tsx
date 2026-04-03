@@ -117,28 +117,36 @@ interface ChecklistCategory {
 
 const CATEGORY_RULES: { label: string; icon: any; color: string; bg: string; border: string; keywords: string[] }[] = [
   {
-    label: 'Agent & Account Verification',
+    label: 'Agent Verification',
     icon: User,
     color: '#5B3D99',
     bg: '#F5F0FF',
     border: '#D5C5F0',
-    keywords: ['agent', 'reco', 'registration', 'license', 'identity', 'id verification', 'kyc', 'fintrac', 'flagged', 'outstanding', 'recovery', 'void cheque', 'banking information'],
+    keywords: ['agent', 'kyc', 'fintrac', 'flagged', 'outstanding', 'recovery'],
   },
   {
-    label: 'Deal & Document Review',
+    label: 'Deal Document Review',
     icon: FileText,
     color: '#3D5A99',
     bg: '#F0F4FF',
     border: '#C5D3F0',
-    keywords: ['aps', 'agreement of purchase', 'trade record', 'mls', 'listing', 'amendment', 'commission agreement', 'direction to pay', 'notice of fulfillment', 'waiver', 'document', 'uploaded', 'deal is firm', 'property address', 'closing date', 'transaction type'],
+    keywords: ['agreement of purchase', 'amendment', 'notice of fulfillment', 'waiver', 'deal is firm', 'closing date', 'trade record', 'commission amount', 'discount fee'],
   },
   {
-    label: 'Financial & Compliance',
-    icon: Shield,
+    label: 'Financial',
+    icon: DollarSign,
     color: '#92700C',
     bg: '#FFF8ED',
     border: '#E8D5A8',
-    keywords: ['commission amount', 'reasonable', 'red flag', 'compliance', 'legal', 'anti-money', 'aml', 'fraud', 'risk'],
+    keywords: ['void cheque', 'banking information'],
+  },
+  {
+    label: 'Firm Funds Documents',
+    icon: Shield,
+    color: '#2D7A4F',
+    bg: '#F0FFF5',
+    border: '#B5E0C5',
+    keywords: ['commission purchase agreement', 'irrevocable direction to pay'],
   },
 ]
 
