@@ -319,12 +319,11 @@ export default function DealDetailPage() {
   }
 
   const handleDocumentView = async (doc: DealDocument) => {
-    // Determine if the file is viewable inline
+    // Determine if the file is viewable
     const ext = doc.file_name.toLowerCase().split('.').pop() || ''
     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
     const isPdf = ext === 'pdf'
     if (!isImage && !isPdf) {
-      // Fall back to download for unsupported types
       handleDocumentDownload(doc)
       return
     }
@@ -335,7 +334,12 @@ export default function DealDetailPage() {
       setViewLoading(null)
       return
     }
-    setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: isPdf ? 'pdf' : 'image' })
+    // Images open in our modal viewer, PDFs open in a new tab (avoids iframe content-blocking)
+    if (isImage) {
+      setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: 'image' })
+    } else {
+      window.open(result.data.signedUrl, '_blank')
+    }
     setViewLoading(null)
   }
 
@@ -1354,23 +1358,14 @@ export default function DealDetailPage() {
             </div>
             {/* Viewer Content */}
             <div style={{ height: 'calc(90vh - 56px)', overflow: 'auto' }}>
-              {viewingDoc.type === 'pdf' ? (
-                <iframe
+              <div className="flex items-center justify-center p-6" style={{ minHeight: '50vh' }}>
+                <img
                   src={viewingDoc.url}
-                  className="w-full h-full"
-                  style={{ border: 'none', minHeight: '70vh' }}
-                  title={viewingDoc.fileName}
+                  alt={viewingDoc.fileName}
+                  className="max-w-full max-h-full rounded-lg"
+                  style={{ maxHeight: 'calc(90vh - 80px)', objectFit: 'contain' }}
                 />
-              ) : (
-                <div className="flex items-center justify-center p-6" style={{ minHeight: '50vh' }}>
-                  <img
-                    src={viewingDoc.url}
-                    alt={viewingDoc.fileName}
-                    className="max-w-full max-h-full rounded-lg"
-                    style={{ maxHeight: 'calc(90vh - 80px)', objectFit: 'contain' }}
-                  />
-                </div>
-              )}
+              </div>
             </div>
           </div>
         </div>

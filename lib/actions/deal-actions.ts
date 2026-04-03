@@ -516,14 +516,14 @@ export async function getDocumentSignedUrl(input: {
   filePath: string
   dealId: string
 }): Promise<ActionResult> {
-  // Allow both admins and agents (agents can only access their own deals — RLS handles this)
-  const { error: authErr, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent'])
+  // Allow admins, agents, and brokerage admins (RLS handles per-deal access)
+  const { error: authErr, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent', 'brokerage_admin'])
   if (authErr) return { success: false, error: authErr }
 
   try {
     const { data, error } = await supabase.storage
       .from('deal-documents')
-      .createSignedUrl(input.filePath, 60)
+      .createSignedUrl(input.filePath, 3600, { download: false })
 
     if (error) {
       console.error('Signed URL error:', error.message)
