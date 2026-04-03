@@ -271,7 +271,7 @@ export default function DealDetailPage() {
     setAgent(agentData)
     const { data: brokerageData } = await supabase.from('brokerages').select('*').eq('id', dealData.brokerage_id).single()
     setBrokerage(brokerageData)
-    const { data: checklistData } = await supabase.from('underwriting_checklist').select('*').eq('deal_id', dealId).order('id', { ascending: true })
+    const { data: checklistData } = await supabase.from('underwriting_checklist').select('*').eq('deal_id', dealId).order('sort_order', { ascending: true })
     setChecklist(checklistData || [])
     const { data: docsData } = await supabase.from('deal_documents').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocuments(docsData || [])
@@ -1034,23 +1034,23 @@ export default function DealDetailPage() {
           <h2 className="text-2xl font-bold mb-6" style={{ color: colors.textPrimary }}>Underwriting</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* LEFT: CHECKLIST */}
-            <div className="space-y-4">
+            <div className="space-y-2">
               {categorizedChecklist.map((category, catIdx) => (
-                <div key={catIdx} className="rounded-xl overflow-hidden" style={{
+                <div key={catIdx} className="rounded-lg overflow-hidden" style={{
                   background: colors.cardBg,
                   border: `1px solid ${colors.border}`,
                 }}>
                   <button
                     onClick={() => setChecklistExpanded(!checklistExpanded)}
-                    className="w-full px-6 py-4 flex items-center justify-between font-semibold transition"
-                    style={{ background: category.bg, color: category.color, borderBottom: `2px solid ${category.border}` }}
+                    className="w-full px-4 py-2.5 flex items-center justify-between text-sm font-semibold transition"
+                    style={{ background: category.bg, color: category.color, borderBottom: `1px solid ${category.border}` }}
                   >
-                    <div className="flex items-center gap-3">
-                      <category.icon className="w-5 h-5" />
+                    <div className="flex items-center gap-2">
+                      <category.icon className="w-4 h-4" />
                       {category.label}
-                      <span className="ml-2 text-sm" style={{ opacity: 0.7 }}>({category.items.filter(i => i.is_checked).length}/{category.items.length})</span>
+                      <span className="ml-1 text-xs font-normal" style={{ opacity: 0.7 }}>({category.items.filter(i => i.is_checked).length}/{category.items.length})</span>
                     </div>
-                    {checklistExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                    {checklistExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
 
                   {checklistExpanded && (
@@ -1058,41 +1058,41 @@ export default function DealDetailPage() {
                       {category.items.map(item => {
                         const matchingDocs = category.matchingDocs.get(item.id) || []
                         return (
-                          <div key={item.id} className="px-6 py-4">
-                            <div className="flex items-start gap-3 mb-2">
+                          <div key={item.id} className="px-4 py-2">
+                            <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleChecklistToggle(item)}
-                                className="mt-1 flex-shrink-0 transition"
+                                className="flex-shrink-0 transition"
                               >
                                 {item.is_checked ? (
-                                  <CheckCircle2 className="w-5 h-5" style={{ color: colors.gold }} />
+                                  <CheckCircle2 className="w-4 h-4" style={{ color: colors.gold }} />
                                 ) : (
-                                  <Circle className="w-5 h-5" style={{ color: colors.textMuted }} />
+                                  <Circle className="w-4 h-4" style={{ color: colors.textMuted }} />
                                 )}
                               </button>
-                              <div className="flex-1">
-                                <p style={{ color: colors.textPrimary, textDecoration: item.is_checked ? 'line-through' : 'none', opacity: item.is_checked ? 0.6 : 1 }}>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm" style={{ color: colors.textPrimary, textDecoration: item.is_checked ? 'line-through' : 'none', opacity: item.is_checked ? 0.6 : 1 }}>
                                   {item.checklist_item}
                                 </p>
                                 {item.checked_at && (
-                                  <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
-                                    Checked: {formatDateTime(item.checked_at)}
+                                  <p className="text-xs" style={{ color: colors.textMuted }}>
+                                    {formatDateTime(item.checked_at)}
                                   </p>
                                 )}
                               </div>
                             </div>
                             {matchingDocs.length > 0 && (
-                              <div className="ml-8 mt-3 space-y-1">
+                              <div className="ml-6 mt-1 space-y-0.5">
                                 {matchingDocs.map(doc => (
                                   <a
                                     key={doc.id}
                                     onClick={() => handleDocumentDownload(doc)}
-                                    className="text-sm flex items-center gap-2 cursor-pointer transition"
+                                    className="text-xs flex items-center gap-1.5 cursor-pointer transition"
                                     style={{ color: colors.gold }}
                                     onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
                                     onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                                   >
-                                    <FileText className="w-4 h-4" />
+                                    <FileText className="w-3 h-3" />
                                     {doc.file_name}
                                   </a>
                                 ))}
