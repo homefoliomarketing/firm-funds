@@ -169,17 +169,27 @@ Backward transitions show an amber warning modal with contextual messaging befor
 
 ### Admin Portal
 - Dashboard with KPI cards (total deals, funded amounts, pipeline value), deal list with pagination and time range filter
-- Deal detail page with full underwriting checklist (3 categories, auto-created by DB trigger), document viewer with signed download URLs, EFT transfer tracking (record/confirm/remove), admin notes field
+- Deal detail page (~1600 lines) with:
+  - Full underwriting checklist (3 categories, 11 items total, auto-created by DB trigger) — whole row clickable, green filled circles for checked, no strikethrough
+  - Document viewer with signed download URLs
+  - EFT transfer tracking (record/confirm/remove) with dark-mode date pickers
+  - Admin notes timeline — timestamped append-only entries (replaces old single textarea), Ctrl+Enter shortcut, legacy notes shown read-only
+  - Closing date inline edit with pencil icon — "Update & Recalc" recalculates all financials server-side, shows before/after comparison, updates state from server response (not client refetch, to avoid RLS issues)
+  - **Brokerage Payments section** (funded/repaid deals) — record multiple payments with amount, date, method (EFT/cheque/wire/other), reference number. Payment tracker shows received vs expected (green=match, yellow=outstanding, red=overpaid). Remove individual payments. "Mark as Repaid" button is GATED — only enabled when brokerage payment total matches amount_due_from_brokerage.
+  - Financial summary shows brokerage payment count + total (replaced old single repayment_amount display)
+  - Delete deal button for under_review/cancelled/denied deals (double-confirm)
 - Forward AND backward status transitions with optimistic locking (prevents concurrent admin conflicts)
 - Backward transitions show amber warning modal with contextual cleanup messaging
+- Checklist gate: forward transition buttons disabled when checklist incomplete OR (for repaid) when brokerage payments don't match
 - Brokerage management with expandable rows showing inline agent rosters, bulk agent import from Excel/CSV via `xlsx` library
 - Reports dashboard (1070 lines) with PDF export
-- Delete deal button (TEMPORARY for testing — should be removed for production)
 
 ### Agent Portal
-- Dashboard showing agent's deals
-- New deal submission form with 4-field address, live financial preview (calls `calculateDealPreview` server action)
-- Deal detail with edit capability while status is `under_review`, document upload, cancel button (before funding only)
+- Dashboard showing agent's deals with inline "Withdraw Request" (under_review) / "Cancel Advance" (approved) buttons in expanded deal cards
+- New deal submission form with 4-field address, live financial preview, firmness confirmation checkbox, multi-file document upload with per-file error handling
+- Deal detail with edit capability while under_review, document upload, cancel/withdraw button
+- Withdraw (under_review) = full deletion (documents, checklist, storage files, deal record)
+- Cancel (approved) = set status to cancelled
 
 ### Brokerage Portal
 - Agent list, deal activity, referral fee tracking
@@ -193,15 +203,20 @@ Backward transitions show an amber warning modal with contextual messaging befor
 - Audit logging on all deal actions
 
 ### Email Notifications
-- New deal submitted → admin (bud@firmfunds.ca)
+- New deal submitted → admin (bud@firmfunds.ca) AND brokerage admins for that brokerage
 - Status change → agent (with custom messaging per status: approved says "funded shortly", funded says "24 business hours", denied shows reason)
 - Document uploaded by agent → admin
 - Document request → agent (function exists, NO UI to trigger it yet)
+- Closing date alert digest (cron) → admin (overdue + approaching deals tables)
 
 ### Theme
 - Dark mode permanently locked, green (#5FA873) brand accent
 - ~40 color tokens via `useTheme()` hook
+- All date inputs have `colorScheme: 'dark'` for proper native calendar rendering
 - Light mode code still exists but toggle is disabled
+
+### Cron / Scheduled Jobs
+- `/api/cron/closing-date-alerts` — daily check for approaching (≤7 days) and overdue funded/approved deals, updates days_until_closing, protected by CRON_SECRET bearer token, uses service role client
 
 ---
 
@@ -211,7 +226,7 @@ Backward transitions show an amber warning modal with contextual messaging befor
 1. **Document request UI** — `sendDocumentRequestNotification()` exists in `lib/email.ts` but there's no admin button/flow to request specific documents from agents. Need a "Request Document" UI on the admin deal detail page.
 2. **Agent onboarding flow** — Currently agents are created manually (SQL/dashboard). Need admin-created invite flow with email. NOT self-registration — agents are always admin-onboarded.
 3. **Delete dead code** — Remove `app/(dashboard)/admin/agents/page.tsx` (nothing links to it)
-4. **Remove temporary delete button** — The `deleteDeal` action and its UI button on the admin dashboard are for testing only. Should be removed or gated before real production use.
+4. **Remove temporary delete button** — The `deleteDeal` action and its UI button on the admin deal page are for testing only. Should be removed or gated before real production use.
 5. **Mobile-responsive optimization** — App is currently desktop-focused
 
 ### Medium Priority
@@ -225,7 +240,8 @@ Backward transitions show an amber warning modal with contextual messaging befor
 11. **FINTRAC/AML compliance** — Needs legal counsel for ID verification requirements
 12. **Legal document templates** — Commission Purchase Agreement and Irrevocable Direction to Pay (needs lawyer)
 
-### Supabase Manual Tasks (for Bud in Dashboard)
+### Infrastructure / Ops Tasks
+- **Set up CRON_SECRET env var** in Netlify + external scheduler (e.g. cron-job.org) for daily closing date alerts at `GET /api/cron/closing-date-alerts` with `Authorization: Bearer <CRON_SECRET>` header
 - Run migration 005 (fix_storage_policies) — STATUS UNKNOWN, check if done
 - Enable MFA in Supabase Auth settings (TOTP)
 - Check rate limiting in Supabase Auth
@@ -242,6 +258,14 @@ Backward transitions show an amber warning modal with contextual messaging befor
 3. **Variable names say "gold" but colors are green** — `gold`, `goldDark`, `goldBg` in `theme.tsx` are actually green (#5FA873). Legacy naming from original palette. Don't be confused.
 
 4. **ThemeToggle.tsx is a stub** — Returns null. Kept only to prevent import errors from any stale references. Can be safely deleted if all imports are cleaned up.
+
+5. **RLS blocks agent-level clients from UPDATE/SELECT on deals** — Agent Supabase clients (anon key) can't update deals or refetch deal data after server mutations. Pattern: use `createServiceRoleClient()` for mutations, use server action response data for state updates instead of client-side refetches. This has bitten us multiple times (cancelDeal, updateClosingDate).
+
+6. **Next.js server actions have a default 1MB body size limit** — File uploads will crash silently. Currently configured to 25MB in `next.config.ts` via `experimental.serverActions.bodySizeLimit: '25mb'`.
+
+7. **Underwriting checklist duplication** — Multiple DB trigger versions created stacked items. Fixed with migration 009 that deletes all and recreates with a clean 11-item list. If it happens again, check the DB trigger function for `create_underwriting_checklist`.
+
+8. **`.claude/worktrees/` was accidentally committed** — Removed with `git rm --cached`. If it reappears, re-run `git rm --cached .claude/worktrees/distracted-pasteur`.
 
 ---
 
@@ -287,7 +311,7 @@ Status badge colors (from `constants.ts`):
 
 These are the main tables. RLS is enforced on all of them.
 
-- **deals** — Core deal records. Fields: id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, funding_date, repayment_date, eft_transfers (JSONB array), source, denial_reason, notes, admin_notes, created_at, updated_at
+- **deals** — Core deal records. Fields: id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, funding_date, repayment_date, repayment_amount, eft_transfers (JSONB array), brokerage_payments (JSONB array — `[{amount, date, reference?, method?}]`), admin_notes_timeline (JSONB array — `[{id, text, author_name, created_at}]`), source, denial_reason, notes, admin_notes (legacy, replaced by admin_notes_timeline), created_at, updated_at
 - **agents** — Agent profiles. Fields: id, brokerage_id, first_name, last_name, email, phone, reco_number, status, flagged_by_brokerage, outstanding_recovery
 - **brokerages** — Brokerage records. Fields: id, name, email, brand, address, phone, referral_fee_percentage, transaction_system, notes, status
 - **user_profiles** — Auth user → role mapping. Fields: id (matches auth.users.id), email, full_name, role, agent_id, brokerage_id, is_active
@@ -315,3 +339,57 @@ git commit -m "your message here"
 git push origin main
 ```
 Netlify watches `main` and auto-deploys. No CI checks, no staging. What you push is what goes live.
+
+---
+
+## 14. SQL Migrations History
+
+All migrations live in `supabase/migrations/`. Bud runs them manually in the Supabase SQL Editor.
+
+| Migration | Purpose | Status |
+|-----------|---------|--------|
+| 003_audit_log.sql | Audit logging table | ✅ RUN |
+| 004_rls_hardening.sql | Row Level Security policies | ✅ RUN |
+| 005_fix_storage_policies.sql | Storage bucket RLS fixes | ⚠️ UNKNOWN |
+| 006_add_admin_notes.sql | admin_notes_timeline JSONB column | ✅ RUN |
+| 007_document_requests.sql | Document request tracking columns | ✅ RUN |
+| 008_audit_fixes.sql | repayment_amount column, brokerage_documents table | ✅ RUN |
+| 008_underwriting_checklist_cleanup.sql | First checklist cleanup attempt | ✅ RUN (superseded by 009) |
+| 009_checklist_cleanup_v2.sql | Delete all checklist items + recreate clean 11-item list | ✅ RUN |
+| 010_brokerage_payments.sql | brokerage_payments JSONB column on deals | ✅ RUN |
+
+---
+
+## 15. Recent Session Work Log (April 3, 2026)
+
+### Completed — 10-Step Audit Fix Plan
+1. ✅ Deal submission improvements — firmness confirmation checkbox, multi-file document upload with per-file error handling
+2. ✅ Brokerage admin email notifications — new deal submission emails sent to brokerage admins
+3. ✅ Admin notes timeline — replaced single textarea with timestamped append-only entries
+4. ✅ Closing date recalculation — inline edit with server-side recalc, before/after comparison
+5. ✅ Closing date cron alerts — `/api/cron/closing-date-alerts` route for daily digest emails
+
+### Completed — Bug Fixes
+- ✅ File upload crash (Next.js 1MB body limit → bumped to 25MB)
+- ✅ Agent cancel button missing from dashboard (was only on detail page)
+- ✅ RLS blocking agent deal cancellation (switched to service role client)
+- ✅ Under_review deals now fully deleted on withdrawal (not just cancelled)
+- ✅ Admin delete deal button added
+- ✅ Underwriting checklist duplication fixed (clean 11-item migration)
+- ✅ Checklist UI redesigned (whole row clickable, no strikethrough, green circles)
+- ✅ Closing date update not persisting (RLS on client refetch — use server response data)
+- ✅ Date picker calendar not working in dark mode (added colorScheme: 'dark')
+
+### Completed — Brokerage Payments Redesign
+- ✅ Multiple brokerage payments tracked via JSONB array (replaces old single repayment_amount)
+- ✅ Record Payment form (amount, date, method, reference)
+- ✅ Payment tracker (received vs expected, color-coded)
+- ✅ Remove individual payments
+- ✅ "Mark as Repaid" gated by payment total matching amount_due_from_brokerage
+- ✅ Financial summary updated to show brokerage payment count + total
+- ✅ Old repayment state variables cleaned up
+
+### Last Push
+- Commit: `fix: date picker calendar not working in dark mode - add colorScheme dark to all date inputs`
+- All TypeScript compiling clean (`npx tsc --noEmit` = 0 errors)
+- All SQL migrations have been run
