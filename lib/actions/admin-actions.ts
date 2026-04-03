@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification } from '@/lib/email'
 
@@ -419,10 +419,10 @@ export async function createUserAccount(input: {
     if (!input.password || input.password.length < 8) return { success: false, error: 'Password must be at least 8 characters' }
     if (!input.fullName.trim()) return { success: false, error: 'Full name is required' }
 
-    // Create auth user via Supabase admin API
-    // Note: We use the regular signup since we don't have service_role access from server actions
-    // The user will need to confirm their email or we can auto-confirm via Supabase dashboard settings
-    const { data: authData, error: signUpError } = await supabase.auth.admin.createUser({
+    // Create auth user via service-role client (required for admin.createUser)
+    const serviceClient = createServiceRoleClient()
+
+    const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email: input.email.trim().toLowerCase(),
       password: input.password,
       email_confirm: true,
@@ -437,8 +437,8 @@ export async function createUserAccount(input: {
       return { success: false, error: 'User creation returned no user object' }
     }
 
-    // Create user_profile record
-    const { error: profileError } = await supabase
+    // Create user_profile record (use service client to bypass RLS)
+    const { error: profileError } = await serviceClient
       .from('user_profiles')
       .insert({
         id: authData.user.id,
@@ -541,27 +541,36 @@ export async function inviteAgent(input: {
       return { success: false, error: `Failed to create agent record: ${agentError?.message || 'Unknown error'}` }
     }
 
-    // 2. Create auth user via Supabase Admin API
+    // 2. Create auth user via service-role client (bypasses RLS for admin operations)
     const tempPassword = generateTempPassword()
-    const { data: authData, error: signUpError } = await supabase.auth.admin.createUser({
+    let serviceClient
+    try {
+      serviceClient = createServiceRoleClient()
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `Agent record created but login creation failed: ${err.message}`,
+        data: { agentId: agent.id, agentCreated: true, loginCreated: false },
+      }
+    }
+
+    const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email,
       password: tempPassword,
       email_confirm: true,
     })
 
     if (signUpError || !authData?.user) {
-      // Agent record was created but auth failed — this is a known gotcha
-      // Log it but don't roll back the agent record (admin can retry invite later)
       console.error('Auth user create error:', signUpError?.message)
       return {
         success: false,
-        error: `Agent record created but login creation failed: ${signUpError?.message || 'Unknown error'}. This likely means the SUPABASE_SERVICE_ROLE_KEY is not set. Create the login manually via the Supabase dashboard.`,
+        error: `Agent record created but login creation failed: ${signUpError?.message || 'Unknown error'}. Create the login manually via the Supabase dashboard.`,
         data: { agentId: agent.id, agentCreated: true, loginCreated: false },
       }
     }
 
-    // 3. Create user_profile record
-    const { error: profileError } = await supabase
+    // 3. Create user_profile record (use service client to bypass RLS)
+    const { error: profileError } = await serviceClient
       .from('user_profiles')
       .insert({
         id: authData.user.id,
