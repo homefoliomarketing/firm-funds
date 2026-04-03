@@ -122,8 +122,13 @@ export default function BrokeragesPage() {
   const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
   const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
-  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ url: string; fileName: string; agentName: string; agentId: string; type: 'image' | 'pdf' } | null>(null)
+  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrl: string; originalUrl: string; fileName: string; agentName: string; agentId: string; type: 'image' | 'pdf' } | null>(null)
   const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
+  const kycPanelWidth = 520
+  const closeKycPanel = () => {
+    if (kycPreviewPanel?.blobUrl) URL.revokeObjectURL(kycPreviewPanel.blobUrl)
+    setKycPreviewPanel(null)
+  }
 
   const router = useRouter()
   const supabase = createClient()
@@ -630,6 +635,8 @@ export default function BrokeragesPage() {
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
+      {/* Main content area — shrinks when KYC panel is open */}
+      <div style={{ marginRight: kycPreviewPanel ? kycPanelWidth : 0, transition: 'margin-right 0.2s ease-out' }}>
       {/* Header */}
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1491,16 +1498,25 @@ export default function BrokeragesPage() {
                                                         setKycPreviewLoading(agent.id)
                                                         const urlRes = await getAgentKycDocumentUrl({ agentId: agent.id })
                                                         if (urlRes.success && urlRes.data?.url) {
-                                                          const docType = (agent as any).kyc_document_type || ''
                                                           const ext = urlRes.data.url.split('?')[0].split('.').pop()?.toLowerCase() || ''
                                                           const isPdf = ext === 'pdf'
-                                                          setKycPreviewPanel({
-                                                            url: urlRes.data.url,
-                                                            fileName: `${agent.first_name}_${agent.last_name}_ID.${ext}`,
-                                                            agentName: `${agent.first_name} ${agent.last_name}`,
-                                                            agentId: agent.id,
-                                                            type: isPdf ? 'pdf' : 'image',
-                                                          })
+                                                          try {
+                                                            // Fetch as blob to bypass content-blocking headers
+                                                            const response = await fetch(urlRes.data.url)
+                                                            const blob = await response.blob()
+                                                            const blobUrl = URL.createObjectURL(blob)
+                                                            if (kycPreviewPanel?.blobUrl) URL.revokeObjectURL(kycPreviewPanel.blobUrl)
+                                                            setKycPreviewPanel({
+                                                              blobUrl,
+                                                              originalUrl: urlRes.data.url,
+                                                              fileName: `${agent.first_name}_${agent.last_name}_ID.${ext}`,
+                                                              agentName: `${agent.first_name} ${agent.last_name}`,
+                                                              agentId: agent.id,
+                                                              type: isPdf ? 'pdf' : 'image',
+                                                            })
+                                                          } catch {
+                                                            window.open(urlRes.data.url, '_blank')
+                                                          }
                                                         } else {
                                                           setStatusMessage({ type: 'error', text: urlRes.error || 'Failed to load ID' })
                                                         }
@@ -1690,126 +1706,117 @@ export default function BrokeragesPage() {
           </div>
         )}
       </main>
+      </div>{/* end of content area that shrinks */}
 
-      {/* KYC Document Slide-Out Preview Panel */}
+      {/* KYC Document Side Panel — sits beside main content, not on top */}
       {kycPreviewPanel && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40 transition-opacity"
-            style={{ background: 'rgba(0,0,0,0.4)' }}
-            onClick={() => setKycPreviewPanel(null)}
-          />
-          {/* Slide-out panel from right */}
-          <div
-            className="fixed top-0 right-0 z-50 h-full flex flex-col shadow-2xl"
-            style={{
-              width: 'min(560px, 90vw)',
-              background: colors.cardBg,
-              borderLeft: `1px solid ${colors.cardBorder}`,
-              animation: 'slideInRight 0.2s ease-out',
-            }}
-          >
-            {/* Panel Header */}
-            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
-              <div className="flex flex-col gap-0.5 min-w-0">
-                <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>
-                  <Shield size={14} className="inline mr-1.5" style={{ color: colors.gold }} />
-                  {kycPreviewPanel.agentName} — ID Verification
-                </p>
-                <p className="text-xs truncate" style={{ color: colors.textMuted }}>{kycPreviewPanel.fileName}</p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => window.open(kycPreviewPanel.url, '_blank')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
-                  style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                  onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
-                  title="Open in new tab"
-                >
-                  <ExternalLink size={13} />
-                  Open
-                </button>
-                <button
-                  onClick={() => setKycPreviewPanel(null)}
-                  className="p-1.5 rounded-lg transition"
-                  style={{ color: colors.textMuted }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
-                >
-                  <X size={18} />
-                </button>
-              </div>
+        <div
+          className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl"
+          style={{
+            width: kycPanelWidth,
+            background: colors.cardBg,
+            borderLeft: `2px solid ${colors.gold}`,
+            animation: 'slideInRight 0.2s ease-out',
+          }}
+        >
+          {/* Panel Header */}
+          <div className="flex items-center justify-between px-3 py-2.5 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>
+                <Shield size={13} className="inline mr-1" style={{ color: colors.gold }} />
+                {kycPreviewPanel.agentName}
+              </p>
+              <p className="text-xs" style={{ color: colors.textMuted }}>ID Verification</p>
             </div>
-            {/* Panel Content */}
-            <div className="flex-1 overflow-auto">
-              {kycPreviewPanel.type === 'image' ? (
-                <div className="flex items-center justify-center p-4" style={{ minHeight: '60vh' }}>
-                  <img
-                    src={kycPreviewPanel.url}
-                    alt={kycPreviewPanel.fileName}
-                    className="max-w-full rounded-lg"
-                    style={{ maxHeight: 'calc(100vh - 140px)', objectFit: 'contain' }}
-                  />
-                </div>
-              ) : (
-                <iframe
-                  src={kycPreviewPanel.url}
-                  className="w-full h-full border-0"
-                  style={{ minHeight: 'calc(100vh - 120px)' }}
-                  title={kycPreviewPanel.fileName}
-                />
-              )}
-            </div>
-            {/* Panel Footer — Approve/Reject actions */}
-            <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0" style={{ borderTop: `1px solid ${colors.border}`, background: colors.pageBg }}>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
-                onClick={async () => {
-                  setKycSubmitting(true)
-                  const result = await verifyAgentKyc({ agentId: kycPreviewPanel.agentId })
-                  if (result.success) {
-                    setStatusMessage({ type: 'success', text: `${kycPreviewPanel.agentName} KYC verified` })
-                    setKycPreviewPanel(null)
-                    await loadBrokerages()
-                  } else {
-                    setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
-                  }
-                  setKycSubmitting(false)
-                }}
-                disabled={kycSubmitting}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50"
-                style={{ color: '#fff', background: '#1A7A2E', border: '1px solid #25A03C' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#1E8C34' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#1A7A2E' }}
+                onClick={() => window.open(kycPreviewPanel.originalUrl, '_blank')}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition"
+                style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
+                onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                title="Open in new tab"
               >
-                <CheckCircle size={16} />
-                Approve ID
+                <ExternalLink size={11} />
               </button>
               <button
-                onClick={() => {
-                  setKycRejectingAgentId(kycPreviewPanel.agentId)
-                  setKycRejectReason('')
-                  setKycPreviewPanel(null)
-                }}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
-                style={{ color: '#fff', background: '#993D3D', border: '1px solid #B84A4A' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#AA4545' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#993D3D' }}
+                onClick={closeKycPanel}
+                className="p-1 rounded transition"
+                style={{ color: colors.textMuted }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
               >
-                <XCircle size={16} />
-                Reject ID
+                <X size={16} />
               </button>
             </div>
           </div>
-          <style>{`
-            @keyframes slideInRight {
-              from { transform: translateX(100%); }
-              to { transform: translateX(0); }
-            }
-          `}</style>
-        </>
+          {/* Panel Content — uses blob URL to bypass content-blocking */}
+          <div className="flex-1 overflow-auto">
+            {kycPreviewPanel.type === 'image' ? (
+              <div className="flex items-center justify-center p-3">
+                <img
+                  src={kycPreviewPanel.blobUrl}
+                  alt={kycPreviewPanel.fileName}
+                  className="max-w-full rounded-lg"
+                  style={{ maxHeight: 'calc(100vh - 130px)', objectFit: 'contain' }}
+                />
+              </div>
+            ) : (
+              <iframe
+                src={kycPreviewPanel.blobUrl}
+                className="w-full h-full border-0"
+                style={{ minHeight: 'calc(100vh - 120px)' }}
+                title={kycPreviewPanel.fileName}
+              />
+            )}
+          </div>
+          {/* Panel Footer — Approve/Reject actions */}
+          <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0" style={{ borderTop: `1px solid ${colors.border}`, background: colors.pageBg }}>
+            <button
+              onClick={async () => {
+                setKycSubmitting(true)
+                const result = await verifyAgentKyc({ agentId: kycPreviewPanel.agentId })
+                if (result.success) {
+                  setStatusMessage({ type: 'success', text: `${kycPreviewPanel.agentName} KYC verified` })
+                  closeKycPanel()
+                  await loadBrokerages()
+                } else {
+                  setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
+                }
+                setKycSubmitting(false)
+              }}
+              disabled={kycSubmitting}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50"
+              style={{ color: '#fff', background: '#1A7A2E', border: '1px solid #25A03C' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#1E8C34' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#1A7A2E' }}
+            >
+              <CheckCircle size={16} />
+              Approve ID
+            </button>
+            <button
+              onClick={() => {
+                setKycRejectingAgentId(kycPreviewPanel.agentId)
+                setKycRejectReason('')
+                closeKycPanel()
+              }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+              style={{ color: '#fff', background: '#993D3D', border: '1px solid #B84A4A' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#AA4545' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#993D3D' }}
+            >
+              <XCircle size={16} />
+              Reject ID
+            </button>
+          </div>
+        </div>
       )}
+      <style>{`
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
     </div>
   )
 }

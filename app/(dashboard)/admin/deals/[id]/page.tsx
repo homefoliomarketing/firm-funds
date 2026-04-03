@@ -223,7 +223,7 @@ export default function DealDetailPage() {
   const [docRequestType, setDocRequestType] = useState('')
   const [docRequestMessage, setDocRequestMessage] = useState('')
   const [docRequestSending, setDocRequestSending] = useState(false)
-  const [viewingDoc, setViewingDoc] = useState<{ url: string; fileName: string; type: 'pdf' | 'image' } | null>(null)
+  const [viewingDoc, setViewingDoc] = useState<{ blobUrl: string; originalUrl: string; fileName: string; type: 'pdf' | 'image' } | null>(null)
   const [viewLoading, setViewLoading] = useState<string | null>(null)
   const router = useRouter()
   const params = useParams()
@@ -308,6 +308,12 @@ export default function DealDetailPage() {
     window.open(result.data.signedUrl, '_blank')
   }
 
+  // Clean up blob URL when closing the viewer
+  const closeDocViewer = () => {
+    if (viewingDoc?.blobUrl) URL.revokeObjectURL(viewingDoc.blobUrl)
+    setViewingDoc(null)
+  }
+
   const handleDocumentView = async (doc: DealDocument) => {
     // Determine if the file is viewable
     const ext = doc.file_name.toLowerCase().split('.').pop() || ''
@@ -324,11 +330,22 @@ export default function DealDetailPage() {
       setViewLoading(null)
       return
     }
-    // Open in slide-out preview panel (images and PDFs)
-    if (isImage) {
-      setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: 'image' })
-    } else {
-      setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: 'pdf' })
+    try {
+      // Fetch as blob to bypass iframe/img content-blocking headers
+      const response = await fetch(result.data.signedUrl)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      // Revoke previous blob URL if any
+      if (viewingDoc?.blobUrl) URL.revokeObjectURL(viewingDoc.blobUrl)
+      setViewingDoc({
+        blobUrl,
+        originalUrl: result.data.signedUrl,
+        fileName: doc.file_name,
+        type: isImage ? 'image' : 'pdf',
+      })
+    } catch {
+      // Fallback: open in new tab if blob fetch fails
+      window.open(result.data.signedUrl, '_blank')
     }
     setViewLoading(null)
   }
@@ -487,8 +504,11 @@ export default function DealDetailPage() {
   const nextStatuses = STATUS_FLOW[deal.status] || []
   const categorizedChecklist = categorizeChecklist(checklist)
 
+  const docPanelWidth = 520
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
+      {/* Main content area — shrinks when doc panel is open */}
+      <div style={{ marginRight: viewingDoc ? docPanelWidth : 0, transition: 'margin-right 0.2s ease-out' }}>
       {/* HEADER */}
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
@@ -1718,84 +1738,85 @@ export default function DealDetailPage() {
         )}
 
       </main>
+      </div>{/* end of content area that shrinks */}
 
-      {/* Document Slide-Out Preview Panel */}
+      {/* Document Side Panel — sits beside main content, not on top */}
       {viewingDoc && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40 transition-opacity"
-            style={{ background: 'rgba(0,0,0,0.4)' }}
-            onClick={() => setViewingDoc(null)}
-          />
-          {/* Slide-out panel from right */}
-          <div
-            className="fixed top-0 right-0 z-50 h-full flex flex-col shadow-2xl"
-            style={{
-              width: 'min(560px, 90vw)',
-              background: colors.cardBg,
-              borderLeft: `1px solid ${colors.cardBorder}`,
-              animation: 'slideInRight 0.2s ease-out',
-            }}
-          >
-            {/* Panel Header */}
-            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
-              <div className="flex items-center gap-2 min-w-0">
-                <FileText size={16} style={{ color: colors.gold }} />
-                <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => window.open(viewingDoc.url, '_blank')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
-                  style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                  onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
-                  title="Open in new tab"
-                >
-                  <ExternalLink size={13} />
-                  Open
-                </button>
-                <button
-                  onClick={() => setViewingDoc(null)}
-                  className="p-1.5 rounded-lg transition"
-                  style={{ color: colors.textMuted }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
-                >
-                  <X size={18} />
-                </button>
-              </div>
+        <div
+          className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl"
+          style={{
+            width: docPanelWidth,
+            background: colors.cardBg,
+            borderLeft: `2px solid ${colors.gold}`,
+            animation: 'slideInRight 0.2s ease-out',
+          }}
+        >
+          {/* Panel Header */}
+          <div className="flex items-center justify-between px-3 py-2.5 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText size={14} style={{ color: colors.gold }} />
+              <p className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
             </div>
-            {/* Panel Content */}
-            <div className="flex-1 overflow-auto">
-              {viewingDoc.type === 'image' ? (
-                <div className="flex items-center justify-center p-4" style={{ minHeight: '60vh' }}>
-                  <img
-                    src={viewingDoc.url}
-                    alt={viewingDoc.fileName}
-                    className="max-w-full rounded-lg"
-                    style={{ maxHeight: 'calc(100vh - 80px)', objectFit: 'contain' }}
-                  />
-                </div>
-              ) : (
-                <iframe
-                  src={viewingDoc.url}
-                  className="w-full h-full border-0"
-                  style={{ minHeight: 'calc(100vh - 56px)' }}
-                  title={viewingDoc.fileName}
-                />
-              )}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition"
+                style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
+                onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                title="Open in new tab"
+              >
+                <ExternalLink size={11} />
+              </button>
+              <button
+                onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition"
+                style={{ background: colors.inputBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                title="Download"
+              >
+                <Download size={11} />
+              </button>
+              <button
+                onClick={closeDocViewer}
+                className="p-1 rounded transition"
+                style={{ color: colors.textMuted }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
+              >
+                <X size={16} />
+              </button>
             </div>
           </div>
-          <style>{`
-            @keyframes slideInRight {
-              from { transform: translateX(100%); }
-              to { transform: translateX(0); }
-            }
-          `}</style>
-        </>
+          {/* Panel Content — uses blob URL to bypass content-blocking */}
+          <div className="flex-1 overflow-auto">
+            {viewingDoc.type === 'image' ? (
+              <div className="flex items-center justify-center p-3">
+                <img
+                  src={viewingDoc.blobUrl}
+                  alt={viewingDoc.fileName}
+                  className="max-w-full rounded-lg"
+                  style={{ maxHeight: 'calc(100vh - 60px)', objectFit: 'contain' }}
+                />
+              </div>
+            ) : (
+              <iframe
+                src={viewingDoc.blobUrl}
+                className="w-full h-full border-0"
+                style={{ minHeight: 'calc(100vh - 48px)' }}
+                title={viewingDoc.fileName}
+              />
+            )}
+          </div>
+        </div>
       )}
+      <style>{`
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
     </div>
   )
 }
