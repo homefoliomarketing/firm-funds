@@ -812,7 +812,7 @@ export default function DealDetailPage() {
                       value={eftDate}
                       onChange={(e) => setEftDate(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText, colorScheme: 'dark' }}
                     />
                   </div>
                   <div>
@@ -976,7 +976,7 @@ export default function DealDetailPage() {
                     <input
                       type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText, colorScheme: 'dark' }}
                     />
                   </div>
                   <div>
@@ -1144,7 +1144,7 @@ export default function DealDetailPage() {
                         onChange={(e) => setNewClosingDate(e.target.value)}
                         min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
                         className="w-full rounded px-2 py-1 text-sm outline-none"
-                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText, colorScheme: 'dark' }}
                       />
                       <div className="flex gap-1.5">
                         <button onClick={handleUpdateClosingDate} disabled={closingDateSaving || newClosingDate === deal.closing_date}
