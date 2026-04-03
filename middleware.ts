@@ -46,6 +46,21 @@ export async function middleware(request: NextRequest) {
 
   // For authenticated users: enforce role-based route access
   if (user) {
+    // Check if user must reset their password (first login after invite)
+    if (!pathname.startsWith('/change-password') && !pathname.startsWith('/login') && !pathname.startsWith('/auth')) {
+      const { data: pwProfile } = await supabase
+        .from('user_profiles')
+        .select('must_reset_password')
+        .eq('id', user.id)
+        .single()
+
+      if (pwProfile?.must_reset_password) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/change-password'
+        return NextResponse.redirect(url)
+      }
+    }
+
     // If on login page, redirect to appropriate dashboard
     if (pathname.startsWith('/login')) {
       const { data: profile } = await supabase

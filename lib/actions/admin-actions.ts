@@ -667,6 +667,7 @@ export async function inviteAgent(input: {
         agent_id: agent.id,
         brokerage_id: input.brokerageId,
         is_active: true,
+        must_reset_password: true,
       })
 
     if (profileError) {
