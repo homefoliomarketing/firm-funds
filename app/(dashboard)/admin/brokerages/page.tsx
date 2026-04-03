@@ -1506,7 +1506,9 @@ export default function BrokeragesPage() {
                                                             const blobUrls: string[] = []
                                                             for (const url of urls) {
                                                               const response = await fetch(url)
-                                                              const blob = await response.blob()
+                                                              const arrayBuffer = await response.arrayBuffer()
+                                                              const mimeType = response.headers.get('content-type') || 'image/png'
+                                                              const blob = new Blob([arrayBuffer], { type: mimeType })
                                                               blobUrls.push(URL.createObjectURL(blob))
                                                             }
                                                             if (kycPreviewPanel) {

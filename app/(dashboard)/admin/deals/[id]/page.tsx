@@ -333,7 +333,10 @@ export default function DealDetailPage() {
     try {
       // Fetch as blob to bypass iframe/img content-blocking headers
       const response = await fetch(result.data.signedUrl)
-      const blob = await response.blob()
+      const arrayBuffer = await response.arrayBuffer()
+      // Create blob with explicit MIME type so the browser knows how to render it
+      const mimeType = isPdf ? 'application/pdf' : (response.headers.get('content-type') || 'image/png')
+      const blob = new Blob([arrayBuffer], { type: mimeType })
       const blobUrl = URL.createObjectURL(blob)
       // Revoke previous blob URL if any
       if (viewingDoc?.blobUrl) URL.revokeObjectURL(viewingDoc.blobUrl)
@@ -343,7 +346,8 @@ export default function DealDetailPage() {
         fileName: doc.file_name,
         type: isImage ? 'image' : 'pdf',
       })
-    } catch {
+    } catch (err) {
+      console.error('Blob fetch failed:', err)
       // Fallback: open in new tab if blob fetch fails
       window.open(result.data.signedUrl, '_blank')
     }
@@ -1801,12 +1805,25 @@ export default function DealDetailPage() {
                 />
               </div>
             ) : (
-              <iframe
-                src={viewingDoc.blobUrl}
+              <object
+                data={`${viewingDoc.blobUrl}#toolbar=1&navpanes=0`}
+                type="application/pdf"
                 className="w-full h-full border-0"
                 style={{ minHeight: 'calc(100vh - 48px)' }}
-                title={viewingDoc.fileName}
-              />
+              >
+                <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+                  <p style={{ color: colors.textSecondary }} className="text-sm text-center">
+                    PDF preview not supported in this browser.
+                  </p>
+                  <button
+                    onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                    className="px-4 py-2 rounded text-sm font-medium"
+                    style={{ backgroundColor: colors.accent, color: '#fff' }}
+                  >
+                    Open in New Tab
+                  </button>
+                </div>
+              </object>
             )}
           </div>
         </div>
