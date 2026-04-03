@@ -533,14 +533,12 @@ export async function archiveAgent(input: {
         .update({ is_active: false })
         .eq('id', profile.id)
 
-      // 3. Also ban the auth user so they truly can't log in
+      // 3. Delete the auth user so their email is freed up for reuse
       try {
-        await serviceClient.auth.admin.updateUserById(profile.id, {
-          ban_duration: '876000h', // ~100 years (permanent ban)
-        })
+        await serviceClient.auth.admin.deleteUser(profile.id)
       } catch (err) {
         // Non-fatal — profile deactivation is the primary gate
-        console.warn('[archiveAgent] Could not ban auth user:', err)
+        console.warn('[archiveAgent] Could not delete auth user:', err)
       }
     }
 
