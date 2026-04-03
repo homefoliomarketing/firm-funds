@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
-import { changePasswordAndClearFlag } from '@/lib/actions/auth-actions'
 
 export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('')
@@ -30,7 +29,13 @@ export default function ChangePasswordPage() {
     setLoading(true)
 
     try {
-      const result = await changePasswordAndClearFlag(newPassword)
+      const res = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
+      })
+
+      const result = await res.json()
 
       if (!result.success) {
         setError(result.error || 'Failed to update password. Please try again.')
