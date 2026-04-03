@@ -78,6 +78,7 @@ export interface Deal {
   repayment_amount: number | null
   admin_notes_timeline: { id: string; text: string; author_name: string; created_at: string }[] | null
   eft_transfers: EftTransfer[] | null
+  brokerage_payments: BrokeragePayment[] | null
   source: DealSource
   denial_reason: string | null
   notes: string | null
@@ -88,6 +89,13 @@ export interface Deal {
   brokerage?: Brokerage
   documents?: DealDocument[]
   checklist?: UnderwritingChecklistItem[]
+}
+
+export interface BrokeragePayment {
+  amount: number
+  date: string
+  reference?: string
+  method?: string
 }
 
 export interface EftTransfer {

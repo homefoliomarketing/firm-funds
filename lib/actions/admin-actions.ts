@@ -849,3 +849,117 @@ export async function removeEftTransfer(input: {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
+
+// ============================================================================
+// Brokerage Payment: Record incoming payment from brokerage
+// ============================================================================
+
+export async function recordBrokeragePayment(input: {
+  dealId: string
+  amount: number
+  date: string
+  reference?: string
+  method?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    if (input.amount <= 0) return { success: false, error: 'Amount must be greater than 0' }
+
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, status, amount_due_from_brokerage, brokerage_payments')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+    if (!['funded', 'repaid'].includes(deal.status)) {
+      return { success: false, error: 'Brokerage payments can only be recorded on funded or repaid deals' }
+    }
+
+    const existingPayments = deal.brokerage_payments || []
+    const newPayment = {
+      amount: input.amount,
+      date: input.date,
+      ...(input.reference ? { reference: input.reference } : {}),
+      ...(input.method ? { method: input.method } : {}),
+    }
+    const updatedPayments = [...existingPayments, newPayment]
+
+    // Calculate new total
+    const newTotal = updatedPayments.reduce((sum: number, p: any) => sum + p.amount, 0)
+    const updateData: Record<string, any> = { brokerage_payments: updatedPayments }
+
+    // Store total as repayment_amount for reporting
+    updateData.repayment_amount = newTotal
+
+    const { data: updatedDeal, error: updateError } = await supabase
+      .from('deals')
+      .update(updateData)
+      .eq('id', input.dealId)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Brokerage payment error:', updateError.message)
+      return { success: false, error: `Failed to record payment: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage_payment.record',
+      entityType: 'deal',
+      entityId: input.dealId,
+      metadata: { amount: input.amount, date: input.date, new_total: newTotal, expected: deal.amount_due_from_brokerage },
+    })
+
+    return { success: true, data: updatedDeal }
+  } catch (err: any) {
+    console.error('Brokerage payment error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function removeBrokeragePayment(input: {
+  dealId: string
+  paymentIndex: number
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, brokerage_payments')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+
+    const payments = deal.brokerage_payments || []
+    if (input.paymentIndex < 0 || input.paymentIndex >= payments.length) {
+      return { success: false, error: 'Invalid payment index' }
+    }
+
+    payments.splice(input.paymentIndex, 1)
+    const newTotal = payments.reduce((sum: number, p: any) => sum + p.amount, 0)
+
+    const { data: updatedDeal, error: updateError } = await supabase
+      .from('deals')
+      .update({
+        brokerage_payments: payments,
+        repayment_amount: payments.length > 0 ? newTotal : null,
+      })
+      .eq('id', input.dealId)
+      .select()
+      .single()
+
+    if (updateError) {
+      return { success: false, error: `Failed to remove payment: ${updateError.message}` }
+    }
+
+    return { success: true, data: updatedDeal }
+  } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}

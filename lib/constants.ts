@@ -26,8 +26,8 @@ export const MAX_GROSS_COMMISSION = 1_000_000
 /** Minimum gross commission allowed */
 export const MIN_GROSS_COMMISSION = 1
 
-/** Maximum file upload size in bytes (10MB) */
-export const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
+/** Maximum file upload size in bytes (25MB) */
+export const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024
 
 /** Allowed file upload MIME types */
 export const ALLOWED_UPLOAD_MIME_TYPES = [

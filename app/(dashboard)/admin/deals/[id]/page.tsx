@@ -22,7 +22,7 @@ import {
   cancelDocumentRequest,
   deleteDeal,
 } from '@/lib/actions/deal-actions'
-import { recordEftTransfer, confirmEftTransfer, removeEftTransfer } from '@/lib/actions/admin-actions'
+import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
@@ -35,6 +35,7 @@ interface Deal {
   amount_due_from_brokerage: number; funding_date: string | null
   repayment_date: string | null; repayment_amount: number | null
   eft_transfers: { amount: number; date: string; confirmed: boolean; reference?: string }[] | null
+  brokerage_payments: { amount: number; date: string; reference?: string; method?: string }[] | null
   source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
   admin_notes: string | null
@@ -252,8 +253,12 @@ export default function DealDetailPage() {
   const [newClosingDate, setNewClosingDate] = useState('')
   const [closingDateSaving, setClosingDateSaving] = useState(false)
   const [closingDateComparison, setClosingDateComparison] = useState<{ old: Record<string, any>; new: Record<string, any> } | null>(null)
-  const [showRepaymentInput, setShowRepaymentInput] = useState(false)
-  const [repaymentAmount, setRepaymentAmount] = useState('')
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
+  const [paymentReference, setPaymentReference] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('')
+  const [paymentSaving, setPaymentSaving] = useState(false)
   const [showDocRequest, setShowDocRequest] = useState(false)
   const [docRequestType, setDocRequestType] = useState('')
   const [docRequestMessage, setDocRequestMessage] = useState('')
@@ -313,12 +318,6 @@ export default function DealDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
-    // Show repayment amount input when marking as repaid
-    if (newStatus === 'repaid' && !showRepaymentInput) {
-      setRepaymentAmount(deal.amount_due_from_brokerage.toFixed(2))
-      setShowRepaymentInput(true)
-      return
-    }
     // Show confirmation for backward transitions
     if (isBackwardTransition(newStatus) && pendingBackward !== newStatus) {
       setPendingBackward(newStatus)
@@ -329,7 +328,6 @@ export default function DealDetailPage() {
     const result = await updateDealStatus({
       dealId: deal.id, newStatus,
       denialReason: newStatus === 'denied' ? denialReason.trim() : undefined,
-      repaymentAmount: newStatus === 'repaid' ? parseFloat(repaymentAmount) || undefined : undefined,
     })
     if (!result.success) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update deal status' })
@@ -337,7 +335,7 @@ export default function DealDetailPage() {
       setStatusMessage({ type: 'success', text: `Deal status updated to ${STATUS_LABELS[newStatus]}` })
       setDeal(prev => prev ? { ...prev, ...result.data } : null)
       setShowDenialInput(false); setDenialReason('')
-      setShowRepaymentInput(false); setRepaymentAmount('')
+      setShowPaymentForm(false)
     }
     setUpdating(false)
   }
@@ -633,7 +631,11 @@ export default function DealDetailPage() {
                 const Icon = config.icon
                 // Block approval/funding until all checklist items are complete
                 const needsChecklist = (status === 'approved' || status === 'funded') && !allChecklistComplete
-                const isDisabled = updating || needsChecklist
+                // Block repaid until brokerage payments match expected amount
+                const paymentTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
+                const paymentsMatch = Math.abs(paymentTotal - deal.amount_due_from_brokerage) < 0.01 && paymentTotal > 0
+                const needsPayments = status === 'repaid' && !paymentsMatch
+                const isDisabled = updating || needsChecklist || needsPayments
                 return (
                   <div key={status} className="relative group">
                     <button
@@ -647,10 +649,10 @@ export default function DealDetailPage() {
                       <Icon className="w-4 h-4" />
                       {config.label}
                     </button>
-                    {needsChecklist && (
+                    {(needsChecklist || needsPayments) && (
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30"
                         style={{ background: '#1A1A1A', color: '#E07B7B', border: '1px solid #333' }}>
-                        Complete all checklist items first ({checkedCount}/{totalChecklist})
+                        {needsChecklist ? `Complete all checklist items first (${checkedCount}/${totalChecklist})` : 'Brokerage payments must match expected amount first'}
                       </div>
                     )}
                   </div>
@@ -764,56 +766,7 @@ export default function DealDetailPage() {
           )}
 
           {/* REPAYMENT AMOUNT INPUT */}
-          {showRepaymentInput && (
-            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
-              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'rgba(13,122,95,0.1)', border: '1px solid rgba(95,184,160,0.3)' }}>
-                <DollarSign className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#5FB8A0' }} />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold mb-1" style={{ color: '#5FB8A0' }}>
-                    Record Repayment Amount
-                  </p>
-                  <p className="text-xs mb-3" style={{ color: colors.textMuted }}>
-                    Expected from brokerage: <strong style={{ color: colors.textPrimary }}>{formatCurrency(deal.amount_due_from_brokerage)}</strong>
-                  </p>
-                  <div className="flex items-center gap-3 mb-3">
-                    <label className="text-sm font-medium" style={{ color: colors.textPrimary }}>Amount Received (CAD)</label>
-                    <input
-                      type="number"
-                      value={repaymentAmount}
-                      onChange={(e) => setRepaymentAmount(e.target.value)}
-                      step="0.01"
-                      className="w-48 px-3 py-1.5 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    />
-                  </div>
-                  {repaymentAmount && Math.abs(parseFloat(repaymentAmount) - deal.amount_due_from_brokerage) > 0.01 && (
-                    <p className="text-xs mb-3 px-2 py-1 rounded" style={{ background: 'rgba(212,160,74,0.15)', color: '#D4A04A' }}>
-                      Discrepancy: {formatCurrency(parseFloat(repaymentAmount) - deal.amount_due_from_brokerage)} from expected amount
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleStatusChange('repaid')}
-                      disabled={updating || !repaymentAmount}
-                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
-                      style={{ background: '#0D7A5F' }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#0A6A4F' }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#0D7A5F'}
-                    >
-                      {updating ? 'Processing...' : 'Confirm Repayment'}
-                    </button>
-                    <button
-                      onClick={() => { setShowRepaymentInput(false); setRepaymentAmount('') }}
-                      className="px-4 py-1.5 rounded-lg text-sm font-medium transition"
-                      style={{ background: colors.border, color: colors.textPrimary }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Old repayment input removed — replaced by Brokerage Payments section below */}
         </div>
 
         {/* EFT SECTION - ONLY FOR FUNDED/REPAID */}
@@ -984,6 +937,172 @@ export default function DealDetailPage() {
           </div>
         )}
 
+        {/* BROKERAGE PAYMENTS SECTION - ONLY FOR FUNDED/REPAID */}
+        {['funded', 'repaid'].includes(deal.status) && (
+          <div className="mb-4 rounded-lg p-4" style={{
+            background: colors.cardBg,
+            border: `1px solid ${colors.border}`,
+          }}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <DollarSign className="w-4 h-4" style={{ color: '#06B6D4' }} />
+                Brokerage Payments
+              </h2>
+              <button
+                onClick={() => setShowPaymentForm(!showPaymentForm)}
+                className="px-4 py-2 rounded-lg font-medium text-white transition"
+                style={{ background: '#06B6D4' }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+              >
+                {showPaymentForm ? 'Cancel' : 'Record Payment'}
+              </button>
+            </div>
+
+            {showPaymentForm && (
+              <div className="mb-6 p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Amount (CAD)</label>
+                    <input
+                      type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)}
+                      placeholder="0.00" step="0.01"
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Date Received</label>
+                    <input
+                      type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Method</label>
+                    <select
+                      value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    >
+                      <option value="">Select...</option>
+                      <option value="eft">EFT</option>
+                      <option value="cheque">Cheque</option>
+                      <option value="wire">Wire Transfer</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Reference</label>
+                    <input
+                      type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)}
+                      placeholder="Cheque #, ref..."
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!paymentAmount || !paymentDate) return
+                    setPaymentSaving(true)
+                    const result = await recordBrokeragePayment({
+                      dealId: deal.id,
+                      amount: parseFloat(paymentAmount),
+                      date: paymentDate,
+                      reference: paymentReference.trim() || undefined,
+                      method: paymentMethod || undefined,
+                    })
+                    if (result.success) {
+                      setDeal(prev => prev ? { ...prev, ...result.data } : null)
+                      setPaymentAmount(''); setPaymentReference(''); setPaymentMethod('')
+                      setPaymentDate(new Date().toISOString().split('T')[0])
+                      setShowPaymentForm(false)
+                      setStatusMessage({ type: 'success', text: 'Brokerage payment recorded' })
+                    } else {
+                      setStatusMessage({ type: 'error', text: result.error || 'Failed to record payment' })
+                    }
+                    setPaymentSaving(false)
+                  }}
+                  disabled={paymentSaving || !paymentAmount || !paymentDate}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
+                  style={{ background: '#0D7A5F' }}
+                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#0A6A4F' }}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#0D7A5F'}
+                >
+                  Record Payment
+                </button>
+              </div>
+            )}
+
+            {/* PAYMENT TOTAL TRACKER */}
+            {(() => {
+              const payTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
+              const expected = deal.amount_due_from_brokerage
+              const diff = expected - payTotal
+              const isMatch = Math.abs(diff) < 0.01 && payTotal > 0
+              const isOver = payTotal > expected + 0.01
+              return (deal.brokerage_payments && deal.brokerage_payments.length > 0) ? (
+                <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm" style={{
+                  background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
+                  border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
+                }}>
+                  <div>
+                    <span style={{ color: colors.textMuted }}>Received: </span>
+                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(payTotal)}</span>
+                    <span style={{ color: colors.textMuted }}> / Expected: </span>
+                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(expected)}</span>
+                  </div>
+                  <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
+                    {isMatch ? '✓ Ready to mark Repaid' : isOver ? `Over by ${formatCurrency(payTotal - expected)}` : `Outstanding: ${formatCurrency(diff)}`}
+                  </span>
+                </div>
+              ) : (
+                <p className="mb-4 text-sm" style={{ color: colors.textMuted }}>
+                  Expected from brokerage: <strong style={{ color: colors.textPrimary }}>{formatCurrency(deal.amount_due_from_brokerage)}</strong> — no payments recorded yet
+                </p>
+              )
+            })()}
+
+            {/* PAYMENT LIST */}
+            {deal.brokerage_payments && deal.brokerage_payments.length > 0 && (
+              <div className="space-y-3">
+                {deal.brokerage_payments.map((payment, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                    <div>
+                      <p className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(payment.amount)}</p>
+                      <p className="text-sm" style={{ color: colors.textMuted }}>
+                        {formatDate(payment.date)}
+                        {payment.method ? ` • ${payment.method.charAt(0).toUpperCase() + payment.method.slice(1)}` : ''}
+                        {payment.reference ? ` • Ref: ${payment.reference}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Remove this payment?')) return
+                        const result = await removeBrokeragePayment({ dealId: deal.id, paymentIndex: idx })
+                        if (result.success) {
+                          setDeal(prev => prev ? { ...prev, ...result.data } : null)
+                          setStatusMessage({ type: 'success', text: 'Payment removed' })
+                        } else {
+                          setStatusMessage({ type: 'error', text: result.error || 'Failed to remove payment' })
+                        }
+                      }}
+                      className="p-2 rounded-lg transition"
+                      style={{ color: colors.textMuted }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#E07B7B'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* MAIN CONTENT GRID - Deal Details, Financial, Admin Notes (left 2/3) + Agent/Brokerage (right 1/3) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
           <div className="lg:col-span-2 space-y-4">
@@ -1115,18 +1234,25 @@ export default function DealDetailPage() {
                   <span className="font-semibold" style={{ color: colors.gold }}>Amount Due from Brokerage</span>
                   <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
                 </div>
-                {deal.repayment_amount !== null && deal.repayment_amount !== undefined && (
-                  <div className="flex justify-between rounded px-2 py-1.5 text-sm mt-1" style={{
-                    background: Math.abs(deal.repayment_amount - deal.amount_due_from_brokerage) < 0.01 ? 'rgba(95,168,115,0.1)' : 'rgba(212,160,74,0.15)',
-                  }}>
-                    <span className="font-semibold" style={{ color: Math.abs(deal.repayment_amount - deal.amount_due_from_brokerage) < 0.01 ? '#5FA873' : '#D4A04A' }}>
-                      Repayment Received
-                    </span>
-                    <span className="font-bold" style={{ color: Math.abs(deal.repayment_amount - deal.amount_due_from_brokerage) < 0.01 ? '#5FA873' : '#D4A04A' }}>
-                      {formatCurrency(deal.repayment_amount)}
-                    </span>
-                  </div>
-                )}
+                {(() => {
+                  const brokerageTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
+                  if (brokerageTotal <= 0) return null
+                  const isFullyPaid = Math.abs(brokerageTotal - deal.amount_due_from_brokerage) < 0.01
+                  const isOver = brokerageTotal > deal.amount_due_from_brokerage + 0.01
+                  const statusColor = isFullyPaid ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'
+                  return (
+                    <div className="flex justify-between rounded px-2 py-1.5 text-sm mt-1" style={{
+                      background: isFullyPaid ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.15)',
+                    }}>
+                      <span className="font-semibold" style={{ color: statusColor }}>
+                        Brokerage Payments ({(deal.brokerage_payments || []).length})
+                      </span>
+                      <span className="font-bold" style={{ color: statusColor }}>
+                        {formatCurrency(brokerageTotal)}
+                      </span>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
