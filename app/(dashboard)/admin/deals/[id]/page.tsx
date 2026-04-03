@@ -1806,9 +1806,9 @@ export default function DealDetailPage() {
             </div>
           </div>
           {/* Panel Content — uses blob URL to bypass content-blocking */}
-          <div className="flex-1 overflow-auto">
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
             {viewingDoc.type === 'image' ? (
-              <div className="flex items-center justify-center p-3">
+              <div className="flex items-center justify-center p-3" style={{ height: '100%', overflow: 'auto' }}>
                 <img
                   src={viewingDoc.blobUrl}
                   alt={viewingDoc.fileName}
@@ -1817,11 +1817,10 @@ export default function DealDetailPage() {
                 />
               </div>
             ) : (
-              <iframe
-                src={`${viewingDoc.blobUrl}#toolbar=1&navpanes=0`}
-                title={viewingDoc.fileName}
-                className="w-full h-full border-0"
-                style={{ minHeight: 'calc(100vh - 48px)' }}
+              <embed
+                src={viewingDoc.blobUrl}
+                type="application/pdf"
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
               />
             )}
           </div>
