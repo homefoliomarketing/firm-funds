@@ -19,9 +19,10 @@ export async function POST(request: Request) {
 
     const serviceClient = createServiceRoleClient()
 
-    // 1. Update password using admin API
+    // 1. Update password AND set metadata flag using admin API (bypasses RLS)
     const { error: pwError } = await serviceClient.auth.admin.updateUserById(user.id, {
       password: newPassword,
+      user_metadata: { password_changed: true },
     })
 
     if (pwError) {
@@ -29,11 +30,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: pwError.message }, { status: 500 })
     }
 
-    // 2. Clear the must_reset_password flag
-    await serviceClient
+    // 2. Clear the must_reset_password flag in DB (service role bypasses RLS)
+    const { error: dbError } = await serviceClient
       .from('user_profiles')
       .update({ must_reset_password: false })
       .eq('id', user.id)
+
+    if (dbError) {
+      console.error('DB flag clear error:', dbError.message)
+      // Non-fatal — the metadata flag is set so middleware will let them through
+    }
 
     // 3. Get user role for redirect
     const { data: profile } = await serviceClient

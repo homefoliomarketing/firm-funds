@@ -17,7 +17,7 @@ import {
   getStatusBadgeStyle,
   formatStatusLabel,
 } from '@/lib/constants'
-import { getDocumentSignedUrl, updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
+import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
 import { AlertCircle } from 'lucide-react'
 
 interface Deal {
@@ -137,7 +137,12 @@ export default function AgentDealDetailPage() {
   }
 
   const handleDocumentDownload = async (doc: DealDocument) => {
-    const result = await getDocumentSignedUrl({ documentId: doc.id, filePath: doc.file_path, dealId: dealId })
+    const response = await fetch('/api/documents/signed-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId: doc.id, filePath: doc.file_path, dealId: dealId }),
+    })
+    const result = await response.json()
     if (!result.success || !result.data?.signedUrl) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to generate download link' }); return
     }

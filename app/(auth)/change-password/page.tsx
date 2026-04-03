@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
 
@@ -11,7 +10,6 @@ export default function ChangePasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
   const { colors, isDark } = useTheme()
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -31,45 +29,30 @@ export default function ChangePasswordPage() {
     setLoading(true)
 
     try {
-      // 1. Update password + set metadata flag (all client-side, no server needed)
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
-        data: { password_changed: true },
+      // Call our API route which uses service role client (bypasses RLS)
+      const response = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
       })
 
-      if (updateError) {
-        setError(updateError.message)
+      const result = await response.json()
+
+      if (!result.success) {
+        setError(result.error || 'Failed to change password.')
         setLoading(false)
         return
       }
 
-      // 2. Also try to clear the DB flag (best effort, non-blocking)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        // This might fail due to RLS, that's OK — middleware will check metadata too
-        supabase.from('user_profiles').update({ must_reset_password: false }).eq('id', user.id).then(() => {})
+      // Redirect based on role returned from API
+      const role = result.role || 'agent'
+      switch (role) {
+        case 'agent': router.push('/agent'); break
+        case 'brokerage_admin': router.push('/brokerage'); break
+        case 'firm_funds_admin':
+        case 'super_admin': router.push('/admin'); break
+        default: router.push('/agent')
       }
-
-      // 3. Redirect based on role
-      if (user) {
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-
-        if (profile) {
-          switch (profile.role) {
-            case 'agent': router.push('/agent'); break
-            case 'brokerage_admin': router.push('/brokerage'); break
-            case 'firm_funds_admin':
-            case 'super_admin': router.push('/admin'); break
-            default: router.push('/agent')
-          }
-          return
-        }
-      }
-      router.push('/agent')
     } catch (err) {
       console.error('Change password error:', err)
       setError('Something went wrong. Please try again.')

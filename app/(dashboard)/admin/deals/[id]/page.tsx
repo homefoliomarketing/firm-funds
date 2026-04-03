@@ -13,7 +13,6 @@ import {
   updateDealStatus,
   toggleChecklistItem as serverToggleChecklistItem,
   deleteDocument as serverDeleteDocument,
-  getDocumentSignedUrl,
   saveAdminNotes,
   addAdminNote,
   updateClosingDate,
@@ -300,8 +299,17 @@ export default function DealDetailPage() {
     setUpdating(false)
   }
 
+  const fetchDocumentSignedUrl = async (doc: DealDocument) => {
+    const response = await fetch('/api/documents/signed-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId: doc.id, filePath: doc.file_path, dealId: dealId }),
+    })
+    return await response.json()
+  }
+
   const handleDocumentDownload = async (doc: DealDocument) => {
-    const result = await getDocumentSignedUrl({ documentId: doc.id, filePath: doc.file_path, dealId: dealId })
+    const result = await fetchDocumentSignedUrl(doc)
     if (!result.success || !result.data?.signedUrl) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to generate download link' }); return
     }
@@ -324,7 +332,7 @@ export default function DealDetailPage() {
       return
     }
     setViewLoading(doc.id)
-    const result = await getDocumentSignedUrl({ documentId: doc.id, filePath: doc.file_path, dealId: dealId })
+    const result = await fetchDocumentSignedUrl(doc)
     if (!result.success || !result.data?.signedUrl) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to load document' })
       setViewLoading(null)
