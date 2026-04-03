@@ -122,6 +122,8 @@ export default function BrokeragesPage() {
   const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
   const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
+  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ url: string; fileName: string; agentName: string; agentId: string; type: 'image' | 'pdf' } | null>(null)
+  const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
 
   const router = useRouter()
   const supabase = createClient()
@@ -1481,95 +1483,125 @@ export default function BrokeragesPage() {
                                                   {kycStatus === 'pending' ? 'Pending' : kycStatus === 'submitted' ? 'Submitted' : kycStatus === 'verified' ? 'Verified' : 'Rejected'}
                                                 </span>
                                                 {kycStatus === 'submitted' && (
-                                                  <div className="flex items-center gap-1 mt-0.5">
+                                                  <div className="flex flex-col gap-1.5 mt-1.5">
+                                                    {/* VIEW ID — large button */}
                                                     <button
                                                       onClick={async (e) => {
                                                         e.stopPropagation()
+                                                        setKycPreviewLoading(agent.id)
                                                         const urlRes = await getAgentKycDocumentUrl({ agentId: agent.id })
                                                         if (urlRes.success && urlRes.data?.url) {
-                                                          window.open(urlRes.data.url, '_blank')
+                                                          const docType = (agent as any).kyc_document_type || ''
+                                                          const ext = urlRes.data.url.split('?')[0].split('.').pop()?.toLowerCase() || ''
+                                                          const isPdf = ext === 'pdf'
+                                                          setKycPreviewPanel({
+                                                            url: urlRes.data.url,
+                                                            fileName: `${agent.first_name}_${agent.last_name}_ID.${ext}`,
+                                                            agentName: `${agent.first_name} ${agent.last_name}`,
+                                                            agentId: agent.id,
+                                                            type: isPdf ? 'pdf' : 'image',
+                                                          })
                                                         } else {
                                                           setStatusMessage({ type: 'error', text: urlRes.error || 'Failed to load ID' })
                                                         }
+                                                        setKycPreviewLoading(null)
                                                       }}
-                                                      className="text-xs px-1.5 py-0.5 rounded transition-colors"
+                                                      disabled={kycPreviewLoading === agent.id}
+                                                      className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all disabled:opacity-50"
                                                       style={{ color: '#7B9FE0', background: '#1A2240', border: '1px solid #2D3A5C' }}
-                                                      title="View uploaded ID"
+                                                      onMouseEnter={(e) => { e.currentTarget.style.background = '#243060'; e.currentTarget.style.borderColor = '#3D5A9C' }}
+                                                      onMouseLeave={(e) => { e.currentTarget.style.background = '#1A2240'; e.currentTarget.style.borderColor = '#2D3A5C' }}
                                                     >
-                                                      <Eye size={11} />
+                                                      <Eye size={13} />
+                                                      {kycPreviewLoading === agent.id ? 'Loading...' : 'View ID'}
                                                     </button>
-                                                    <button
-                                                      onClick={async (e) => {
-                                                        e.stopPropagation()
-                                                        setKycSubmitting(true)
-                                                        const result = await verifyAgentKyc({ agentId: agent.id })
-                                                        if (result.success) {
-                                                          setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC verified` })
-                                                          await loadBrokerages()
-                                                        } else {
-                                                          setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
-                                                        }
-                                                        setKycSubmitting(false)
-                                                      }}
-                                                      disabled={kycSubmitting}
-                                                      className="text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
-                                                      style={{ color: '#5FA873', background: '#0F2A18', border: '1px solid #1E4A2C' }}
-                                                      title="Verify KYC"
-                                                    >
-                                                      <CheckCircle size={11} />
-                                                    </button>
-                                                    <button
-                                                      onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        setKycRejectingAgentId(agent.id)
-                                                        setKycRejectReason('')
-                                                      }}
-                                                      className="text-xs px-1.5 py-0.5 rounded transition-colors"
-                                                      style={{ color: '#E07B7B', background: '#2A1212', border: '1px solid #4A2020' }}
-                                                      title="Reject KYC"
-                                                    >
-                                                      <XCircle size={11} />
-                                                    </button>
+                                                    {/* APPROVE / REJECT row */}
+                                                    <div className="flex items-center gap-1.5">
+                                                      <button
+                                                        onClick={async (e) => {
+                                                          e.stopPropagation()
+                                                          setKycSubmitting(true)
+                                                          const result = await verifyAgentKyc({ agentId: agent.id })
+                                                          if (result.success) {
+                                                            setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC verified` })
+                                                            setKycPreviewPanel(null)
+                                                            await loadBrokerages()
+                                                          } else {
+                                                            setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
+                                                          }
+                                                          setKycSubmitting(false)
+                                                        }}
+                                                        disabled={kycSubmitting}
+                                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all disabled:opacity-50"
+                                                        style={{ color: '#fff', background: '#1A7A2E', border: '1px solid #25A03C' }}
+                                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#1E8C34' }}
+                                                        onMouseLeave={(e) => { e.currentTarget.style.background = '#1A7A2E' }}
+                                                      >
+                                                        <CheckCircle size={13} />
+                                                        Approve
+                                                      </button>
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation()
+                                                          setKycRejectingAgentId(agent.id)
+                                                          setKycRejectReason('')
+                                                        }}
+                                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all"
+                                                        style={{ color: '#fff', background: '#993D3D', border: '1px solid #B84A4A' }}
+                                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#AA4545' }}
+                                                        onMouseLeave={(e) => { e.currentTarget.style.background = '#993D3D' }}
+                                                      >
+                                                        <XCircle size={13} />
+                                                        Reject
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                 )}
                                                 {kycRejectingAgentId === agent.id && (
-                                                  <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                                                  <div className="flex flex-col gap-1.5 mt-1.5" onClick={(e) => e.stopPropagation()}>
                                                     <input
                                                       type="text"
                                                       value={kycRejectReason}
                                                       onChange={(e) => setKycRejectReason(e.target.value)}
-                                                      placeholder="Rejection reason..."
-                                                      className="text-xs px-2 py-1 rounded outline-none"
-                                                      style={{ ...inputStyle, width: 140 }}
+                                                      placeholder="Reason for rejection..."
+                                                      className="text-xs px-3 py-2 rounded-md outline-none w-full"
+                                                      style={{ ...inputStyle }}
                                                       autoFocus
-                                                    />
-                                                    <button
-                                                      onClick={async () => {
-                                                        if (!kycRejectReason.trim()) return
-                                                        setKycSubmitting(true)
-                                                        const result = await rejectAgentKyc({ agentId: agent.id, reason: kycRejectReason })
-                                                        if (result.success) {
-                                                          setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC rejected` })
-                                                          setKycRejectingAgentId(null)
-                                                          await loadBrokerages()
-                                                        } else {
-                                                          setStatusMessage({ type: 'error', text: result.error || 'Rejection failed' })
-                                                        }
-                                                        setKycSubmitting(false)
+                                                      onKeyDown={(e) => {
+                                                        if (e.key === 'Escape') setKycRejectingAgentId(null)
                                                       }}
-                                                      disabled={kycSubmitting || !kycRejectReason.trim()}
-                                                      className="text-xs px-2 py-1 rounded font-semibold disabled:opacity-50"
-                                                      style={{ background: '#993D3D', color: '#fff' }}
-                                                    >
-                                                      Reject
-                                                    </button>
-                                                    <button
-                                                      onClick={() => setKycRejectingAgentId(null)}
-                                                      className="text-xs px-1 py-1 rounded"
-                                                      style={{ color: colors.textMuted }}
-                                                    >
-                                                      <X size={11} />
-                                                    </button>
+                                                    />
+                                                    <div className="flex items-center gap-1.5">
+                                                      <button
+                                                        onClick={async () => {
+                                                          if (!kycRejectReason.trim()) return
+                                                          setKycSubmitting(true)
+                                                          const result = await rejectAgentKyc({ agentId: agent.id, reason: kycRejectReason })
+                                                          if (result.success) {
+                                                            setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC rejected` })
+                                                            setKycRejectingAgentId(null)
+                                                            await loadBrokerages()
+                                                          } else {
+                                                            setStatusMessage({ type: 'error', text: result.error || 'Rejection failed' })
+                                                          }
+                                                          setKycSubmitting(false)
+                                                        }}
+                                                        disabled={kycSubmitting || !kycRejectReason.trim()}
+                                                        className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold disabled:opacity-50 transition-all"
+                                                        style={{ background: '#993D3D', color: '#fff', border: '1px solid #B84A4A' }}
+                                                      >
+                                                        Confirm Reject
+                                                      </button>
+                                                      <button
+                                                        onClick={() => setKycRejectingAgentId(null)}
+                                                        className="px-3 py-1.5 rounded-md text-xs transition-all"
+                                                        style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                                      >
+                                                        Cancel
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                 )}
                                               </div>
@@ -1658,6 +1690,126 @@ export default function BrokeragesPage() {
           </div>
         )}
       </main>
+
+      {/* KYC Document Slide-Out Preview Panel */}
+      {kycPreviewPanel && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 transition-opacity"
+            style={{ background: 'rgba(0,0,0,0.4)' }}
+            onClick={() => setKycPreviewPanel(null)}
+          />
+          {/* Slide-out panel from right */}
+          <div
+            className="fixed top-0 right-0 z-50 h-full flex flex-col shadow-2xl"
+            style={{
+              width: 'min(560px, 90vw)',
+              background: colors.cardBg,
+              borderLeft: `1px solid ${colors.cardBorder}`,
+              animation: 'slideInRight 0.2s ease-out',
+            }}
+          >
+            {/* Panel Header */}
+            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>
+                  <Shield size={14} className="inline mr-1.5" style={{ color: colors.gold }} />
+                  {kycPreviewPanel.agentName} — ID Verification
+                </p>
+                <p className="text-xs truncate" style={{ color: colors.textMuted }}>{kycPreviewPanel.fileName}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => window.open(kycPreviewPanel.url, '_blank')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                  style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                  onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                  title="Open in new tab"
+                >
+                  <ExternalLink size={13} />
+                  Open
+                </button>
+                <button
+                  onClick={() => setKycPreviewPanel(null)}
+                  className="p-1.5 rounded-lg transition"
+                  style={{ color: colors.textMuted }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            {/* Panel Content */}
+            <div className="flex-1 overflow-auto">
+              {kycPreviewPanel.type === 'image' ? (
+                <div className="flex items-center justify-center p-4" style={{ minHeight: '60vh' }}>
+                  <img
+                    src={kycPreviewPanel.url}
+                    alt={kycPreviewPanel.fileName}
+                    className="max-w-full rounded-lg"
+                    style={{ maxHeight: 'calc(100vh - 140px)', objectFit: 'contain' }}
+                  />
+                </div>
+              ) : (
+                <iframe
+                  src={kycPreviewPanel.url}
+                  className="w-full h-full border-0"
+                  style={{ minHeight: 'calc(100vh - 120px)' }}
+                  title={kycPreviewPanel.fileName}
+                />
+              )}
+            </div>
+            {/* Panel Footer — Approve/Reject actions */}
+            <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0" style={{ borderTop: `1px solid ${colors.border}`, background: colors.pageBg }}>
+              <button
+                onClick={async () => {
+                  setKycSubmitting(true)
+                  const result = await verifyAgentKyc({ agentId: kycPreviewPanel.agentId })
+                  if (result.success) {
+                    setStatusMessage({ type: 'success', text: `${kycPreviewPanel.agentName} KYC verified` })
+                    setKycPreviewPanel(null)
+                    await loadBrokerages()
+                  } else {
+                    setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
+                  }
+                  setKycSubmitting(false)
+                }}
+                disabled={kycSubmitting}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50"
+                style={{ color: '#fff', background: '#1A7A2E', border: '1px solid #25A03C' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#1E8C34' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#1A7A2E' }}
+              >
+                <CheckCircle size={16} />
+                Approve ID
+              </button>
+              <button
+                onClick={() => {
+                  setKycRejectingAgentId(kycPreviewPanel.agentId)
+                  setKycRejectReason('')
+                  setKycPreviewPanel(null)
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all"
+                style={{ color: '#fff', background: '#993D3D', border: '1px solid #B84A4A' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#AA4545' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#993D3D' }}
+              >
+                <XCircle size={16} />
+                Reject ID
+              </button>
+            </div>
+          </div>
+          <style>{`
+            @keyframes slideInRight {
+              from { transform: translateX(100%); }
+              to { transform: translateX(0); }
+            }
+          `}</style>
+        </>
+      )}
     </div>
   )
 }

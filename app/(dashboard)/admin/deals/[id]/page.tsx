@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2
+  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -324,11 +324,11 @@ export default function DealDetailPage() {
       setViewLoading(null)
       return
     }
-    // Images open in our modal viewer, PDFs open in a new tab (avoids iframe content-blocking)
+    // Open in slide-out preview panel (images and PDFs)
     if (isImage) {
       setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: 'image' })
     } else {
-      window.open(result.data.signedUrl, '_blank')
+      setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: 'pdf' })
     }
     setViewLoading(null)
   }
@@ -1719,34 +1719,42 @@ export default function DealDetailPage() {
 
       </main>
 
-      {/* Document Viewer Modal */}
+      {/* Document Slide-Out Preview Panel */}
       {viewingDoc && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: colors.overlayBg }}
-          onClick={() => setViewingDoc(null)}
-        >
+        <>
+          {/* Backdrop */}
           <div
-            className="relative w-full max-w-5xl rounded-xl overflow-hidden shadow-2xl"
-            style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}`, maxHeight: '90vh' }}
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-40 transition-opacity"
+            style={{ background: 'rgba(0,0,0,0.4)' }}
+            onClick={() => setViewingDoc(null)}
+          />
+          {/* Slide-out panel from right */}
+          <div
+            className="fixed top-0 right-0 z-50 h-full flex flex-col shadow-2xl"
+            style={{
+              width: 'min(560px, 90vw)',
+              background: colors.cardBg,
+              borderLeft: `1px solid ${colors.cardBorder}`,
+              animation: 'slideInRight 0.2s ease-out',
+            }}
           >
-            {/* Viewer Header */}
-            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
-              <div className="flex items-center gap-3 min-w-0">
-                <FileText size={18} style={{ color: colors.gold }} />
+            {/* Panel Header */}
+            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText size={16} style={{ color: colors.gold }} />
                 <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => window.open(viewingDoc.url, '_blank')}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
                   style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
                   onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
                   onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                  title="Open in new tab"
                 >
-                  <Download size={13} />
-                  Download
+                  <ExternalLink size={13} />
+                  Open
                 </button>
                 <button
                   onClick={() => setViewingDoc(null)}
@@ -1759,19 +1767,34 @@ export default function DealDetailPage() {
                 </button>
               </div>
             </div>
-            {/* Viewer Content */}
-            <div style={{ height: 'calc(90vh - 56px)', overflow: 'auto' }}>
-              <div className="flex items-center justify-center p-6" style={{ minHeight: '50vh' }}>
-                <img
+            {/* Panel Content */}
+            <div className="flex-1 overflow-auto">
+              {viewingDoc.type === 'image' ? (
+                <div className="flex items-center justify-center p-4" style={{ minHeight: '60vh' }}>
+                  <img
+                    src={viewingDoc.url}
+                    alt={viewingDoc.fileName}
+                    className="max-w-full rounded-lg"
+                    style={{ maxHeight: 'calc(100vh - 80px)', objectFit: 'contain' }}
+                  />
+                </div>
+              ) : (
+                <iframe
                   src={viewingDoc.url}
-                  alt={viewingDoc.fileName}
-                  className="max-w-full max-h-full rounded-lg"
-                  style={{ maxHeight: 'calc(90vh - 80px)', objectFit: 'contain' }}
+                  className="w-full h-full border-0"
+                  style={{ minHeight: 'calc(100vh - 56px)' }}
+                  title={viewingDoc.fileName}
                 />
-              </div>
+              )}
             </div>
           </div>
-        </div>
+          <style>{`
+            @keyframes slideInRight {
+              from { transform: translateX(100%); }
+              to { transform: translateX(0); }
+            }
+          `}</style>
+        </>
       )}
     </div>
   )
