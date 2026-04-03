@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent } from 'lucide-react'
-import { submitDeal, calculateDealPreview } from '@/lib/actions/deal-actions'
+import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle } from 'lucide-react'
+import { submitDeal, calculateDealPreview, uploadDocument } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 
@@ -27,6 +27,12 @@ export default function NewDealPage() {
   const [transactionType, setTransactionType] = useState('buy')
   const [notes, setNotes] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
+  const [isFirm, setIsFirm] = useState(false)
+
+  // Document upload state
+  const [selectedFiles, setSelectedFiles] = useState<{ file: File; docType: string }[]>([])
+  const [uploadingDocs, setUploadingDocs] = useState(false)
+  const [uploadResults, setUploadResults] = useState<{ name: string; success: boolean; error?: string }[]>([])
 
   const [preview, setPreview] = useState<{
     netCommission: number
@@ -95,9 +101,27 @@ export default function NewDealPage() {
   if (!grossCommission || parseFloat(grossCommission) <= 0) missingFields.push('Gross Commission')
   if (brokerageSplitPct === '' || isNaN(parseFloat(brokerageSplitPct)) || parseFloat(brokerageSplitPct) < 0 || parseFloat(brokerageSplitPct) > 100) missingFields.push('Brokerage Split %')
 
+  // File handling
+  const handleFileAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    const newFiles = Array.from(files).map(f => ({ file: f, docType: 'aps' as string }))
+    setSelectedFiles(prev => [...prev, ...newFiles])
+    e.target.value = '' // reset input
+  }
+
+  const handleFileRemove = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleFileTypeChange = (index: number, docType: string) => {
+    setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, docType } : f))
+  }
+
   const handleSubmitClick = (e: React.FormEvent) => {
     e.preventDefault(); setError(null)
     if (!preview || !agent) { setError('Please fill in all required fields with valid values.'); return }
+    if (!isFirm) { setError('You must confirm this deal is firm before submitting.'); return }
     setShowConfirmation(true)
   }
 
@@ -116,6 +140,23 @@ export default function NewDealPage() {
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
         })
       }
+
+      // Upload any attached documents
+      if (selectedFiles.length > 0 && result.data?.dealId) {
+        setUploadingDocs(true)
+        const results: { name: string; success: boolean; error?: string }[] = []
+        for (const { file, docType } of selectedFiles) {
+          const fd = new FormData()
+          fd.append('file', file)
+          fd.append('dealId', result.data.dealId)
+          fd.append('documentType', docType)
+          const uploadResult = await uploadDocument(fd)
+          results.push({ name: file.name, success: uploadResult.success, error: uploadResult.error })
+        }
+        setUploadResults(results)
+        setUploadingDocs(false)
+      }
+
       setSubmitted(true)
     } catch (err) { setError('An unexpected error occurred. Please try again.'); setSubmitting(false) }
   }
@@ -139,7 +180,18 @@ export default function NewDealPage() {
           </div>
           <h2 className="text-xl font-bold mb-2" style={{ color: colors.textPrimary }}>Deal Submitted!</h2>
           <p className="text-sm mb-2" style={{ color: colors.textSecondary }}>Your commission advance request has been submitted for review.</p>
-          <p className="text-xs mb-6" style={{ color: colors.textMuted }}>You&apos;ll be notified when there&apos;s an update on your deal.</p>
+          <p className="text-xs mb-4" style={{ color: colors.textMuted }}>You&apos;ll be notified when there&apos;s an update on your deal.</p>
+          {uploadResults.length > 0 && (
+            <div className="rounded-lg p-3 mb-4 text-left space-y-1.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+              <p className="text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Document Uploads:</p>
+              {uploadResults.map((r, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  {r.success ? <CheckCircle2 size={12} style={{ color: colors.successText }} /> : <AlertCircle size={12} style={{ color: colors.errorText }} />}
+                  <span style={{ color: r.success ? colors.textSecondary : colors.errorText }}>{r.name}{r.error ? ` — ${r.error}` : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="rounded-xl p-4 mb-6 text-left" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
             <div className="text-sm space-y-2">
               <div className="flex justify-between">
@@ -166,6 +218,7 @@ export default function NewDealPage() {
               onClick={() => {
                 setSubmitted(false); setStreetAddress(''); setCity(''); setProvince('Ontario'); setPostalCode('')
                 setClosingDate(''); setGrossCommission(''); setBrokerageSplitPct(''); setTransactionType('buy'); setNotes(''); setPreview(null)
+                setIsFirm(false); setSelectedFiles([]); setUploadResults([])
               }}
               className="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-colors"
               style={{ border: `1px solid ${colors.border}`, color: colors.textSecondary }}
@@ -385,6 +438,74 @@ export default function NewDealPage() {
             </div>
           )}
 
+          {/* Document Upload (Optional) */}
+          <div className="rounded-xl overflow-hidden mb-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Supporting Documents</h3>
+              <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Attach your APS and any other deal documents. You can also upload these later from your dashboard.</p>
+            </div>
+            <div className="p-6">
+              {selectedFiles.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  {selectedFiles.map((sf, idx) => (
+                    <div key={idx} className="flex items-center gap-3 rounded-lg p-3" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                      <FileText size={16} style={{ color: colors.gold }} />
+                      <span className="text-sm flex-1 truncate" style={{ color: colors.textPrimary }}>{sf.file.name}</span>
+                      <select
+                        value={sf.docType}
+                        onChange={(e) => handleFileTypeChange(idx, e.target.value)}
+                        className="text-xs rounded-md px-2 py-1 outline-none"
+                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                      >
+                        <option value="aps">Agreement of Purchase & Sale</option>
+                        <option value="amendment">Amendment</option>
+                        <option value="commission_agreement">Commission Agreement</option>
+                        <option value="mls_listing">MLS Listing</option>
+                        <option value="notice_of_fulfillment">Notice of Fulfillment</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <button type="button" onClick={() => handleFileRemove(idx)} className="p-1 rounded-md transition-colors" style={{ color: colors.textMuted }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = colors.errorText}
+                        onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <label className="flex items-center justify-center gap-2 rounded-lg py-3 px-4 cursor-pointer transition-colors text-sm font-medium"
+                style={{ border: `2px dashed ${colors.border}`, color: colors.textSecondary }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
+              >
+                <Upload size={16} />
+                {selectedFiles.length === 0 ? 'Click to attach documents' : 'Add more documents'}
+                <input type="file" className="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleFileAdd} />
+              </label>
+            </div>
+          </div>
+
+          {/* Firmness Confirmation */}
+          <div className="rounded-xl overflow-hidden mb-6" style={{ background: isFirm ? colors.successBg : colors.warningBg, border: `1px solid ${isFirm ? colors.successBorder : colors.warningBorder}` }}>
+            <label className="flex items-start gap-3 p-5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isFirm}
+                onChange={(e) => setIsFirm(e.target.checked)}
+                className="mt-0.5 w-5 h-5 rounded accent-green-600 shrink-0"
+              />
+              <div>
+                <span className="text-sm font-bold block" style={{ color: isFirm ? colors.successText : colors.warningText }}>
+                  I confirm this deal is firm with no outstanding conditions
+                </span>
+                <span className="text-xs mt-1 block" style={{ color: isFirm ? colors.successText : colors.warningText, opacity: 0.8 }}>
+                  By checking this box, you confirm the Agreement of Purchase &amp; Sale is firm and unconditional, with all conditions having been fulfilled or waived.
+                </span>
+              </div>
+            </label>
+          </div>
+
           {/* Submit */}
           <div className="flex gap-3">
             <button
@@ -399,7 +520,7 @@ export default function NewDealPage() {
             </button>
             <button
               type="submit"
-              disabled={!preview || submitting}
+              disabled={!preview || submitting || !isFirm}
               className="flex-1 text-white py-3 px-4 rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
               style={{ background: colors.headerBgGradient }}
               onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)' }}
@@ -457,9 +578,19 @@ export default function NewDealPage() {
                   </div>
                 </div>
 
-                <p className="text-xs mb-5" style={{ color: colors.textMuted }}>
-                  By submitting, you confirm the above details are accurate. Final amounts are subject to underwriting review. You will need to upload supporting documents after submission.
+                <p className="text-xs mb-3" style={{ color: colors.textMuted }}>
+                  By submitting, you confirm the above details are accurate and that this deal is firm with no outstanding conditions. Final amounts are subject to underwriting review.
                 </p>
+                {selectedFiles.length > 0 && (
+                  <p className="text-xs mb-3" style={{ color: colors.infoText }}>
+                    {selectedFiles.length} document{selectedFiles.length !== 1 ? 's' : ''} will be uploaded with your submission.
+                  </p>
+                )}
+                {selectedFiles.length === 0 && (
+                  <p className="text-xs mb-3" style={{ color: colors.warningText }}>
+                    No documents attached. You can upload your APS and supporting documents after submission from your dashboard.
+                  </p>
+                )}
 
                 <div className="flex gap-3">
                   <button

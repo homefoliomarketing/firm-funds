@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send, Eye, X
+  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -15,6 +15,8 @@ import {
   deleteDocument as serverDeleteDocument,
   getDocumentSignedUrl,
   saveAdminNotes,
+  addAdminNote,
+  updateClosingDate,
   requestDocument,
   fulfillDocumentRequest,
   cancelDocumentRequest,
@@ -30,10 +32,12 @@ interface Deal {
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
   discount_fee: number; advance_amount: number; brokerage_referral_fee: number
   amount_due_from_brokerage: number; funding_date: string | null
-  repayment_date: string | null; eft_transfers: { amount: number; date: string; confirmed: boolean }[] | null
+  repayment_date: string | null; repayment_amount: number | null
+  eft_transfers: { amount: number; date: string; confirmed: boolean; reference?: string }[] | null
   source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
   admin_notes: string | null
+  admin_notes_timeline: { id: string; text: string; author_name: string; created_at: string }[] | null
 }
 
 interface ChecklistItem {
@@ -235,10 +239,20 @@ export default function DealDetailPage() {
   const [showEftForm, setShowEftForm] = useState(false)
   const [eftAmount, setEftAmount] = useState('')
   const [eftDate, setEftDate] = useState(new Date().toISOString().split('T')[0])
+  const [eftReference, setEftReference] = useState('')
   const [eftSaving, setEftSaving] = useState(false)
   const [adminNotes, setAdminNotes] = useState('')
   const [adminNotesSaving, setAdminNotesSaving] = useState(false)
   const [adminNotesLastSaved, setAdminNotesLastSaved] = useState<string | null>(null)
+  const [notesTimeline, setNotesTimeline] = useState<{ id: string; text: string; author_name: string; created_at: string }[]>([])
+  const [newNoteText, setNewNoteText] = useState('')
+  const [addingNote, setAddingNote] = useState(false)
+  const [editingClosingDate, setEditingClosingDate] = useState(false)
+  const [newClosingDate, setNewClosingDate] = useState('')
+  const [closingDateSaving, setClosingDateSaving] = useState(false)
+  const [closingDateComparison, setClosingDateComparison] = useState<{ old: Record<string, any>; new: Record<string, any> } | null>(null)
+  const [showRepaymentInput, setShowRepaymentInput] = useState(false)
+  const [repaymentAmount, setRepaymentAmount] = useState('')
   const [showDocRequest, setShowDocRequest] = useState(false)
   const [docRequestType, setDocRequestType] = useState('')
   const [docRequestMessage, setDocRequestMessage] = useState('')
@@ -267,6 +281,7 @@ export default function DealDetailPage() {
     if (dealError || !dealData) { router.push('/admin'); return }
     setDeal(dealData)
     setAdminNotes(dealData.admin_notes || '')
+    setNotesTimeline(Array.isArray(dealData.admin_notes_timeline) ? dealData.admin_notes_timeline : [])
     const { data: agentData } = await supabase.from('agents').select('*').eq('id', dealData.agent_id).single()
     setAgent(agentData)
     const { data: brokerageData } = await supabase.from('brokerages').select('*').eq('id', dealData.brokerage_id).single()
@@ -297,6 +312,12 @@ export default function DealDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
+    // Show repayment amount input when marking as repaid
+    if (newStatus === 'repaid' && !showRepaymentInput) {
+      setRepaymentAmount(deal.amount_due_from_brokerage.toFixed(2))
+      setShowRepaymentInput(true)
+      return
+    }
     // Show confirmation for backward transitions
     if (isBackwardTransition(newStatus) && pendingBackward !== newStatus) {
       setPendingBackward(newStatus)
@@ -307,6 +328,7 @@ export default function DealDetailPage() {
     const result = await updateDealStatus({
       dealId: deal.id, newStatus,
       denialReason: newStatus === 'denied' ? denialReason.trim() : undefined,
+      repaymentAmount: newStatus === 'repaid' ? parseFloat(repaymentAmount) || undefined : undefined,
     })
     if (!result.success) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update deal status' })
@@ -314,6 +336,7 @@ export default function DealDetailPage() {
       setStatusMessage({ type: 'success', text: `Deal status updated to ${STATUS_LABELS[newStatus]}` })
       setDeal(prev => prev ? { ...prev, ...result.data } : null)
       setShowDenialInput(false); setDenialReason('')
+      setShowRepaymentInput(false); setRepaymentAmount('')
     }
     setUpdating(false)
   }
@@ -374,6 +397,36 @@ export default function DealDetailPage() {
     setAdminNotesSaving(false)
   }
 
+  const handleAddNote = async () => {
+    if (!deal || !newNoteText.trim()) return
+    setAddingNote(true)
+    const result = await addAdminNote({ dealId: deal.id, note: newNoteText })
+    if (result.success && result.data?.timeline) {
+      setNotesTimeline(result.data.timeline)
+      setNewNoteText('')
+      setStatusMessage({ type: 'success', text: 'Note added' })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to add note' })
+    }
+    setAddingNote(false)
+  }
+
+  const handleUpdateClosingDate = async () => {
+    if (!deal || !newClosingDate) return
+    setClosingDateSaving(true)
+    const result = await updateClosingDate({ dealId: deal.id, newClosingDate })
+    if (result.success && result.data) {
+      setClosingDateComparison({ old: result.data.old, new: result.data.new })
+      // Refresh deal data
+      const { data: refreshed } = await supabase.from('deals').select('*').eq('id', deal.id).single()
+      if (refreshed) setDeal(refreshed)
+      setStatusMessage({ type: 'success', text: 'Closing date updated and financials recalculated' })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to update closing date' })
+    }
+    setClosingDateSaving(false)
+  }
+
   const handleRequestDocument = async () => {
     if (!deal || !docRequestType) return
     setDocRequestSending(true)
@@ -430,6 +483,7 @@ export default function DealDetailPage() {
   const checkedCount = checklist.filter(c => c.is_checked).length
   const totalChecklist = checklist.length
   const checklistPct = totalChecklist > 0 ? Math.round((checkedCount / totalChecklist) * 100) : 0
+  const allChecklistComplete = totalChecklist > 0 && checkedCount === totalChecklist
 
   if (loading) return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
@@ -567,19 +621,29 @@ export default function DealDetailPage() {
                 const config = ACTION_CONFIG[status]
                 if (!config) return null
                 const Icon = config.icon
+                // Block approval/funding until all checklist items are complete
+                const needsChecklist = (status === 'approved' || status === 'funded') && !allChecklistComplete
+                const isDisabled = updating || needsChecklist
                 return (
-                  <button
-                    key={status}
-                    onClick={() => handleStatusChange(status)}
-                    disabled={updating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
-                    style={{ background: config.bg }}
-                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = config.hoverBg }}
-                    onMouseLeave={(e) => e.currentTarget.style.background = config.bg}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {config.label}
-                  </button>
+                  <div key={status} className="relative group">
+                    <button
+                      onClick={() => handleStatusChange(status)}
+                      disabled={isDisabled}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ background: config.bg }}
+                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = config.hoverBg }}
+                      onMouseLeave={(e) => e.currentTarget.style.background = config.bg}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {config.label}
+                    </button>
+                    {needsChecklist && (
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30"
+                        style={{ background: '#1A1A1A', color: '#E07B7B', border: '1px solid #333' }}>
+                        Complete all checklist items first ({checkedCount}/{totalChecklist})
+                      </div>
+                    )}
+                  </div>
                 )
               })}
 
@@ -688,6 +752,58 @@ export default function DealDetailPage() {
               </div>
             </div>
           )}
+
+          {/* REPAYMENT AMOUNT INPUT */}
+          {showRepaymentInput && (
+            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
+              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'rgba(13,122,95,0.1)', border: '1px solid rgba(95,184,160,0.3)' }}>
+                <DollarSign className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#5FB8A0' }} />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold mb-1" style={{ color: '#5FB8A0' }}>
+                    Record Repayment Amount
+                  </p>
+                  <p className="text-xs mb-3" style={{ color: colors.textMuted }}>
+                    Expected from brokerage: <strong style={{ color: colors.textPrimary }}>{formatCurrency(deal.amount_due_from_brokerage)}</strong>
+                  </p>
+                  <div className="flex items-center gap-3 mb-3">
+                    <label className="text-sm font-medium" style={{ color: colors.textPrimary }}>Amount Received (CAD)</label>
+                    <input
+                      type="number"
+                      value={repaymentAmount}
+                      onChange={(e) => setRepaymentAmount(e.target.value)}
+                      step="0.01"
+                      className="w-48 px-3 py-1.5 rounded-lg border text-sm focus:outline-none"
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    />
+                  </div>
+                  {repaymentAmount && Math.abs(parseFloat(repaymentAmount) - deal.amount_due_from_brokerage) > 0.01 && (
+                    <p className="text-xs mb-3 px-2 py-1 rounded" style={{ background: 'rgba(212,160,74,0.15)', color: '#D4A04A' }}>
+                      Discrepancy: {formatCurrency(parseFloat(repaymentAmount) - deal.amount_due_from_brokerage)} from expected amount
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleStatusChange('repaid')}
+                      disabled={updating || !repaymentAmount}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                      style={{ background: '#0D7A5F' }}
+                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#0A6A4F' }}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#0D7A5F'}
+                    >
+                      {updating ? 'Processing...' : 'Confirm Repayment'}
+                    </button>
+                    <button
+                      onClick={() => { setShowRepaymentInput(false); setRepaymentAmount('') }}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium transition"
+                      style={{ background: colors.border, color: colors.textPrimary }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* EFT SECTION - ONLY FOR FUNDED/REPAID */}
@@ -714,7 +830,7 @@ export default function DealDetailPage() {
 
             {showEftForm && (
               <div className="mb-6 p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Amount (CAD)</label>
                     <input
@@ -723,11 +839,7 @@ export default function DealDetailPage() {
                       onChange={(e) => setEftAmount(e.target.value)}
                       placeholder="0.00"
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{
-                        background: colors.cardBg,
-                        borderColor: colors.inputBorder,
-                        color: colors.inputText,
-                      }}
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
                     />
                   </div>
                   <div>
@@ -737,11 +849,18 @@ export default function DealDetailPage() {
                       value={eftDate}
                       onChange={(e) => setEftDate(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{
-                        background: colors.cardBg,
-                        borderColor: colors.inputBorder,
-                        color: colors.inputText,
-                      }}
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Reference / Memo</label>
+                    <input
+                      type="text"
+                      value={eftReference}
+                      onChange={(e) => setEftReference(e.target.value)}
+                      placeholder="Bank ref #, confirmation..."
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
                     />
                   </div>
                 </div>
@@ -753,10 +872,11 @@ export default function DealDetailPage() {
                       dealId: deal.id,
                       amount: parseFloat(eftAmount),
                       date: eftDate,
+                      reference: eftReference.trim() || undefined,
                     })
                     if (result.success) {
                       setDeal(prev => prev ? { ...prev, ...result.data } : null)
-                      setEftAmount('')
+                      setEftAmount(''); setEftReference('')
                       setEftDate(new Date().toISOString().split('T')[0])
                       setShowEftForm(false)
                       setStatusMessage({ type: 'success', text: 'EFT transfer recorded' })
@@ -776,13 +896,40 @@ export default function DealDetailPage() {
               </div>
             )}
 
+            {/* EFT TOTAL TRACKER */}
+            {(() => {
+              const eftTotal = (deal.eft_transfers || []).reduce((sum, t) => sum + t.amount, 0)
+              const expected = deal.advance_amount
+              const diff = expected - eftTotal
+              const isMatch = Math.abs(diff) < 0.01
+              const isOver = eftTotal > expected + 0.01
+              return (deal.eft_transfers && deal.eft_transfers.length > 0) ? (
+                <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm" style={{
+                  background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
+                  border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
+                }}>
+                  <div>
+                    <span style={{ color: colors.textMuted }}>EFT Total: </span>
+                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(eftTotal)}</span>
+                    <span style={{ color: colors.textMuted }}> / Expected: </span>
+                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(expected)}</span>
+                  </div>
+                  <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
+                    {isMatch ? 'Matched' : isOver ? `Over by ${formatCurrency(eftTotal - expected)}` : `Remaining: ${formatCurrency(diff)}`}
+                  </span>
+                </div>
+              ) : null
+            })()}
+
             {deal.eft_transfers && deal.eft_transfers.length > 0 ? (
               <div className="space-y-3">
                 {deal.eft_transfers.map((eft, idx) => (
                   <div key={idx} className="flex items-center justify-between p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
                     <div>
                       <p className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(eft.amount)}</p>
-                      <p className="text-sm" style={{ color: colors.textMuted }}>{formatDate(eft.date)}</p>
+                      <p className="text-sm" style={{ color: colors.textMuted }}>
+                        {formatDate(eft.date)}{eft.reference ? ` \u2022 Ref: ${eft.reference}` : ''}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       {eft.confirmed ? (
@@ -848,8 +995,52 @@ export default function DealDetailPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Closing Date</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
+                  <p className="text-xs flex items-center gap-1" style={{ color: colors.textMuted }}>
+                    Closing Date
+                    {!editingClosingDate && (deal.status === 'under_review' || deal.status === 'approved' || deal.status === 'funded') && (
+                      <button onClick={() => { setEditingClosingDate(true); setNewClosingDate(deal.closing_date); setClosingDateComparison(null) }}
+                        className="p-0.5 rounded transition-colors" style={{ color: colors.textFaint }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
+                        onMouseLeave={(e) => e.currentTarget.style.color = colors.textFaint}
+                        title="Edit closing date"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </p>
+                  {editingClosingDate ? (
+                    <div className="space-y-2 mt-1">
+                      <input
+                        type="date" value={newClosingDate}
+                        onChange={(e) => setNewClosingDate(e.target.value)}
+                        min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                        className="w-full rounded px-2 py-1 text-sm outline-none"
+                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                      />
+                      <div className="flex gap-1.5">
+                        <button onClick={handleUpdateClosingDate} disabled={closingDateSaving || newClosingDate === deal.closing_date}
+                          className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50 transition-colors"
+                          style={{ background: colors.gold }}>
+                          {closingDateSaving ? 'Saving...' : 'Update & Recalc'}
+                        </button>
+                        <button onClick={() => { setEditingClosingDate(false); setClosingDateComparison(null) }}
+                          className="px-2 py-1 rounded text-xs transition-colors"
+                          style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
+                          Cancel
+                        </button>
+                      </div>
+                      {closingDateComparison && (
+                        <div className="rounded-lg p-2 text-xs space-y-1" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
+                          <p className="font-semibold" style={{ color: colors.infoText }}>Recalculation complete:</p>
+                          <p style={{ color: colors.infoText }}>Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
+                          <p style={{ color: colors.infoText }}>Discount Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
+                          <p style={{ color: colors.infoText }}>Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs" style={{ color: colors.textMuted }}>Days Until Closing</p>
@@ -914,47 +1105,88 @@ export default function DealDetailPage() {
                   <span className="font-semibold" style={{ color: colors.gold }}>Amount Due from Brokerage</span>
                   <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
                 </div>
+                {deal.repayment_amount !== null && deal.repayment_amount !== undefined && (
+                  <div className="flex justify-between rounded px-2 py-1.5 text-sm mt-1" style={{
+                    background: Math.abs(deal.repayment_amount - deal.amount_due_from_brokerage) < 0.01 ? 'rgba(95,168,115,0.1)' : 'rgba(212,160,74,0.15)',
+                  }}>
+                    <span className="font-semibold" style={{ color: Math.abs(deal.repayment_amount - deal.amount_due_from_brokerage) < 0.01 ? '#5FA873' : '#D4A04A' }}>
+                      Repayment Received
+                    </span>
+                    <span className="font-bold" style={{ color: Math.abs(deal.repayment_amount - deal.amount_due_from_brokerage) < 0.01 ? '#5FA873' : '#D4A04A' }}>
+                      {formatCurrency(deal.repayment_amount)}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* ADMIN NOTES */}
+            {/* ADMIN NOTES TIMELINE */}
             <div className="rounded-lg p-4" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
             }}>
-              <h2 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: colors.textPrimary }}>
                 <StickyNote className="w-4 h-4" style={{ color: colors.gold }} />
                 Admin Notes
               </h2>
-              <textarea
-                value={adminNotes}
-                onChange={(e) => setAdminNotes(e.target.value)}
-                placeholder="Internal notes (not visible to agents)..."
-                className="w-full px-3 py-2 rounded border text-sm resize-none focus:outline-none mb-2"
-                style={{
-                  background: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                  color: colors.inputText,
-                  minHeight: '80px',
-                }}
-              />
-              <div className="flex items-center justify-between">
+
+              {/* Add new note */}
+              <div className="flex gap-2 mb-3">
+                <textarea
+                  value={newNoteText}
+                  onChange={(e) => setNewNoteText(e.target.value)}
+                  placeholder="Add a note..."
+                  className="flex-1 px-3 py-2 rounded border text-sm resize-none focus:outline-none"
+                  style={{
+                    background: colors.inputBg,
+                    borderColor: colors.inputBorder,
+                    color: colors.inputText,
+                    minHeight: '60px',
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote()
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between mb-3">
                 <button
-                  onClick={handleSaveAdminNotes}
-                  disabled={adminNotesSaving}
-                  className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                  onClick={handleAddNote}
+                  disabled={addingNote || !newNoteText.trim()}
+                  className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center gap-1.5"
                   style={{ background: '#3D5A99' }}
                   onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#2D4A89' }}
                   onMouseLeave={(e) => e.currentTarget.style.background = '#3D5A99'}
                 >
-                  {adminNotesSaving ? 'Saving...' : 'Save Notes'}
+                  <Plus className="w-3.5 h-3.5" />
+                  {addingNote ? 'Adding...' : 'Add Note'}
                 </button>
-                {adminNotesLastSaved && (
-                  <p className="text-xs" style={{ color: colors.textMuted }}>
-                    Saved: {formatDateTime(adminNotesLastSaved)}
-                  </p>
-                )}
+                <span className="text-xs" style={{ color: colors.textFaint }}>Ctrl+Enter to submit</span>
               </div>
+
+              {/* Timeline */}
+              {notesTimeline.length > 0 ? (
+                <div className="space-y-2 max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                  {[...notesTimeline].reverse().map((note) => (
+                    <div key={note.id} className="rounded-lg px-3 py-2.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                      <p className="text-sm whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{note.text}</p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <Clock className="w-3 h-3" style={{ color: colors.textFaint }} />
+                        <span className="text-xs" style={{ color: colors.textMuted }}>{note.author_name} &bull; {formatDateTime(note.created_at)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-center py-2" style={{ color: colors.textMuted }}>No notes yet</p>
+              )}
+
+              {/* Legacy notes (read-only, if present) */}
+              {adminNotes && (
+                <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${colors.divider}` }}>
+                  <p className="text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Legacy Notes</p>
+                  <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textFaint }}>{adminNotes}</p>
+                </div>
+              )}
             </div>
           </div>
 

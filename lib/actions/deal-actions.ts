@@ -17,6 +17,7 @@ import {
 import { logAuditEvent } from '@/lib/audit'
 import {
   sendNewDealNotification,
+  sendBrokerageAdminNewDealNotification,
   sendStatusChangeNotification,
   sendDocumentUploadedNotification,
   sendDocumentRequestNotification,
@@ -235,7 +236,7 @@ export async function submitDeal(formData: {
       },
     })
 
-    // Email notification → admin
+    // Email notification → Firm Funds admin
     sendNewDealNotification({
       dealId: newDeal.id,
       propertyAddress: validation.data.propertyAddress,
@@ -243,6 +244,28 @@ export async function submitDeal(formData: {
       agentName: `${agentData.first_name} ${agentData.last_name}`,
       brokerageName: brokerage?.name || 'Unknown Brokerage',
     })
+
+    // Email notification → brokerage admin(s)
+    const { data: brokerageAdmins } = await supabase
+      .from('user_profiles')
+      .select('email, full_name')
+      .eq('brokerage_id', agentData.brokerage_id)
+      .eq('role', 'brokerage_admin')
+      .eq('is_active', true)
+
+    if (brokerageAdmins && brokerageAdmins.length > 0) {
+      for (const admin of brokerageAdmins) {
+        sendBrokerageAdminNewDealNotification({
+          dealId: newDeal.id,
+          propertyAddress: validation.data.propertyAddress,
+          advanceAmount: calc.advanceAmount,
+          agentName: `${agentData.first_name} ${agentData.last_name}`,
+          brokerageAdminEmail: admin.email,
+          brokerageAdminFirstName: admin.full_name?.split(' ')[0] || 'Admin',
+          brokerageName: brokerage?.name || 'Unknown Brokerage',
+        })
+      }
+    }
 
     return {
       success: true,
@@ -270,6 +293,7 @@ export async function updateDealStatus(input: {
   dealId: string
   newStatus: string
   denialReason?: string
+  repaymentAmount?: number
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -330,9 +354,10 @@ export async function updateDealStatus(input: {
       updateData.denial_reason = null
     }
 
-    // Clear repayment date when reverting from repaid
+    // Clear repayment date and amount when reverting from repaid
     if (deal.status === 'repaid' && input.newStatus === 'funded') {
       updateData.repayment_date = null
+      updateData.repayment_amount = null
     }
 
     if (input.newStatus === 'funded') {
@@ -370,6 +395,9 @@ export async function updateDealStatus(input: {
 
     if (input.newStatus === 'repaid') {
       updateData.repayment_date = new Date().toISOString().split('T')[0]
+      if (input.repaymentAmount !== undefined) {
+        updateData.repayment_amount = input.repaymentAmount
+      }
     }
 
     // Execute update with optimistic lock: only update if status hasn't changed
@@ -1111,6 +1139,167 @@ export async function saveAdminNotes(input: { dealId: string; adminNotes: string
     return { success: true, data: { admin_notes: input.adminNotes.trim() || null } }
   } catch (err: any) {
     console.error('Admin notes save error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Server Action: Add admin note (append to JSONB timeline)
+// ============================================================================
+
+export async function addAdminNote(input: { dealId: string; note: string }): Promise<ActionResult> {
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  const noteText = input.note.trim()
+  if (!noteText) return { success: false, error: 'Note cannot be empty' }
+
+  try {
+    // Fetch current timeline
+    const { data: deal, error: fetchError } = await supabase
+      .from('deals')
+      .select('admin_notes_timeline')
+      .eq('id', input.dealId)
+      .single()
+
+    if (fetchError) {
+      return { success: false, error: `Failed to fetch deal: ${fetchError.message}` }
+    }
+
+    const timeline = Array.isArray(deal?.admin_notes_timeline) ? deal.admin_notes_timeline : []
+
+    const newEntry = {
+      id: crypto.randomUUID(),
+      text: noteText,
+      author_id: user.id,
+      author_name: profile.full_name || user.email || 'Admin',
+      created_at: new Date().toISOString(),
+    }
+
+    timeline.push(newEntry)
+
+    const { error: updateError } = await supabase
+      .from('deals')
+      .update({ admin_notes_timeline: timeline })
+      .eq('id', input.dealId)
+
+    if (updateError) {
+      console.error('Admin note add error:', updateError.message)
+      return { success: false, error: `Failed to add note: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'deal.admin_note_added',
+      entityType: 'deal',
+      entityId: input.dealId,
+      metadata: { author: profile.full_name, note_preview: noteText.substring(0, 100) },
+    })
+
+    return { success: true, data: { timeline, newEntry } }
+  } catch (err: any) {
+    console.error('Admin note add error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Server Action: Update closing date + recalculate financials (admin only)
+// ============================================================================
+
+export async function updateClosingDate(input: {
+  dealId: string
+  newClosingDate: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Fetch the deal
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('*, brokerages(referral_fee_percentage)')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    const newDays = calcDaysUntilClosing(input.newClosingDate)
+    if (newDays < MIN_DAYS_UNTIL_CLOSING) {
+      return { success: false, error: `New closing date must be at least ${MIN_DAYS_UNTIL_CLOSING} days from today` }
+    }
+
+    const referralPct = (deal as any).brokerages?.referral_fee_percentage
+    if (referralPct === null || referralPct === undefined) {
+      return { success: false, error: 'Brokerage referral fee not configured' }
+    }
+
+    // Recalculate with new days
+    const newCalc = calculateDeal({
+      grossCommission: deal.gross_commission,
+      brokerageSplitPct: deal.brokerage_split_pct,
+      daysUntilClosing: newDays,
+      discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
+      brokerageReferralPct: referralPct,
+    })
+
+    // Store old values for comparison
+    const oldValues = {
+      closing_date: deal.closing_date,
+      days_until_closing: deal.days_until_closing,
+      discount_fee: deal.discount_fee,
+      advance_amount: deal.advance_amount,
+      brokerage_referral_fee: deal.brokerage_referral_fee,
+      amount_due_from_brokerage: deal.amount_due_from_brokerage,
+    }
+
+    const { error: updateError } = await supabase
+      .from('deals')
+      .update({
+        closing_date: input.newClosingDate,
+        days_until_closing: newDays,
+        discount_fee: newCalc.discountFee,
+        advance_amount: newCalc.advanceAmount,
+        brokerage_referral_fee: newCalc.brokerageReferralFee,
+        amount_due_from_brokerage: newCalc.amountDueFromBrokerage,
+      })
+      .eq('id', input.dealId)
+
+    if (updateError) {
+      console.error('Closing date update error:', updateError.message)
+      return { success: false, error: `Failed to update: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'deal.closing_date_updated',
+      entityType: 'deal',
+      entityId: input.dealId,
+      metadata: {
+        old_closing_date: oldValues.closing_date,
+        new_closing_date: input.newClosingDate,
+        old_advance: oldValues.advance_amount,
+        new_advance: newCalc.advanceAmount,
+        updated_by: profile.full_name,
+      },
+    })
+
+    return {
+      success: true,
+      data: {
+        old: oldValues,
+        new: {
+          closing_date: input.newClosingDate,
+          days_until_closing: newDays,
+          discount_fee: newCalc.discountFee,
+          advance_amount: newCalc.advanceAmount,
+          brokerage_referral_fee: newCalc.brokerageReferralFee,
+          amount_due_from_brokerage: newCalc.amountDueFromBrokerage,
+        },
+      },
+    }
+  } catch (err: any) {
+    console.error('Closing date update error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2 } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent } from '@/lib/actions/admin-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
@@ -112,6 +112,8 @@ export default function BrokeragesPage() {
   const [editAgentForm, setEditAgentForm] = useState<AgentFormData & { status: string; flaggedByBrokerage: boolean; outstandingRecovery: string }>(
     { firstName: '', lastName: '', email: '', phone: '', recoNumber: '', status: 'active', flaggedByBrokerage: false, outstandingRecovery: '0' }
   )
+  const [brokerageDocs, setBrokerageDocs] = useState<Record<string, { id: string; file_name: string; document_type: string; file_path: string; file_size: number; created_at: string }[]>>({})
+  const [uploadingBrokerageDoc, setUploadingBrokerageDoc] = useState(false)
 
   const router = useRouter()
   const supabase = createClient()
@@ -415,6 +417,56 @@ export default function BrokeragesPage() {
       setStatusMessage({ type: 'error', text: 'Failed to read the file. Make sure it\'s a valid .xlsx or .csv file.' })
     }
     setSubmitting(false)
+  }
+
+  // ---- Brokerage document handlers ----
+  const BROKERAGE_DOC_TYPES = [
+    { value: 'cooperation_agreement', label: 'Brokerage Cooperation Agreement' },
+    { value: 'white_label_agreement', label: 'White-Label Licensing Agreement' },
+    { value: 'banking_info', label: 'Banking / EFT Details' },
+    { value: 'kyc_business', label: 'Business KYC / Verification' },
+    { value: 'other', label: 'Other' },
+  ]
+
+  const loadBrokerageDocs = async (brokerageId: string) => {
+    const { data } = await supabase.from('brokerage_documents').select('*').eq('brokerage_id', brokerageId).order('created_at', { ascending: false })
+    setBrokerageDocs(prev => ({ ...prev, [brokerageId]: data || [] }))
+  }
+
+  const handleBrokerageDocUpload = async (e: React.ChangeEvent<HTMLInputElement>, brokerageId: string, docType: string) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) { setStatusMessage({ type: 'error', text: 'File must be under 10MB' }); return }
+    setUploadingBrokerageDoc(true)
+    const filePath = `brokerages/${brokerageId}/${Date.now()}_${file.name}`
+    const { error: uploadErr } = await supabase.storage.from('deal-documents').upload(filePath, file)
+    if (uploadErr) { setStatusMessage({ type: 'error', text: `Upload failed: ${uploadErr.message}` }); setUploadingBrokerageDoc(false); return }
+    const { error: dbErr } = await supabase.from('brokerage_documents').insert({
+      brokerage_id: brokerageId,
+      document_type: docType,
+      file_name: file.name,
+      file_path: filePath,
+      file_size: file.size,
+      uploaded_by: user?.id,
+    })
+    if (dbErr) { setStatusMessage({ type: 'error', text: `Failed to save record: ${dbErr.message}` }); setUploadingBrokerageDoc(false); return }
+    setStatusMessage({ type: 'success', text: `${file.name} uploaded` })
+    await loadBrokerageDocs(brokerageId)
+    setUploadingBrokerageDoc(false)
+    e.target.value = ''
+  }
+
+  const handleBrokerageDocDelete = async (doc: { id: string; file_path: string; file_name: string }, brokerageId: string) => {
+    if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
+    await supabase.storage.from('deal-documents').remove([doc.file_path])
+    await supabase.from('brokerage_documents').delete().eq('id', doc.id)
+    setStatusMessage({ type: 'success', text: 'Document deleted' })
+    await loadBrokerageDocs(brokerageId)
+  }
+
+  const handleBrokerageDocView = async (doc: { file_path: string }) => {
+    const { data } = await supabase.storage.from('deal-documents').createSignedUrl(doc.file_path, 3600)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
   const downloadTemplate = () => {
@@ -775,9 +827,11 @@ export default function BrokeragesPage() {
                     style={{ background: isExpanded ? colors.cardHoverBg : 'transparent' }}
                     onClick={() => {
                       if (isEditing) return
-                      setExpandedId(isExpanded ? null : brokerage.id)
+                      const newId = isExpanded ? null : brokerage.id
+                      setExpandedId(newId)
                       setEditingBrokerageId(null)
                       setShowAddAgentFor(null)
+                      if (newId && !brokerageDocs[newId]) loadBrokerageDocs(newId)
                     }}
                     onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.background = colors.cardHoverBg }}
                     onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.background = 'transparent' }}
@@ -892,6 +946,79 @@ export default function BrokeragesPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* Brokerage Documents */}
+                      <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <FileText size={15} style={{ color: colors.gold }} />
+                            <h4 className="text-sm font-bold" style={{ color: colors.textPrimary }}>
+                              Documents
+                              <span className="font-normal ml-1.5" style={{ color: colors.textMuted }}>
+                                ({(brokerageDocs[brokerage.id] || []).length})
+                              </span>
+                            </h4>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <select
+                              id={`brokDocType-${brokerage.id}`}
+                              className="text-xs px-2 py-1 rounded border focus:outline-none"
+                              style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                              defaultValue="cooperation_agreement"
+                            >
+                              {BROKERAGE_DOC_TYPES.map(dt => (
+                                <option key={dt.value} value={dt.value}>{dt.label}</option>
+                              ))}
+                            </select>
+                            <label
+                              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                              style={{ color: '#fff', background: colors.gold }}
+                              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            >
+                              <Upload size={13} /> Upload
+                              <input
+                                type="file"
+                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                className="hidden"
+                                disabled={uploadingBrokerageDoc}
+                                onChange={(e) => {
+                                  const select = document.getElementById(`brokDocType-${brokerage.id}`) as HTMLSelectElement
+                                  handleBrokerageDocUpload(e, brokerage.id, select?.value || 'cooperation_agreement')
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        {(brokerageDocs[brokerage.id] || []).length > 0 ? (
+                          <div className="space-y-1.5">
+                            {(brokerageDocs[brokerage.id] || []).map(doc => (
+                              <div key={doc.id} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <FileText size={14} style={{ color: colors.gold }} />
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
+                                    <p className="text-xs" style={{ color: colors.textMuted }}>
+                                      {BROKERAGE_DOC_TYPES.find(d => d.value === doc.document_type)?.label || doc.document_type}
+                                      {' \u2022 '}{new Date(doc.created_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button onClick={() => handleBrokerageDocView(doc)} className="px-2 py-1 rounded text-xs font-medium transition" style={{ background: colors.gold, color: '#fff' }}>
+                                    <Eye size={13} />
+                                  </button>
+                                  <button onClick={() => handleBrokerageDocDelete(doc, brokerage.id)} className="px-2 py-1 rounded text-xs font-medium transition" style={{ background: colors.errorBg, color: colors.errorText }}>
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs" style={{ color: colors.textMuted }}>No documents uploaded. Upload the signed Brokerage Cooperation Agreement and other onboarding docs here.</p>
+                        )}
+                      </div>
 
                       {/* Agent Roster */}
                       <div className="px-6 py-4">

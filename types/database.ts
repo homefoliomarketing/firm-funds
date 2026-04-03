@@ -75,6 +75,8 @@ export interface Deal {
   amount_due_from_brokerage: number
   funding_date: string | null
   repayment_date: string | null
+  repayment_amount: number | null
+  admin_notes_timeline: { id: string; text: string; author_name: string; created_at: string }[] | null
   eft_transfers: EftTransfer[] | null
   source: DealSource
   denial_reason: string | null
@@ -92,6 +94,7 @@ export interface EftTransfer {
   amount: number
   date: string
   confirmed: boolean
+  reference?: string
 }
 
 export interface DealDocument {

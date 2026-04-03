@@ -160,6 +160,65 @@ export async function sendNewDealNotification(params: {
 }
 
 // ============================================================================
+// Email: New Deal Submitted → Brokerage Admin
+// ============================================================================
+
+export async function sendBrokerageAdminNewDealNotification(params: {
+  dealId: string
+  propertyAddress: string
+  advanceAmount: number
+  agentName: string
+  brokerageAdminEmail: string
+  brokerageAdminFirstName: string
+  brokerageName: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.brokerageAdminEmail,
+      subject: `New Advance Request — ${params.agentName} — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">New Advance Request</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          Hi ${params.brokerageAdminFirstName}, one of your agents has submitted a commission advance request through Firm Funds.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Agent</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px; font-weight:600;">${params.agentName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Property</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.propertyAddress}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Advance Amount</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:16px; font-weight:700;">${formatCurrency(params.advanceAmount)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#999; font-size:13px;">
+          This deal is now under review by Firm Funds. You&rsquo;ll be able to track its status from your brokerage dashboard.
+        </p>
+        <a href="${APP_URL}/brokerage" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+          View Brokerage Dashboard
+        </a>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage admin new deal notification:', err)
+  }
+}
+
+// ============================================================================
 // Email: Deal Status Changed → Agent
 // ============================================================================
 
@@ -423,5 +482,86 @@ export async function sendDocumentUploadedNotification(params: {
     })
   } catch (err) {
     console.error('[email] Failed to send document uploaded notification:', err)
+  }
+}
+
+// ============================================================================
+// Email: Closing Date Alert → Admin (daily digest)
+// ============================================================================
+
+export async function sendClosingDateAlertDigest(params: {
+  approachingDeals: { id: string; property_address: string; closing_date: string; days_until_closing: number; advance_amount: number; agent_name: string; status: string }[]
+  overdueDeals: { id: string; property_address: string; closing_date: string; days_overdue: number; advance_amount: number; agent_name: string; status: string }[]
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  if (params.approachingDeals.length === 0 && params.overdueDeals.length === 0) return
+
+  const overdueRows = params.overdueDeals.map(d => `
+    <tr>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#F87171; font-size:13px;">
+        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#F87171; text-decoration:none; font-weight:600;">${d.property_address}</a>
+      </td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#F87171; font-size:13px;">${d.days_overdue} days overdue</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px;">${d.agent_name}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px;">${formatCurrency(d.advance_amount)}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px; text-transform:capitalize;">${d.status.replace(/_/g, ' ')}</td>
+    </tr>
+  `).join('')
+
+  const approachingRows = params.approachingDeals.map(d => `
+    <tr>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px;">
+        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#5FA873; text-decoration:none; font-weight:600;">${d.property_address}</a>
+      </td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#FCD34D; font-size:13px;">${d.days_until_closing} days</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px;">${d.agent_name}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px;">${formatCurrency(d.advance_amount)}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E8E4DF; font-size:13px; text-transform:capitalize;">${d.status.replace(/_/g, ' ')}</td>
+    </tr>
+  `).join('')
+
+  const tableHeader = `
+    <tr>
+      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Property</td>
+      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Timeline</td>
+      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Agent</td>
+      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Advance</td>
+      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Status</td>
+    </tr>`
+
+  let body = `<h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Closing Date Alert</h2>`
+
+  if (params.overdueDeals.length > 0) {
+    body += `
+      <p style="margin:0 0 12px; color:#F87171; font-weight:600; font-size:15px;">⚠ ${params.overdueDeals.length} Overdue Deal${params.overdueDeals.length !== 1 ? 's' : ''}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px; background:#1A1A1A; border-radius:8px; overflow:hidden;">
+        ${tableHeader}${overdueRows}
+      </table>`
+  }
+
+  if (params.approachingDeals.length > 0) {
+    body += `
+      <p style="margin:0 0 12px; color:#FCD34D; font-weight:600; font-size:15px;">${params.approachingDeals.length} Approaching Closing${params.approachingDeals.length !== 1 ? 's' : ''} (within 7 days)</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px; background:#1A1A1A; border-radius:8px; overflow:hidden;">
+        ${tableHeader}${approachingRows}
+      </table>`
+  }
+
+  body += `
+    <a href="${APP_URL}/admin" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+      Open Dashboard
+    </a>`
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `Closing Date Alert — ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`,
+      html: wrap(body),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send closing date alert digest:', err)
   }
 }

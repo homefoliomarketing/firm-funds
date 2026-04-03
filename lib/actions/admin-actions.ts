@@ -715,6 +715,7 @@ export async function recordEftTransfer(input: {
   dealId: string
   amount: number
   date: string
+  reference?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -739,6 +740,7 @@ export async function recordEftTransfer(input: {
       amount: input.amount,
       date: input.date,
       confirmed: false,
+      ...(input.reference ? { reference: input.reference } : {}),
     }
     const updatedTransfers = [...existingTransfers, newTransfer]
 
