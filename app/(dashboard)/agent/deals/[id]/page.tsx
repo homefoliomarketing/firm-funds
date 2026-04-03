@@ -395,12 +395,19 @@ export default function AgentDealDetailPage() {
             <div className="mt-4 flex justify-end">
               <button
                 onClick={async () => {
-                  if (!confirm('Are you sure you want to cancel this advance request? This cannot be undone.')) return
+                  const msg = deal.status === 'under_review'
+                    ? 'Withdraw this advance request? It will be permanently removed.'
+                    : 'Are you sure you want to cancel this advance request? This cannot be undone.'
+                  if (!confirm(msg)) return
                   setCancelling(true)
                   const result = await cancelDeal({ dealId: deal.id })
                   if (result.success) {
-                    setDeal({ ...deal, status: 'cancelled' })
-                    setStatusMessage({ type: 'success', text: 'Advance request cancelled successfully.' })
+                    if (result.data?.deleted) {
+                      router.push('/agent')
+                    } else {
+                      setDeal({ ...deal, status: 'cancelled' })
+                      setStatusMessage({ type: 'success', text: 'Advance request cancelled successfully.' })
+                    }
                   } else {
                     setStatusMessage({ type: 'error', text: result.error || 'Failed to cancel deal' })
                   }
@@ -413,7 +420,7 @@ export default function AgentDealDetailPage() {
                 onMouseLeave={(e) => { e.currentTarget.style.background = colors.errorBg }}
               >
                 <X size={14} />
-                {cancelling ? 'Cancelling...' : 'Cancel This Advance'}
+                {cancelling ? (deal.status === 'under_review' ? 'Withdrawing...' : 'Cancelling...') : (deal.status === 'under_review' ? 'Withdraw Request' : 'Cancel This Advance')}
               </button>
             </div>
           )}

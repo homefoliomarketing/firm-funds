@@ -852,8 +852,42 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
       return { success: false, error: 'This deal can no longer be cancelled. Contact support if you need assistance.' }
     }
 
-    // Use service role client for the update to bypass RLS
     const adminClient = createServiceRoleClient()
+
+    if (deal.status === 'under_review') {
+      // Under review = hasn't been touched yet — delete it entirely
+      // Clean up related records first
+      await adminClient.from('document_requests').delete().eq('deal_id', input.dealId)
+      await adminClient.from('deal_documents').delete().eq('deal_id', input.dealId)
+      await adminClient.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
+
+      // Delete any uploaded files from storage
+      const { data: docs } = await adminClient.from('deal_documents').select('file_path').eq('deal_id', input.dealId)
+      if (docs && docs.length > 0) {
+        await adminClient.storage.from('deal-documents').remove(docs.map(d => d.file_path))
+      }
+
+      const { error: deleteError } = await adminClient
+        .from('deals')
+        .delete()
+        .eq('id', input.dealId)
+
+      if (deleteError) {
+        console.error('Deal delete error:', deleteError.message)
+        return { success: false, error: `Failed to delete deal: ${deleteError.message}` }
+      }
+
+      await logAuditEvent({
+        action: 'deal.withdrawn',
+        entityType: 'deal',
+        entityId: input.dealId,
+        metadata: { property_address: deal.property_address, withdrawn_by: user.id },
+      })
+
+      return { success: true, data: { deleted: true } }
+    }
+
+    // Approved = already reviewed — mark as cancelled instead of deleting
     const { data: updatedDeal, error: updateError } = await adminClient
       .from('deals')
       .update({ status: 'cancelled' })

@@ -315,10 +315,20 @@ export default function AgentDashboard() {
                           <button
                             onClick={async (e) => {
                               e.stopPropagation()
-                              if (!confirm('Are you sure you want to cancel this advance request? This cannot be undone.')) return
+                              const msg = deal.status === 'under_review'
+                                ? 'Withdraw this advance request? It will be permanently removed.'
+                                : 'Are you sure you want to cancel this advance request? This cannot be undone.'
+                              if (!confirm(msg)) return
                               const result = await cancelDeal({ dealId: deal.id })
                               if (result.success) {
-                                setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, status: 'cancelled' } : d))
+                                if (result.data?.deleted) {
+                                  // Under review deals get fully deleted
+                                  setDeals(prev => prev.filter(d => d.id !== deal.id))
+                                  setExpandedDeal(null)
+                                } else {
+                                  // Approved deals get marked cancelled
+                                  setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, status: 'cancelled' } : d))
+                                }
                               } else {
                                 alert(result.error || 'Failed to cancel deal')
                               }
@@ -329,7 +339,7 @@ export default function AgentDashboard() {
                             onMouseLeave={(e) => e.currentTarget.style.background = colors.errorBg}
                           >
                             <X size={14} />
-                            Cancel Advance
+                            {deal.status === 'under_review' ? 'Withdraw Request' : 'Cancel Advance'}
                           </button>
                         )}
                       </div>
