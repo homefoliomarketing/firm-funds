@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle, Shield } from 'lucide-react'
 import { submitDeal, calculateDealPreview, uploadDocument } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+import { KYC_STATUSES } from '@/lib/constants'
 
 export default function NewDealPage() {
   const [profile, setProfile] = useState<any>(null)
@@ -181,6 +182,28 @@ export default function NewDealPage() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}>
         <div style={{ color: colors.textMuted }} className="text-lg">Loading...</div>
+      </div>
+    )
+  }
+
+  // ---- KYC Gate: Block deal submission if agent hasn't completed KYC ----
+  if (agent && agent.kyc_status !== KYC_STATUSES.VERIFIED) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}>
+        <div className="rounded-2xl p-8 max-w-md mx-auto text-center" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <Shield size={44} style={{ color: '#D4A04A', marginBottom: 12 }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: colors.textPrimary }}>Identity Verification Required</h2>
+          <p className="text-sm mb-6" style={{ color: colors.textSecondary }}>
+            You need to complete identity verification before you can submit deals. Please go to your dashboard to upload your government-issued photo ID.
+          </p>
+          <button
+            onClick={() => router.push('/agent')}
+            className="px-6 py-2.5 rounded-lg font-medium text-sm text-white"
+            style={{ background: '#5FA873' }}
+          >
+            Go to Dashboard
+          </button>
+        </div>
       </div>
     )
   }

@@ -28,6 +28,15 @@ export type AgentStatus = 'active' | 'suspended' | 'flagged'
 export type UploadSource = 'nexone_auto' | 'manual_upload'
 export type DealSource = 'nexone_auto' | 'manual_portal'
 
+export type AgentKycStatus = 'pending' | 'submitted' | 'verified' | 'rejected'
+
+export type AgentKycDocumentType =
+  | 'drivers_license'
+  | 'passport'
+  | 'ontario_photo_card'
+  | 'permanent_resident_card'
+  | 'citizenship_card'
+
 export interface Brokerage {
   id: string
   name: string
@@ -39,6 +48,13 @@ export interface Brokerage {
   referral_fee_percentage: number
   transaction_system: string | null
   notes: string | null
+  // FINTRAC KYC fields
+  kyc_verified: boolean
+  kyc_verified_at: string | null
+  kyc_verified_by: string | null
+  reco_registration_number: string | null
+  reco_verification_date: string | null
+  reco_verification_notes: string | null
   created_at: string
   updated_at: string
 }
@@ -54,6 +70,14 @@ export interface Agent {
   status: AgentStatus
   flagged_by_brokerage: boolean
   outstanding_recovery: number
+  // FINTRAC KYC fields
+  kyc_status: AgentKycStatus
+  kyc_submitted_at: string | null
+  kyc_verified_at: string | null
+  kyc_verified_by: string | null
+  kyc_document_path: string | null
+  kyc_document_type: AgentKycDocumentType | null
+  kyc_rejection_reason: string | null
   created_at: string
   updated_at: string
 }

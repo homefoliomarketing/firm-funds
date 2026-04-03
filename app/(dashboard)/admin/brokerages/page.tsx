@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent } from '@/lib/actions/admin-actions'
+import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
-import { getStatusBadgeStyle as getSharedStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeStyle as getSharedStatusBadgeStyle, formatStatusLabel, getKycBadgeStyle, RECO_PUBLIC_REGISTER_URL } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 
 // ============================================================================
@@ -114,6 +115,13 @@ export default function BrokeragesPage() {
   )
   const [brokerageDocs, setBrokerageDocs] = useState<Record<string, { id: string; file_name: string; document_type: string; file_path: string; file_size: number; created_at: string }[]>>({})
   const [uploadingBrokerageDoc, setUploadingBrokerageDoc] = useState(false)
+  // KYC state
+  const [kycRecoNumber, setKycRecoNumber] = useState('')
+  const [kycNotes, setKycNotes] = useState('')
+  const [kycSubmitting, setKycSubmitting] = useState(false)
+  const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
+  const [kycRejectReason, setKycRejectReason] = useState('')
+  const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
 
   const router = useRouter()
   const supabase = createClient()
@@ -854,6 +862,21 @@ export default function BrokeragesPage() {
                       >
                         {brokerage.status.charAt(0).toUpperCase() + brokerage.status.slice(1)}
                       </span>
+                      {(brokerage as any).kyc_verified ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded"
+                          style={getKycBadgeStyle('verified')}
+                          title={`KYC verified${(brokerage as any).kyc_verified_at ? ' on ' + new Date((brokerage as any).kyc_verified_at).toLocaleDateString('en-CA') : ''}`}
+                        >
+                          <Shield size={11} /> KYC
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded"
+                          style={getKycBadgeStyle('pending')}
+                          title="KYC not verified"
+                        >
+                          <Shield size={11} /> No KYC
+                        </span>
+                      )}
                       <span className="text-xs font-medium" style={{ color: colors.textMuted }}>
                         {(brokerage.referral_fee_percentage * 100).toFixed(1)}% fee
                       </span>
@@ -946,6 +969,140 @@ export default function BrokeragesPage() {
                           </div>
                         </div>
                       )}
+
+                      {/* FINTRAC KYC Verification */}
+                      <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Shield size={15} style={{ color: (brokerage as any).kyc_verified ? '#5FA873' : colors.gold }} />
+                          <h4 className="text-sm font-bold" style={{ color: colors.textPrimary }}>
+                            FINTRAC — RECO Verification
+                          </h4>
+                          {(brokerage as any).kyc_verified && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2"
+                              style={getKycBadgeStyle('verified')}>
+                              <CheckCircle size={11} /> Verified
+                            </span>
+                          )}
+                        </div>
+
+                        {(brokerage as any).kyc_verified ? (
+                          /* Verified state — show verification details */
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>RECO Reg #</p>
+                                <p style={{ color: colors.textPrimary }}>{(brokerage as any).reco_registration_number || '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Verified On</p>
+                                <p style={{ color: colors.textPrimary }}>
+                                  {(brokerage as any).reco_verification_date
+                                    ? new Date((brokerage as any).reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+                                    : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Verified By</p>
+                                <p style={{ color: colors.textPrimary }}>{(brokerage as any).kyc_verified_by || '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Notes</p>
+                                <p style={{ color: colors.textPrimary }}>{(brokerage as any).reco_verification_notes || '—'}</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (!confirm('Revoke KYC verification for this brokerage? This will require re-verification.')) return
+                                setKycSubmitting(true)
+                                const result = await revokeBrokerageKyc({ brokerageId: brokerage.id })
+                                if (result.success) {
+                                  setStatusMessage({ type: 'success', text: 'KYC verification revoked' })
+                                  await loadBrokerages()
+                                } else {
+                                  setStatusMessage({ type: 'error', text: result.error || 'Failed to revoke KYC' })
+                                }
+                                setKycSubmitting(false)
+                              }}
+                              disabled={kycSubmitting}
+                              className="text-xs px-3 py-1 rounded transition-colors mt-1"
+                              style={{ color: colors.errorText, background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}
+                            >
+                              Revoke Verification
+                            </button>
+                          </div>
+                        ) : (
+                          /* Not verified — show verification form */
+                          <div className="space-y-3">
+                            <p className="text-xs" style={{ color: colors.textMuted }}>
+                              Verify this brokerage on the RECO Public Register, then record the verification below.
+                            </p>
+                            <a
+                              href={RECO_PUBLIC_REGISTER_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-opacity"
+                              style={{ background: '#1A2240', color: '#7B9FE0', border: '1px solid #2D3A5C' }}
+                              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
+                              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            >
+                              <ExternalLink size={12} /> Open RECO Public Register
+                            </a>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium mb-1" style={{ color: colors.textSecondary }}>RECO Registration Number *</label>
+                                <input
+                                  type="text"
+                                  value={kycRecoNumber}
+                                  onChange={(e) => setKycRecoNumber(e.target.value)}
+                                  placeholder="e.g. 12345"
+                                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                                  style={inputStyle}
+                                  onFocus={onFocus}
+                                  onBlur={onBlur}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium mb-1" style={{ color: colors.textSecondary }}>Verification Notes</label>
+                                <input
+                                  type="text"
+                                  value={kycNotes}
+                                  onChange={(e) => setKycNotes(e.target.value)}
+                                  placeholder="e.g. Confirmed active on RECO register"
+                                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                                  style={inputStyle}
+                                  onFocus={onFocus}
+                                  onBlur={onBlur}
+                                />
+                              </div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (!kycRecoNumber.trim()) { setStatusMessage({ type: 'error', text: 'RECO registration number is required' }); return }
+                                setKycSubmitting(true)
+                                const result = await verifyBrokerageKyc({
+                                  brokerageId: brokerage.id,
+                                  recoRegistrationNumber: kycRecoNumber,
+                                  verificationNotes: kycNotes,
+                                })
+                                if (result.success) {
+                                  setStatusMessage({ type: 'success', text: `${brokerage.name} KYC verified successfully` })
+                                  setKycRecoNumber('')
+                                  setKycNotes('')
+                                  await loadBrokerages()
+                                } else {
+                                  setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
+                                }
+                                setKycSubmitting(false)
+                              }}
+                              disabled={kycSubmitting || !kycRecoNumber.trim()}
+                              className="flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                              style={{ background: '#5FA873', color: '#fff' }}
+                            >
+                              <CheckCircle size={13} /> {kycSubmitting ? 'Verifying...' : 'Mark as KYC Verified'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
                       {/* Brokerage Documents */}
                       <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
@@ -1182,6 +1339,7 @@ export default function BrokeragesPage() {
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Phone</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>RECO #</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>KYC</th>
                                   <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}></th>
                                 </tr>
                               </thead>
@@ -1199,7 +1357,7 @@ export default function BrokeragesPage() {
                                     if (isEditing) {
                                       return (
                                         <tr key={agent.id} style={{ background: colors.goldBg, borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}>
-                                          <td className="px-3 py-2" colSpan={6}>
+                                          <td className="px-3 py-2" colSpan={7}>
                                             <form onSubmit={(e) => handleEditAgentSubmit(e, agent.id, brokerage.id)} className="space-y-3">
                                               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                                                 <div>
@@ -1310,6 +1468,114 @@ export default function BrokeragesPage() {
                                             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
                                           </span>
                                         </td>
+                                        <td className="px-4 py-3">
+                                          {(() => {
+                                            const kycStatus = (agent as any).kyc_status || 'pending'
+                                            const kycBadge = getKycBadgeStyle(kycStatus)
+                                            return (
+                                              <div className="flex flex-col gap-1">
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded w-fit"
+                                                  style={kycBadge}
+                                                >
+                                                  <Shield size={10} />
+                                                  {kycStatus === 'pending' ? 'Pending' : kycStatus === 'submitted' ? 'Submitted' : kycStatus === 'verified' ? 'Verified' : 'Rejected'}
+                                                </span>
+                                                {kycStatus === 'submitted' && (
+                                                  <div className="flex items-center gap-1 mt-0.5">
+                                                    <button
+                                                      onClick={async (e) => {
+                                                        e.stopPropagation()
+                                                        const urlRes = await getAgentKycDocumentUrl({ agentId: agent.id })
+                                                        if (urlRes.success && urlRes.data?.url) {
+                                                          window.open(urlRes.data.url, '_blank')
+                                                        } else {
+                                                          setStatusMessage({ type: 'error', text: urlRes.error || 'Failed to load ID' })
+                                                        }
+                                                      }}
+                                                      className="text-xs px-1.5 py-0.5 rounded transition-colors"
+                                                      style={{ color: '#7B9FE0', background: '#1A2240', border: '1px solid #2D3A5C' }}
+                                                      title="View uploaded ID"
+                                                    >
+                                                      <Eye size={11} />
+                                                    </button>
+                                                    <button
+                                                      onClick={async (e) => {
+                                                        e.stopPropagation()
+                                                        setKycSubmitting(true)
+                                                        const result = await verifyAgentKyc({ agentId: agent.id })
+                                                        if (result.success) {
+                                                          setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC verified` })
+                                                          await loadBrokerages()
+                                                        } else {
+                                                          setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
+                                                        }
+                                                        setKycSubmitting(false)
+                                                      }}
+                                                      disabled={kycSubmitting}
+                                                      className="text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-50"
+                                                      style={{ color: '#5FA873', background: '#0F2A18', border: '1px solid #1E4A2C' }}
+                                                      title="Verify KYC"
+                                                    >
+                                                      <CheckCircle size={11} />
+                                                    </button>
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        setKycRejectingAgentId(agent.id)
+                                                        setKycRejectReason('')
+                                                      }}
+                                                      className="text-xs px-1.5 py-0.5 rounded transition-colors"
+                                                      style={{ color: '#E07B7B', background: '#2A1212', border: '1px solid #4A2020' }}
+                                                      title="Reject KYC"
+                                                    >
+                                                      <XCircle size={11} />
+                                                    </button>
+                                                  </div>
+                                                )}
+                                                {kycRejectingAgentId === agent.id && (
+                                                  <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                                                    <input
+                                                      type="text"
+                                                      value={kycRejectReason}
+                                                      onChange={(e) => setKycRejectReason(e.target.value)}
+                                                      placeholder="Rejection reason..."
+                                                      className="text-xs px-2 py-1 rounded outline-none"
+                                                      style={{ ...inputStyle, width: 140 }}
+                                                      autoFocus
+                                                    />
+                                                    <button
+                                                      onClick={async () => {
+                                                        if (!kycRejectReason.trim()) return
+                                                        setKycSubmitting(true)
+                                                        const result = await rejectAgentKyc({ agentId: agent.id, reason: kycRejectReason })
+                                                        if (result.success) {
+                                                          setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC rejected` })
+                                                          setKycRejectingAgentId(null)
+                                                          await loadBrokerages()
+                                                        } else {
+                                                          setStatusMessage({ type: 'error', text: result.error || 'Rejection failed' })
+                                                        }
+                                                        setKycSubmitting(false)
+                                                      }}
+                                                      disabled={kycSubmitting || !kycRejectReason.trim()}
+                                                      className="text-xs px-2 py-1 rounded font-semibold disabled:opacity-50"
+                                                      style={{ background: '#993D3D', color: '#fff' }}
+                                                    >
+                                                      Reject
+                                                    </button>
+                                                    <button
+                                                      onClick={() => setKycRejectingAgentId(null)}
+                                                      className="text-xs px-1 py-1 rounded"
+                                                      style={{ color: colors.textMuted }}
+                                                    >
+                                                      <X size={11} />
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )
+                                          })()}
+                                        </td>
                                         <td className="px-4 py-3 text-right">
                                           <div className="flex items-center justify-end gap-1">
                                             <button
@@ -1341,7 +1607,7 @@ export default function BrokeragesPage() {
                                       // Expanded deals row
                                       expandedAgentId === agent.id && (
                                         <tr key={`deals-${agent.id}`} style={{ background: colors.cardBg, borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}>
-                                          <td colSpan={6} className="px-4 py-4">
+                                          <td colSpan={7} className="px-4 py-4">
                                             <div style={{ marginLeft: '20px' }}>
                                               <h4 className="text-xs font-semibold mb-3" style={{ color: colors.textPrimary }}>Deal History</h4>
                                               {(agentDeals[agent.id]?.length ?? 0) === 0 ? (

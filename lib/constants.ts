@@ -120,6 +120,54 @@ export function getStatusBadgeStyle(status: string) {
   return { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
 }
 
+// =============================================================================
+// FINTRAC KYC Constants
+// =============================================================================
+
+/** Acceptable government-issued photo ID types for agent KYC */
+export const KYC_DOCUMENT_TYPES = [
+  { value: 'drivers_license', label: "Ontario Driver's Licence" },
+  { value: 'passport', label: 'Canadian Passport' },
+  { value: 'ontario_photo_card', label: 'Ontario Photo Card' },
+  { value: 'permanent_resident_card', label: 'Permanent Resident Card' },
+  { value: 'citizenship_card', label: 'Canadian Citizenship Card' },
+] as const
+
+/** Agent KYC statuses */
+export const KYC_STATUSES = {
+  PENDING: 'pending',
+  SUBMITTED: 'submitted',
+  VERIFIED: 'verified',
+  REJECTED: 'rejected',
+} as const
+
+/** KYC status badge styles */
+export const KYC_STATUS_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  pending:   { bg: '#2A1F0F', text: '#D4A04A', border: '#4A3820' },
+  submitted: { bg: '#1A2240', text: '#7B9FE0', border: '#2D3A5C' },
+  verified:  { bg: '#0F2A18', text: '#5FA873', border: '#1E4A2C' },
+  rejected:  { bg: '#2A1212', text: '#E07B7B', border: '#4A2020' },
+}
+
+/** Helper: get inline style object for a KYC status badge */
+export function getKycBadgeStyle(status: string) {
+  const s = KYC_STATUS_BADGE_STYLES[status] || KYC_STATUS_BADGE_STYLES.pending
+  return { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
+}
+
+/** Max file size for KYC document upload (10MB) */
+export const MAX_KYC_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
+
+/** Allowed MIME types for KYC document upload */
+export const ALLOWED_KYC_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+] as const
+
+/** RECO Public Register URL */
+export const RECO_PUBLIC_REGISTER_URL = 'https://www.reco.on.ca/RegistrantSearch'
+
 /** Helper: format status string for display */
 export function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())

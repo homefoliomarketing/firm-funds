@@ -1,0 +1,236 @@
+'use client'
+
+import { useState } from 'react'
+import { Shield, Upload, CheckCircle, XCircle, Clock, AlertCircle, FileText } from 'lucide-react'
+import { submitAgentKyc } from '@/lib/actions/kyc-actions'
+import { useTheme } from '@/lib/theme'
+import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeStyle } from '@/lib/constants'
+
+interface AgentKycGateProps {
+  agent: {
+    id: string
+    first_name: string
+    last_name: string
+    kyc_status: string
+    kyc_rejection_reason: string | null
+  }
+  onKycSubmitted: () => void
+}
+
+export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProps) {
+  const { colors, isDark } = useTheme()
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [documentType, setDocumentType] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+
+  const inputStyle = { background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }
+
+  const handleFileSelect = (file: File) => {
+    setError(null)
+    if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
+      setError('File size exceeds 10MB limit. Please upload a smaller file.')
+      return
+    }
+    if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
+      setError('Invalid file type. Please upload a JPEG, PNG, or PDF.')
+      return
+    }
+    setSelectedFile(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0])
+  }
+
+  const handleSubmit = async () => {
+    if (!selectedFile || !documentType) {
+      setError('Please select a document type and upload your ID.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+
+    const formData = new FormData()
+    formData.append('file', selectedFile)
+    formData.append('documentType', documentType)
+
+    const result = await submitAgentKyc(formData)
+    if (result.success) {
+      onKycSubmitted()
+    } else {
+      setError(result.error || 'Upload failed. Please try again.')
+    }
+    setSubmitting(false)
+  }
+
+  // ---- Status: Submitted (awaiting review) ----
+  if (agent.kyc_status === 'submitted') {
+    return (
+      <div style={{ maxWidth: 560, margin: '60px auto', padding: '0 20px' }}>
+        <div style={{
+          background: colors.cardBg, border: `1px solid ${colors.cardBorder}`,
+          borderRadius: 12, padding: 40, textAlign: 'center',
+        }}>
+          <Clock size={48} style={{ color: '#7B9FE0', marginBottom: 16 }} />
+          <h2 style={{ color: colors.textPrimary, fontSize: 22, fontWeight: 600, margin: '0 0 12px' }}>
+            Identity Verification In Progress
+          </h2>
+          <p style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 1.6, margin: '0 0 20px' }}>
+            Your government-issued photo ID has been submitted and is under review.
+            You&apos;ll be able to submit deals once your identity is verified.
+          </p>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+            borderRadius: 8, ...getKycBadgeStyle('submitted'), fontSize: 14, fontWeight: 500,
+          }}>
+            <Clock size={14} /> Submitted — Awaiting Review
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ---- Status: Rejected (needs re-upload) ----
+  const isRejected = agent.kyc_status === 'rejected'
+
+  return (
+    <div style={{ maxWidth: 560, margin: '40px auto', padding: '0 20px' }}>
+      <div style={{
+        background: colors.cardBg, border: `1px solid ${colors.cardBorder}`,
+        borderRadius: 12, padding: 32,
+      }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <Shield size={44} style={{ color: '#5FA873', marginBottom: 12 }} />
+          <h2 style={{ color: colors.textPrimary, fontSize: 22, fontWeight: 600, margin: '0 0 8px' }}>
+            {isRejected ? 'Identity Verification Required' : 'Welcome to Firm Funds'}
+          </h2>
+          <p style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+            Before you can submit deals, we need to verify your identity per FINTRAC requirements.
+            Please upload a clear copy of a valid government-issued photo ID.
+          </p>
+        </div>
+
+        {/* Rejection notice */}
+        {isRejected && agent.kyc_rejection_reason && (
+          <div style={{
+            background: '#2A1212', border: '1px solid #4A2020', borderRadius: 8,
+            padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'flex-start',
+          }}>
+            <XCircle size={18} style={{ color: '#E07B7B', flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <div style={{ color: '#E07B7B', fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+                Previous submission was rejected
+              </div>
+              <div style={{ color: '#D49999', fontSize: 13, lineHeight: 1.5 }}>
+                {agent.kyc_rejection_reason}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Document type selection */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', color: colors.textSecondary, fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+            Type of ID
+          </label>
+          <select
+            value={documentType}
+            onChange={e => setDocumentType(e.target.value)}
+            style={{
+              ...inputStyle, width: '100%', padding: '10px 12px', borderRadius: 8,
+              fontSize: 14, cursor: 'pointer', appearance: 'auto',
+            }}
+          >
+            <option value="">Select ID type...</option>
+            {KYC_DOCUMENT_TYPES.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* File upload area */}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          style={{
+            border: `2px dashed ${dragOver ? '#5FA873' : colors.inputBorder}`,
+            borderRadius: 8, padding: 24, textAlign: 'center', cursor: 'pointer',
+            background: dragOver ? 'rgba(95,168,115,0.08)' : 'transparent',
+            transition: 'all 0.15s ease', marginBottom: 16,
+          }}
+          onClick={() => document.getElementById('kyc-file-input')?.click()}
+        >
+          <input
+            id="kyc-file-input"
+            type="file"
+            accept=".jpg,.jpeg,.png,.pdf"
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]) }}
+          />
+          {selectedFile ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              <FileText size={20} style={{ color: '#5FA873' }} />
+              <span style={{ color: colors.textPrimary, fontSize: 14 }}>{selectedFile.name}</span>
+              <span style={{ color: colors.textMuted, fontSize: 12 }}>
+                ({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)
+              </span>
+            </div>
+          ) : (
+            <>
+              <Upload size={28} style={{ color: colors.textMuted, marginBottom: 8 }} />
+              <p style={{ color: colors.textSecondary, fontSize: 14, margin: '0 0 4px' }}>
+                Drop your ID here or click to browse
+              </p>
+              <p style={{ color: colors.textMuted, fontSize: 12, margin: 0 }}>
+                JPEG, PNG, or PDF — max 10MB
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+            background: '#2A1212', border: '1px solid #4A2020', borderRadius: 8,
+            marginBottom: 16,
+          }}>
+            <AlertCircle size={16} style={{ color: '#E07B7B', flexShrink: 0 }} />
+            <span style={{ color: '#E07B7B', fontSize: 13 }}>{error}</span>
+          </div>
+        )}
+
+        {/* Submit button */}
+        <button
+          onClick={handleSubmit}
+          disabled={!selectedFile || !documentType || submitting}
+          style={{
+            width: '100%', padding: '12px 20px', borderRadius: 8,
+            background: (!selectedFile || !documentType || submitting) ? '#333' : '#5FA873',
+            color: (!selectedFile || !documentType || submitting) ? '#666' : '#fff',
+            border: 'none', fontSize: 15, fontWeight: 600, cursor: (!selectedFile || !documentType || submitting) ? 'not-allowed' : 'pointer',
+            transition: 'background 0.15s ease',
+          }}
+        >
+          {submitting ? 'Uploading...' : 'Submit for Verification'}
+        </button>
+
+        {/* Accepted IDs note */}
+        <div style={{
+          marginTop: 20, padding: '12px 16px', background: colors.pageBg,
+          borderRadius: 8, fontSize: 12, color: colors.textMuted, lineHeight: 1.6,
+        }}>
+          <strong style={{ color: colors.textSecondary }}>Accepted IDs:</strong> Ontario Driver&apos;s Licence,
+          Canadian Passport, Ontario Photo Card, Permanent Resident Card, or Canadian Citizenship Card.
+          Your ID must be valid (not expired) and the name must match your registered name.
+        </div>
+      </div>
+    </div>
+  )
+}

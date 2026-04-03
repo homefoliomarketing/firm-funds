@@ -7,6 +7,7 @@ import { FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp, PlusC
 import { cancelDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+import AgentKycGate from '@/components/AgentKycGate'
 
 interface Deal {
   id: string
@@ -120,6 +121,35 @@ export default function AgentDashboard() {
   const totalAdvanced = deals.filter(d => d.status === 'funded' || d.status === 'repaid' || d.status === 'closed').reduce((sum, d) => sum + d.advance_amount, 0)
   const activeDeals = deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length
   const completedDeals = deals.filter(d => ['repaid', 'closed'].includes(d.status)).length
+
+  // ---- KYC Gate: Show onboarding flow if agent hasn't completed KYC ----
+  const kycNotVerified = agent && agent.kyc_status !== 'verified'
+
+  if (kycNotVerified) {
+    return (
+      <div className="min-h-screen" style={{ background: colors.pageBg }}>
+        <header style={{ background: colors.headerBgGradient }}>
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-5">
+              <div className="flex items-center gap-4">
+                <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
+                <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+                <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Agent Portal</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-sm" style={{ color: colors.gold }}>{profile?.full_name}</span>
+                <SignOutModal onConfirm={handleLogout} />
+              </div>
+            </div>
+          </div>
+        </header>
+        <AgentKycGate
+          agent={agent}
+          onKycSubmitted={() => window.location.reload()}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
