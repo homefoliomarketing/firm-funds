@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle
+  StickyNote, AlertCircle, Undo2
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -71,8 +71,18 @@ interface Brokerage {
 }
 
 const STATUS_FLOW: Record<string, string[]> = {
-  submitted: ['under_review', 'denied'], under_review: ['approved', 'denied'],
-  approved: ['funded', 'denied'], funded: ['repaid'], repaid: ['closed'],
+  submitted: ['under_review', 'denied'], under_review: ['approved', 'denied', 'cancelled'],
+  approved: ['funded', 'denied', 'cancelled', 'under_review'], funded: ['repaid', 'approved'],
+  denied: ['under_review'], cancelled: ['under_review'], repaid: ['closed', 'funded'],
+}
+
+// Backward transitions that should trigger a warning
+const BACKWARD_STATUSES: Record<string, string[]> = {
+  approved: ['under_review'],
+  funded: ['approved'],
+  denied: ['under_review'],
+  cancelled: ['under_review'],
+  repaid: ['funded'],
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -174,6 +184,14 @@ const ACTION_CONFIG: Record<string, { label: string; icon: any; bg: string; hove
   repaid:       { label: 'Mark as Repaid', icon: DollarSign, bg: '#0D7A5F', hoverBg: '#0A6A4F' },
   closed:       { label: 'Close Deal', icon: CheckCircle2, bg: '#5A5A5A', hoverBg: '#4A4A4A' },
   denied:       { label: 'Deny Deal', icon: XCircle, bg: '#993D3D', hoverBg: '#892D2D' },
+  cancelled:    { label: 'Cancel Deal', icon: XCircle, bg: '#666666', hoverBg: '#555555' },
+}
+
+// Labels for backward-specific actions (override the forward label)
+const BACKWARD_LABELS: Record<string, string> = {
+  under_review: 'Revert to Under Review',
+  approved: 'Revert to Approved',
+  funded: 'Revert to Funded',
 }
 
 export default function DealDetailPage() {
@@ -186,6 +204,7 @@ export default function DealDetailPage() {
   const [updating, setUpdating] = useState(false)
   const [denialReason, setDenialReason] = useState('')
   const [showDenialInput, setShowDenialInput] = useState(false)
+  const [pendingBackward, setPendingBackward] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [checklistExpanded, setChecklistExpanded] = useState(true)
   const [docsExpanded, setDocsExpanded] = useState(true)
@@ -240,9 +259,20 @@ export default function DealDetailPage() {
     }
   }
 
+  const isBackwardTransition = (newStatus: string) => {
+    if (!deal) return false
+    return (BACKWARD_STATUSES[deal.status] || []).includes(newStatus)
+  }
+
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
+    // Show confirmation for backward transitions
+    if (isBackwardTransition(newStatus) && pendingBackward !== newStatus) {
+      setPendingBackward(newStatus)
+      return
+    }
+    setPendingBackward(null)
     setUpdating(true); setStatusMessage(null)
     const result = await updateDealStatus({
       dealId: deal.id, newStatus,
@@ -407,8 +437,10 @@ export default function DealDetailPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {nextStatuses.map(status => {
+              {/* Forward transitions */}
+              {nextStatuses.filter(s => !isBackwardTransition(s)).map(status => {
                 const config = ACTION_CONFIG[status]
+                if (!config) return null
                 const Icon = config.icon
                 return (
                   <button
@@ -425,8 +457,74 @@ export default function DealDetailPage() {
                   </button>
                 )
               })}
+
+              {/* Backward transitions — subtle style */}
+              {nextStatuses.filter(s => isBackwardTransition(s)).length > 0 && (
+                <div className="w-px h-6 mx-1" style={{ background: colors.border }} />
+              )}
+              {nextStatuses.filter(s => isBackwardTransition(s)).map(status => {
+                const config = ACTION_CONFIG[status]
+                if (!config) return null
+                return (
+                  <button
+                    key={status}
+                    onClick={() => handleStatusChange(status)}
+                    disabled={updating}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+                    style={{
+                      background: 'transparent',
+                      color: colors.textMuted,
+                      border: `1px solid ${colors.border}`,
+                    }}
+                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.borderColor = '#D97706'; e.currentTarget.style.color = '#D97706' } }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textMuted }}
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    {BACKWARD_LABELS[status] || config.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
+
+          {/* BACKWARD TRANSITION WARNING */}
+          {pendingBackward && (
+            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
+              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: '#2A1F00', border: '1px solid #5C4400' }}>
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#D97706' }} />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold mb-1" style={{ color: '#FBBF24' }}>
+                    Are you sure you want to revert this deal?
+                  </p>
+                  <p className="text-xs mb-3" style={{ color: '#D4A844' }}>
+                    This will move the deal from <strong>{STATUS_LABELS[deal.status]}</strong> back to <strong>{STATUS_LABELS[pendingBackward]}</strong>.
+                    {pendingBackward === 'under_review' && ' Any previous approval or denial will be cleared.'}
+                    {pendingBackward === 'approved' && ' The funded date and recalculated financials will be preserved but the deal will need to be re-funded.'}
+                    {pendingBackward === 'funded' && ' The repayment date will be cleared.'}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleStatusChange(pendingBackward)}
+                      disabled={updating}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                      style={{ background: '#D97706' }}
+                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#B45309' }}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#D97706'}
+                    >
+                      {updating ? 'Reverting...' : 'Yes, Revert'}
+                    </button>
+                    <button
+                      onClick={() => setPendingBackward(null)}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium transition"
+                      style={{ background: colors.border, color: colors.textPrimary }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* DENIAL REASON TEXTAREA IN ACTION BAR */}
           {showDenialInput && (

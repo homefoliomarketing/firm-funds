@@ -297,12 +297,14 @@ export async function updateDealStatus(input: {
       return { success: false, error: 'Deal not found' }
     }
 
-    // Validate status transition
+    // Validate status transition (includes backward transitions)
     const STATUS_FLOW: Record<string, string[]> = {
       under_review: ['approved', 'denied', 'cancelled'],
-      approved: ['funded', 'denied', 'cancelled'],
-      funded: ['repaid'],
-      repaid: ['closed'],
+      approved: ['funded', 'denied', 'cancelled', 'under_review'],
+      funded: ['repaid', 'approved'],
+      denied: ['under_review'],
+      cancelled: ['under_review'],
+      repaid: ['closed', 'funded'],
     }
 
     const allowedTransitions = STATUS_FLOW[deal.status] || []
@@ -320,6 +322,16 @@ export async function updateDealStatus(input: {
 
     if (input.newStatus === 'denied') {
       updateData.denial_reason = input.denialReason!.trim()
+    }
+
+    // Clear denial reason when reverting from denied
+    if (deal.status === 'denied' && input.newStatus === 'under_review') {
+      updateData.denial_reason = null
+    }
+
+    // Clear repayment date when reverting from repaid
+    if (deal.status === 'repaid' && input.newStatus === 'funded') {
+      updateData.repayment_date = null
     }
 
     if (input.newStatus === 'funded') {
