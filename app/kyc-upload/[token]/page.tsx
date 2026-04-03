@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Shield, Upload, Camera, CheckCircle, XCircle, AlertCircle, FileText, Clock, Smartphone } from 'lucide-react'
-import { validateKycToken, submitKycViaMobileToken } from '@/lib/actions/kyc-actions'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
 
 type PageStatus = 'loading' | 'valid' | 'used' | 'expired' | 'invalid' | 'uploading' | 'success'
@@ -21,12 +20,21 @@ export default function KycMobileUploadPage() {
 
   useEffect(() => {
     async function validate() {
-      const result = await validateKycToken(token)
-      if (result.success) {
-        setStatus('valid')
-        setAgentName(result.data?.agentName || 'Agent')
-      } else {
-        setStatus(result.error === 'used' ? 'used' : result.error === 'expired' ? 'expired' : 'invalid')
+      try {
+        const response = await fetch('/api/kyc-validate-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        })
+        const result = await response.json()
+        if (result.success) {
+          setStatus('valid')
+          setAgentName(result.data?.agentName || 'Agent')
+        } else {
+          setStatus(result.error === 'used' ? 'used' : result.error === 'expired' ? 'expired' : 'invalid')
+        }
+      } catch {
+        setStatus('invalid')
       }
     }
     validate()
@@ -64,19 +72,31 @@ export default function KycMobileUploadPage() {
     setStatus('uploading')
     setError(null)
 
-    const formData = new FormData()
-    formData.append('token', token)
-    for (const file of selectedFiles) {
-      formData.append('files', file)
-    }
-    formData.append('documentType', documentType)
+    try {
+      const formData = new FormData()
+      formData.append('token', token)
+      for (const file of selectedFiles) {
+        formData.append('files', file)
+      }
+      formData.append('documentType', documentType)
 
-    const result = await submitKycViaMobileToken(formData)
-    if (result.success) {
-      setStatus('success')
-    } else {
+      // Use API route instead of server action — server actions with
+      // FormData/file uploads hang on Netlify
+      const response = await fetch('/api/kyc-mobile-upload', {
+        method: 'POST',
+        body: formData, // Don't set Content-Type — browser sets multipart boundary automatically
+      })
+      const result = await response.json()
+
+      if (result.success) {
+        setStatus('success')
+      } else {
+        setStatus('valid')
+        setError(result.error || 'Upload failed. Please try again.')
+      }
+    } catch {
       setStatus('valid')
-      setError(result.error || 'Upload failed. Please try again.')
+      setError('Upload failed. Please check your connection and try again.')
     }
   }
 
