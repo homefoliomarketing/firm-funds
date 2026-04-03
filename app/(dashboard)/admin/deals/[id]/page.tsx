@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send
+  StickyNote, AlertCircle, Undo2, Send, Eye, X
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -16,6 +16,8 @@ import {
   getDocumentSignedUrl,
   saveAdminNotes,
   requestDocument,
+  fulfillDocumentRequest,
+  cancelDocumentRequest,
 } from '@/lib/actions/deal-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
@@ -43,6 +45,19 @@ interface DealDocument {
   id: string; deal_id: string; uploaded_by: string; document_type: string
   file_name: string; file_path: string; file_size: number
   upload_source: string; notes: string | null; created_at: string
+}
+
+interface DocumentRequest {
+  id: string
+  deal_id: string
+  document_type: string
+  message: string | null
+  requested_by: string
+  status: 'pending' | 'fulfilled' | 'cancelled'
+  fulfilled_at: string | null
+  fulfilled_document_id: string | null
+  created_at: string
+  updated_at: string
 }
 
 const DOCUMENT_TYPES = [
@@ -200,6 +215,7 @@ export default function DealDetailPage() {
   const [brokerage, setBrokerage] = useState<Brokerage | null>(null)
   const [checklist, setChecklist] = useState<ChecklistItem[]>([])
   const [documents, setDocuments] = useState<DealDocument[]>([])
+  const [docRequests, setDocRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [denialReason, setDenialReason] = useState('')
@@ -219,6 +235,8 @@ export default function DealDetailPage() {
   const [docRequestType, setDocRequestType] = useState('')
   const [docRequestMessage, setDocRequestMessage] = useState('')
   const [docRequestSending, setDocRequestSending] = useState(false)
+  const [viewingDoc, setViewingDoc] = useState<{ url: string; fileName: string; type: 'pdf' | 'image' } | null>(null)
+  const [viewLoading, setViewLoading] = useState<string | null>(null)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -249,6 +267,8 @@ export default function DealDetailPage() {
     setChecklist(checklistData || [])
     const { data: docsData } = await supabase.from('deal_documents').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocuments(docsData || [])
+    const { data: requestsData } = await supabase.from('document_requests').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
+    setDocRequests(requestsData || [])
     setLoading(false)
   }
 
@@ -298,6 +318,27 @@ export default function DealDetailPage() {
     window.open(result.data.signedUrl, '_blank')
   }
 
+  const handleDocumentView = async (doc: DealDocument) => {
+    // Determine if the file is viewable inline
+    const ext = doc.file_name.toLowerCase().split('.').pop() || ''
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+    const isPdf = ext === 'pdf'
+    if (!isImage && !isPdf) {
+      // Fall back to download for unsupported types
+      handleDocumentDownload(doc)
+      return
+    }
+    setViewLoading(doc.id)
+    const result = await getDocumentSignedUrl({ documentId: doc.id, filePath: doc.file_path, dealId: dealId })
+    if (!result.success || !result.data?.signedUrl) {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to load document' })
+      setViewLoading(null)
+      return
+    }
+    setViewingDoc({ url: result.data.signedUrl, fileName: doc.file_name, type: isPdf ? 'pdf' : 'image' })
+    setViewLoading(null)
+  }
+
   const handleDocumentDelete = async (doc: DealDocument) => {
     if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
     const result = await serverDeleteDocument({ documentId: doc.id, filePath: doc.file_path })
@@ -334,10 +375,32 @@ export default function DealDetailPage() {
       setShowDocRequest(false)
       setDocRequestType('')
       setDocRequestMessage('')
+      await loadDealData()
     } else {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to send document request' })
     }
     setDocRequestSending(false)
+  }
+
+  const handleFulfillRequest = async (request: DocumentRequest) => {
+    const result = await fulfillDocumentRequest({ requestId: request.id })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Document request marked as fulfilled' })
+      await loadDealData()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to fulfill request' })
+    }
+  }
+
+  const handleCancelRequest = async (request: DocumentRequest) => {
+    if (!confirm('Are you sure you want to cancel this document request?')) return
+    const result = await cancelDocumentRequest({ requestId: request.id })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Document request cancelled' })
+      await loadDealData()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to cancel request' })
+    }
   }
 
   const formatFileSize = (bytes: number) => {
@@ -1123,6 +1186,63 @@ export default function DealDetailPage() {
                 </div>
               )}
 
+              {/* PENDING DOCUMENT REQUESTS */}
+              {docsExpanded && docRequests.some(r => r.status === 'pending') && (
+                <div className="px-6 py-4 border-l-4" style={{
+                  borderLeftColor: '#5FA873',
+                  background: isDark ? 'rgba(95, 168, 115, 0.08)' : 'rgba(95, 168, 115, 0.05)',
+                  borderBottom: `1px solid ${colors.border}`
+                }}>
+                  <p className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>
+                    Pending Requests ({docRequests.filter(r => r.status === 'pending').length})
+                  </p>
+                  <div className="space-y-3">
+                    {docRequests.filter(r => r.status === 'pending').map(request => (
+                      <div key={request.id} className="rounded-lg p-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                        <div className="flex items-start gap-3 mb-2">
+                          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#5FA873' }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>
+                              {getDocTypeLabel(request.document_type)}
+                            </p>
+                            {request.message && (
+                              <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                                {request.message}
+                              </p>
+                            )}
+                            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                              Requested {formatDate(request.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 ml-7">
+                          <button
+                            onClick={() => handleFulfillRequest(request)}
+                            className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors"
+                            style={{ background: '#5FA873', color: '#FFFFFF' }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Mark Fulfilled
+                          </button>
+                          <button
+                            onClick={() => handleCancelRequest(request)}
+                            className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition"
+                            style={{ background: colors.border, color: colors.textMuted }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {docsExpanded && (
                 <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: colors.border }}>
                   {documents.length > 0 ? (
@@ -1139,6 +1259,23 @@ export default function DealDetailPage() {
                           </div>
                         </div>
                         <div className="flex gap-2 mt-3 ml-8">
+                          {(() => {
+                            const ext = doc.file_name.toLowerCase().split('.').pop() || ''
+                            const isViewable = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+                            return isViewable ? (
+                              <button
+                                onClick={() => handleDocumentView(doc)}
+                                disabled={viewLoading === doc.id}
+                                className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
+                                style={{ background: colors.gold, color: '#fff', opacity: viewLoading === doc.id ? 0.6 : 1 }}
+                                onMouseEnter={(e) => { if (viewLoading !== doc.id) e.currentTarget.style.background = colors.goldDark }}
+                                onMouseLeave={(e) => e.currentTarget.style.background = colors.gold}
+                              >
+                                <Eye className="w-4 h-4" />
+                                {viewLoading === doc.id ? 'Loading...' : 'View'}
+                              </button>
+                            ) : null
+                          })()}
                           <button
                             onClick={() => handleDocumentDownload(doc)}
                             className="flex items-center gap-1 px-3 py-1 rounded text-sm font-medium transition"
@@ -1174,6 +1311,70 @@ export default function DealDetailPage() {
         </div>
 
       </main>
+
+      {/* Document Viewer Modal */}
+      {viewingDoc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: colors.overlayBg }}
+          onClick={() => setViewingDoc(null)}
+        >
+          <div
+            className="relative w-full max-w-5xl rounded-xl overflow-hidden shadow-2xl"
+            style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}`, maxHeight: '90vh' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Viewer Header */}
+            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText size={18} style={{ color: colors.gold }} />
+                <p className="text-sm font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => window.open(viewingDoc.url, '_blank')}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                  style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                  onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                >
+                  <Download size={13} />
+                  Download
+                </button>
+                <button
+                  onClick={() => setViewingDoc(null)}
+                  className="p-1.5 rounded-lg transition"
+                  style={{ color: colors.textMuted }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            {/* Viewer Content */}
+            <div style={{ height: 'calc(90vh - 56px)', overflow: 'auto' }}>
+              {viewingDoc.type === 'pdf' ? (
+                <iframe
+                  src={viewingDoc.url}
+                  className="w-full h-full"
+                  style={{ border: 'none', minHeight: '70vh' }}
+                  title={viewingDoc.fileName}
+                />
+              ) : (
+                <div className="flex items-center justify-center p-6" style={{ minHeight: '50vh' }}>
+                  <img
+                    src={viewingDoc.url}
+                    alt={viewingDoc.fileName}
+                    className="max-w-full max-h-full rounded-lg"
+                    style={{ maxHeight: 'calc(90vh - 80px)', objectFit: 'contain' }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

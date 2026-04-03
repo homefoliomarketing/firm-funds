@@ -46,7 +46,7 @@ export async function GET(request: Request) {
   // Get brokerage info
   const { data: brokerage } = await supabase
     .from('brokerages')
-    .select('name, referral_fee_pct')
+    .select('name, referral_fee_percentage')
     .eq('id', profile.brokerage_id)
     .single()
 
@@ -113,7 +113,7 @@ export async function GET(request: Request) {
   // Calculate totals
   const totalReferralFees = (deals || []).reduce((sum, d: any) => sum + (d.brokerage_referral_fee || 0), 0)
   const totalDiscountFees = (deals || []).reduce((sum, d: any) => sum + (d.discount_fee || 0), 0)
-  const referralPct = brokerage.referral_fee_pct ?? DEFAULT_BROKERAGE_REFERRAL_PCT
+  const referralPct = brokerage.referral_fee_percentage ?? DEFAULT_BROKERAGE_REFERRAL_PCT
 
   // --- Page creation helper ---
   let currentPage = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])

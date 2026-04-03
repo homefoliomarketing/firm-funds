@@ -7,6 +7,7 @@ import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent } from '@/lib/actions/admin-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
+import { getStatusBadgeStyle as getSharedStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 
 // ============================================================================
@@ -23,6 +24,15 @@ interface Agent {
   status: 'active' | 'suspended' | 'archived'
   flagged_by_brokerage: boolean
   outstanding_recovery: number
+  created_at: string
+}
+
+interface Deal {
+  id: string
+  property_address: string
+  status: string
+  advance_amount: number
+  closing_date: string
   created_at: string
 }
 
@@ -97,6 +107,8 @@ export default function BrokeragesPage() {
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null)
   const [createRosterFile, setCreateRosterFile] = useState<File | null>(null)
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
+  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
+  const [agentDeals, setAgentDeals] = useState<Record<string, Deal[]>>({})
   const [editAgentForm, setEditAgentForm] = useState<AgentFormData & { status: string; flaggedByBrokerage: boolean; outstandingRecovery: string }>(
     { firstName: '', lastName: '', email: '', phone: '', recoNumber: '', status: 'active', flaggedByBrokerage: false, outstandingRecovery: '0' }
   )
@@ -439,6 +451,29 @@ export default function BrokeragesPage() {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to archive agent' })
     }
     setArchivingAgentId(null)
+  }
+
+  const handleExpandAgent = async (agentId: string) => {
+    if (expandedAgentId === agentId) {
+      setExpandedAgentId(null)
+      return
+    }
+
+    // Fetch deals for this agent
+    const { data, error } = await supabase
+      .from('deals')
+      .select('id, property_address, status, advance_amount, closing_date, created_at')
+      .eq('agent_id', agentId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error loading agent deals:', error)
+      setStatusMessage({ type: 'error', text: 'Failed to load agent deals' })
+      return
+    }
+
+    setAgentDeals({ ...agentDeals, [agentId]: data || [] })
+    setExpandedAgentId(agentId)
   }
 
   // ---- Filtering (searches brokerage name/email AND agent names) ----
@@ -1109,10 +1144,10 @@ export default function BrokeragesPage() {
                                       )
                                     }
 
-                                    return (
+                                    return [
                                       <tr key={agent.id}
                                         style={{
-                                          borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none',
+                                          borderBottom: expandedAgentId === agent.id ? `1px solid ${colors.divider}` : (idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none'),
                                           background: isAgentMatch ? colors.goldBg : undefined,
                                           borderLeft: isAgentMatch ? `3px solid ${colors.gold}` : undefined,
                                         }}
@@ -1120,14 +1155,23 @@ export default function BrokeragesPage() {
                                         onMouseLeave={(e) => e.currentTarget.style.background = isAgentMatch ? colors.goldBg : 'transparent'}
                                       >
                                         <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>
-                                          <div className="flex items-center gap-2">
-                                            {agent.first_name} {agent.last_name}
-                                            {agent.flagged_by_brokerage && (
-                                              <span className="text-xs px-1.5 py-0.5 rounded font-semibold"
-                                                style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}
-                                              >Flagged</span>
-                                            )}
-                                          </div>
+                                          <button
+                                            onClick={() => handleExpandAgent(agent.id)}
+                                            className="flex items-center gap-2 cursor-pointer transition-colors"
+                                            style={{ color: '#5FA873' }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
+                                            title="Click to view deals"
+                                          >
+                                            <span>{agent.first_name} {agent.last_name}</span>
+                                            {expandedAgentId === agent.id && <ChevronDown size={14} />}
+                                            {expandedAgentId !== agent.id && <ChevronRight size={14} />}
+                                          </button>
+                                          {agent.flagged_by_brokerage && (
+                                            <span className="inline-block text-xs px-1.5 py-0.5 rounded font-semibold mt-1"
+                                              style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}
+                                            >Flagged</span>
+                                          )}
                                         </td>
                                         <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{agent.email}</td>
                                         <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{agent.phone || '—'}</td>
@@ -1166,8 +1210,47 @@ export default function BrokeragesPage() {
                                             )}
                                           </div>
                                         </td>
-                                      </tr>
-                                    )
+                                      </tr>,
+                                      // Expanded deals row
+                                      expandedAgentId === agent.id && (
+                                        <tr key={`deals-${agent.id}`} style={{ background: colors.cardBg, borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}>
+                                          <td colSpan={6} className="px-4 py-4">
+                                            <div style={{ marginLeft: '20px' }}>
+                                              <h4 className="text-xs font-semibold mb-3" style={{ color: colors.textPrimary }}>Deal History</h4>
+                                              {(agentDeals[agent.id]?.length ?? 0) === 0 ? (
+                                                <p className="text-xs" style={{ color: colors.textMuted }}>No deals yet</p>
+                                              ) : (
+                                                <div className="space-y-2">
+                                                  {agentDeals[agent.id]?.map((deal) => {
+                                                    const dealBadgeStyle = getSharedStatusBadgeStyle(deal.status)
+                                                    return (
+                                                      <div key={deal.id} className="flex items-center justify-between p-2 rounded" style={{ background: colors.tableRowHoverBg, border: `1px solid ${colors.border}` }}>
+                                                        <div className="flex-1">
+                                                          <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
+                                                          <div className="flex items-center gap-3 mt-1">
+                                                            <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded"
+                                                              style={dealBadgeStyle}
+                                                            >
+                                                              {formatStatusLabel(deal.status)}
+                                                            </span>
+                                                            <span className="text-xs" style={{ color: colors.textMuted }}>
+                                                              Advance: ${deal.advance_amount.toLocaleString('en-CA', { maximumFractionDigits: 0 })}
+                                                            </span>
+                                                            <span className="text-xs" style={{ color: colors.textMuted }}>
+                                                              Closing: {new Date(deal.closing_date).toLocaleDateString('en-CA')}
+                                                            </span>
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    )
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ),
+                                    ].filter(Boolean)
                                   })}
                               </tbody>
                             </table>

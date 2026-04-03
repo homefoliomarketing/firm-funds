@@ -358,9 +358,29 @@ export async function sendDocumentUploadedNotification(params: {
   documentType: string
   fileName: string
   agentName: string
+  uploaderRole: string
+  uploaderName: string
 }): Promise<void> {
   const resend = getResend()
   if (!resend) return
+
+  // Generate role-aware message
+  let uploadedByText: string
+  if (params.uploaderRole === 'brokerage_admin') {
+    uploadedByText = `A brokerage admin (${params.uploaderName}) has uploaded a new document for review.`
+  } else if (params.uploaderRole === 'agent') {
+    uploadedByText = `${params.uploaderName} (Agent) has uploaded a new document for review.`
+  } else {
+    uploadedByText = `${params.uploaderName} has uploaded a new document for review.`
+  }
+
+  // Generate uploaded by label
+  let uploadedByLabel = `${params.uploaderName}`
+  if (params.uploaderRole === 'agent') {
+    uploadedByLabel += ' (Agent)'
+  } else if (params.uploaderRole === 'brokerage_admin') {
+    uploadedByLabel += ' (Brokerage Admin)'
+  }
 
   try {
     await resend.emails.send({
@@ -370,7 +390,7 @@ export async function sendDocumentUploadedNotification(params: {
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Document Uploaded</h2>
         <p style="margin:0 0 20px; color:#E8E4DF;">
-          An agent has uploaded a new document for review.
+          ${uploadedByText}
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
           <tr>
@@ -381,8 +401,8 @@ export async function sendDocumentUploadedNotification(params: {
                   <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.propertyAddress}</td>
                 </tr>
                 <tr>
-                  <td style="padding:6px 0; color:#999; font-size:13px;">Agent</td>
-                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.agentName}</td>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Uploaded By</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${uploadedByLabel}</td>
                 </tr>
                 <tr>
                   <td style="padding:6px 0; color:#999; font-size:13px;">Document Type</td>

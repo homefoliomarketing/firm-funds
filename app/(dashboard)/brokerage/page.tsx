@@ -60,6 +60,7 @@ export default function BrokerageDashboard() {
   const [dealTradeRecords, setDealTradeRecords] = useState<Set<string>>(new Set())
   const [dealsPage, setDealsPage] = useState(1)
   const [referralMonth, setReferralMonth] = useState<string>('all')
+  const [referralFilter, setReferralFilter] = useState<'all' | 'earned' | 'pending'>('all')
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
@@ -163,6 +164,35 @@ export default function BrokerageDashboard() {
   // Computed values
   // =========================================================================
 
+  // Sort deals by workflow priority
+  const sortedDeals = useMemo(() => {
+    const sorted = [...deals]
+    sorted.sort((a, b) => {
+      // Priority 1: Needing trade records (under_review/approved WITHOUT trade record)
+      const aNeedsRecord = ['under_review', 'approved'].includes(a.status) && !dealTradeRecords.has(a.id)
+      const bNeedsRecord = ['under_review', 'approved'].includes(b.status) && !dealTradeRecords.has(b.id)
+      if (aNeedsRecord && !bNeedsRecord) return -1
+      if (!aNeedsRecord && bNeedsRecord) return 1
+
+      // Priority 2: under_review/approved WITH trade records
+      const aInProgress = ['under_review', 'approved'].includes(a.status)
+      const bInProgress = ['under_review', 'approved'].includes(b.status)
+      if (aInProgress && !bInProgress) return -1
+      if (!aInProgress && bInProgress) return 1
+
+      // Priority 3: Funded deals
+      const aFunded = a.status === 'funded'
+      const bFunded = b.status === 'funded'
+      if (aFunded && !bFunded) return -1
+      if (!aFunded && bFunded) return 1
+
+      // Priority 4: Repaid/closed/denied/cancelled (bottom)
+      // Both are in same priority, sort by created_at descending
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+    return sorted
+  }, [deals, dealTradeRecords])
+
   const earnedDeals = useMemo(() =>
     deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status)), [deals])
   const pendingDeals = useMemo(() =>
@@ -183,12 +213,21 @@ export default function BrokerageDashboard() {
     return Array.from(months).sort().reverse()
   }, [deals])
 
-  // Filtered referral deals by month
+  // Filtered referral deals by month and earned/pending status
   const filteredReferralDeals = useMemo(() => {
-    const allReferral = [...earnedDeals, ...pendingDeals]
+    let allReferral = [...earnedDeals, ...pendingDeals]
+
+    // Apply earned/pending filter
+    if (referralFilter === 'earned') {
+      allReferral = allReferral.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
+    } else if (referralFilter === 'pending') {
+      allReferral = allReferral.filter(d => ['under_review', 'approved'].includes(d.status))
+    }
+
+    // Apply month filter
     if (referralMonth === 'all') return allReferral
     return allReferral.filter(d => d.closing_date?.startsWith(referralMonth))
-  }, [earnedDeals, pendingDeals, referralMonth])
+  }, [earnedDeals, pendingDeals, referralMonth, referralFilter])
 
   // Monthly summary for accounting breakdown
   const monthlySummary = useMemo(() => {
@@ -293,6 +332,7 @@ export default function BrokerageDashboard() {
               subtitle: `${pendingDeals.length} in progress`,
               icon: FileText,
               accent: '#5FA873',
+              onClick: () => setActiveTab('deals'),
             },
             {
               label: 'Referral Fees Earned',
@@ -300,6 +340,7 @@ export default function BrokerageDashboard() {
               subtitle: `${earnedDeals.length} funded deal${earnedDeals.length !== 1 ? 's' : ''}`,
               icon: DollarSign,
               accent: '#1A7A2E',
+              onClick: () => { setActiveTab('referrals'); setReferralFilter('earned') },
             },
             {
               label: 'Pending Fees',
@@ -307,6 +348,7 @@ export default function BrokerageDashboard() {
               subtitle: `${pendingDeals.length} deal${pendingDeals.length !== 1 ? 's' : ''} awaiting funding`,
               icon: TrendingUp,
               accent: '#92700C',
+              onClick: () => { setActiveTab('referrals'); setReferralFilter('pending') },
             },
             {
               label: 'Avg. Fee per Deal',
@@ -314,12 +356,14 @@ export default function BrokerageDashboard() {
               subtitle: `${agents.filter(a => a.status === 'active').length} active agent${agents.filter(a => a.status === 'active').length !== 1 ? 's' : ''}`,
               icon: BarChart3,
               accent: '#5FA873',
+              onClick: () => { setActiveTab('referrals'); setReferralFilter('all') },
             },
           ].map((card) => (
             <div
               key={card.label}
-              className="rounded-xl p-5 sm:p-6 transition-shadow hover:shadow-lg"
+              className="rounded-xl p-5 sm:p-6 transition-shadow hover:shadow-lg cursor-pointer"
               style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
+              onClick={card.onClick}
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -382,15 +426,15 @@ export default function BrokerageDashboard() {
               ) : (
                 <div>
                   {(() => {
-                    const totalPages = Math.max(1, Math.ceil(deals.length / DEALS_PER_PAGE))
+                    const totalPages = Math.max(1, Math.ceil(sortedDeals.length / DEALS_PER_PAGE))
                     const page = Math.min(dealsPage, totalPages)
-                    const pagedDeals = deals.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
+                    const pagedDeals = sortedDeals.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
                     return pagedDeals
                   })().map((deal, i) => (
                     <div key={deal.id}>
                       <div
                         className="px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                        style={{ borderBottom: i < deals.length - 1 && expandedDeal !== deal.id ? `1px solid ${colors.divider}` : 'none' }}
+                        style={{ borderBottom: i < sortedDeals.length - 1 && expandedDeal !== deal.id ? `1px solid ${colors.divider}` : 'none' }}
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
                         onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
@@ -487,13 +531,13 @@ export default function BrokerageDashboard() {
                     </div>
                   ))}
                   {/* Pagination */}
-                  {deals.length > DEALS_PER_PAGE && (() => {
-                    const totalPages = Math.ceil(deals.length / DEALS_PER_PAGE)
+                  {sortedDeals.length > DEALS_PER_PAGE && (() => {
+                    const totalPages = Math.ceil(sortedDeals.length / DEALS_PER_PAGE)
                     const page = Math.min(dealsPage, totalPages)
                     return (
                       <div className="px-4 sm:px-6 py-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}` }}>
                         <p className="text-xs" style={{ color: colors.textMuted }}>
-                          Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, deals.length)} of {deals.length}
+                          Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, sortedDeals.length)} of {sortedDeals.length}
                         </p>
                         <div className="flex items-center gap-1">
                           <button
@@ -590,58 +634,29 @@ export default function BrokerageDashboard() {
           {/* ================================================================ */}
           {activeTab === 'referrals' && (
             <div className="p-4 sm:p-6">
-              {/* Summary Cards */}
+              {/* Summary Cards - Clickable */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                <div className="rounded-xl p-5" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}>
+                <div
+                  className="rounded-xl p-5 cursor-pointer transition-opacity hover:opacity-80"
+                  style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}
+                  onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
+                >
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText, opacity: 0.7 }}>Total Earned</p>
                   <p className="text-2xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</p>
                   <p className="text-xs mt-1" style={{ color: colors.successText, opacity: 0.6 }}>{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
+                  {referralFilter === 'earned' && <p className="text-xs mt-2 font-semibold" style={{ color: colors.successText }}>Show All</p>}
                 </div>
-                <div className="rounded-xl p-5" style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}>
+                <div
+                  className="rounded-xl p-5 cursor-pointer transition-opacity hover:opacity-80"
+                  style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}
+                  onClick={() => setReferralFilter(referralFilter === 'pending' ? 'all' : 'pending')}
+                >
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.warningText, opacity: 0.7 }}>Pending (Not Yet Funded)</p>
                   <p className="text-2xl font-black mt-1" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</p>
                   <p className="text-xs mt-1" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
+                  {referralFilter === 'pending' && <p className="text-xs mt-2 font-semibold" style={{ color: colors.warningText }}>Show All</p>}
                 </div>
               </div>
-
-              {/* Monthly Summary Section */}
-              {monthlySummary.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Monthly Summary</h4>
-                  <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
-                    <table className="w-full min-w-[480px]">
-                      <thead>
-                        <tr style={{ background: colors.tableHeaderBg }}>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Month</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Funded Deals</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Earned</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Pending Deals</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Pending Fees</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {monthlySummary.map((row, i) => (
-                          <tr key={row.month} style={{ borderBottom: i < monthlySummary.length - 1 ? `1px solid ${colors.divider}` : 'none' }}>
-                            <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatMonthLabel(row.month)}</td>
-                            <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{row.dealCount}</td>
-                            <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>{formatCurrency(row.earned)}</td>
-                            <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{row.pendingCount || '—'}</td>
-                            <td className="px-4 py-3 text-sm text-right" style={{ color: row.pending > 0 ? colors.warningText : colors.textFaint }}>{row.pending > 0 ? formatCurrency(row.pending) : '—'}</td>
-                          </tr>
-                        ))}
-                        {/* Totals */}
-                        <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
-                          <td className="px-4 py-3 text-sm font-bold" style={{ color: colors.textPrimary }}>Total</td>
-                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{earnedDeals.length}</td>
-                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</td>
-                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{pendingDeals.length}</td>
-                          <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
 
               {/* Fee Breakdown with Filter + PDF Download */}
               {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
@@ -695,22 +710,20 @@ export default function BrokerageDashboard() {
 
                   {/* Table */}
                   <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
-                    <table className="w-full min-w-[700px]">
+                    <table className="w-full min-w-[600px]">
                       <thead>
                         <tr style={{ background: colors.tableHeaderBg }}>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing Date</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Net Comm.</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Discount Fee</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Your Referral Fee</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Referral Fee</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredReferralDeals.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="px-4 py-8 text-center text-sm" style={{ color: colors.textMuted }}>
+                            <td colSpan={5} className="px-4 py-8 text-center text-sm" style={{ color: colors.textMuted }}>
                               No deals found for the selected period.
                             </td>
                           </tr>
@@ -728,8 +741,6 @@ export default function BrokerageDashboard() {
                                       {formatStatusLabel(deal.status)}
                                     </span>
                                   </td>
-                                  <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{formatCurrency(deal.net_commission)}</td>
-                                  <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{formatCurrency(deal.discount_fee)}</td>
                                   <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: isEarned ? colors.successText : colors.warningText }}>
                                     {formatCurrency(deal.brokerage_referral_fee)}
                                     {!isEarned && <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>(pending)</span>}
@@ -741,12 +752,6 @@ export default function BrokerageDashboard() {
                             <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
                               <td colSpan={4} className="px-4 py-3 text-sm font-bold" style={{ color: colors.textPrimary }}>
                                 Total ({filteredReferralDeals.length} deal{filteredReferralDeals.length !== 1 ? 's' : ''})
-                              </td>
-                              <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>
-                                {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.net_commission, 0))}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>
-                                {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.discount_fee, 0))}
                               </td>
                               <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>
                                 {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.brokerage_referral_fee, 0))}

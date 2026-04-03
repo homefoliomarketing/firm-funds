@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, AlertCircle, ChevronRight, Search, X, ChevronLeft, BarChart3 } from 'lucide-react'
+import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3 } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 
 import { useTheme } from '@/lib/theme'
@@ -295,64 +295,8 @@ export default function AdminDashboard() {
           })}
         </div>
 
-        {/* Action Needed Section */}
-        {(() => {
-          const needsReview = allDeals.filter(d => d.status === 'under_review')
-          const needsFunding = allDeals.filter(d => d.status === 'approved')
-          const needsEft = allDeals.filter(d => {
-            if (d.status !== 'funded') return false
-            const transfers = d.eft_transfers || []
-            const totalSent = transfers.reduce((sum: number, t: any) => sum + t.amount, 0)
-            return totalSent < d.advance_amount
-          })
-          const actionItems = [
-            ...needsReview.map(d => ({ ...d, actionType: 'review' as const, actionLabel: 'Needs Review', actionColor: '#3D5A99', actionBg: '#F0F4FF', actionBorder: '#C5D3F0' })),
-            ...needsFunding.map(d => ({ ...d, actionType: 'fund' as const, actionLabel: 'Ready to Fund', actionColor: '#1A7A2E', actionBg: '#EDFAF0', actionBorder: '#B8E6C4' })),
-            ...needsEft.map(d => ({ ...d, actionType: 'eft' as const, actionLabel: 'EFT Incomplete', actionColor: '#5B3D99', actionBg: '#F5F0FF', actionBorder: '#D5C5F0' })),
-          ]
-          if (actionItems.length === 0) return null
-          return (
-            <div className="mb-6 rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <AlertCircle size={16} style={{ color: colors.warningText }} />
-                <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Action Needed</h3>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>
-                  {actionItems.length}
-                </span>
-              </div>
-              <div className="divide-y" style={{ borderColor: colors.divider }}>
-                {actionItems.slice(0, 8).map(item => (
-                  <div
-                    key={item.id}
-                    className="px-5 py-3 flex items-center justify-between cursor-pointer transition-colors"
-                    onClick={() => router.push(`/admin/deals/${item.id}`)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap"
-                        style={{ background: item.actionBg, color: item.actionColor, border: `1px solid ${item.actionBorder}` }}>
-                        {item.actionLabel}
-                      </span>
-                      <span className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{item.property_address}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(item.status) ? colors.errorText : colors.successText }}>
-                        {new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(item.advance_amount)}
-                      </span>
-                      <ChevronRight size={14} style={{ color: colors.textFaint }} />
-                    </div>
-                  </div>
-                ))}
-                {actionItems.length > 8 && (
-                  <div className="px-5 py-2 text-center">
-                    <span className="text-xs font-medium" style={{ color: colors.textMuted }}>+{actionItems.length - 8} more items needing attention</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })()}
+        {/* Action Needed section removed — the status filter tabs below
+            and the deal table sorting handle the workflow naturally */}
 
         {/* Status Filter Tabs */}
         <div className="flex flex-wrap gap-2 mb-6">
@@ -389,13 +333,26 @@ export default function AdminDashboard() {
 
         {/* Deals Table with Search, Filter & Pagination */}
         {(() => {
-          // Filter and search
+          // Status priority for sorting (lower = show first)
+          const statusPriority: Record<string, number> = {
+            under_review: 0, approved: 1, funded: 2,
+            repaid: 3, closed: 4, denied: 5, cancelled: 6,
+          }
+
+          // Filter, search, and sort by priority
           let filtered = allDeals
           if (statusFilter) filtered = filtered.filter(d => d.status === statusFilter)
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase()
             filtered = filtered.filter(d => d.property_address?.toLowerCase().includes(q))
           }
+          // Sort: active statuses first, then by created_at desc within each group
+          filtered = [...filtered].sort((a, b) => {
+            const pa = statusPriority[a.status] ?? 99
+            const pb = statusPriority[b.status] ?? 99
+            if (pa !== pb) return pa - pb
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          })
           const totalPages = Math.max(1, Math.ceil(filtered.length / DEALS_PER_PAGE))
           const page = Math.min(currentPage, totalPages)
           const paged = filtered.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)

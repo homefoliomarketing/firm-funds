@@ -664,7 +664,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
 
     // Email notification → admin (only when agent uploads, not admin-to-admin)
     if (profile.role === 'agent' || profile.role === 'brokerage_admin') {
-      // Look up deal info + agent name for the email
+      // Look up deal info for the email
       const { data: dealInfo } = await supabase
         .from('deals')
         .select('property_address, agent_id, agents(first_name, last_name)')
@@ -672,12 +672,16 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
         .single()
 
       const agent = (dealInfo as any)?.agents
+      const uploaderName = profile.full_name || 'Unknown User'
+
       sendDocumentUploadedNotification({
         dealId,
         propertyAddress: dealInfo?.property_address || 'Unknown Property',
         documentType,
         fileName: file.name,
         agentName: agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown Agent',
+        uploaderRole: profile.role,
+        uploaderName,
       })
     }
 
@@ -933,8 +937,26 @@ export async function requestDocument(input: {
 
     if (!agent?.email) return { success: false, error: 'Agent email not found' }
 
+    // Write to document_requests table
+    const { data: docRequest, error: insertError } = await supabase
+      .from('document_requests')
+      .insert({
+        deal_id: deal.id,
+        document_type: input.documentType,
+        message: input.message?.trim() || null,
+        requested_by: user.id,
+        status: 'pending',
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Document request insert error:', insertError.message)
+      return { success: false, error: `Failed to save document request: ${insertError.message}` }
+    }
+
     // Send the email notification
-    await sendDocumentRequestNotification({
+    sendDocumentRequestNotification({
       dealId: deal.id,
       propertyAddress: deal.property_address,
       documentType: input.documentType,
@@ -953,12 +975,109 @@ export async function requestDocument(input: {
         message: input.message?.trim() || null,
         requested_by: user.id,
         agent_email: agent.email,
+        request_id: docRequest.id,
+      },
+    })
+
+    return { success: true, data: { requestId: docRequest.id } }
+  } catch (err: any) {
+    console.error('Document request error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Server Action: Fulfill document request (admin only)
+// ============================================================================
+
+export async function fulfillDocumentRequest(input: {
+  requestId: string
+  documentId?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: request, error: fetchError } = await supabase
+      .from('document_requests')
+      .select('id, deal_id, document_type, status')
+      .eq('id', input.requestId)
+      .single()
+
+    if (fetchError || !request) return { success: false, error: 'Document request not found' }
+    if (request.status !== 'pending') return { success: false, error: 'Request is not pending' }
+
+    const { error: updateError } = await supabase
+      .from('document_requests')
+      .update({
+        status: 'fulfilled',
+        fulfilled_at: new Date().toISOString(),
+        fulfilled_document_id: input.documentId || null,
+      })
+      .eq('id', input.requestId)
+
+    if (updateError) {
+      console.error('Fulfill request error:', updateError.message)
+      return { success: false, error: `Failed to fulfill request: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'document.request_fulfilled',
+      entityType: 'deal',
+      entityId: request.deal_id,
+      metadata: {
+        request_id: input.requestId,
+        document_type: request.document_type,
+        fulfilled_by: user.id,
+        document_id: input.documentId || null,
       },
     })
 
     return { success: true }
   } catch (err: any) {
-    console.error('Document request error:', err?.message)
+    console.error('Fulfill request error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Server Action: Cancel document request (admin only)
+// ============================================================================
+
+export async function cancelDocumentRequest(input: {
+  requestId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: request, error: fetchError } = await supabase
+      .from('document_requests')
+      .select('id, deal_id, document_type, status')
+      .eq('id', input.requestId)
+      .single()
+
+    if (fetchError || !request) return { success: false, error: 'Document request not found' }
+    if (request.status !== 'pending') return { success: false, error: 'Request is not pending' }
+
+    const { error: updateError } = await supabase
+      .from('document_requests')
+      .update({ status: 'cancelled' })
+      .eq('id', input.requestId)
+
+    if (updateError) {
+      return { success: false, error: `Failed to cancel request: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'document.request_cancelled',
+      entityType: 'deal',
+      entityId: request.deal_id,
+      metadata: { request_id: input.requestId, cancelled_by: user.id },
+    })
+
+    return { success: true }
+  } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

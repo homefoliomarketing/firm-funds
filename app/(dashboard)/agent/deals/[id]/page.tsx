@@ -18,6 +18,7 @@ import {
   formatStatusLabel,
 } from '@/lib/constants'
 import { getDocumentSignedUrl, updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
+import { AlertCircle } from 'lucide-react'
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
@@ -35,6 +36,15 @@ interface DealDocument {
   upload_source: string; notes: string | null; created_at: string
 }
 
+interface DocumentRequest {
+  id: string
+  deal_id: string
+  document_type: string
+  message: string | null
+  status: 'pending' | 'fulfilled' | 'cancelled'
+  created_at: string
+}
+
 const DOCUMENT_TYPES = DOC_TYPES
 
 // Status badge styles and labels now imported from @/lib/constants
@@ -42,6 +52,7 @@ const DOCUMENT_TYPES = DOC_TYPES
 export default function AgentDealDetailPage() {
   const [deal, setDeal] = useState<Deal | null>(null)
   const [documents, setDocuments] = useState<DealDocument[]>([])
+  const [docRequests, setDocRequests] = useState<DocumentRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('aps')
@@ -81,6 +92,8 @@ export default function AgentDealDetailPage() {
     setDeal(dealData)
     const { data: docsData } = await supabase.from('deal_documents').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocuments(docsData || [])
+    const { data: requestsData } = await supabase.from('document_requests').select('*').eq('deal_id', dealId).eq('status', 'pending').order('created_at', { ascending: false })
+    setDocRequests(requestsData || [])
     setLoading(false)
   }
 
@@ -190,6 +203,13 @@ export default function AgentDealDetailPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
   const getDocTypeLabel = (type: string) => DOCUMENT_TYPES.find(d => d.value === type)?.label || type
+  const scrollToDocumentSection = () => {
+    const docsSection = document.querySelector('[data-section="documents"]')
+    if (docsSection) {
+      docsSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setDocsExpanded(true)
+    }
+  }
   const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
   const formatDate = (date: string) => new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
   const formatDateTime = (date: string) => new Date(date).toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -279,6 +299,63 @@ export default function AgentDealDetailPage() {
             }
           >
             {statusMessage.text}
+          </div>
+        )}
+
+        {/* Document Requests Banner */}
+        {docRequests.length > 0 && (
+          <div
+            className="mb-6 rounded-xl overflow-hidden"
+            style={{ border: `1px solid ${colors.border}`, background: colors.cardBg }}
+          >
+            <div
+              className="h-full w-1 absolute left-0"
+              style={{ background: '#5FA873' }}
+            />
+            <div className="px-6 py-5 pl-5 flex gap-4">
+              <div className="flex-shrink-0 mt-0.5">
+                <AlertCircle size={20} style={{ color: '#5FA873' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-sm mb-3" style={{ color: colors.textPrimary }}>
+                  Firm Funds has requested the following documents for this deal:
+                </h3>
+                <div className="space-y-2">
+                  {docRequests.map((request) => (
+                    <div key={request.id} className="text-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium" style={{ color: colors.textPrimary }}>
+                            {getDocTypeLabel(request.document_type)}
+                          </p>
+                          {request.message && (
+                            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                              {request.message}
+                            </p>
+                          )}
+                          <p className="text-xs mt-1" style={{ color: colors.textFaint }}>
+                            Requested {formatDate(request.created_at)}
+                          </p>
+                        </div>
+                        <button
+                          onClick={scrollToDocumentSection}
+                          className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+                          style={{
+                            background: '#5FA873',
+                            color: 'white',
+                            border: '1px solid #5FA873'
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#4A8B5F' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = '#5FA873' }}
+                        >
+                          Upload
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -434,7 +511,7 @@ export default function AgentDealDetailPage() {
             </div>
 
             {/* Documents Section */}
-            <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }} data-section="documents">
               <div
                 className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
                 style={{ borderBottom: docsExpanded ? `1px solid ${colors.border}` : 'none' }}
