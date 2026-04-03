@@ -27,12 +27,39 @@ import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 
 // ============================================================================
-// PDF Canvas Viewer — renders PDFs via pdf.js (CDN) to canvas, no browser plugin needed
+// PDF Canvas Viewer — renders PDFs via pdf.js 3.x (CDN) to canvas
+// Uses the standard UMD build (not ESM) — loads reliably via script tag
 // ============================================================================
+const PDFJS_VERSION = '3.11.174'
+const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
+
+function loadPdfJs(): Promise<any> {
+  // Already loaded
+  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib)
+
+  // Already loading — wait for it
+  if ((window as any)._pdfjsLoading) return (window as any)._pdfjsLoading
+
+  const promise = new Promise<any>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = `${PDFJS_CDN}/pdf.min.js`
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib
+      if (!lib) { reject(new Error('pdfjsLib not found after script load')); return }
+      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`
+      resolve(lib)
+    }
+    script.onerror = () => reject(new Error('Failed to load pdf.js from CDN'))
+    document.head.appendChild(script)
+  })
+
+  ;(window as any)._pdfjsLoading = promise
+  return promise
+}
+
 function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading')
   const renderedRef = useRef(false)
 
   useEffect(() => {
@@ -43,45 +70,12 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
 
     async function render() {
       try {
-        // Load pdf.js from CDN
-        if (!(window as any).pdfjsLib) {
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement('script')
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'
-            script.type = 'module'
-            // For module scripts, we need a different loading approach
-            script.onerror = reject
-            document.head.appendChild(script)
-
-            // Use dynamic import instead since pdf.js 4.x is ESM
-            const importScript = document.createElement('script')
-            importScript.type = 'module'
-            importScript.textContent = `
-              import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
-              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
-              window.pdfjsLib = pdfjsLib;
-              window.dispatchEvent(new Event('pdfjsReady'));
-            `
-            document.head.appendChild(importScript)
-
-            const onReady = () => {
-              window.removeEventListener('pdfjsReady', onReady)
-              resolve()
-            }
-            window.addEventListener('pdfjsReady', onReady)
-            // Timeout after 10s
-            setTimeout(() => reject(new Error('pdf.js load timeout')), 10000)
-          })
-        }
-
-        if (cancelled) return
-
-        const pdfjsLib = (window as any).pdfjsLib
-        const pdf = await pdfjsLib.getDocument({ data: pdfData.slice(0) }).promise
-
+        const pdfjsLib = await loadPdfJs()
         if (cancelled || !containerRef.current) return
 
-        // Render each page to a canvas
+        const pdf = await pdfjsLib.getDocument({ data: pdfData.slice(0) }).promise
+        if (cancelled || !containerRef.current) return
+
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i)
           const scale = 1.5
@@ -95,26 +89,21 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
           canvas.style.display = 'block'
 
           if (i > 1) {
-            // Add a subtle separator between pages
             const sep = document.createElement('div')
             sep.style.height = '4px'
             sep.style.background = '#333'
             containerRef.current.appendChild(sep)
           }
-
           containerRef.current.appendChild(canvas)
 
           const ctx = canvas.getContext('2d')!
           await page.render({ canvasContext: ctx, viewport }).promise
         }
 
-        setLoading(false)
+        if (!cancelled) setStatus('done')
       } catch (err) {
         console.error('PDF render error:', err)
-        if (!cancelled) {
-          setError('Failed to render PDF')
-          setLoading(false)
-        }
+        if (!cancelled) setStatus('error')
       }
     }
 
@@ -122,22 +111,19 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
     return () => { cancelled = true }
   }, [pdfData])
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full p-6">
-        <p style={{ color: '#E07B7B', fontSize: 14 }}>{error}</p>
-      </div>
-    )
-  }
-
   return (
     <div ref={containerRef} style={{ padding: 0 }}>
-      {loading && (
+      {status === 'loading' && (
         <div className="flex items-center justify-center p-8">
           <div style={{
             width: 32, height: 32, border: '3px solid #333', borderTopColor: '#5FA873',
             borderRadius: '50%', animation: 'spin 0.8s linear infinite',
           }} />
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="flex items-center justify-center p-6">
+          <p style={{ color: '#E07B7B', fontSize: 14 }}>Failed to render PDF</p>
         </div>
       )}
     </div>
