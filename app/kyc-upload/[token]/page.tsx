@@ -65,12 +65,13 @@ export default function KycMobileUploadPage() {
     setError(null)
 
     const formData = new FormData()
+    formData.append('token', token)
     for (const file of selectedFiles) {
       formData.append('files', file)
     }
     formData.append('documentType', documentType)
 
-    const result = await submitKycViaMobileToken({ token, formData })
+    const result = await submitKycViaMobileToken(formData)
     if (result.success) {
       setStatus('success')
     } else {

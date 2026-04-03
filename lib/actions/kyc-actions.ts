@@ -574,18 +574,18 @@ export async function sendKycMobileLink(): Promise<ActionResult> {
 // Agent KYC: Validate token and upload via mobile (PUBLIC — no auth required)
 // ============================================================================
 
-export async function submitKycViaMobileToken(input: {
-  token: string
-  formData: FormData
-}): Promise<ActionResult> {
+export async function submitKycViaMobileToken(formData: FormData): Promise<ActionResult> {
   try {
     const serviceClient = createServiceRoleClient()
+
+    const token = formData.get('token') as string | null
+    if (!token) return { success: false, error: 'Missing token' }
 
     // Look up the token
     const { data: tokenRecord, error: tokenError } = await serviceClient
       .from('kyc_upload_tokens')
       .select('id, agent_id, expires_at, used_at')
-      .eq('token', input.token)
+      .eq('token', token)
       .single()
 
     if (tokenError || !tokenRecord) {
@@ -603,8 +603,8 @@ export async function submitKycViaMobileToken(input: {
     }
 
     // Validate files
-    const files = input.formData.getAll('files') as File[]
-    const documentType = input.formData.get('documentType') as string | null
+    const files = formData.getAll('files') as File[]
+    const documentType = formData.get('documentType') as string | null
 
     if (!files || files.length === 0) return { success: false, error: 'No files provided' }
     if (!documentType) return { success: false, error: 'Document type is required' }
