@@ -95,13 +95,13 @@ export async function POST(request: Request) {
       .eq('id', tokenRecord.id)
 
     // Audit log (best effort, non-blocking)
-    serviceClient.from('audit_log').insert({
+    void serviceClient.from('audit_log').insert({
       user_id: null,
       action: 'agent.kyc_submit_mobile',
       entity_type: 'agent',
       entity_id: tokenRecord.agent_id,
       metadata: { document_type: documentType, file_paths: filePaths },
-    }).then(() => {}).catch(() => {})
+    })
 
     return NextResponse.json({ success: true })
   } catch (err: any) {
