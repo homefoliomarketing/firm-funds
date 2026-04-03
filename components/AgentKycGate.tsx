@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Shield, Upload, CheckCircle, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
 import { submitAgentKyc, sendKycMobileLink } from '@/lib/actions/kyc-actions'
+import { createClient } from '@/lib/supabase/client'
 import { useTheme } from '@/lib/theme'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeStyle } from '@/lib/constants'
 
@@ -27,6 +28,33 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const [sendingMobileLink, setSendingMobileLink] = useState(false)
   const [mobileLinkSent, setMobileLinkSent] = useState(false)
   const [mobileLinkEmail, setMobileLinkEmail] = useState<string | null>(null)
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Poll for KYC status changes after mobile link is sent
+  useEffect(() => {
+    if (!mobileLinkSent) return
+
+    const supabase = createClient()
+
+    pollRef.current = setInterval(async () => {
+      const { data } = await supabase
+        .from('agents')
+        .select('kyc_status')
+        .eq('id', agent.id)
+        .single()
+
+      if (data && data.kyc_status !== agent.kyc_status && data.kyc_status === 'submitted') {
+        // Mobile upload completed — trigger refresh
+        if (pollRef.current) clearInterval(pollRef.current)
+        onKycSubmitted()
+      }
+    }, 5000) // Check every 5 seconds
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [mobileLinkSent, agent.id, agent.kyc_status, onKycSubmitted])
 
   const inputStyle = { background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }
 
