@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
 
+// Step 1: Generate signed upload URLs so the client can upload directly to Supabase
+// (No files touch Netlify — just a tiny JSON request/response)
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData()
+    const { token, fileNames, documentType } = await request.json()
+
+    if (!token || !fileNames?.length || !documentType) {
+      return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
+    }
+
     const serviceClient = createServiceRoleClient()
 
-    const token = formData.get('token') as string | null
-    if (!token) return NextResponse.json({ success: false, error: 'Missing token' }, { status: 400 })
-
-    // Look up the token
+    // Validate the token
     const { data: tokenRecord, error: tokenError } = await serviceClient
       .from('kyc_upload_tokens')
       .select('id, agent_id, expires_at, used_at')
@@ -18,59 +21,72 @@ export async function POST(request: Request) {
       .single()
 
     if (tokenError || !tokenRecord) {
-      return NextResponse.json({ success: false, error: 'Invalid or expired link. Please request a new one from your desktop.' })
+      return NextResponse.json({ success: false, error: 'Invalid or expired link.' })
     }
-
-    // Check if already used
     if (tokenRecord.used_at) {
-      return NextResponse.json({ success: false, error: 'This link has already been used. Please request a new one from your desktop.' })
+      return NextResponse.json({ success: false, error: 'This link has already been used.' })
     }
-
-    // Check expiry
     if (new Date(tokenRecord.expires_at) < new Date()) {
-      return NextResponse.json({ success: false, error: 'This link has expired. Please request a new one from your desktop.' })
+      return NextResponse.json({ success: false, error: 'This link has expired.' })
     }
 
-    // Validate files
-    const files = formData.getAll('files') as File[]
-    const documentType = formData.get('documentType') as string | null
-
-    if (!files || files.length === 0) return NextResponse.json({ success: false, error: 'No files provided' })
-    if (!documentType) return NextResponse.json({ success: false, error: 'Document type is required' })
-
-    for (const file of files) {
-      if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
-        return NextResponse.json({ success: false, error: `File "${file.name}" exceeds 10MB limit` })
-      }
-      if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
-        return NextResponse.json({ success: false, error: `File "${file.name}" is not a valid type. Please upload JPEG, PNG, or PDF.` })
-      }
-    }
-
-    // Upload each file to agent-kyc bucket
+    // Generate signed upload URLs for each file
     const timestamp = Date.now()
-    const filePaths: string[] = []
+    const uploadUrls: { signedUrl: string; token: string; path: string }[] = []
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    for (let i = 0; i < fileNames.length; i++) {
+      const fileExt = fileNames[i].split('.').pop()?.toLowerCase() || 'jpg'
       const filePath = `${tokenRecord.agent_id}/id-${timestamp}-${i}.${fileExt}`
 
-      const { error: uploadError } = await serviceClient.storage
+      const { data, error } = await serviceClient.storage
         .from('agent-kyc')
-        .upload(filePath, file, {
-          contentType: file.type,
-          upsert: false,
-        })
+        .createSignedUploadUrl(filePath)
 
-      if (uploadError) {
-        console.error('KYC mobile upload error:', uploadError.message)
-        return NextResponse.json({ success: false, error: `Upload failed for file ${i + 1}: ${uploadError.message}` })
+      if (error || !data) {
+        console.error('Signed upload URL error:', error?.message)
+        return NextResponse.json({ success: false, error: 'Failed to prepare upload.' })
       }
-      filePaths.push(filePath)
+
+      uploadUrls.push({ signedUrl: data.signedUrl, token: data.token, path: filePath })
     }
 
-    // Update agent record with KYC info
+    return NextResponse.json({
+      success: true,
+      data: {
+        uploadUrls,
+        agentId: tokenRecord.agent_id,
+        tokenRecordId: tokenRecord.id,
+      },
+    })
+  } catch (err: any) {
+    console.error('KYC upload URL generation error:', err?.message)
+    return NextResponse.json({ success: false, error: 'An unexpected error occurred.' })
+  }
+}
+
+// Step 3: After client uploads files directly to Supabase, update the DB records
+export async function PUT(request: Request) {
+  try {
+    const { token, filePaths, documentType, tokenRecordId, agentId } = await request.json()
+
+    if (!token || !filePaths?.length || !documentType || !agentId) {
+      return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Re-validate the token (security: don't trust client-provided agentId alone)
+    const { data: tokenRecord, error: tokenError } = await serviceClient
+      .from('kyc_upload_tokens')
+      .select('id, agent_id')
+      .eq('token', token)
+      .single()
+
+    if (tokenError || !tokenRecord || tokenRecord.agent_id !== agentId) {
+      return NextResponse.json({ success: false, error: 'Invalid token.' })
+    }
+
+    // Update agent record
     const now = new Date().toISOString()
     const { error: updateError } = await serviceClient
       .from('agents')
@@ -81,11 +97,11 @@ export async function POST(request: Request) {
         kyc_document_type: documentType,
         kyc_rejection_reason: null,
       })
-      .eq('id', tokenRecord.agent_id)
+      .eq('id', agentId)
 
     if (updateError) {
-      console.error('Agent KYC update error (mobile):', updateError.message)
-      return NextResponse.json({ success: false, error: 'Failed to update your verification status' })
+      console.error('Agent KYC update error:', updateError.message)
+      return NextResponse.json({ success: false, error: 'Failed to update verification status.' })
     }
 
     // Mark token as used
@@ -94,18 +110,18 @@ export async function POST(request: Request) {
       .update({ used_at: now })
       .eq('id', tokenRecord.id)
 
-    // Audit log (best effort, non-blocking)
+    // Audit log (fire and forget)
     void serviceClient.from('audit_log').insert({
       user_id: null,
       action: 'agent.kyc_submit_mobile',
       entity_type: 'agent',
-      entity_id: tokenRecord.agent_id,
+      entity_id: agentId,
       metadata: { document_type: documentType, file_paths: filePaths },
     })
 
     return NextResponse.json({ success: true })
   } catch (err: any) {
-    console.error('KYC mobile upload error:', err?.message)
-    return NextResponse.json({ success: false, error: 'An unexpected error occurred' })
+    console.error('KYC finalize error:', err?.message)
+    return NextResponse.json({ success: false, error: 'An unexpected error occurred.' })
   }
 }

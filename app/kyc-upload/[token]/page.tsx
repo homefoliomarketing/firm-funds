@@ -73,26 +73,67 @@ export default function KycMobileUploadPage() {
     setError(null)
 
     try {
-      const formData = new FormData()
-      formData.append('token', token)
-      for (const file of selectedFiles) {
-        formData.append('files', file)
-      }
-      formData.append('documentType', documentType)
-
-      // Use API route instead of server action — server actions with
-      // FormData/file uploads hang on Netlify
-      const response = await fetch('/api/kyc-mobile-upload', {
+      // === Step 1: Get signed upload URLs from our API (tiny JSON, no files) ===
+      const urlResponse = await fetch('/api/kyc-mobile-upload', {
         method: 'POST',
-        body: formData, // Don't set Content-Type — browser sets multipart boundary automatically
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          fileNames: selectedFiles.map(f => f.name),
+          documentType,
+        }),
       })
-      const result = await response.json()
+      const urlResult = await urlResponse.json()
 
-      if (result.success) {
+      if (!urlResult.success) {
+        setStatus('valid')
+        setError(urlResult.error || 'Upload failed. Please try again.')
+        return
+      }
+
+      // === Step 2: Upload files DIRECTLY to Supabase Storage (bypasses Netlify) ===
+      const { uploadUrls, agentId, tokenRecordId } = urlResult.data
+      const filePaths: string[] = []
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i]
+        const { signedUrl, token: uploadToken, path } = uploadUrls[i]
+
+        const uploadResponse = await fetch(signedUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type,
+          },
+          body: file,
+        })
+
+        if (!uploadResponse.ok) {
+          setStatus('valid')
+          setError(`Failed to upload file ${i + 1}. Please try again.`)
+          return
+        }
+        filePaths.push(path)
+      }
+
+      // === Step 3: Update DB records via API (tiny JSON, no files) ===
+      const finalizeResponse = await fetch('/api/kyc-mobile-upload', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          filePaths,
+          documentType,
+          tokenRecordId,
+          agentId,
+        }),
+      })
+      const finalizeResult = await finalizeResponse.json()
+
+      if (finalizeResult.success) {
         setStatus('success')
       } else {
         setStatus('valid')
-        setError(result.error || 'Upload failed. Please try again.')
+        setError(finalizeResult.error || 'Upload failed. Please try again.')
       }
     } catch {
       setStatus('valid')
