@@ -503,6 +503,48 @@ export default function DealDetailPage() {
         </div>
       )}
 
+      {/* FLAGGED AGENT WARNING BANNER */}
+      {agent?.flagged_by_brokerage && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="rounded-lg p-4 flex items-center gap-3" style={{
+            background: '#1a0a0a',
+            border: '2px solid #dc2626',
+            boxShadow: '0 0 15px rgba(220, 38, 38, 0.3)',
+          }}>
+            <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: '#ef4444' }} />
+            <div>
+              <p className="font-bold text-base" style={{ color: '#ef4444' }}>
+                ⚠ AGENT FLAGGED BY BROKERAGE
+              </p>
+              <p className="text-sm mt-0.5" style={{ color: '#fca5a5' }}>
+                {agent.first_name} {agent.last_name} has been flagged by their brokerage. Review this deal carefully before proceeding.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OUTSTANDING RECOVERY WARNING BANNER */}
+      {agent && agent.outstanding_recovery && agent.outstanding_recovery > 0 && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
+          <div className="rounded-lg p-4 flex items-center gap-3" style={{
+            background: '#1a1400',
+            border: '2px solid #d97706',
+            boxShadow: '0 0 15px rgba(217, 119, 6, 0.2)',
+          }}>
+            <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: '#f59e0b' }} />
+            <div>
+              <p className="font-bold text-base" style={{ color: '#f59e0b' }}>
+                OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })}
+              </p>
+              <p className="text-sm mt-0.5" style={{ color: '#fcd34d' }}>
+                {agent.first_name} {agent.last_name} has an unrecovered balance from a previous deal.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* DEAL PIPELINE */}
         <div className="mb-6">
