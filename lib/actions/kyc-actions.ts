@@ -161,49 +161,55 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
   }
 
   try {
-    const file = formData.get('file') as File | null
+    const files = formData.getAll('files') as File[]
     const documentType = formData.get('documentType') as string | null
 
-    if (!file) return { success: false, error: 'No file provided' }
+    if (!files || files.length === 0) return { success: false, error: 'No files provided' }
     if (!documentType) return { success: false, error: 'Document type is required' }
 
-    // Validate file size
-    if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
-      return { success: false, error: 'File size exceeds 10MB limit' }
-    }
-
-    // Validate MIME type
-    if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
-      return { success: false, error: 'Invalid file type. Please upload a JPEG, PNG, or PDF file.' }
+    // Validate all files
+    for (const file of files) {
+      if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
+        return { success: false, error: `File "${file.name}" exceeds 10MB limit` }
+      }
+      if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
+        return { success: false, error: `File "${file.name}" is not a valid type. Please upload JPEG, PNG, or PDF.` }
+      }
     }
 
     // Use service role client for storage operations (bypasses RLS)
     const serviceClient = createServiceRoleClient()
+    const timestamp = Date.now()
+    const filePaths: string[] = []
 
-    // Upload to agent-kyc bucket
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-    const filePath = `${profile.agent_id}/id-${Date.now()}.${fileExt}`
+    // Upload each file to agent-kyc bucket
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const filePath = `${profile.agent_id}/id-${timestamp}-${i}.${fileExt}`
 
-    const { error: uploadError } = await serviceClient.storage
-      .from('agent-kyc')
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
-      })
+      const { error: uploadError } = await serviceClient.storage
+        .from('agent-kyc')
+        .upload(filePath, file, {
+          contentType: file.type,
+          upsert: false,
+        })
 
-    if (uploadError) {
-      console.error('KYC upload error:', uploadError.message)
-      return { success: false, error: `Upload failed: ${uploadError.message}` }
+      if (uploadError) {
+        console.error('KYC upload error:', uploadError.message)
+        return { success: false, error: `Upload failed for file ${i + 1}: ${uploadError.message}` }
+      }
+      filePaths.push(filePath)
     }
 
-    // Update agent record with KYC info
+    // Store paths as JSON array in kyc_document_path
     const now = new Date().toISOString()
     const { data: agent, error: updateError } = await serviceClient
       .from('agents')
       .update({
         kyc_status: 'submitted',
         kyc_submitted_at: now,
-        kyc_document_path: filePath,
+        kyc_document_path: JSON.stringify(filePaths),
         kyc_document_type: documentType,
         kyc_rejection_reason: null, // Clear any previous rejection
       })
@@ -220,7 +226,7 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
       action: 'agent.kyc_submit',
       entityType: 'agent',
       entityId: profile.agent_id,
-      metadata: { document_type: documentType, file_path: filePath },
+      metadata: { document_type: documentType, file_paths: filePaths },
     })
 
     return { success: true, data: agent }
@@ -443,16 +449,34 @@ export async function getAgentKycDocumentUrl(input: {
 
     const serviceClient = createServiceRoleClient()
 
-    const { data: urlData, error: urlError } = await serviceClient.storage
-      .from('agent-kyc')
-      .createSignedUrl(agent.kyc_document_path, 300) // 5-minute signed URL
-
-    if (urlError || !urlData?.signedUrl) {
-      console.error('KYC signed URL error:', urlError?.message)
-      return { success: false, error: 'Failed to generate document URL' }
+    // Handle both legacy single path (string) and new multi-file (JSON array)
+    let paths: string[]
+    try {
+      const parsed = JSON.parse(agent.kyc_document_path)
+      paths = Array.isArray(parsed) ? parsed : [agent.kyc_document_path]
+    } catch {
+      paths = [agent.kyc_document_path]
     }
 
-    return { success: true, data: { url: urlData.signedUrl } }
+    const urls: string[] = []
+    for (const path of paths) {
+      const { data: urlData, error: urlError } = await serviceClient.storage
+        .from('agent-kyc')
+        .createSignedUrl(path, 300) // 5-minute signed URL
+
+      if (urlError || !urlData?.signedUrl) {
+        console.error('KYC signed URL error for path:', path, urlError?.message)
+        continue
+      }
+      urls.push(urlData.signedUrl)
+    }
+
+    if (urls.length === 0) {
+      return { success: false, error: 'Failed to generate document URLs' }
+    }
+
+    // Return both: `url` (first, for backward compat) and `urls` (all)
+    return { success: true, data: { url: urls[0], urls } }
   } catch (err: any) {
     console.error('KYC document URL error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
@@ -578,45 +602,53 @@ export async function submitKycViaMobileToken(input: {
       return { success: false, error: 'This link has expired. Please request a new one from your desktop.' }
     }
 
-    // Validate file
-    const file = input.formData.get('file') as File | null
+    // Validate files
+    const files = input.formData.getAll('files') as File[]
     const documentType = input.formData.get('documentType') as string | null
 
-    if (!file) return { success: false, error: 'No file provided' }
+    if (!files || files.length === 0) return { success: false, error: 'No files provided' }
     if (!documentType) return { success: false, error: 'Document type is required' }
 
-    if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
-      return { success: false, error: 'File size exceeds 10MB limit' }
+    for (const file of files) {
+      if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {
+        return { success: false, error: `File "${file.name}" exceeds 10MB limit` }
+      }
+      if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
+        return { success: false, error: `File "${file.name}" is not a valid type. Please upload JPEG, PNG, or PDF.` }
+      }
     }
 
-    if (!(ALLOWED_KYC_MIME_TYPES as readonly string[]).includes(file.type)) {
-      return { success: false, error: 'Invalid file type. Please upload a JPEG, PNG, or PDF.' }
+    // Upload each file to agent-kyc bucket
+    const timestamp = Date.now()
+    const filePaths: string[] = []
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const filePath = `${tokenRecord.agent_id}/id-${timestamp}-${i}.${fileExt}`
+
+      const { error: uploadError } = await serviceClient.storage
+        .from('agent-kyc')
+        .upload(filePath, file, {
+          contentType: file.type,
+          upsert: false,
+        })
+
+      if (uploadError) {
+        console.error('KYC mobile upload error:', uploadError.message)
+        return { success: false, error: `Upload failed for file ${i + 1}: ${uploadError.message}` }
+      }
+      filePaths.push(filePath)
     }
 
-    // Upload to agent-kyc bucket
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-    const filePath = `${tokenRecord.agent_id}/id-${Date.now()}.${fileExt}`
-
-    const { error: uploadError } = await serviceClient.storage
-      .from('agent-kyc')
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
-      })
-
-    if (uploadError) {
-      console.error('KYC mobile upload error:', uploadError.message)
-      return { success: false, error: `Upload failed: ${uploadError.message}` }
-    }
-
-    // Update agent record with KYC info
+    // Update agent record with KYC info (paths stored as JSON array)
     const now = new Date().toISOString()
     const { error: updateError } = await serviceClient
       .from('agents')
       .update({
         kyc_status: 'submitted',
         kyc_submitted_at: now,
-        kyc_document_path: filePath,
+        kyc_document_path: JSON.stringify(filePaths),
         kyc_document_type: documentType,
         kyc_rejection_reason: null,
       })
@@ -637,7 +669,7 @@ export async function submitKycViaMobileToken(input: {
       action: 'agent.kyc_submit_mobile',
       entityType: 'agent',
       entityId: tokenRecord.agent_id,
-      metadata: { document_type: documentType, file_path: filePath },
+      metadata: { document_type: documentType, file_paths: filePaths },
     })
 
     return { success: true }

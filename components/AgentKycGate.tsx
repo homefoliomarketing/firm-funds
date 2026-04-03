@@ -19,7 +19,7 @@ interface AgentKycGateProps {
 
 export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProps) {
   const { colors, isDark } = useTheme()
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [documentType, setDocumentType] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -40,17 +40,22 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
       setError('Invalid file type. Please upload a JPEG, PNG, or PDF.')
       return
     }
-    setSelectedFile(file)
+    setSelectedFiles(prev => [...prev, file])
+  }
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0])
+    const files = Array.from(e.dataTransfer.files)
+    for (const file of files) handleFileSelect(file)
   }
 
   const handleSubmit = async () => {
-    if (!selectedFile || !documentType) {
+    if (selectedFiles.length === 0 || !documentType) {
       setError('Please select a document type and upload your ID.')
       return
     }
@@ -58,7 +63,9 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
     setError(null)
 
     const formData = new FormData()
-    formData.append('file', selectedFile)
+    for (const file of selectedFiles) {
+      formData.append('files', file)
+    }
     formData.append('documentType', documentType)
 
     const result = await submitAgentKyc(formData)
@@ -156,6 +163,34 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
           </select>
         </div>
 
+        {/* Selected files list */}
+        {selectedFiles.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            {selectedFiles.map((file, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                background: colors.pageBg, borderRadius: 8, marginBottom: 6,
+                border: `1px solid ${colors.border}`,
+              }}>
+                <FileText size={16} style={{ color: '#5FA873', flexShrink: 0 }} />
+                <span style={{ color: colors.textPrimary, fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {file.name}
+                </span>
+                <span style={{ color: colors.textMuted, fontSize: 11, flexShrink: 0 }}>
+                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+                <button
+                  onClick={() => removeFile(i)}
+                  style={{ color: '#E07B7B', background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0 }}
+                  title="Remove"
+                >
+                  <XCircle size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* File upload area */}
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -163,7 +198,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
           onDrop={handleDrop}
           style={{
             border: `2px dashed ${dragOver ? '#5FA873' : colors.inputBorder}`,
-            borderRadius: 8, padding: 24, textAlign: 'center', cursor: 'pointer',
+            borderRadius: 8, padding: selectedFiles.length > 0 ? 16 : 24, textAlign: 'center', cursor: 'pointer',
             background: dragOver ? 'rgba(95,168,115,0.08)' : 'transparent',
             transition: 'all 0.15s ease', marginBottom: 16,
           }}
@@ -174,14 +209,13 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             type="file"
             accept=".jpg,.jpeg,.png,.pdf"
             style={{ display: 'none' }}
-            onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]) }}
+            onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
           />
-          {selectedFile ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-              <FileText size={20} style={{ color: '#5FA873' }} />
-              <span style={{ color: colors.textPrimary, fontSize: 14 }}>{selectedFile.name}</span>
-              <span style={{ color: colors.textMuted, fontSize: 12 }}>
-                ({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)
+          {selectedFiles.length > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Upload size={16} style={{ color: '#5FA873' }} />
+              <span style={{ color: '#5FA873', fontSize: 13, fontWeight: 500 }}>
+                Add another photo (e.g. back of ID)
               </span>
             </div>
           ) : (
@@ -191,7 +225,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
                 Drop your ID here or click to browse
               </p>
               <p style={{ color: colors.textMuted, fontSize: 12, margin: 0 }}>
-                JPEG, PNG, or PDF — max 10MB
+                JPEG, PNG, or PDF — max 10MB per file. Upload front &amp; back if needed.
               </p>
             </>
           )}
@@ -212,12 +246,12 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
         {/* Submit button */}
         <button
           onClick={handleSubmit}
-          disabled={!selectedFile || !documentType || submitting}
+          disabled={selectedFiles.length === 0 || !documentType || submitting}
           style={{
             width: '100%', padding: '12px 20px', borderRadius: 8,
-            background: (!selectedFile || !documentType || submitting) ? '#333' : '#5FA873',
-            color: (!selectedFile || !documentType || submitting) ? '#666' : '#fff',
-            border: 'none', fontSize: 15, fontWeight: 600, cursor: (!selectedFile || !documentType || submitting) ? 'not-allowed' : 'pointer',
+            background: (selectedFiles.length === 0 || !documentType || submitting) ? '#333' : '#5FA873',
+            color: (selectedFiles.length === 0 || !documentType || submitting) ? '#666' : '#fff',
+            border: 'none', fontSize: 15, fontWeight: 600, cursor: (selectedFiles.length === 0 || !documentType || submitting) ? 'not-allowed' : 'pointer',
             transition: 'background 0.15s ease',
           }}
         >

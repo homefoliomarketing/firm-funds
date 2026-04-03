@@ -122,11 +122,13 @@ export default function BrokeragesPage() {
   const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
   const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
-  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrl: string; originalUrl: string; fileName: string; agentName: string; agentId: string; type: 'image' | 'pdf' } | null>(null)
+  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; fileName: string; agentName: string; agentId: string } | null>(null)
   const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
   const kycPanelWidth = 520
   const closeKycPanel = () => {
-    if (kycPreviewPanel?.blobUrl) URL.revokeObjectURL(kycPreviewPanel.blobUrl)
+    if (kycPreviewPanel) {
+      for (const url of kycPreviewPanel.blobUrls) URL.revokeObjectURL(url)
+    }
     setKycPreviewPanel(null)
   }
 
@@ -1497,25 +1499,28 @@ export default function BrokeragesPage() {
                                                         e.stopPropagation()
                                                         setKycPreviewLoading(agent.id)
                                                         const urlRes = await getAgentKycDocumentUrl({ agentId: agent.id })
-                                                        if (urlRes.success && urlRes.data?.url) {
-                                                          const ext = urlRes.data.url.split('?')[0].split('.').pop()?.toLowerCase() || ''
-                                                          const isPdf = ext === 'pdf'
+                                                        if (urlRes.success && urlRes.data?.urls) {
+                                                          const urls: string[] = urlRes.data.urls
                                                           try {
-                                                            // Fetch as blob to bypass content-blocking headers
-                                                            const response = await fetch(urlRes.data.url)
-                                                            const blob = await response.blob()
-                                                            const blobUrl = URL.createObjectURL(blob)
-                                                            if (kycPreviewPanel?.blobUrl) URL.revokeObjectURL(kycPreviewPanel.blobUrl)
+                                                            // Fetch all as blobs to bypass content-blocking headers
+                                                            const blobUrls: string[] = []
+                                                            for (const url of urls) {
+                                                              const response = await fetch(url)
+                                                              const blob = await response.blob()
+                                                              blobUrls.push(URL.createObjectURL(blob))
+                                                            }
+                                                            if (kycPreviewPanel) {
+                                                              for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
+                                                            }
                                                             setKycPreviewPanel({
-                                                              blobUrl,
-                                                              originalUrl: urlRes.data.url,
-                                                              fileName: `${agent.first_name}_${agent.last_name}_ID.${ext}`,
+                                                              blobUrls,
+                                                              originalUrls: urls,
+                                                              fileName: `${agent.first_name}_${agent.last_name}_ID`,
                                                               agentName: `${agent.first_name} ${agent.last_name}`,
                                                               agentId: agent.id,
-                                                              type: isPdf ? 'pdf' : 'image',
                                                             })
                                                           } catch {
-                                                            window.open(urlRes.data.url, '_blank')
+                                                            window.open(urls[0], '_blank')
                                                           }
                                                         } else {
                                                           setStatusMessage({ type: 'error', text: urlRes.error || 'Failed to load ID' })
@@ -1730,7 +1735,7 @@ export default function BrokeragesPage() {
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
-                onClick={() => window.open(kycPreviewPanel.originalUrl, '_blank')}
+                onClick={() => { for (const u of kycPreviewPanel.originalUrls) window.open(u, '_blank') }}
                 className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition"
                 style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
                 onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
@@ -1750,25 +1755,36 @@ export default function BrokeragesPage() {
               </button>
             </div>
           </div>
-          {/* Panel Content — uses blob URL to bypass content-blocking */}
-          <div className="flex-1 overflow-auto">
-            {kycPreviewPanel.type === 'image' ? (
-              <div className="flex items-center justify-center p-3">
-                <img
-                  src={kycPreviewPanel.blobUrl}
-                  alt={kycPreviewPanel.fileName}
-                  className="max-w-full rounded-lg"
-                  style={{ maxHeight: 'calc(100vh - 130px)', objectFit: 'contain' }}
-                />
-              </div>
-            ) : (
-              <iframe
-                src={kycPreviewPanel.blobUrl}
-                className="w-full h-full border-0"
-                style={{ minHeight: 'calc(100vh - 120px)' }}
-                title={kycPreviewPanel.fileName}
-              />
-            )}
+          {/* Panel Content — shows all uploaded ID images */}
+          <div className="flex-1 overflow-auto p-3">
+            {kycPreviewPanel.blobUrls.map((blobUrl, i) => {
+              const ext = kycPreviewPanel.originalUrls[i]?.split('?')[0].split('.').pop()?.toLowerCase() || ''
+              const isPdf = ext === 'pdf'
+              return (
+                <div key={i} style={{ marginBottom: i < kycPreviewPanel.blobUrls.length - 1 ? 12 : 0 }}>
+                  {kycPreviewPanel.blobUrls.length > 1 && (
+                    <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textMuted }}>
+                      {i === 0 ? 'Front' : i === 1 ? 'Back' : `Photo ${i + 1}`}
+                    </p>
+                  )}
+                  {isPdf ? (
+                    <iframe
+                      src={blobUrl}
+                      className="w-full border-0 rounded-lg"
+                      style={{ height: 400, border: `1px solid ${colors.border}` }}
+                      title={`${kycPreviewPanel.fileName} ${i + 1}`}
+                    />
+                  ) : (
+                    <img
+                      src={blobUrl}
+                      alt={`${kycPreviewPanel.fileName} ${i + 1}`}
+                      className="w-full rounded-lg"
+                      style={{ border: `1px solid ${colors.border}` }}
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
           {/* Panel Footer — Approve/Reject actions */}
           <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0" style={{ borderTop: `1px solid ${colors.border}`, background: colors.pageBg }}>

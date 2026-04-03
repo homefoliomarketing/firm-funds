@@ -14,10 +14,10 @@ export default function KycMobileUploadPage() {
 
   const [status, setStatus] = useState<PageStatus>('loading')
   const [agentName, setAgentName] = useState('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [documentType, setDocumentType] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   useEffect(() => {
     async function validate() {
@@ -42,18 +42,22 @@ export default function KycMobileUploadPage() {
       setError('Please upload a JPEG, PNG, or PDF.')
       return
     }
-    setSelectedFile(file)
-    // Generate preview for images
+    setSelectedFiles(prev => [...prev, file])
     if (file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file)
-      setPreviewUrl(url)
+      setPreviewUrls(prev => [...prev, URL.createObjectURL(file)])
     } else {
-      setPreviewUrl(null)
+      setPreviewUrls(prev => [...prev, ''])
     }
   }
 
+  const removeFile = (index: number) => {
+    if (previewUrls[index]) URL.revokeObjectURL(previewUrls[index])
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index))
+  }
+
   const handleSubmit = async () => {
-    if (!selectedFile || !documentType) {
+    if (selectedFiles.length === 0 || !documentType) {
       setError('Please select your ID type and upload a photo.')
       return
     }
@@ -61,7 +65,9 @@ export default function KycMobileUploadPage() {
     setError(null)
 
     const formData = new FormData()
-    formData.append('file', selectedFile)
+    for (const file of selectedFiles) {
+      formData.append('files', file)
+    }
     formData.append('documentType', documentType)
 
     const result = await submitKycViaMobileToken({ token, formData })
@@ -251,63 +257,89 @@ export default function KycMobileUploadPage() {
           {/* Camera / file upload */}
           <div style={{ marginBottom: 18 }}>
             <label style={{ display: 'block', color: '#AAA', fontSize: 13, fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Photo of your ID
+              Photo of your ID {selectedFiles.length > 0 && `(${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''})`}
             </label>
 
-            {/* Preview */}
-            {previewUrl && (
-              <div style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #3A3A3A' }}>
-                <img src={previewUrl} alt="ID preview" style={{ width: '100%', display: 'block' }} />
+            {/* Previews for all selected files */}
+            {selectedFiles.map((file, i) => (
+              <div key={i} style={{ marginBottom: 10, position: 'relative' }}>
+                {previewUrls[i] ? (
+                  <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #3A3A3A' }}>
+                    <img src={previewUrls[i]} alt={`ID photo ${i + 1}`} style={{ width: '100%', display: 'block' }} />
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
+                    background: '#252525', borderRadius: 10, border: '1px solid #3A3A3A',
+                  }}>
+                    <FileText size={20} style={{ color: '#5FA873' }} />
+                    <span style={{ fontSize: 14, flex: 1 }}>{file.name}</span>
+                    <span style={{ fontSize: 12, color: '#888' }}>
+                      {(file.size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeFile(i)}
+                  style={{
+                    position: 'absolute', top: 8, right: 8,
+                    background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%',
+                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', color: '#E07B7B',
+                  }}
+                  title="Remove"
+                >
+                  <XCircle size={16} />
+                </button>
+                <div style={{
+                  position: 'absolute', top: 8, left: 8,
+                  background: 'rgba(0,0,0,0.7)', borderRadius: 6,
+                  padding: '2px 8px', fontSize: 11, color: '#AAA', fontWeight: 600,
+                }}>
+                  {i === 0 ? 'Front' : i === 1 ? 'Back' : `Photo ${i + 1}`}
+                </div>
               </div>
-            )}
+            ))}
 
-            {selectedFile && !previewUrl && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
-                background: '#252525', borderRadius: 10, border: '1px solid #3A3A3A', marginBottom: 12,
-              }}>
-                <FileText size={20} style={{ color: '#5FA873' }} />
-                <span style={{ fontSize: 14, flex: 1 }}>{selectedFile.name}</span>
-                <span style={{ fontSize: 12, color: '#888' }}>
-                  {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
-                </span>
-              </div>
-            )}
-
-            {/* Two buttons: Camera and File */}
+            {/* Camera and File buttons */}
             <div style={{ display: 'flex', gap: 10 }}>
               <label style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                padding: '16px 12px', borderRadius: 12, cursor: 'pointer',
+                padding: selectedFiles.length > 0 ? '12px 10px' : '16px 12px', borderRadius: 12, cursor: 'pointer',
                 background: '#252525', border: '2px dashed #5FA873', color: '#5FA873',
-                fontSize: 15, fontWeight: 600, textAlign: 'center',
+                fontSize: selectedFiles.length > 0 ? 14 : 15, fontWeight: 600, textAlign: 'center',
               }}>
-                <Camera size={20} />
-                Take Photo
+                <Camera size={selectedFiles.length > 0 ? 16 : 20} />
+                {selectedFiles.length > 0 ? 'Add Photo' : 'Take Photo'}
                 <input
                   type="file"
                   accept="image/*"
                   capture="environment"
                   style={{ display: 'none' }}
-                  onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]) }}
+                  onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
                 />
               </label>
               <label style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                padding: '16px 12px', borderRadius: 12, cursor: 'pointer',
+                padding: selectedFiles.length > 0 ? '12px 10px' : '16px 12px', borderRadius: 12, cursor: 'pointer',
                 background: '#252525', border: '1px solid #3A3A3A', color: '#AAA',
-                fontSize: 15, fontWeight: 600, textAlign: 'center',
+                fontSize: selectedFiles.length > 0 ? 14 : 15, fontWeight: 600, textAlign: 'center',
               }}>
-                <Upload size={20} />
-                Choose File
+                <Upload size={selectedFiles.length > 0 ? 16 : 20} />
+                {selectedFiles.length > 0 ? 'Add File' : 'Choose File'}
                 <input
                   type="file"
                   accept=".jpg,.jpeg,.png,.pdf"
                   style={{ display: 'none' }}
-                  onChange={e => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]) }}
+                  onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
                 />
               </label>
             </div>
+            {selectedFiles.length === 1 && (
+              <p style={{ color: '#5FA873', fontSize: 12, textAlign: 'center', margin: '8px 0 0', fontWeight: 500 }}>
+                If your ID has two sides, add the back too
+              </p>
+            )}
           </div>
 
           {/* Error */}
@@ -324,12 +356,12 @@ export default function KycMobileUploadPage() {
           {/* Submit */}
           <button
             onClick={handleSubmit}
-            disabled={!selectedFile || !documentType}
+            disabled={selectedFiles.length === 0 || !documentType}
             style={{
               ...btn,
-              background: (!selectedFile || !documentType) ? '#333' : '#5FA873',
-              color: (!selectedFile || !documentType) ? '#666' : '#fff',
-              cursor: (!selectedFile || !documentType) ? 'not-allowed' : 'pointer',
+              background: (selectedFiles.length === 0 || !documentType) ? '#333' : '#5FA873',
+              color: (selectedFiles.length === 0 || !documentType) ? '#666' : '#fff',
+              cursor: (selectedFiles.length === 0 || !documentType) ? 'not-allowed' : 'pointer',
             }}
           >
             Submit for Verification
