@@ -127,12 +127,14 @@ export default function NewDealPage() {
 
   const handleConfirmSubmit = async () => {
     setError(null); setSubmitting(true); setShowConfirmation(false)
+    let dealSubmitted = false
     try {
       const result = await submitDeal({
         propertyAddress, closingDate, grossCommission: parseFloat(grossCommission),
         brokerageSplitPct: parseFloat(brokerageSplitPct), transactionType, notes: notes.trim() || undefined,
       })
       if (!result.success) { setError(result.error || 'Failed to submit deal. Please try again.'); setSubmitting(false); return }
+      dealSubmitted = true
       if (result.data) {
         setPreview({
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
@@ -141,24 +143,36 @@ export default function NewDealPage() {
         })
       }
 
-      // Upload any attached documents
+      // Upload any attached documents (errors here won't block deal success)
       if (selectedFiles.length > 0 && result.data?.dealId) {
         setUploadingDocs(true)
         const results: { name: string; success: boolean; error?: string }[] = []
         for (const { file, docType } of selectedFiles) {
-          const fd = new FormData()
-          fd.append('file', file)
-          fd.append('dealId', result.data.dealId)
-          fd.append('documentType', docType)
-          const uploadResult = await uploadDocument(fd)
-          results.push({ name: file.name, success: uploadResult.success, error: uploadResult.error })
+          try {
+            const fd = new FormData()
+            fd.append('file', file)
+            fd.append('dealId', result.data.dealId)
+            fd.append('documentType', docType)
+            const uploadResult = await uploadDocument(fd)
+            results.push({ name: file.name, success: uploadResult.success, error: uploadResult.error })
+          } catch {
+            results.push({ name: file.name, success: false, error: 'Upload failed — you can upload this from your dashboard' })
+          }
         }
         setUploadResults(results)
         setUploadingDocs(false)
       }
 
       setSubmitted(true)
-    } catch (err) { setError('An unexpected error occurred. Please try again.'); setSubmitting(false) }
+    } catch (err) {
+      if (dealSubmitted) {
+        // Deal went through but something after it crashed — still show success
+        setSubmitted(true)
+      } else {
+        setError('An unexpected error occurred. Please try again.')
+        setSubmitting(false)
+      }
+    }
   }
 
   const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
