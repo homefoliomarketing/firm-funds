@@ -187,6 +187,18 @@ export async function createAgent(input: {
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
+    const email = input.email.trim().toLowerCase()
+
+    // Check if agent email already exists (exclude archived agents so emails can be reused)
+    const { data: existingAgent } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('email', email)
+      .neq('status', 'archived')
+      .maybeSingle()
+
+    if (existingAgent) return { success: false, error: 'An agent with this email already exists' }
+
     const serviceClient = createServiceRoleClient()
     const { data: agent, error: insertError } = await serviceClient
       .from('agents')
@@ -194,7 +206,7 @@ export async function createAgent(input: {
         brokerage_id: input.brokerageId,
         first_name: input.firstName.trim(),
         last_name: input.lastName.trim(),
-        email: input.email.trim().toLowerCase(),
+        email,
         phone: input.phone?.trim() || null,
         reco_number: input.recoNumber?.trim() || null,
         status: 'active',
@@ -266,11 +278,12 @@ export async function bulkImportAgents(input: {
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-    // Get existing agent emails for this brokerage to skip duplicates
+    // Get existing agent emails for this brokerage to skip duplicates (exclude archived)
     const { data: existingAgents } = await supabase
       .from('agents')
       .select('email')
       .eq('brokerage_id', input.brokerageId)
+      .neq('status', 'archived')
 
     const existingEmails = new Set((existingAgents || []).map(a => a.email.toLowerCase()))
 
@@ -592,11 +605,12 @@ export async function inviteAgent(input: {
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-    // Check if agent email already exists
+    // Check if agent email already exists (exclude archived agents so emails can be reused)
     const { data: existingAgent } = await supabase
       .from('agents')
       .select('id')
       .eq('email', email)
+      .neq('status', 'archived')
       .maybeSingle()
 
     if (existingAgent) return { success: false, error: 'An agent with this email already exists' }
