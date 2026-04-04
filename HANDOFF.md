@@ -1,6 +1,6 @@
 # Firm Funds — Developer Handoff Document
 
-**Last Updated:** April 4, 2026 (Session 7)
+**Last Updated:** April 4, 2026 (End of Session 7)
 **Owner:** Bud (homefoliomarketing@gmail.com)
 **Project:** Firm Funds Inc. (firmfunds.ca) — Commission Advance Platform for Ontario Real Estate Agents
 **Repo:** GitHub (`github.com/homefoliomarketing/firm-funds`) → deployed via Netlify (every push to `main` auto-deploys to production, NO staging environment)
@@ -363,9 +363,9 @@ Full security audit performed — `SECURITY-AUDIT.md` in project root documents 
 **Files created:** `lib/csrf.ts`, `lib/file-validation.ts`, `migrations/004_audit_log_immutable.sql`, `SECURITY-AUDIT.md`
 
 #### Security Items Deferred to Launch ⏳
-- **C3/H4 — Rate limiting:** Needs infrastructure (Upstash Redis or similar rate-limit store)
-- **C5 — Temp passwords in email:** Architecture change to magic links. `must_reset_password` flow provides interim protection.
-- **M2 — Server-side session timeout:** Needs DB `last_active_at` tracking
+- ~~**C3/H4 — Rate limiting:**~~ ✅ DONE (Session 7). Upstash Redis sliding-window.
+- ~~**C5 — Temp passwords in email:**~~ ✅ DONE (Session 7). Magic link invites.
+- **M2 — Server-side session timeout:** Needs implementation. Currently only a client-side `SessionTimeout.tsx` component exists (needs review to confirm functionality). Should add server-side `last_active_at` tracking for robust enforcement.
 - **M5 — Pin dependency versions:** Config change, low risk
 - **M6 — Verify KYC storage encryption:** Supabase dashboard check
 - **MFA:** Bud plans to add multi-factor auth at launch
@@ -450,7 +450,7 @@ Wiped all test data (brokerages, agents, deals, documents, audit logs) while pre
 - Removed "Manage Brokerages" quick link button (Partner Brokerages card already links there)
 - Changed KPI grid from 4-column to 3-column layout (Total Deals, Total Advanced, Partner Brokerages)
 - Removed unused `totalAgents` query (one fewer DB call per page load)
-- Quick links trimmed to just Reports and Audit Trail
+- Quick links trimmed to Reports and Audit Trail, then Brokerages button restored (Session 7)
 **Files:** `app/(dashboard)/admin/page.tsx`
 
 ### Session 7: Rate Limiting, Desktop KYC Fix, Magic Link Invites (April 4, 2026)
@@ -549,26 +549,37 @@ Upstash Redis sliding-window rate limiting on login, password change, forgot pas
 All dead code identified in Sessions 1-3 has been removed.
 
 ### 5. Security Audit — MOSTLY COMPLETE ✅ (Session 5)
-19 of 24 findings fixed. See `SECURITY-AUDIT.md` for full details. Remaining items need infrastructure changes (rate limiting, magic links, session timeout).
+19 of 24 findings fixed. See `SECURITY-AUDIT.md` for full details. Remaining items need infrastructure changes (rate limiting ✅, magic links ✅, session timeout).
+
+### 6. Re-registering Previously Used Emails — PARTIAL FIX (Session 7)
+When archiving an agent, the code tries to delete their Supabase Auth user (`admin.deleteUser()`). This sometimes silently fails, leaving a ghost auth user that blocks `createUser()` on re-invite. The `inviteAgent()` function now has retry logic: if "already registered," it tries to find and delete the old auth user via `user_profiles` lookup → `admin.deleteUser()` → `listUsers` fallback → retry `createUser`. Two SQL helper functions were created (`get_auth_user_id_by_email`, `delete_auth_user_by_email`) but Supabase PostgREST doesn't reliably execute them via `.rpc()` due to auth schema access restrictions. **Most emails work fine on re-invite.** One specific email (`homefoliomarketing@gmail.com`) had a persistent ghost that couldn't be cleared programmatically — had to be nuked via direct SQL in Supabase SQL Editor. If this happens again: `DELETE FROM auth.identities WHERE user_id IN (SELECT id FROM auth.users WHERE email = 'the@email.com'); DELETE FROM auth.users WHERE email = 'the@email.com';` then retry.
 
 ---
 
 ## Planned / Future Work (Priority Order)
 
-1. ~~**Rate limiting (C3/H4)**~~ — ✅ DONE (Session 7). Upstash Redis sliding-window rate limiting.
-2. **Multi-factor authentication** — Bud plans to add at launch. Supabase Auth supports TOTP.
-3. **E-signature integration** (DocuSign/HelloSign) — needs account + API key. Required for agents to sign commission purchase agreements digitally.
-4. **Nexone integration** — see detailed notes below
-5. ~~**Convert desktop KYC upload to signed URL pattern**~~ — ✅ DONE (Session 7).
-6. ~~**Document request UI**~~ — ✅ DONE (was already built, discovered in Session 7).
-7. ~~**Magic link invites (C5)**~~ — ✅ DONE (Session 7). Invite emails now have "Set Up My Account" button.
+### Completed ✅
+- ~~**Rate limiting (C3/H4)**~~ — Session 7. Upstash Redis sliding-window.
+- ~~**Convert desktop KYC upload to signed URL pattern**~~ — Session 7.
+- ~~**Document request UI**~~ — Already built, discovered in Session 7.
+- ~~**Magic link invites (C5)**~~ — Session 7. "Set Up My Account" button in emails.
+- ~~**Silent brokerage onboarding**~~ — Session 7. Agents added without email, "Send Welcome to All" when ready.
+
+### Next Up (Session 8 Focus)
+1. **Session timeout hardening (M2)** — A `SessionTimeout.tsx` component exists but needs review. Goal: robust idle detection (mouse/keyboard/scroll activity), configurable timeout (e.g. 30 min), "session expiring" warning modal before logout, server-side `last_active_at` tracking in user_profiles for defense-in-depth. Security audit item M2.
+2. **Brokerage payment tracking completion** — Migration 010 created the DB tables for tracking payments between Firm Funds and brokerages. Need to audit what UI exists vs what's missing. Goal: admin can view outstanding balances per brokerage, record payments received, track partial payments, see payment history, reconciliation view.
+3. **Agent deal history and commission tracking improvements** — Agents can see their deals but the experience could be richer. Goal: cleaner timeline/history view, running totals (advanced vs earned), better status tracking through deal lifecycle, filtering/search on agent dashboard.
+
+### Future
+4. **Multi-factor authentication** — Bud plans to add at launch. Supabase Auth supports TOTP.
+5. **E-signature integration** (DocuSign/HelloSign) — needs account + API key. Required for agents to sign commission purchase agreements digitally.
+6. **Nexone integration** — see detailed notes below
+7. **Additional admin reporting features** — Monthly advance totals, revenue per brokerage, agent activity metrics, pipeline health, aging reports on outstanding advances.
 8. **FINTRAC compliance reporting/documentation** — needs legal guidance
-9. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
-10. **Agent deal history and commission tracking improvements**
-11. **Additional admin reporting features**
-12. **Mobile-responsive optimization**
-13. **Set up external scheduler** for daily closing date alerts (CRON_SECRET env var is configured)
-14. **Professional penetration test** — recommended before handling real financial data
+9. **Mobile-responsive optimization**
+10. **Set up external scheduler** for daily closing date alerts (CRON_SECRET env var is configured)
+11. **Professional penetration test** — recommended before handling real financial data
+12. **Dead code cleanup** — `submitAgentKyc` in `kyc-actions.ts` is unused. SQL helper functions `get_auth_user_id_by_email` and `delete_auth_user_by_email` exist in DB but aren't reliably callable via RPC.
 
 ### Nexone Integration — Strategic Priority
 
@@ -627,8 +638,7 @@ Nexone is a trade record management platform used by some Ontario real estate br
 - **Production**: `firmfunds.ca` (Netlify)
 - **Admin login**: `bud@firmfunds.ca` (super_admin)
 - **Admin login**: James (super_admin) — second admin account
-- **Test data**: Wiped clean in Session 6. No brokerages, agents, or deals. Fresh start.
-- **Previous test agent**: `bud.jones@century21.ca` at Century 21 Choice Realty (deleted in wipe)
+- **Test data**: Wiped clean in Session 6, then Bud re-added brokerages and agents during Session 7 testing. Some test agents exist.
 
 ### Environment Variables (Netlify)
 - `NEXT_PUBLIC_SUPABASE_URL`
