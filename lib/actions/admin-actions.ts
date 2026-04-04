@@ -628,45 +628,57 @@ export async function inviteAgent(input: {
     }
 
     // 2. Create auth user with a random password (agent will set their own via magic link)
-    //    If the email already exists in Supabase Auth (e.g. previously archived agent), reuse that auth user
+    //    If the email already exists in Supabase Auth (e.g. previously archived agent),
+    //    delete the old auth user + profile and create fresh
     const tempPassword = generateTempPassword()  // Used only as initial placeholder — never shown to agent
 
     let authUserId: string
 
-    const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
+    let { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email,
       password: tempPassword,
       email_confirm: true,
     })
 
     if (signUpError && signUpError.message?.includes('already been registered')) {
-      // Email exists in Supabase Auth (e.g. previously archived/deleted agent) — find and reuse
-      // Query auth.users directly via database function (reliable, no pagination issues)
-      const { data: foundUserId, error: rpcError } = await serviceClient
-        .rpc('get_auth_user_id_by_email', { lookup_email: email })
+      // Email exists in Supabase Auth (e.g. previously archived agent)
+      // Delete the old auth user entirely via direct DB query, then create fresh
+      const { error: deleteErr } = await serviceClient.rpc('delete_auth_user_by_email', { lookup_email: email })
 
-      if (rpcError || !foundUserId) {
-        console.error('Auth user exists but RPC lookup failed:', rpcError?.message || 'no user found', email)
+      if (deleteErr) {
+        console.error('Failed to delete old auth user:', deleteErr.message)
         return {
           success: false,
-          error: `Agent record created but login creation failed: Could not find existing auth user for ${email}. Run the get_auth_user_id_by_email migration, then retry.`,
+          error: `Agent record created but login creation failed: could not clean up old auth user for ${email}. Run the delete_auth_user_by_email migration in Supabase.`,
           data: { agentId: agent.id, agentCreated: true, loginCreated: false },
         }
       }
 
-      authUserId = foundUserId
+      // Clean up any old user_profile linked to that auth user
+      await serviceClient
+        .from('user_profiles')
+        .delete()
+        .eq('email', email)
 
-      // Reset the password and ensure the user is confirmed + active
-      await serviceClient.auth.admin.updateUserById(authUserId, {
+      // Now create a fresh auth user
+      const retry = await serviceClient.auth.admin.createUser({
+        email,
         password: tempPassword,
         email_confirm: true,
       })
 
-      // Clean up any old user_profile for this auth user (from a previous agent record)
-      await serviceClient
-        .from('user_profiles')
-        .delete()
-        .eq('id', authUserId)
+      if (retry.error || !retry.data?.user) {
+        console.error('Auth user create retry error:', retry.error?.message)
+        return {
+          success: false,
+          error: `Agent record created but login creation failed on retry: ${retry.error?.message || 'Unknown error'}. Create the login manually via the Supabase dashboard.`,
+          data: { agentId: agent.id, agentCreated: true, loginCreated: false },
+        }
+      }
+
+      authData = retry.data
+      signUpError = retry.error
+      authUserId = retry.data.user.id
 
     } else if (signUpError || !authData?.user) {
       console.error('Auth user create error:', signUpError?.message)
