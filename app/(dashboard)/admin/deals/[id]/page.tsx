@@ -890,11 +890,11 @@ export default function DealDetailPage() {
   const nextStatuses = STATUS_FLOW[deal.status] || []
   const categorizedChecklist = categorizeChecklist(checklist)
 
-  const docPanelWidth = 520
+  // docPanelWidth removed — viewer is now inline
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
       {/* Main content area — shrinks when doc panel is open */}
-      <div style={{ marginRight: viewingDoc ? docPanelWidth : 0, transition: 'margin-right 0.2s ease-out' }}>
+      <div>
       {/* HEADER */}
       <header style={{ background: colors.headerBgGradient }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
@@ -1794,9 +1794,54 @@ export default function DealDetailPage() {
           </div>
         </div>
 
-        {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS RIGHT) */}
+        {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS/VIEWER RIGHT) */}
         <div className="mb-4">
           <h2 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Underwriting</h2>
+
+          {/* Document bar — compact horizontal list when viewer is open */}
+          {viewingDoc && (
+            <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto" style={{ borderBottom: documents.length > 0 ? `1px solid ${colors.divider}` : 'none' }}>
+                <Paperclip className="w-3.5 h-3.5 flex-shrink-0" style={{ color: colors.gold }} />
+                <span className="text-xs font-semibold flex-shrink-0" style={{ color: colors.gold }}>Documents ({documents.length})</span>
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  {documents.map(doc => {
+                    const isActive = viewingDoc?.fileName === doc.file_name
+                    const ext = doc.file_name.toLowerCase().split('.').pop() || ''
+                    const isViewable = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+                    return (
+                      <button
+                        key={doc.id}
+                        onClick={() => isViewable ? handleDocumentView(doc) : handleDocumentDownload(doc)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all flex-shrink-0"
+                        style={{
+                          background: isActive ? `${colors.gold}20` : colors.tableHeaderBg,
+                          color: isActive ? colors.gold : colors.textSecondary,
+                          border: `1px solid ${isActive ? colors.gold : colors.border}`,
+                        }}
+                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.borderColor = colors.gold }}
+                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.borderColor = colors.border }}
+                      >
+                        <FileText className="w-3 h-3" />
+                        {doc.file_name.length > 25 ? doc.file_name.slice(0, 22) + '...' : doc.file_name}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  onClick={() => setShowDocRequest(!showDocRequest)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium flex-shrink-0 transition-colors"
+                  style={{ background: colors.gold, color: '#FFFFFF' }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  <Send className="w-3 h-3" />
+                  Request
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* LEFT: CHECKLIST */}
             <div className="space-y-2">
@@ -1903,7 +1948,73 @@ export default function DealDetailPage() {
               ))}
             </div>
 
-            {/* RIGHT: DOCUMENTS */}
+            {/* RIGHT: INLINE VIEWER (when viewing) or DOCUMENTS (when not) */}
+            {viewingDoc ? (
+              <div className="rounded-lg overflow-hidden flex flex-col" style={{
+                background: colors.cardBg,
+                border: `2px solid ${colors.gold}`,
+                minHeight: 500,
+                maxHeight: 'calc(100vh - 120px)',
+                position: 'sticky',
+                top: 16,
+              }}>
+                {/* Inline viewer header */}
+                <div className="flex items-center justify-between px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}`, background: colors.goldBg }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText size={13} style={{ color: colors.gold }} />
+                    <p className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                      className="p-1 rounded transition"
+                      style={{ color: colors.textSecondary }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
+                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+                      title="Open in new tab"
+                    >
+                      <ExternalLink size={13} />
+                    </button>
+                    <button
+                      onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                      className="p-1 rounded transition"
+                      style={{ color: colors.textSecondary }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
+                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+                      title="Download"
+                    >
+                      <Download size={13} />
+                    </button>
+                    <button
+                      onClick={closeDocViewer}
+                      className="p-1 rounded transition"
+                      style={{ color: colors.textMuted }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+                {/* Inline viewer content */}
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  {viewingDoc.type === 'image' ? (
+                    <ImageZoomViewer src={viewingDoc.blobUrl} alt={viewingDoc.fileName} />
+                  ) : viewingDoc.pdfData ? (
+                    <PdfCanvasViewer pdfData={viewingDoc.pdfData} />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+                      <p style={{ color: colors.textSecondary }} className="text-sm text-center">Unable to render PDF.</p>
+                      <button
+                        onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
+                        className="px-4 py-2 rounded text-sm font-medium"
+                        style={{ backgroundColor: colors.gold, color: '#fff' }}
+                      >Open in New Tab</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
             <div className="rounded-lg overflow-hidden" style={{
               background: colors.cardBg,
               border: `1px solid ${colors.border}`,
@@ -2110,6 +2221,7 @@ export default function DealDetailPage() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
 
@@ -2171,84 +2283,7 @@ export default function DealDetailPage() {
       </main>
       </div>{/* end of content area that shrinks */}
 
-      {/* Document Side Panel — sits beside main content, not on top */}
-      {viewingDoc && (
-        <div
-          className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl"
-          style={{
-            width: docPanelWidth,
-            background: colors.cardBg,
-            borderLeft: `2px solid ${colors.gold}`,
-            animation: 'slideInRight 0.2s ease-out',
-          }}
-        >
-          {/* Panel Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
-            <div className="flex items-center gap-2 min-w-0">
-              <FileText size={14} style={{ color: colors.gold }} />
-              <p className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition"
-                style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
-                onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
-                title="Open in new tab"
-              >
-                <ExternalLink size={11} />
-              </button>
-              <button
-                onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition"
-                style={{ background: colors.inputBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
-                title="Download"
-              >
-                <Download size={11} />
-              </button>
-              <button
-                onClick={closeDocViewer}
-                className="p-1 rounded transition"
-                style={{ color: colors.textMuted }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-          {/* Panel Content */}
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {viewingDoc.type === 'image' ? (
-              <ImageZoomViewer src={viewingDoc.blobUrl} alt={viewingDoc.fileName} />
-            ) : viewingDoc.pdfData ? (
-              <PdfCanvasViewer pdfData={viewingDoc.pdfData} />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
-                <p style={{ color: colors.textSecondary }} className="text-sm text-center">
-                  Unable to render PDF.
-                </p>
-                <button
-                  onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                  className="px-4 py-2 rounded text-sm font-medium"
-                  style={{ backgroundColor: colors.gold, color: '#fff' }}
-                >
-                  Open in New Tab
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      <style>{`
-        @keyframes slideInRight {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
-        }
-      `}</style>
+      {/* Side panel removed — viewer is now inline next to checklist */}
     </div>
   )
 }
