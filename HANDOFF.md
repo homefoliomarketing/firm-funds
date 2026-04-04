@@ -1,6 +1,6 @@
 # Firm Funds — Developer Handoff Document
 
-**Last Updated:** April 4, 2026 (Session 6)
+**Last Updated:** April 4, 2026 (Session 7)
 **Owner:** Bud (homefoliomarketing@gmail.com)
 **Project:** Firm Funds Inc. (firmfunds.ca) — Commission Advance Platform for Ontario Real Estate Agents
 **Repo:** GitHub (`github.com/homefoliomarketing/firm-funds`) → deployed via Netlify (every push to `main` auto-deploys to production, NO staging environment)
@@ -124,17 +124,21 @@ app/
 │   ├── audit/export/route.ts       # Audit log CSV/JSON export (auth + CSRF protected) (Session 6)
 │   ├── clear-reset-flag/route.ts   # Clears must_reset_password DB flag (fire-and-forget)
 │   ├── kyc-mobile-upload/route.ts  # Mobile KYC: POST=get signed URLs, PUT=finalize DB
+│   ├── kyc-desktop-upload/route.ts  # Desktop KYC: POST=get signed URLs, PUT=finalize DB (Session 7)
 │   ├── kyc-validate-token/route.ts # Validate KYC upload tokens
+│   ├── magic-link/route.ts         # Magic link: POST=validate token, PUT=set password (Session 7)
+│   ├── rate-limit/route.ts         # Rate limit check for client-side pages (Session 7)
 │   ├── cron/closing-date-alerts/   # Scheduled cron job
 │   ├── reports/referral-fees/      # Report generation
 │   └── seed/                       # DB seed (dev only)
+├── invite/[token]/page.tsx         # Magic link invite — set password page (Session 7)
 ├── kyc-upload/[token]/page.tsx     # Public mobile KYC upload (token-based, no auth)
 ├── layout.tsx
 ├── page.tsx                        # Root redirect
 └── globals.css
 
 components/
-├── AgentKycGate.tsx                # KYC upload + mobile link + 5s polling for status
+├── AgentKycGate.tsx                # KYC upload (signed URLs, Session 7) + mobile link + 5s polling
 ├── AuditTimeline.tsx               # Visual audit timeline with severity dots, diffs (Session 6)
 ├── SessionTimeout.tsx
 └── SignOutModal.tsx                 # (+ logout audit logging, Session 6)
@@ -155,14 +159,15 @@ lib/
 ├── calculations.ts                 # Deal financial calculations (server-side ONLY)
 ├── constants.ts                    # Status badges, KYC types, upload limits
 ├── csrf.ts                         # CSRF origin validation utility (Session 5)
-├── email.ts                        # All Resend email templates
+├── email.ts                        # All Resend email templates (magic link invite added Session 7)
 ├── file-validation.ts              # Magic byte file content verification (Session 5)
 ├── formatting.ts                   # Shared formatCurrency, formatCurrencyWhole, formatDate, formatDateTime
+├── rate-limit.ts                   # Upstash Redis rate limiting — login, password, API (Session 7)
 ├── theme.tsx                       # Theme context + color definitions
 └── validations.ts                  # Zod schemas (expanded Session 5: admin action schemas)
 
 middleware.ts                       # Auth, role-based routing, force password change
-                                    # Excludes: /login, /auth, /kyc-upload, /api/kyc-*
+                                    # Excludes: /login, /auth, /kyc-upload, /api/kyc-*, /invite, /api/magic-link, /api/rate-limit
                                     # Fixed: signs out users with missing profiles (prevents redirect loop)
 ```
 
@@ -209,6 +214,11 @@ Has: deal_id, label, checked, category (Agent Verification, Deal Document Review
 
 ### kyc_upload_tokens
 Has: token (32 hex bytes), agent_id, expires_at (30 min), used_at (single-use)
+
+### invite_tokens (Session 7)
+Has: token (32 hex bytes), user_id (FK → auth.users), agent_id (FK → agents), email, expires_at (72 hours), used_at (single-use), created_at
+- RLS enabled, no public policies (service_role only)
+- Indexed on token and user_id
 
 ### audit_log (Enhanced Session 6)
 Has: action, entity_type, entity_id, user_id, metadata (JSONB), created_at, severity (info/warning/critical), actor_email, actor_role, old_value (JSONB), new_value (JSONB), user_agent, session_id
@@ -443,6 +453,70 @@ Wiped all test data (brokerages, agents, deals, documents, audit logs) while pre
 - Quick links trimmed to just Reports and Audit Trail
 **Files:** `app/(dashboard)/admin/page.tsx`
 
+### Session 7: Rate Limiting, Desktop KYC Fix, Magic Link Invites (April 4, 2026)
+
+#### Rate Limiting with Upstash Redis ✅
+Implemented sliding-window rate limiting on all sensitive endpoints using Upstash Redis.
+
+**Rate limit tiers:**
+- Login: 5 attempts per 15 minutes per IP
+- Password change: 3 attempts per 15 minutes per IP
+- Password reset (forgot password): 3 attempts per 15 minutes per IP
+- API routes (general): 30 requests per minute per IP
+
+**Architecture:** Client-side pages (login, change-password) call `/api/rate-limit` before attempting the auth operation. API routes check rate limits server-side via `checkApiRateLimit()`. All rate limiting fails open (if Redis is down, requests are allowed through).
+
+**Files created:** `lib/rate-limit.ts`, `app/api/rate-limit/route.ts`
+**Files modified:** `app/(auth)/login/page.tsx`, `app/(auth)/change-password/page.tsx`, `app/api/clear-reset-flag/route.ts`, `app/api/audit/export/route.ts`, `app/api/kyc-mobile-upload/route.ts`, `next.config.ts` (CSP updated for upstash.io)
+
+**Environment variables added to Netlify:** `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+
+#### Desktop KYC Upload → Signed URL Pattern ✅
+Converted the desktop KYC upload in `AgentKycGate.tsx` from the old server-action-with-FormData pattern (which could hang on Netlify) to the same signed-upload-URL pattern used by mobile KYC uploads.
+
+**New 3-step flow:**
+1. POST `/api/kyc-desktop-upload` (tiny JSON) → get signed upload URLs
+2. PUT files directly to Supabase Storage signed URLs (bypasses Netlify entirely)
+3. PUT `/api/kyc-desktop-upload` (tiny JSON) → update DB records
+
+**Security:** Agent identity derived server-side from auth session (not from client request). Rate limited.
+
+**Files created:** `app/api/kyc-desktop-upload/route.ts`
+**Files modified:** `components/AgentKycGate.tsx` (removed `submitAgentKyc` import, replaced with fetch-based signed URL flow)
+
+**Note:** `submitAgentKyc` in `kyc-actions.ts` is now dead code (still exported but nothing imports it). Can be cleaned up in a future session.
+
+#### Magic Link Invites ✅
+Replaced temporary passwords in invite emails with secure one-time magic links. Agents now click a link to set their own password — no temp password is ever shown in email.
+
+**New flow:**
+1. Admin invites agent → auth user created with random placeholder password
+2. `invite_tokens` row created (32 random hex bytes, 72-hour expiry, single-use)
+3. Agent receives email with "Set Up My Account" button → `/invite/[token]`
+4. Agent sets their own password on the invite page (same 12+ char policy)
+5. Token marked as used, `must_reset_password` cleared, `password_changed` metadata set
+6. Agent redirected to login → logs in with their chosen password
+
+**Resend welcome email also uses magic links** — `resendAgentWelcomeEmail()` generates a new token and sends a magic link instead of a temp password. Falls back to temp password if user_id can't be found (shouldn't happen).
+
+**Database:** New `invite_tokens` table (migration `006_invite_tokens.sql`, applied).
+**Middleware:** Updated to allow `/invite`, `/api/magic-link`, `/api/rate-limit` without auth.
+
+**Files created:** `app/api/magic-link/route.ts`, `app/invite/[token]/page.tsx`, `migrations/006_invite_tokens.sql`
+**Files modified:** `lib/actions/admin-actions.ts` (inviteAgent + resendAgentWelcomeEmail), `lib/email.ts` (new magic link email template), `middleware.ts`
+
+### Brokerage Onboarding — Silent Agent Setup (Session 7)
+
+When onboarding a brokerage, adding agents no longer sends welcome emails immediately. This allows the admin to set up the entire brokerage roster first, then send all welcome emails at once when ready.
+
+**Changes:**
+- `inviteAgent()` accepts `skipEmail?: boolean` — when true, creates the auth user and login but skips sending the welcome email
+- New `sendWelcomeToAllBrokerageAgents()` server action — iterates all non-archived agents in a brokerage, generates magic link tokens, sends welcome emails. Returns `{ sent, failed }` counts.
+- Brokerages page: "Add Agent" now creates login silently (no email). "Send Welcome to All" button appears in the agent management toolbar to bulk-send welcome emails when ready.
+- Individual "Resend Welcome" button still exists per-agent for one-off re-sends.
+
+**Files modified:** `lib/actions/admin-actions.ts`, `app/(dashboard)/admin/brokerages/page.tsx`
+
 ---
 
 ## Server Actions Still in Use (Potential Hang Risk)
@@ -453,23 +527,23 @@ These server actions are still called from the codebase. Most work fine for smal
 |------|-----------|------|
 | `admin-actions.ts` | Agent CRUD, brokerage CRUD, archive, invite, resend welcome | Low (JSON only) |
 | `deal-actions.ts` | Deal CRUD, status changes, checklist, document metadata | Low (JSON only) |
-| `kyc-actions.ts` | `submitAgentKyc` (DESKTOP upload), verify, reject, mobile token | **HIGH for submitAgentKyc** — sends files through Netlify |
+| `kyc-actions.ts` | `submitAgentKyc` (DEAD CODE), verify, reject, mobile token | Low — `submitAgentKyc` no longer called (Session 7: desktop KYC uses signed URLs now) |
 | `report-actions.ts` | Report queries | Low (JSON only) |
 
-**⚠️ `submitAgentKyc` in `kyc-actions.ts` is still used for DESKTOP KYC uploads via `AgentKycGate.tsx`.** This could hang just like the mobile upload did. It should be converted to the same signed-upload-URL pattern.
+**`submitAgentKyc` in `kyc-actions.ts` is now dead code** — desktop KYC uploads were converted to the signed-URL pattern in Session 7. Can be removed in a future cleanup.
 
 ---
 
 ## Known Issues / Needs Attention
 
-### 1. Desktop KYC Upload May Hang — MEDIUM PRIORITY
-`AgentKycGate.tsx` still uses the `submitAgentKyc` server action for desktop uploads, which sends files through Netlify. This is the same pattern that caused mobile uploads to hang. Should be converted to signed upload URLs.
+### 1. Desktop KYC Upload May Hang — FIXED ✅ (Session 7)
+Converted to signed-URL pattern. `AgentKycGate.tsx` now uses `/api/kyc-desktop-upload` (same pattern as mobile).
 
 ### 2. `.claude/worktrees` Git Corruption — RECURRING
 A `.claude/worktrees` submodule reference sometimes gets staged. Fix: `git reset HEAD .claude` on Bud's machine before committing.
 
-### 3. Rate Limiting Not Yet Implemented — LAUNCH BLOCKER
-Login, API routes, and password change have no rate limiting. Needs Upstash Redis or similar infrastructure. See SECURITY-AUDIT.md items C3/H4.
+### 3. Rate Limiting — IMPLEMENTED ✅ (Session 7)
+Upstash Redis sliding-window rate limiting on login, password change, forgot password, and all API routes. See `lib/rate-limit.ts`.
 
 ### 4. Dead Code — CLEANED UP ✅ (Session 4)
 All dead code identified in Sessions 1-3 has been removed.
@@ -481,13 +555,13 @@ All dead code identified in Sessions 1-3 has been removed.
 
 ## Planned / Future Work (Priority Order)
 
-1. **Rate limiting (C3/H4)** — needs Upstash Redis or Netlify rate limit config. Login, password change, and API routes are unprotected.
+1. ~~**Rate limiting (C3/H4)**~~ — ✅ DONE (Session 7). Upstash Redis sliding-window rate limiting.
 2. **Multi-factor authentication** — Bud plans to add at launch. Supabase Auth supports TOTP.
 3. **E-signature integration** (DocuSign/HelloSign) — needs account + API key. Required for agents to sign commission purchase agreements digitally.
 4. **Nexone integration** — see detailed notes below
-5. **Convert desktop KYC upload to signed URL pattern** — prevent potential Netlify hang
-6. **Document request UI** — admin button to request specific documents from agents (email function `sendDocumentRequestNotification()` exists, no UI yet)
-7. **Magic link invites (C5)** — replace temp passwords in emails with secure magic links
+5. ~~**Convert desktop KYC upload to signed URL pattern**~~ — ✅ DONE (Session 7).
+6. ~~**Document request UI**~~ — ✅ DONE (was already built, discovered in Session 7).
+7. ~~**Magic link invites (C5)**~~ — ✅ DONE (Session 7). Invite emails now have "Set Up My Account" button.
 8. **FINTRAC compliance reporting/documentation** — needs legal guidance
 9. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
 10. **Agent deal history and commission tracking improvements**
@@ -538,6 +612,7 @@ Nexone is a trade record management platform used by some Ontario real estate br
 | — | Partial unique index on agents.email (excludes archived) | Applied manually |
 | 004* | Audit log immutability (RLS + triggers, prevents UPDATE/DELETE) | Applied (Session 5) |
 | 005* | Audit log enhanced (7 new columns, severity, diffs, indexes) | Applied (Session 6) |
+| 006* | Invite tokens for magic link invites | Applied (Session 7) |
 
 *Note: `migrations/004_*` and `005_*` — numbering is in the `migrations/` directory (separate from `supabase/migrations/`).
 
@@ -563,6 +638,8 @@ Nexone is a trade record management platform used by some Ontario real estate br
 - `SEED_SECRET` — random string for seed route auth (added Session 5)
 - `CRON_SECRET` — random string for cron job Bearer token auth (added Session 5)
 - `ENABLE_SEED` — only set to `true` if you need to seed in production (leave absent to block)
+- `UPSTASH_REDIS_REST_URL` — Upstash Redis REST API URL for rate limiting (added Session 7)
+- `UPSTASH_REDIS_REST_TOKEN` — Upstash Redis auth token (added Session 7)
 
 ---
 
@@ -671,3 +748,6 @@ git push origin main
 16. **`'use server'` files can ONLY export async functions** — no constants, no sync functions, no types. If client components need shared labels/types, put them in a separate file WITHOUT `'use server'`. See `audit.ts` vs `audit-labels.ts` split.
 17. **Audit log diffs** — when editing deals or changing status, always capture old_value and new_value via `diffValues()` from `lib/audit.ts`
 18. **Data wipe gotchas** — must DROP audit immutability triggers before DELETE; use individual SQL statements (not `DO $` blocks); storage buckets must be emptied via Supabase Dashboard
+19. **Rate limiting** — `lib/rate-limit.ts` with Upstash Redis. Client pages call `/api/rate-limit` before auth ops. API routes use `checkApiRateLimit()` directly. Fails open if Redis is down.
+20. **Magic link invites** — `inviteAgent()` and `resendAgentWelcomeEmail()` generate tokens in `invite_tokens` table. Agents set password at `/invite/[token]`. Tokens expire in 72 hours, single-use.
+21. **Desktop KYC uploads** — use `/api/kyc-desktop-upload` (signed URL pattern), NOT the `submitAgentKyc` server action (dead code)

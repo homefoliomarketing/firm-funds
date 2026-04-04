@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents } from '@/lib/actions/admin-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
@@ -301,15 +301,16 @@ export default function BrokeragesPage() {
     setSubmitting(true)
 
     if (sendInvite) {
-      // Create agent record + auth user + send invite email
+      // Create agent record + auth user (no email yet — send in bulk when brokerage is ready)
       const result = await inviteAgent({
         brokerageId,
         firstName: agentForm.firstName, lastName: agentForm.lastName,
         email: agentForm.email, phone: agentForm.phone || undefined,
         recoNumber: agentForm.recoNumber || undefined,
+        skipEmail: true,
       })
       if (result.success) {
-        setStatusMessage({ type: 'success', text: `Agent added and invite email sent to ${agentForm.email}` })
+        setStatusMessage({ type: 'success', text: `Agent added with login created. Use "Send Welcome to All" when ready.` })
         setAgentForm(emptyAgentForm)
         setSendInvite(true)
         setShowAddAgentFor(null)
@@ -523,9 +524,28 @@ export default function BrokeragesPage() {
   }
 
   const [resendingAgentId, setResendingAgentId] = useState<string | null>(null)
+  const [sendingAllFor, setSendingAllFor] = useState<string | null>(null)
+
+  const handleSendWelcomeToAll = async (brokerageId: string, brokerageName: string) => {
+    if (!confirm(`Send welcome emails to ALL active agents at ${brokerageName}? Each agent will receive a magic link to set up their account.`)) return
+    setSendingAllFor(brokerageId)
+    const result = await sendWelcomeToAllBrokerageAgents({ brokerageId })
+    if (result.success) {
+      const sent = result.data?.sent || 0
+      const failed = result.data?.failed || 0
+      if (failed > 0) {
+        setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}. ${failed} failed — use individual resend for those.` })
+      } else {
+        setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}!` })
+      }
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send welcome emails' })
+    }
+    setSendingAllFor(null)
+  }
 
   const handleResendWelcome = async (agentId: string, agentName: string) => {
-    if (!confirm(`Resend welcome email to ${agentName}? This will generate a new temporary password.`)) return
+    if (!confirm(`Resend welcome email to ${agentName}? This will generate a new magic link.`)) return
     setResendingAgentId(agentId)
     const result = await resendAgentWelcomeEmail({ agentId })
     if (result.success) {
@@ -1262,6 +1282,17 @@ export default function BrokeragesPage() {
                               >
                                 <Download size={13} /> Template
                               </button>
+                              <button
+                                onClick={() => handleSendWelcomeToAll(brokerage.id, brokerage.name)}
+                                disabled={sendingAllFor === brokerage.id}
+                                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                style={{ color: colors.gold, border: `1px solid ${colors.border}`, opacity: sendingAllFor === brokerage.id ? 0.6 : 1 }}
+                                onMouseEnter={(e) => { if (sendingAllFor !== brokerage.id) { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold } }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.border }}
+                                title="Send welcome email with magic link to all agents in this brokerage"
+                              >
+                                <Mail size={13} /> {sendingAllFor === brokerage.id ? 'Sending...' : 'Send Welcome to All'}
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1297,10 +1328,10 @@ export default function BrokeragesPage() {
                                 style={{ accentColor: '#5FA873' }}
                               />
                               <label htmlFor={`invite-${brokerage.id}`} className="text-xs font-medium cursor-pointer" style={{ color: colors.textPrimary }}>
-                                Create login & send invite email
+                                Create login
                               </label>
                               <span className="text-xs" style={{ color: colors.textMuted }}>
-                                {sendInvite ? '(agent will receive a welcome email with temporary password)' : '(roster only — no login)'}
+                                {sendInvite ? '(login created — send welcome email later)' : '(roster only — no login)'}
                               </span>
                             </div>
                             <div className="flex gap-3 pt-1">
@@ -1311,7 +1342,7 @@ export default function BrokeragesPage() {
                               <button type="submit" disabled={submitting}
                                 className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
                                 style={{ background: '#5FA873', color: '#1E1E1E' }}
-                              >{submitting ? (sendInvite ? 'Inviting...' : 'Adding...') : (sendInvite ? 'Add & Invite Agent' : 'Add Agent')}</button>
+                              >{submitting ? (sendInvite ? 'Creating...' : 'Adding...') : (sendInvite ? 'Add Agent + Login' : 'Add Agent')}</button>
                             </div>
                           </form>
                         )}

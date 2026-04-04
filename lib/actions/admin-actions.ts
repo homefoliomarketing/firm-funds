@@ -570,6 +570,7 @@ export async function inviteAgent(input: {
   email: string
   phone?: string
   recoNumber?: string
+  skipEmail?: boolean
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -686,13 +687,15 @@ export async function inviteAgent(input: {
       // Non-fatal — agent and auth user are already created, admin can resend invite
     }
 
-    // 5. Send invite email with magic link (no temp password)
-    await sendAgentInviteNotification({
-      agentFirstName: input.firstName.trim(),
-      agentEmail: email,
-      brokerageName: brokerage.name,
-      inviteToken,
-    })
+    // 5. Send invite email with magic link (unless skipEmail is set)
+    if (!input.skipEmail) {
+      await sendAgentInviteNotification({
+        agentFirstName: input.firstName.trim(),
+        agentEmail: email,
+        brokerageName: brokerage.name,
+        inviteToken,
+      })
+    }
 
     // Audit log
     await logAuditEvent({
@@ -706,6 +709,7 @@ export async function inviteAgent(input: {
         brokerage_name: brokerage.name,
         invited_by: user.id,
         invite_method: 'magic_link',
+        email_sent: !input.skipEmail,
       },
     })
 
@@ -864,6 +868,125 @@ export async function resendAgentWelcomeEmail(input: {
     return { success: true }
   } catch (err: any) {
     console.error('Resend welcome email error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Send welcome email to ALL agents in a brokerage
+// ============================================================================
+
+export async function sendWelcomeToAllBrokerageAgents(input: {
+  brokerageId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    // Get brokerage
+    const { data: brokerage } = await supabase
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+    // Get all non-archived agents for this brokerage
+    const { data: agents, error: agentsError } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, status')
+      .eq('brokerage_id', input.brokerageId)
+      .neq('status', 'archived')
+
+    if (agentsError || !agents) return { success: false, error: 'Failed to load agents' }
+    if (agents.length === 0) return { success: false, error: 'No active agents found in this brokerage' }
+
+    let sent = 0
+    let failed = 0
+    const errors: string[] = []
+
+    for (const agent of agents) {
+      try {
+        // Check if agent has a user_profile (meaning they have a login)
+        const { data: profile } = await serviceClient
+          .from('user_profiles')
+          .select('id')
+          .eq('agent_id', agent.id)
+          .maybeSingle()
+
+        if (!profile) {
+          // No login exists — skip (they were added as roster-only)
+          errors.push(`${agent.first_name} ${agent.last_name}: no login exists`)
+          failed++
+          continue
+        }
+
+        // Generate magic link invite token (72-hour expiry)
+        const inviteToken = crypto.randomBytes(32).toString('hex')
+        const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+        await serviceClient
+          .from('invite_tokens')
+          .insert({
+            token: inviteToken,
+            user_id: profile.id,
+            agent_id: agent.id,
+            email: agent.email,
+            expires_at: expiresAt,
+          })
+
+        // Ensure must_reset_password is set
+        await serviceClient
+          .from('user_profiles')
+          .update({ must_reset_password: true })
+          .eq('id', profile.id)
+
+        // Clear any password_changed metadata
+        await serviceClient.auth.admin.updateUserById(profile.id, {
+          user_metadata: { password_changed: false },
+        })
+
+        // Send magic link email
+        await sendAgentInviteNotification({
+          agentFirstName: agent.first_name,
+          agentEmail: agent.email,
+          brokerageName: brokerage.name,
+          inviteToken,
+        })
+
+        sent++
+      } catch (err: any) {
+        console.error(`Failed to send welcome to ${agent.email}:`, err?.message)
+        errors.push(`${agent.first_name} ${agent.last_name}: ${err?.message || 'Unknown error'}`)
+        failed++
+      }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.send_all_welcome',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      metadata: {
+        brokerage_name: brokerage.name,
+        total_agents: agents.length,
+        sent,
+        failed,
+        sent_by: user.id,
+      },
+    })
+
+    if (failed > 0 && sent > 0) {
+      return { success: true, data: { sent, failed, errors }, error: `Sent ${sent} emails, ${failed} failed` }
+    } else if (failed > 0 && sent === 0) {
+      return { success: false, error: `All ${failed} emails failed. ${errors[0] || ''}` }
+    }
+
+    return { success: true, data: { sent, failed } }
+  } catch (err: any) {
+    console.error('Send all welcome emails error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
