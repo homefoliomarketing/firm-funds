@@ -3,7 +3,7 @@
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
-import { sendKycMobileUploadLink } from '@/lib/email'
+import { sendKycMobileUploadLink, sendKycApprovedNotification } from '@/lib/email'
 import { randomBytes } from 'crypto'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 
@@ -332,6 +332,14 @@ export async function verifyAgentKyc(input: {
         auto_checked_deals: 'yes',
       },
     })
+
+    // Send KYC approval email to agent (non-blocking)
+    if (agent.email) {
+      sendKycApprovedNotification({
+        agentEmail: agent.email,
+        agentFirstName: agent.first_name || 'there',
+      }).catch(err => console.error('[kyc] Failed to send KYC approval email (non-fatal):', err))
+    }
 
     return { success: true, data: updatedAgent }
   } catch (err: any) {

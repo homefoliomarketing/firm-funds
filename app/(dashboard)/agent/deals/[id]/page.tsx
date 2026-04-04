@@ -749,16 +749,18 @@ export default function AgentDealDetailPage() {
               const allDocs = [...requiredDocs, ...firstTimeDocs]
               const missingRequired = allDocs.filter(d => d.required && !uploadedTypes.has(d.type))
               const allUploaded = missingRequired.length === 0
+              // Don't show "needed" warnings on deals that are already approved/funded/repaid/closed
+              const showWarnings = ['under_review', 'denied'].includes(deal.status) || deal.status === undefined
 
               return (
                 <div className="rounded-xl p-4" style={{
-                  background: allUploaded ? colors.successBg : colors.tableHeaderBg,
-                  border: `1px solid ${allUploaded ? colors.successBorder : colors.border}`
+                  background: allUploaded || !showWarnings ? colors.successBg : colors.tableHeaderBg,
+                  border: `1px solid ${allUploaded || !showWarnings ? colors.successBorder : colors.border}`
                 }}>
                   <div className="flex items-center gap-2 mb-3">
                     <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Document Checklist</h4>
-                    {allUploaded ? (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>Complete</span>
+                    {allUploaded || !showWarnings ? (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>{showWarnings ? 'Complete' : 'Accepted'}</span>
                     ) : (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>{missingRequired.length} needed</span>
                     )}
@@ -770,7 +772,7 @@ export default function AgentDealDetailPage() {
                       const uploaded = uploadedTypes.has(doc.type)
                       return (
                         <div key={doc.type} className="flex items-start gap-2">
-                          {uploaded
+                          {uploaded || !showWarnings
                             ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
                             : <AlertTriangle size={14} style={{ color: doc.required ? colors.warningText : colors.textFaint, marginTop: 1 }} />
                           }
@@ -792,11 +794,11 @@ export default function AgentDealDetailPage() {
                       const uploaded = uploadedTypes.has(doc.type)
                       return (
                         <div key={doc.type} className="flex items-start gap-2">
-                          {uploaded
+                          {uploaded || !showWarnings
                             ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
                             : <AlertTriangle size={14} style={{ color: colors.warningText, marginTop: 1 }} />
                           }
-                          <span className="text-xs" style={{ color: uploaded ? colors.successText : colors.textPrimary }}>
+                          <span className="text-xs" style={{ color: uploaded || !showWarnings ? colors.successText : colors.textPrimary }}>
                             {doc.label}
                           </span>
                         </div>

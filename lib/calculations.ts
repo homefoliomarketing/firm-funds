@@ -65,7 +65,9 @@ export function calculateDeal(input: DealCalculation): DealResult {
   const netCommission = input.grossCommission * (1 - input.brokerageSplitPct / 100)
 
   // Discount fee: net commission x ($0.75 / $1,000) x days
-  const discountFee = netCommission * (rate / 1000) * input.daysUntilClosing
+  // +1 day to account for processing day (agent shouldn't pay before receiving funds)
+  const effectiveDays = input.daysUntilClosing + 1
+  const discountFee = netCommission * (rate / 1000) * effectiveDays
 
   // What the agent receives
   const advanceAmount = netCommission - discountFee

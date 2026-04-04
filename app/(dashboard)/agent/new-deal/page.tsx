@@ -31,10 +31,20 @@ export default function NewDealPage() {
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isFirm, setIsFirm] = useState(false)
 
-  // Document upload state
-  const [selectedFiles, setSelectedFiles] = useState<{ file: File; docType: string }[]>([])
+  // Document upload state — slot-based with specific categories
+  const [docSlots, setDocSlots] = useState<Record<string, File[]>>({
+    aps: [],
+    notice_of_fulfillment: [],
+    amendment: [],
+    trade_record: [],
+    banking_info: [],
+  })
   const [uploadingDocs, setUploadingDocs] = useState(false)
   const [uploadResults, setUploadResults] = useState<{ name: string; success: boolean; error?: string }[]>([])
+  const [isFirstAdvance, setIsFirstAdvance] = useState(true)
+
+  // Flatten for backward compat
+  const selectedFiles = Object.entries(docSlots).flatMap(([docType, files]) => files.map(file => ({ file, docType })))
 
   const [preview, setPreview] = useState<{
     netCommission: number
@@ -66,6 +76,9 @@ export default function NewDealPage() {
       if (profileData?.agent_id) {
         const { data: agentData } = await supabase.from('agents').select('*, brokerages(*)').eq('id', profileData.agent_id).single()
         setAgent(agentData)
+        // Check if this is the agent's first advance (no previously funded/repaid deals)
+        const { count } = await supabase.from('deals').select('*', { count: 'exact', head: true }).eq('agent_id', profileData.agent_id).in('status', ['funded', 'repaid', 'closed'])
+        setIsFirstAdvance(!count || count === 0)
       }
       setLoading(false)
     }
@@ -103,22 +116,19 @@ export default function NewDealPage() {
   if (!grossCommission || parseFloat(grossCommission) <= 0) missingFields.push('Gross Commission')
   if (brokerageSplitPct === '' || isNaN(parseFloat(brokerageSplitPct)) || parseFloat(brokerageSplitPct) < 0 || parseFloat(brokerageSplitPct) > 100) missingFields.push('Brokerage Split %')
 
-  // File handling
-  const handleFileAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // File handling — slot-based
+  const handleSlotFileAdd = (slotKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
-    const newFiles = Array.from(files).map(f => ({ file: f, docType: 'aps' as string }))
-    setSelectedFiles(prev => [...prev, ...newFiles])
-    e.target.value = '' // reset input
+    setDocSlots(prev => ({ ...prev, [slotKey]: [...prev[slotKey], ...Array.from(files)] }))
+    e.target.value = '' // reset so same file can be re-added
   }
 
-  const handleFileRemove = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
+  const handleSlotFileRemove = (slotKey: string, fileIndex: number) => {
+    setDocSlots(prev => ({ ...prev, [slotKey]: prev[slotKey].filter((_, i) => i !== fileIndex) }))
   }
 
-  const handleFileTypeChange = (index: number, docType: string) => {
-    setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, docType } : f))
-  }
+  // Legacy handler references removed — slot-based system replaces them
 
   const handleSubmitClick = (e: React.FormEvent) => {
     e.preventDefault(); setError(null)
@@ -461,51 +471,60 @@ export default function NewDealPage() {
             </div>
           )}
 
-          {/* Document Upload (Optional) */}
+          {/* Document Upload — Specific Slots */}
           <div className="rounded-xl overflow-hidden mb-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
             <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
-              <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Supporting Documents</h3>
-              <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Attach your APS and any other deal documents. You can also upload these later from your dashboard.</p>
+              <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Deal Documents</h3>
+              <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Upload your documents below. APS is required — other documents can be added later from your dashboard.</p>
             </div>
-            <div className="p-6">
-              {selectedFiles.length > 0 && (
-                <div className="space-y-2 mb-4">
-                  {selectedFiles.map((sf, idx) => (
-                    <div key={idx} className="flex items-center gap-3 rounded-lg p-3" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
-                      <FileText size={16} style={{ color: colors.gold }} />
-                      <span className="text-sm flex-1 truncate" style={{ color: colors.textPrimary }}>{sf.file.name}</span>
-                      <select
-                        value={sf.docType}
-                        onChange={(e) => handleFileTypeChange(idx, e.target.value)}
-                        className="text-xs rounded-md px-2 py-1 outline-none"
-                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                      >
-                        <option value="aps">Agreement of Purchase & Sale</option>
-                        <option value="amendment">Amendment</option>
-                        <option value="commission_agreement">Commission Agreement</option>
-                        <option value="mls_listing">MLS Listing</option>
-                        <option value="notice_of_fulfillment">Notice of Fulfillment</option>
-                        <option value="other">Other</option>
-                      </select>
-                      <button type="button" onClick={() => handleFileRemove(idx)} className="p-1 rounded-md transition-colors" style={{ color: colors.textMuted }}
-                        onMouseEnter={(e) => e.currentTarget.style.color = colors.errorText}
-                        onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
-                      >
-                        <X size={14} />
-                      </button>
+            <div className="p-6 space-y-4">
+              {[
+                { key: 'aps', label: 'Agreement of Purchase & Sale', required: true, hint: 'Confirmation of co-op included' },
+                { key: 'notice_of_fulfillment', label: 'Notice of Fulfillment / Waiver', required: false, hint: 'If applicable' },
+                { key: 'amendment', label: 'Amendments', required: false, hint: 'Any amendments to the APS' },
+                { key: 'trade_record', label: 'Trade Record / File', required: false, hint: 'Brokerage trade record sheet' },
+                ...(isFirstAdvance ? [{ key: 'banking_info', label: 'Banking Information', required: true, hint: 'Void cheque or direct deposit form — required for your first advance' }] : []),
+              ].map(slot => (
+                <div key={slot.key} className="rounded-lg p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{slot.label}</span>
+                    {slot.required ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}>Required</span>
+                    ) : (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: colors.cardBg, color: colors.textFaint, border: `1px solid ${colors.border}` }}>Optional</span>
+                    )}
+                  </div>
+                  {slot.hint && <p className="text-xs mb-2" style={{ color: colors.textMuted }}>{slot.hint}</p>}
+
+                  {/* Uploaded files for this slot */}
+                  {docSlots[slot.key]?.length > 0 && (
+                    <div className="space-y-1.5 mb-2">
+                      {docSlots[slot.key].map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2 rounded-md px-3 py-1.5" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                          <FileText size={13} style={{ color: colors.gold }} />
+                          <span className="text-xs flex-1 truncate" style={{ color: colors.textPrimary }}>{file.name}</span>
+                          <button type="button" onClick={() => handleSlotFileRemove(slot.key, idx)} className="p-0.5 rounded transition-colors" style={{ color: colors.textMuted }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = colors.errorText}
+                            onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+
+                  <label className="flex items-center justify-center gap-1.5 rounded-md py-2 px-3 cursor-pointer transition-colors text-xs font-medium"
+                    style={{ border: `1.5px dashed ${colors.border}`, color: colors.textSecondary }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
+                  >
+                    <Upload size={13} />
+                    {docSlots[slot.key]?.length > 0 ? 'Add more files' : 'Choose files'}
+                    <input type="file" className="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={(e) => handleSlotFileAdd(slot.key, e)} />
+                  </label>
                 </div>
-              )}
-              <label className="flex items-center justify-center gap-2 rounded-lg py-3 px-4 cursor-pointer transition-colors text-sm font-medium"
-                style={{ border: `2px dashed ${colors.border}`, color: colors.textSecondary }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
-              >
-                <Upload size={16} />
-                {selectedFiles.length === 0 ? 'Click to attach documents' : 'Add more documents'}
-                <input type="file" className="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleFileAdd} />
-              </label>
+              ))}
             </div>
           </div>
 
@@ -529,6 +548,18 @@ export default function NewDealPage() {
             </label>
           </div>
 
+          {/* Document validation hints */}
+          {docSlots.aps.length === 0 && (
+            <div className="rounded-xl p-3 mb-4 text-xs" style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}`, color: colors.warningText }}>
+              Please upload your Agreement of Purchase &amp; Sale to submit this advance request.
+            </div>
+          )}
+          {isFirstAdvance && docSlots.banking_info.length === 0 && docSlots.aps.length > 0 && (
+            <div className="rounded-xl p-3 mb-4 text-xs" style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}`, color: colors.warningText }}>
+              Since this is your first advance, please upload your banking information (void cheque or direct deposit form).
+            </div>
+          )}
+
           {/* Submit */}
           <div className="flex gap-3">
             <button
@@ -543,7 +574,7 @@ export default function NewDealPage() {
             </button>
             <button
               type="submit"
-              disabled={!preview || submitting || !isFirm}
+              disabled={!preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0)}
               className="flex-1 text-white py-3 px-4 rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
               style={{ background: colors.headerBgGradient }}
               onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)' }}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, AlertTriangle, UserCheck, TrendingUp, Users } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 
@@ -17,6 +17,9 @@ interface DashboardStats {
   fundedDeals: number
   totalAdvanced: number
   totalBrokerages: number
+  totalAgentsWithDeals: number
+  pendingKycCount: number
+  pendingDocReviewCount: number
 }
 
 export default function AdminDashboard() {
@@ -29,6 +32,9 @@ export default function AdminDashboard() {
     fundedDeals: 0,
     totalAdvanced: 0,
     totalBrokerages: 0,
+    totalAgentsWithDeals: 0,
+    pendingKycCount: 0,
+    pendingDocReviewCount: 0,
   })
   const [recentDeals, setRecentDeals] = useState<any[]>([])
   const [allDeals, setAllDeals] = useState<any[]>([])
@@ -67,15 +73,26 @@ export default function AdminDashboard() {
       const [
         { data: deals },
         { count: totalBrokerages },
+        { count: pendingKycCount },
+        { data: pendingDocDeals },
       ] = await Promise.all([
         supabase.from('deals').select('*').order('created_at', { ascending: false }),
         supabase.from('brokerages').select('*', { count: 'exact', head: true }),
+        supabase.from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'agent').eq('kyc_status', 'pending'),
+        supabase.from('deals').select('id').eq('status', 'under_review'),
       ])
 
       const allDealsList = deals || []
       const totalAdvanced = allDealsList
         .filter(d => d.status === 'funded')
         .reduce((sum, d) => sum + Number(d.advance_amount), 0)
+
+      // Count unique agents with at least one approved/funded/repaid deal
+      const agentIdsWithDeals = new Set(
+        allDealsList
+          .filter(d => ['approved', 'funded', 'repaid'].includes(d.status))
+          .map(d => d.agent_id)
+      )
 
       setStats({
         totalDeals: allDealsList.length,
@@ -84,6 +101,9 @@ export default function AdminDashboard() {
         fundedDeals: allDealsList.filter(d => d.status === 'funded').length,
         totalAdvanced,
         totalBrokerages: totalBrokerages || 0,
+        totalAgentsWithDeals: agentIdsWithDeals.size,
+        pendingKycCount: pendingKycCount || 0,
+        pendingDocReviewCount: (pendingDocDeals || []).length,
       })
 
       setAllDeals(allDealsList)
@@ -110,8 +130,8 @@ export default function AdminDashboard() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
           <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-            {[1,2,3].map(i => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            {[1,2,3,4].map(i => (
               <div key={i} className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
                 <div className="h-3 w-20 rounded animate-pulse mb-2" style={{ background: colors.skeletonHighlight }} />
                 <div className="h-7 w-16 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
@@ -154,6 +174,7 @@ export default function AdminDashboard() {
   const filteredStats = {
     totalDeals: filteredDeals.length,
     totalAdvanced: filteredDeals.filter(d => d.status === 'funded').reduce((sum, d) => sum + Number(d.advance_amount), 0),
+    discountsCollected: filteredDeals.filter(d => d.status === 'funded').reduce((sum, d) => sum + Number(d.discount_fee || 0), 0),
     underReviewDeals: filteredDeals.filter(d => d.status === 'under_review').length,
     approvedDeals: filteredDeals.filter(d => d.status === 'approved').length,
     fundedDeals: filteredDeals.filter(d => d.status === 'funded').length,
@@ -208,34 +229,64 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* KPI Cards + Quick Links */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           {[
-            { label: 'Total Deals', value: filteredStats.totalDeals.toString(), icon: FileText, accent: '#5FA873', link: null },
-            { label: 'Total Advanced', value: formatCurrency(filteredStats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
-            { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#5FA873', link: '/admin/brokerages' },
+            { label: 'Total Deals', value: filteredStats.totalDeals.toString(), icon: FileText, accent: '#5FA873', sub: null },
+            { label: 'Total Advanced', value: formatCurrency(filteredStats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', sub: null },
+            { label: 'Discounts Collected', value: formatCurrency(filteredStats.discountsCollected), icon: TrendingUp, accent: '#D4A843', sub: null },
+            { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#5FA873', sub: `${stats.totalAgentsWithDeals} active agent${stats.totalAgentsWithDeals !== 1 ? 's' : ''}` },
           ].map((card) => (
             <div
               key={card.label}
-              className={`rounded-lg px-4 py-3 transition-all hover:shadow-lg ${card.link ? 'cursor-pointer' : ''}`}
+              className="rounded-lg px-4 py-3 transition-all"
               style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
-              onClick={() => { if (card.link) router.push(card.link) }}
-              onMouseEnter={(e) => { if (card.link) e.currentTarget.style.borderColor = card.accent }}
-              onMouseLeave={(e) => { if (card.link) e.currentTarget.style.borderColor = colors.cardBorder }}
             >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
                   <p className="text-xl font-black mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
+                  {card.sub && <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>{card.sub}</p>}
                 </div>
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
                   <card.icon size={18} style={{ color: card.accent }} />
                 </div>
               </div>
-              {card.link && <p className="text-xs mt-1 font-medium" style={{ color: card.accent }}>Manage →</p>}
             </div>
           ))}
         </div>
+
+        {/* Action Needed Alerts */}
+        {(stats.pendingKycCount > 0 || stats.pendingDocReviewCount > 0) && (
+          <div className="rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center gap-3" style={{ background: isDark ? '#2A2000' : '#FFF8E1', border: `1px solid ${isDark ? '#5C4A00' : '#FFE082'}` }}>
+            <AlertTriangle size={16} style={{ color: '#D4A843' }} />
+            <span className="text-xs font-bold" style={{ color: isDark ? '#FFD54F' : '#8D6E00' }}>Action Needed</span>
+            {stats.pendingKycCount > 0 && (
+              <button
+                onClick={() => router.push('/admin/brokerages')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                style={{ background: isDark ? '#332800' : '#FFF3CD', color: isDark ? '#FFD54F' : '#8D6E00', border: `1px solid ${isDark ? '#5C4A00' : '#FFE082'}` }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? '#443500' : '#FFECB3' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = isDark ? '#332800' : '#FFF3CD' }}
+              >
+                <UserCheck size={13} />
+                {stats.pendingKycCount} ID{stats.pendingKycCount !== 1 ? 's' : ''} to verify
+              </button>
+            )}
+            {stats.pendingDocReviewCount > 0 && (
+              <button
+                onClick={() => { setStatusFilter('under_review'); setCurrentPage(1) }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                style={{ background: isDark ? '#332800' : '#FFF3CD', color: isDark ? '#FFD54F' : '#8D6E00', border: `1px solid ${isDark ? '#5C4A00' : '#FFE082'}` }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? '#443500' : '#FFECB3' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = isDark ? '#332800' : '#FFF3CD' }}
+              >
+                <FileText size={13} />
+                {stats.pendingDocReviewCount} deal{stats.pendingDocReviewCount !== 1 ? 's' : ''} under review
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Quick Links */}
         <div className="flex flex-wrap gap-2 mb-4">

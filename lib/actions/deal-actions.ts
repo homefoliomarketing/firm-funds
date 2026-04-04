@@ -477,6 +477,46 @@ export async function toggleChecklistItem(input: {
 }
 
 // ============================================================================
+// Server Action: Toggle underwriting checklist item N/A status (admin only)
+// ============================================================================
+
+export async function toggleChecklistItemNA(input: {
+  itemId: string
+  isNA: boolean
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { error } = await supabase
+      .from('underwriting_checklist')
+      .update({
+        is_na: input.isNA,
+        // If marking as N/A, also uncheck and clear check metadata
+        ...(input.isNA ? { is_checked: false, checked_by: null, checked_at: null } : {}),
+      })
+      .eq('id', input.itemId)
+
+    if (error) {
+      console.error('Checklist N/A toggle error:', error.message)
+      return { success: false, error: 'Failed to update checklist item' }
+    }
+
+    await logAuditEvent({
+      action: 'checklist.toggle',
+      entityType: 'deal',
+      entityId: input.itemId,
+      metadata: { na: input.isNA },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Checklist N/A toggle error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Server Action: Delete document (admin only)
 // ============================================================================
 

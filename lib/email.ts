@@ -44,7 +44,7 @@ function wrap(body: string): string {
         <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px; width:100%;">
           <!-- Header -->
           <tr>
-            <td style="padding:24px 32px; background:#1C1C1C; border-radius:12px 12px 0 0; border-bottom:2px solid #5FA873;">
+            <td style="padding:24px 32px; background:#1C1C1C; border-radius:12px 12px 0 0; border-bottom:2px solid #5FA873; text-align:center;">
               <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="40" style="height:40px; width:auto;" />
             </td>
           </tr>
@@ -239,9 +239,17 @@ export async function sendStatusChangeNotification(params: {
 
   let extraMessage = ''
   if (params.newStatus === 'approved') {
-    extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Your advance has been approved and will be funded shortly. We\'ll send another notification once the funds are on the way.</p>'
+    extraMessage = `
+      <div style="margin:16px 0 0; padding:16px; background:#0D2818; border:1px solid #1A4D2E; border-radius:10px; text-align:center;">
+        <p style="margin:0 0 4px; color:#5FA873; font-size:22px; font-weight:700;">You're Approved!</p>
+        <p style="margin:0; color:#E8E4DF; font-size:14px;">Your advance has been approved and will be funded shortly. We'll send another notification once the funds are on the way.</p>
+      </div>`
   } else if (params.newStatus === 'funded') {
-    extraMessage = '<p style="margin:16px 0 0; color:#E8E4DF;">Great news — your advance has been funded! Your EFT transfer is being processed and our goal is to have the funds in your account within 24 business hours. We\'ll keep you posted if anything changes.</p>'
+    extraMessage = `
+      <div style="margin:16px 0 0; padding:16px; background:#1A0D40; border:1px solid #2D1A6E; border-radius:10px; text-align:center;">
+        <p style="margin:0 0 4px; color:#8B5CF6; font-size:22px; font-weight:700;">Funds on the Way!</p>
+        <p style="margin:0; color:#E8E4DF; font-size:14px;">Your EFT transfer is being processed and our goal is to have the funds in your account within 24 business hours. We'll keep you posted if anything changes.</p>
+      </div>`
   } else if (params.newStatus === 'denied' && params.denialReason) {
     extraMessage = `
       <div style="margin:16px 0 0; padding:12px 16px; background:#241010; border:1px solid #422020; border-radius:8px;">
@@ -254,7 +262,13 @@ export async function sendStatusChangeNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Deal Update: ${params.propertyAddress} — ${label}`,
+      subject: params.newStatus === 'approved'
+        ? `Good News — Your Advance for ${params.propertyAddress} is Approved!`
+        : params.newStatus === 'funded'
+        ? `Funds on the Way — ${params.propertyAddress}`
+        : params.newStatus === 'denied'
+        ? `Advance Update — ${params.propertyAddress}`
+        : `Deal Update: ${params.propertyAddress} — ${label}`,
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E8E4DF; font-size:20px;">Deal Status Updated</h2>
         <p style="margin:0 0 20px; color:#999;">
@@ -650,5 +664,47 @@ export async function sendKycMobileUploadLink(params: {
     })
   } catch (err) {
     console.error('[email] Failed to send KYC mobile upload link:', err)
+  }
+}
+
+// ============================================================================
+// 9. KYC Approved → Agent
+// ============================================================================
+
+export async function sendKycApprovedNotification(params: {
+  agentEmail: string
+  agentFirstName: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `You're Verified — Start Submitting Advances on Firm Funds!`,
+      html: wrap(`
+        <div style="text-align:center; padding:12px 0 24px;">
+          <div style="display:inline-block; width:56px; height:56px; border-radius:50%; background:#0D2818; border:2px solid #1A4D2E; line-height:56px; font-size:28px;">✓</div>
+        </div>
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; text-align:center;">Identity Verified!</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF; text-align:center;">
+          Hi ${params.agentFirstName}, your government-issued ID has been verified successfully. Your account is now fully active.
+        </p>
+        <div style="padding:16px; background:#222; border-radius:10px; margin-bottom:24px;">
+          <p style="margin:0 0 8px; color:#5FA873; font-weight:600; font-size:15px;">What you can do now:</p>
+          <p style="margin:0 0 6px; color:#E8E4DF; font-size:14px;">• Submit commission advance requests</p>
+          <p style="margin:0 0 6px; color:#E8E4DF; font-size:14px;">• Track your deal status in real time</p>
+          <p style="margin:0; color:#E8E4DF; font-size:14px;">• Get funded before your deals close</p>
+        </div>
+        <div style="text-align:center;">
+          <a href="${APP_URL}/agent" style="display:inline-block; padding:14px 36px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:15px;">
+            Go to My Dashboard
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send KYC approved notification:', err)
   }
 }

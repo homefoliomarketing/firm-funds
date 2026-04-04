@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp,
-  PlusCircle, Eye, X, Search, TrendingUp, Wallet, Calendar,
+  PlusCircle, Eye, X, Search, TrendingUp, Calendar,
 } from 'lucide-react'
 import { cancelDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
@@ -90,13 +90,16 @@ export default function AgentDashboard() {
     deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
       .reduce((sum, d) => sum + d.advance_amount, 0), [deals])
 
-  const totalNetCommission = useMemo(() =>
-    deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
-      .reduce((sum, d) => sum + d.net_commission, 0), [deals])
-
-  const totalDiscountFees = useMemo(() =>
-    deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
-      .reduce((sum, d) => sum + d.discount_fee, 0), [deals])
+  const avgTurnaround = useMemo(() => {
+    const funded = deals.filter(d => d.funding_date && d.created_at)
+    if (funded.length === 0) return null
+    const totalDays = funded.reduce((sum, d) => {
+      const submitted = new Date(d.created_at).getTime()
+      const fundedDate = new Date(d.funding_date!).getTime()
+      return sum + Math.max(1, Math.round((fundedDate - submitted) / 86400000))
+    }, 0)
+    return Math.round(totalDays / funded.length)
+  }, [deals])
 
   const activeDeals = useMemo(() =>
     deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length, [deals])
@@ -207,13 +210,13 @@ export default function AgentDashboard() {
           </button>
         </div>
 
-        {/* KPI Cards — 4 columns */}
+        {/* KPI Cards — friendly, positive stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
-            { label: 'Total Advanced', value: formatCurrency(totalAdvanced), icon: DollarSign, accent: colors.successText },
-            { label: 'Net Commission', value: formatCurrency(totalNetCommission), icon: TrendingUp, accent: colors.gold },
-            { label: 'Active Deals', value: activeDeals.toString(), icon: Clock, accent: colors.infoText },
-            { label: 'Completed', value: completedDeals.toString(), icon: CheckCircle, accent: '#0D7A5F' },
+            { label: 'Funds Received', value: formatCurrency(totalAdvanced), icon: DollarSign, accent: colors.successText, sub: completedDeals > 0 ? `across ${completedDeals + activeDeals} deal${(completedDeals + activeDeals) !== 1 ? 's' : ''}` : null },
+            { label: 'Active Deals', value: activeDeals.toString(), icon: Clock, accent: colors.infoText, sub: activeDeals > 0 ? 'in progress' : null },
+            { label: 'Completed', value: completedDeals.toString(), icon: CheckCircle, accent: '#0D7A5F', sub: completedDeals > 0 ? 'fully settled' : null },
+            { label: 'Avg. Turnaround', value: avgTurnaround ? `${avgTurnaround} day${avgTurnaround !== 1 ? 's' : ''}` : '—', icon: TrendingUp, accent: colors.gold, sub: avgTurnaround ? 'submission to funding' : 'no funded deals yet' },
           ].map((card) => (
             <div
               key={card.label}
@@ -224,6 +227,7 @@ export default function AgentDashboard() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
                   <p className="text-2xl font-black mt-1.5" style={{ color: colors.textPrimary }}>{card.value}</p>
+                  {card.sub && <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>{card.sub}</p>}
                 </div>
                 <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
                   <card.icon size={18} style={{ color: card.accent }} />
@@ -232,19 +236,6 @@ export default function AgentDashboard() {
             </div>
           ))}
         </div>
-
-        {/* Discount Fees Summary — subtle info bar */}
-        {totalDiscountFees > 0 && (
-          <div className="mb-6 rounded-lg p-3 flex items-center justify-between text-sm"
-            style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}
-          >
-            <div className="flex items-center gap-2">
-              <Wallet size={16} style={{ color: colors.textMuted }} />
-              <span style={{ color: colors.textSecondary }}>Total Discount Fees Paid</span>
-            </div>
-            <span className="font-bold" style={{ color: colors.errorText }}>{formatCurrency(totalDiscountFees)}</span>
-          </div>
-        )}
 
         {/* Deals List */}
         <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>

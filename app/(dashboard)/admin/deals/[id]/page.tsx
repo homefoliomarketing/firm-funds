@@ -13,6 +13,7 @@ import {
 import {
   updateDealStatus,
   toggleChecklistItem as serverToggleChecklistItem,
+  toggleChecklistItemNA as serverToggleChecklistItemNA,
   deleteDocument as serverDeleteDocument,
   saveAdminNotes,
   addAdminNote,
@@ -191,6 +192,15 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const zoomOut = () => setZoomIndex(i => Math.max(i - 1, 0))
   const zoomPct = Math.round(ZOOM_LEVELS[zoomIndex] * 100)
 
+  // Scroll-to-zoom: Ctrl+wheel or pinch-to-zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      if (e.deltaY < 0) setZoomIndex(i => Math.min(i + 1, ZOOM_LEVELS.length - 1))
+      else setZoomIndex(i => Math.max(i - 1, 0))
+    }
+  }, [])
+
   if (status === 'error') {
     return (
       <div className="flex items-center justify-center h-full p-6">
@@ -238,10 +248,11 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
           )}
         </div>
       )}
-      {/* Scrollable PDF content — drag to pan when zoomed */}
+      {/* Scrollable PDF content — drag to pan when zoomed, Ctrl+scroll to zoom */}
       <div
         ref={containerRef}
         {...dragHandlers}
+        onWheel={handleWheel}
         style={{ flex: 1, overflow: 'auto', padding: 0, cursor: isZoomed ? 'grab' : 'default' }}
       >
         {status === 'loading' && (
@@ -262,7 +273,7 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
 // ============================================================================
 function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   const [zoomIndex, setZoomIndex] = useState(0)
-  const imgZoomLevels = [1, 1.5, 2, 2.5, 3]
+  const imgZoomLevels = [1, 1.5, 2, 2.5, 3, 4]
   const imgScrollRef = useRef<HTMLDivElement>(null)
   const isImgZoomed = zoomIndex > 0
   const imgDragHandlers = useDragToPan(imgScrollRef, isImgZoomed)
@@ -271,6 +282,15 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   const zoomOut = () => setZoomIndex(i => Math.max(i - 1, 0))
   const zoomPct = Math.round(imgZoomLevels[zoomIndex] * 100)
   const scale = imgZoomLevels[zoomIndex]
+
+  // Scroll-to-zoom: Ctrl+wheel or pinch-to-zoom
+  const handleImgWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      if (e.deltaY < 0) setZoomIndex(i => Math.min(i + 1, imgZoomLevels.length - 1))
+      else setZoomIndex(i => Math.max(i - 1, 0))
+    }
+  }, [])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -306,6 +326,7 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
       <div
         ref={imgScrollRef}
         {...imgDragHandlers}
+        onWheel={handleImgWheel}
         style={{ flex: 1, overflow: 'auto', padding: 8, cursor: isImgZoomed ? 'grab' : 'default' }}
       >
         <img
@@ -343,7 +364,7 @@ interface Deal {
 
 interface ChecklistItem {
   id: string; deal_id: string; category: string; checklist_item: string; is_checked: boolean
-  checked_by: string | null; checked_at: string | null; notes: string | null; sort_order: number
+  is_na: boolean; checked_by: string | null; checked_at: string | null; notes: string | null; sort_order: number
 }
 
 interface DealDocument {
@@ -562,11 +583,21 @@ export default function DealDetailPage() {
   }
 
   const handleChecklistToggle = async (item: ChecklistItem) => {
+    if (item.is_na) return // Can't check/uncheck N/A items — must remove N/A first
     const newChecked = !item.is_checked
     const result = await serverToggleChecklistItem({ itemId: item.id, isChecked: newChecked })
     if (result.success) {
       const { data: { user } } = await supabase.auth.getUser()
       setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: newChecked, checked_by: newChecked ? user?.id || null : null, checked_at: newChecked ? new Date().toISOString() : null } : c))
+    }
+  }
+
+  const handleChecklistNA = async (e: React.MouseEvent, item: ChecklistItem) => {
+    e.stopPropagation()
+    const newNA = !item.is_na
+    const result = await serverToggleChecklistItemNA({ itemId: item.id, isNA: newNA })
+    if (result.success) {
+      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: newNA, is_checked: newNA ? false : c.is_checked } : c))
     }
   }
 
@@ -809,7 +840,7 @@ export default function DealDetailPage() {
 
   const statusBadge = getStatusBadgeStyle
 
-  const checkedCount = checklist.filter(c => c.is_checked).length
+  const checkedCount = checklist.filter(c => c.is_checked || c.is_na).length
   const totalChecklist = checklist.length
   const checklistPct = totalChecklist > 0 ? Math.round((checkedCount / totalChecklist) * 100) : 0
   const allChecklistComplete = totalChecklist > 0 && checkedCount === totalChecklist
@@ -1744,7 +1775,7 @@ export default function DealDetailPage() {
                 {brokerage.referral_fee_percentage !== null && (
                   <div>
                     <p className="text-xs" style={{ color: colors.textMuted }}>Referral Fee %</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.referral_fee_percentage}%</p>
+                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{(brokerage.referral_fee_percentage * 100).toFixed(0)}%</p>
                   </div>
                 )}
               </div>
@@ -1771,7 +1802,7 @@ export default function DealDetailPage() {
                     <div className="flex items-center gap-2">
                       <category.icon className="w-4 h-4" />
                       {category.label}
-                      <span className="ml-1 text-xs font-normal" style={{ opacity: 0.7 }}>({category.items.filter(i => i.is_checked).length}/{category.items.length})</span>
+                      <span className="ml-1 text-xs font-normal" style={{ opacity: 0.7 }}>({category.items.filter(i => i.is_checked || i.is_na).length}/{category.items.length})</span>
                     </div>
                     {checklistExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
@@ -1781,6 +1812,7 @@ export default function DealDetailPage() {
                       {category.items.map(item => {
                         const matchingDocs = category.matchingDocs.get(item.id) || []
                         const checked = item.is_checked
+                        const na = item.is_na
                         return (
                           <div
                             key={item.id}
@@ -1788,13 +1820,18 @@ export default function DealDetailPage() {
                             className="flex items-start gap-3 px-4 py-3 cursor-pointer transition-all duration-200 select-none"
                             style={{
                               borderBottom: `1px solid ${colors.divider}`,
-                              background: checked ? `${colors.gold}08` : 'transparent',
+                              background: na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent',
+                              opacity: na ? 0.6 : 1,
                             }}
-                            onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = `${colors.gold}0D` }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = checked ? `${colors.gold}08` : 'transparent' }}
+                            onMouseEnter={(e) => { if (!checked && !na) e.currentTarget.style.background = `${colors.gold}0D` }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent' }}
                           >
                             <div className="flex-shrink-0 mt-0.5 transition-transform duration-200" style={{ transform: checked ? 'scale(1.1)' : 'scale(1)' }}>
-                              {checked ? (
+                              {na ? (
+                                <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: colors.textMuted }}>
+                                  <span className="text-white text-[9px] font-bold leading-none">N/A</span>
+                                </div>
+                              ) : checked ? (
                                 <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: colors.gold }}>
                                   <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                                 </div>
@@ -1804,12 +1841,13 @@ export default function DealDetailPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm transition-colors duration-200" style={{
-                                color: checked ? colors.textMuted : colors.textPrimary,
-                                fontWeight: checked ? 400 : 500,
+                                color: na ? colors.textFaint : checked ? colors.textMuted : colors.textPrimary,
+                                fontWeight: checked || na ? 400 : 500,
+                                textDecoration: na ? 'line-through' : 'none',
                               }}>
                                 {item.checklist_item}
                               </p>
-                              {item.checked_at && (
+                              {item.checked_at && !na && (
                                 <p className="text-xs mt-0.5" style={{ color: colors.textFaint }}>
                                   Completed {formatDateTime(item.checked_at)}
                                 </p>
@@ -1832,6 +1870,19 @@ export default function DealDetailPage() {
                                 </div>
                               )}
                             </div>
+                            <button
+                              onClick={(e) => handleChecklistNA(e, item)}
+                              className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-colors"
+                              style={{
+                                color: na ? colors.warningText : colors.textFaint,
+                                background: na ? `${colors.warningText}15` : 'transparent',
+                                border: `1px solid ${na ? colors.warningBorder : 'transparent'}`,
+                              }}
+                              onMouseEnter={(e) => { if (!na) { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.border = `1px solid ${colors.border}` } }}
+                              onMouseLeave={(e) => { if (!na) { e.currentTarget.style.color = colors.textFaint; e.currentTarget.style.border = '1px solid transparent' } }}
+                            >
+                              N/A
+                            </button>
                           </div>
                         )
                       })}
