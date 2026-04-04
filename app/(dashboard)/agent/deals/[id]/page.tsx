@@ -6,7 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 import {
   ArrowLeft, FileText, DollarSign, MapPin, Clock,
   Upload, Download, ChevronDown, ChevronUp, Paperclip,
-  CheckCircle2, AlertTriangle, Pencil, Save, X
+  CheckCircle2, AlertTriangle, Pencil, Save, X, Send
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
@@ -76,6 +76,8 @@ export default function AgentDealDetailPage() {
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([])
   const [docReturns, setDocReturns] = useState<DocumentReturnItem[]>([])
   const [dealMessages, setDealMessages] = useState<DealMessageItem[]>([])
+  const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('aps')
@@ -163,6 +165,30 @@ export default function AgentDealDetailPage() {
       setStatusMessage({ type: 'success', text: `${successCount} document${successCount > 1 ? 's' : ''} uploaded successfully` })
     }
     e.target.value = ''
+  }
+
+  const handleSendReply = async () => {
+    if (!deal || !replyText.trim()) return
+    setReplySending(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setReplySending(false); return }
+    const { data: profile } = await supabase.from('user_profiles').select('full_name').eq('id', user.id).single()
+    const { data: msg, error: insertErr } = await supabase.from('deal_messages').insert({
+      deal_id: deal.id,
+      sender_id: user.id,
+      sender_role: 'agent',
+      sender_name: profile?.full_name || 'Agent',
+      message: replyText.trim(),
+      is_email_reply: false,
+    }).select().single()
+    if (!insertErr && msg) {
+      setDealMessages(prev => [...prev, msg])
+      setReplyText('')
+      setStatusMessage({ type: 'success', text: 'Reply sent' })
+    } else {
+      setStatusMessage({ type: 'error', text: 'Failed to send reply' })
+    }
+    setReplySending(false)
   }
 
   const handleDocumentDownload = async (doc: DealDocument) => {
@@ -763,11 +789,11 @@ export default function AgentDealDetailPage() {
               </div>
             )}
 
-            {/* MESSAGES FROM FIRM FUNDS */}
+            {/* MESSAGES — thread between agent and Firm Funds */}
             {dealMessages.length > 0 && (
               <div className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
                 <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>Messages</h4>
-                <div className="space-y-2 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                <div className="space-y-2 max-h-48 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
                   {dealMessages.map(msg => (
                     <div key={msg.id} className="px-3 py-2 rounded" style={{
                       background: msg.sender_role === 'admin' ? '#0F2A18' : colors.cardBg,
@@ -784,6 +810,27 @@ export default function AgentDealDetailPage() {
                       <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
                     </div>
                   ))}
+                </div>
+                {/* Reply input */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Type a reply..."
+                    className="flex-1 px-3 py-2 rounded border text-xs focus:outline-none"
+                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply() } }}
+                  />
+                  <button
+                    onClick={handleSendReply}
+                    disabled={replySending || !replyText.trim()}
+                    className="px-3 py-2 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
+                    style={{ background: '#5FA873' }}
+                  >
+                    <Send size={12} />
+                    {replySending ? '...' : 'Reply'}
+                  </button>
                 </div>
               </div>
             )}
