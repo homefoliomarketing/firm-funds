@@ -124,7 +124,6 @@ export default function KycMobileUploadPage() {
           filePaths,
           documentType,
           tokenRecordId,
-          agentId,
         }),
       })
       const finalizeResult = await finalizeResponse.json()

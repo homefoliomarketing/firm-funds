@@ -4,6 +4,13 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification } from '@/lib/email'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import {
+  CreateBrokerageSchema,
+  UpdateBrokerageSchema,
+  CreateAgentSchema,
+  UpdateAgentSchema,
+  CreateUserAccountSchema,
+} from '@/lib/validations'
 
 // ============================================================================
 // Types
@@ -33,23 +40,23 @@ export async function createBrokerage(input: {
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    if (!input.name.trim()) return { success: false, error: 'Brokerage name is required' }
-    if (!input.email.trim()) return { success: false, error: 'Email is required' }
-    if (input.referralFeePercentage < 0 || input.referralFeePercentage > 1) {
-      return { success: false, error: 'Referral fee must be between 0 and 1 (e.g., 0.20 for 20%)' }
+    const parsed = CreateBrokerageSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || 'Invalid input' }
     }
+    const v = parsed.data
 
     const { data: brokerage, error: insertError } = await supabase
       .from('brokerages')
       .insert({
-        name: input.name.trim(),
-        email: input.email.trim().toLowerCase(),
-        brand: input.brand?.trim() || null,
-        address: input.address?.trim() || null,
-        phone: input.phone?.trim() || null,
-        referral_fee_percentage: input.referralFeePercentage,
-        transaction_system: input.transactionSystem?.trim() || null,
-        notes: input.notes?.trim() || null,
+        name: v.name,
+        email: v.email,
+        brand: v.brand || null,
+        address: v.address || null,
+        phone: v.phone || null,
+        referral_fee_percentage: v.referralFeePercentage,
+        transaction_system: v.transactionSystem || null,
+        notes: v.notes || null,
         status: 'active',
       })
       .select()
@@ -90,23 +97,26 @@ export async function updateBrokerage(input: {
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    if (!input.name.trim()) return { success: false, error: 'Brokerage name is required' }
-    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+    const parsed = UpdateBrokerageSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || 'Invalid input' }
+    }
+    const v = parsed.data
 
     const { data: brokerage, error: updateError } = await supabase
       .from('brokerages')
       .update({
-        name: input.name.trim(),
-        email: input.email.trim().toLowerCase(),
-        brand: input.brand?.trim() || null,
-        address: input.address?.trim() || null,
-        phone: input.phone?.trim() || null,
-        referral_fee_percentage: input.referralFeePercentage,
-        transaction_system: input.transactionSystem?.trim() || null,
-        notes: input.notes?.trim() || null,
-        status: input.status,
+        name: v.name,
+        email: v.email,
+        brand: v.brand || null,
+        address: v.address || null,
+        phone: v.phone || null,
+        referral_fee_percentage: v.referralFeePercentage,
+        transaction_system: v.transactionSystem || null,
+        notes: v.notes || null,
+        status: v.status,
       })
-      .eq('id', input.id)
+      .eq('id', v.id)
       .select()
       .single()
 
@@ -145,21 +155,22 @@ export async function createAgent(input: {
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    if (!input.firstName.trim()) return { success: false, error: 'First name is required' }
-    if (!input.lastName.trim()) return { success: false, error: 'Last name is required' }
-    if (!input.email.trim()) return { success: false, error: 'Email is required' }
-    if (!input.brokerageId) return { success: false, error: 'Brokerage is required' }
+    const parsed = CreateAgentSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || 'Invalid input' }
+    }
+    const v = parsed.data
 
     // Verify brokerage exists
     const { data: brokerage } = await supabase
       .from('brokerages')
       .select('id, name')
-      .eq('id', input.brokerageId)
+      .eq('id', v.brokerageId)
       .single()
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-    const email = input.email.trim().toLowerCase()
+    const email = v.email
 
     // Check if agent email already exists (exclude archived agents so emails can be reused)
     const { data: existingAgent } = await supabase
@@ -175,12 +186,12 @@ export async function createAgent(input: {
     const { data: agent, error: insertError } = await serviceClient
       .from('agents')
       .insert({
-        brokerage_id: input.brokerageId,
-        first_name: input.firstName.trim(),
-        last_name: input.lastName.trim(),
+        brokerage_id: v.brokerageId,
+        first_name: v.firstName,
+        last_name: v.lastName,
         email,
-        phone: input.phone?.trim() || null,
-        reco_number: input.recoNumber?.trim() || null,
+        phone: v.phone || null,
+        reco_number: v.recoNumber || null,
         status: 'active',
         flagged_by_brokerage: false,
         outstanding_recovery: 0,
@@ -197,7 +208,7 @@ export async function createAgent(input: {
       action: 'agent.create',
       entityType: 'agent',
       entityId: agent.id,
-      metadata: { name: `${input.firstName} ${input.lastName}`, email: input.email, brokerage_id: input.brokerageId },
+      metadata: { name: `${v.firstName} ${v.lastName}`, email: v.email, brokerage_id: v.brokerageId },
     })
 
     return { success: true, data: agent }
@@ -346,25 +357,27 @@ export async function updateAgent(input: {
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    if (!input.firstName.trim()) return { success: false, error: 'First name is required' }
-    if (!input.lastName.trim()) return { success: false, error: 'Last name is required' }
-    if (!input.email.trim()) return { success: false, error: 'Email is required' }
+    const parsed = UpdateAgentSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || 'Invalid input' }
+    }
+    const v = parsed.data
 
     const serviceClient = createServiceRoleClient()
     const { data: agent, error: updateError } = await serviceClient
       .from('agents')
       .update({
-        brokerage_id: input.brokerageId,
-        first_name: input.firstName.trim(),
-        last_name: input.lastName.trim(),
-        email: input.email.trim().toLowerCase(),
-        phone: input.phone?.trim() || null,
-        reco_number: input.recoNumber?.trim() || null,
-        status: input.status,
-        flagged_by_brokerage: input.flaggedByBrokerage,
-        outstanding_recovery: input.outstandingRecovery,
+        brokerage_id: v.brokerageId,
+        first_name: v.firstName,
+        last_name: v.lastName,
+        email: v.email,
+        phone: v.phone || null,
+        reco_number: v.recoNumber || null,
+        status: v.status,
+        flagged_by_brokerage: v.flaggedByBrokerage,
+        outstanding_recovery: v.outstandingRecovery,
       })
-      .eq('id', input.id)
+      .eq('id', v.id)
       .select()
       .single()
 
@@ -376,8 +389,8 @@ export async function updateAgent(input: {
     await logAuditEvent({
       action: 'agent.update',
       entityType: 'agent',
-      entityId: input.id,
-      metadata: { name: `${input.firstName} ${input.lastName}`, status: input.status },
+      entityId: v.id,
+      metadata: { name: `${v.firstName} ${v.lastName}`, status: v.status },
     })
 
     return { success: true, data: agent }
@@ -403,16 +416,18 @@ export async function createUserAccount(input: {
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    if (!input.email.trim()) return { success: false, error: 'Email is required' }
-    if (!input.password || input.password.length < 8) return { success: false, error: 'Password must be at least 8 characters' }
-    if (!input.fullName.trim()) return { success: false, error: 'Full name is required' }
+    const parsed = CreateUserAccountSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message || 'Invalid input' }
+    }
+    const v = parsed.data
 
     // Create auth user via service-role client (required for admin.createUser)
     const serviceClient = createServiceRoleClient()
 
     const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
-      email: input.email.trim().toLowerCase(),
-      password: input.password,
+      email: v.email,
+      password: v.password,
       email_confirm: true,
     })
 
@@ -430,11 +445,11 @@ export async function createUserAccount(input: {
       .from('user_profiles')
       .insert({
         id: authData.user.id,
-        email: input.email.trim().toLowerCase(),
-        role: input.role,
-        full_name: input.fullName.trim(),
-        agent_id: input.agentId || null,
-        brokerage_id: input.brokerageId || null,
+        email: v.email,
+        role: v.role,
+        full_name: v.fullName,
+        agent_id: v.agentId || null,
+        brokerage_id: v.brokerageId || null,
         is_active: true,
       })
 
@@ -447,7 +462,7 @@ export async function createUserAccount(input: {
       action: 'user.create',
       entityType: 'user',
       entityId: authData.user.id,
-      metadata: { email: input.email, role: input.role, full_name: input.fullName },
+      metadata: { email: v.email, role: v.role, full_name: v.fullName },
     })
 
     return { success: true, data: { userId: authData.user.id } }

@@ -14,16 +14,17 @@ export async function POST(request: Request) {
       .eq('token', token)
       .single()
 
+    // Return identical error for all failure modes to prevent token enumeration
     if (error || !tokenRecord) {
-      return NextResponse.json({ success: false, error: 'invalid' })
+      return NextResponse.json({ success: false, error: 'Invalid or expired link' })
     }
 
     if (tokenRecord.used_at) {
-      return NextResponse.json({ success: false, error: 'used' })
+      return NextResponse.json({ success: false, error: 'Invalid or expired link' })
     }
 
     if (new Date(tokenRecord.expires_at) < new Date()) {
-      return NextResponse.json({ success: false, error: 'expired' })
+      return NextResponse.json({ success: false, error: 'Invalid or expired link' })
     }
 
     // Get agent name

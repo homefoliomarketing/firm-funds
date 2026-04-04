@@ -52,3 +52,55 @@ export const DealStatusChangeSchema = z.object({
 
 export type DealSubmission = z.infer<typeof DealSubmissionSchema>
 export type DealStatusChange = z.infer<typeof DealStatusChangeSchema>
+
+// ============================================================================
+// Admin Action Schemas (H6 security fix)
+// ============================================================================
+
+/** Sanitize text fields — strip potential XSS */
+const sanitizedString = (maxLen = 500) =>
+  z.string().max(maxLen).transform(val => val.replace(/<[^>]*>/g, '').trim())
+
+const emailSchema = z.string().email('Invalid email address').max(254).transform(val => val.toLowerCase().trim())
+const phoneSchema = z.string().max(30).regex(/^[\d\s\-+().ext]*$/, 'Invalid phone number format').optional().nullable()
+
+export const CreateBrokerageSchema = z.object({
+  name: sanitizedString(200).pipe(z.string().min(1, 'Brokerage name is required')),
+  email: emailSchema,
+  brand: sanitizedString(200).optional().nullable(),
+  address: sanitizedString(300).optional().nullable(),
+  phone: phoneSchema,
+  referralFeePercentage: z.number().min(0).max(1, 'Referral fee must be between 0 and 1'),
+  transactionSystem: sanitizedString(100).optional().nullable(),
+  notes: sanitizedString(2000).optional().nullable(),
+})
+
+export const UpdateBrokerageSchema = CreateBrokerageSchema.extend({
+  id: z.string().uuid('Invalid brokerage ID'),
+  status: z.enum(['active', 'inactive', 'suspended']),
+})
+
+export const CreateAgentSchema = z.object({
+  brokerageId: z.string().uuid('Invalid brokerage ID'),
+  firstName: sanitizedString(100).pipe(z.string().min(1, 'First name is required')),
+  lastName: sanitizedString(100).pipe(z.string().min(1, 'Last name is required')),
+  email: emailSchema,
+  phone: phoneSchema,
+  recoNumber: sanitizedString(50).optional().nullable(),
+})
+
+export const UpdateAgentSchema = CreateAgentSchema.extend({
+  id: z.string().uuid('Invalid agent ID'),
+  status: z.enum(['active', 'inactive', 'archived']),
+  flaggedByBrokerage: z.boolean(),
+  outstandingRecovery: z.number().min(0),
+})
+
+export const CreateUserAccountSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  fullName: sanitizedString(200).pipe(z.string().min(1, 'Full name is required')),
+  role: z.enum(['agent', 'brokerage_admin']),
+  agentId: z.string().uuid().optional().nullable(),
+  brokerageId: z.string().uuid().optional().nullable(),
+})

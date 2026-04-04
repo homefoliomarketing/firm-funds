@@ -67,24 +67,27 @@ export async function POST(request: Request) {
 // Step 3: After client uploads files directly to Supabase, update the DB records
 export async function PUT(request: Request) {
   try {
-    const { token, filePaths, documentType, tokenRecordId, agentId } = await request.json()
+    const { token, filePaths, documentType, tokenRecordId } = await request.json()
 
-    if (!token || !filePaths?.length || !documentType || !agentId) {
+    if (!token || !filePaths?.length || !documentType) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
     }
 
     const serviceClient = createServiceRoleClient()
 
-    // Re-validate the token (security: don't trust client-provided agentId alone)
+    // Validate token and derive agentId server-side (never trust client-provided agentId)
     const { data: tokenRecord, error: tokenError } = await serviceClient
       .from('kyc_upload_tokens')
       .select('id, agent_id')
       .eq('token', token)
       .single()
 
-    if (tokenError || !tokenRecord || tokenRecord.agent_id !== agentId) {
+    if (tokenError || !tokenRecord) {
       return NextResponse.json({ success: false, error: 'Invalid token.' })
     }
+
+    // Server-derived agentId — not from client request body
+    const agentId = tokenRecord.agent_id
 
     // Update agent record
     const now = new Date().toISOString()

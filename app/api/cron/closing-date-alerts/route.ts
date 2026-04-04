@@ -16,11 +16,15 @@ import { sendClosingDateAlertDigest } from '@/lib/email'
 const APPROACHING_DAYS_THRESHOLD = 7 // Alert for deals closing within 7 days
 
 export async function GET(request: Request) {
-  // Verify cron secret
+  // Verify cron secret — fail closed if not configured
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    console.error('[cron] CRON_SECRET env var not configured')
+    return Response.json({ error: 'Cron not configured' }, { status: 500 })
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

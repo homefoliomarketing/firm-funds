@@ -23,6 +23,7 @@ import {
   sendDocumentRequestNotification,
 } from '@/lib/email'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { verifyFileMagicBytes } from '@/lib/file-validation'
 
 // ============================================================================
 // Types
@@ -516,11 +517,33 @@ export async function getDocumentSignedUrl(input: {
   filePath: string
   dealId: string
 }): Promise<ActionResult> {
-  // Allow admins, agents, and brokerage admins (RLS handles per-deal access)
-  const { error: authErr, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent', 'brokerage_admin'])
-  if (authErr) return { success: false, error: authErr }
+  // Allow admins, agents, and brokerage admins
+  const { error: authErr, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent', 'brokerage_admin'])
+  if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
+    // Authorization: verify the user actually has access to this deal
+    if (profile.role === 'agent') {
+      const { data: deal } = await supabase
+        .from('deals')
+        .select('agent_id')
+        .eq('id', input.dealId)
+        .single()
+      if (!deal || deal.agent_id !== profile.agent_id) {
+        return { success: false, error: 'Access denied' }
+      }
+    } else if (profile.role === 'brokerage_admin') {
+      const { data: deal } = await supabase
+        .from('deals')
+        .select('brokerage_id')
+        .eq('id', input.dealId)
+        .single()
+      if (!deal || deal.brokerage_id !== profile.brokerage_id) {
+        return { success: false, error: 'Access denied' }
+      }
+    }
+    // super_admin and firm_funds_admin can access all deals
+
     // Use service role client to bypass RLS/storage policies
     const { createServiceRoleClient } = await import('@/lib/supabase/server')
     const serviceClient = createServiceRoleClient()
@@ -614,6 +637,12 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
     // Validate MIME type
     if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
       return { success: false, error: 'File MIME type not allowed' }
+    }
+
+    // Magic byte verification — confirm file content matches declared type (H7 security fix)
+    const magicBytesValid = await verifyFileMagicBytes(file)
+    if (!magicBytesValid) {
+      return { success: false, error: 'File content does not match its declared type' }
     }
 
     // Generate safe file path

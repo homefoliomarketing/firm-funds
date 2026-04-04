@@ -12,7 +12,18 @@ import { calcDaysUntilClosing } from '@/lib/constants'
 // Protected by a secret query param: ?key=firmfunds-seed-2026
 // =============================================================================
 
-const SEED_KEY = 'firmfunds-seed-2026'
+// SECURITY: Seed route disabled in production. Use local scripts for seeding.
+const SEED_KEY = process.env.SEED_SECRET || ''
+
+function guardProduction() {
+  if (process.env.NODE_ENV === 'production' && !process.env.ENABLE_SEED) {
+    return Response.json({ error: 'Seed route is disabled in production' }, { status: 403 })
+  }
+  if (!SEED_KEY) {
+    return Response.json({ error: 'SEED_SECRET env var not configured' }, { status: 500 })
+  }
+  return null
+}
 
 // Tag so we can find and delete seed data later
 const SEED_TAG = '[SEED]'
@@ -95,6 +106,9 @@ function randomPastClosingDate(): string {
 // =============================================================================
 
 export async function GET(request: Request) {
+  const prodGuard = guardProduction()
+  if (prodGuard) return prodGuard
+
   const url = new URL(request.url)
   if (url.searchParams.get('key') !== SEED_KEY) {
     return Response.json({ error: 'Invalid seed key' }, { status: 403 })
@@ -276,6 +290,9 @@ export async function GET(request: Request) {
 // =============================================================================
 
 export async function DELETE(request: Request) {
+  const prodGuard = guardProduction()
+  if (prodGuard) return prodGuard
+
   const url = new URL(request.url)
   if (url.searchParams.get('key') !== SEED_KEY) {
     return Response.json({ error: 'Invalid seed key' }, { status: 403 })
