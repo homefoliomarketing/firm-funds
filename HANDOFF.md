@@ -1,6 +1,6 @@
 # Firm Funds — Developer Handoff Document
 
-**Last Updated:** April 3, 2026 (Session 4)
+**Last Updated:** April 3, 2026 (Session 5)
 **Owner:** Bud (homefoliomarketing@gmail.com)
 **Project:** Firm Funds Inc. (firmfunds.ca) — Commission Advance Platform for Ontario Real Estate Agents
 **Repo:** GitHub (`github.com/homefoliomarketing/firm-funds`) → deployed via Netlify (every push to `main` auto-deploys to production, NO staging environment)
@@ -77,13 +77,15 @@ The browser Supabase client (`createClient()` from `@/lib/supabase/client`) talk
 
 The CSP in `next.config.ts` controls what external resources can load. If you add any external script, font, image source, or API endpoint, you MUST update the CSP or it will be silently blocked with no visible error.
 
-Current CSP allows:
-- Scripts: `'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com`
+Current CSP allows (hardened in Session 5):
+- Scripts: `'self' 'unsafe-inline' https://cdnjs.cloudflare.com` (unsafe-eval REMOVED)
 - Styles: `'self' 'unsafe-inline'`
 - Images: `'self' data: blob: https://*.supabase.co`
 - Fonts: `'self' https://fonts.gstatic.com`
 - Connect: `'self' https://*.supabase.co wss://*.supabase.co`
 - Workers: `'self' blob: https://cdnjs.cloudflare.com`
+- Object: `'none'` (added Session 5)
+- Also: `upgrade-insecure-requests` (added Session 5)
 
 ### 5. Theme System
 
@@ -146,11 +148,13 @@ lib/
 ├── auth-helpers.ts                 # Shared getAuthenticatedAdmin() + getAuthenticatedUser() — used by all action files
 ├── calculations.ts                 # Deal financial calculations (server-side ONLY)
 ├── constants.ts                    # Status badges, KYC types, upload limits
+├── csrf.ts                         # CSRF origin validation utility (Session 5)
 ├── email.ts                        # All Resend email templates
+├── file-validation.ts              # Magic byte file content verification (Session 5)
 ├── formatting.ts                   # Shared formatCurrency, formatCurrencyWhole, formatDate, formatDateTime
 ├── theme.tsx                       # Theme context + color definitions
 ├── audit.ts                        # Audit logging utilities
-└── validations.ts                  # Zod schemas
+└── validations.ts                  # Zod schemas (expanded Session 5: admin action schemas)
 
 middleware.ts                       # Auth, role-based routing, force password change
                                     # Excludes: /login, /auth, /kyc-upload, /api/kyc-*
@@ -305,6 +309,60 @@ Replaced 3 identical copies (~100 lines of duplicated auth boilerplate) across a
 - Removed unused `DocumentUploadSchema` and `DocumentUpload` type from `validations.ts`
 - Cleaned up unused constant imports in `validations.ts`
 
+### Session 5: Security Hardening & Viewer UX (April 3, 2026)
+
+Full security audit performed — `SECURITY-AUDIT.md` in project root documents all 24 findings.
+19 of 24 findings fixed in code + 1 SQL migration. Remaining 5 need infrastructure or config changes.
+
+#### Security Fixes Implemented ✅
+
+**CRITICAL:**
+- **C1 — Seed route lockdown:** Replaced hardcoded `SEED_KEY` with `process.env.SEED_SECRET`. Added `guardProduction()` check on GET + DELETE handlers — route is blocked in production unless `ENABLE_SEED` env var is set.
+- **C2 — Cron auth fail-closed:** If `CRON_SECRET` env var isn't set, route now returns 500 instead of allowing unauthenticated access.
+- **C4 — Password complexity:** Upgraded from 8-char minimum to 12 chars + uppercase + lowercase + number + special character. Placeholder updated.
+- **C6 — KYC agentId trust removed:** Server now derives `agentId` from the token record, never from client request body. Client-side upload page updated to stop sending it.
+
+**HIGH:**
+- **H1 — CSP hardened:** Removed `unsafe-eval`, added `object-src 'none'` and `upgrade-insecure-requests`.
+- **H2 — CSRF origin validation:** Created `lib/csrf.ts`. Applied to `clear-reset-flag` route. KYC routes use tokens (not cookies) so CSRF N/A.
+- **H3 — Token error normalization:** All KYC token validation failures now return identical "Invalid or expired link" — prevents token enumeration.
+- **H5 — Document access authorization:** `getDocumentSignedUrl` now verifies agents own the deal and brokerage admins belong to the correct brokerage before generating signed URLs.
+- **H6 — Zod validation on admin actions:** Created schemas in `lib/validations.ts` for create/update brokerage, create/update agent, create user account. All text fields sanitized (HTML stripped), email/phone/UUID validated. Applied in `admin-actions.ts`.
+- **H7 — Magic byte file verification:** Created `lib/file-validation.ts`. Checks file header bytes match declared MIME type (PDF, JPEG, PNG, GIF, WebP, HEIC). Applied in `uploadDocument` in `deal-actions.ts`.
+- **H8 — Audit log immutability:** SQL migration `migrations/004_audit_log_immutable.sql` — RLS set to INSERT-only for authenticated, SELECT-only for admins, database triggers prevent UPDATE/DELETE even via service_role.
+
+**MEDIUM:**
+- **M1 — Password change audit logging:** `clear-reset-flag` route now writes `user.password_changed` event to `audit_log`.
+- **M3 — Race condition fix:** Password change page now `await`s the `clear-reset-flag` API call instead of fire-and-forget.
+
+**LOW:**
+- **L1 — Referrer-Policy:** Changed to `no-referrer` (was `strict-origin-when-cross-origin`).
+- **L2 — X-XSS-Protection:** Removed obsolete header entirely.
+
+**Files changed:** `app/api/seed/route.ts`, `app/api/cron/closing-date-alerts/route.ts`, `app/(auth)/change-password/page.tsx`, `app/api/clear-reset-flag/route.ts`, `app/api/kyc-mobile-upload/route.ts`, `app/api/kyc-validate-token/route.ts`, `app/kyc-upload/[token]/page.tsx`, `lib/actions/admin-actions.ts`, `lib/actions/deal-actions.ts`, `lib/validations.ts`, `next.config.ts`
+**Files created:** `lib/csrf.ts`, `lib/file-validation.ts`, `migrations/004_audit_log_immutable.sql`, `SECURITY-AUDIT.md`
+
+#### Security Items Deferred to Launch ⏳
+- **C3/H4 — Rate limiting:** Needs infrastructure (Upstash Redis or similar rate-limit store)
+- **C5 — Temp passwords in email:** Architecture change to magic links. `must_reset_password` flow provides interim protection.
+- **M2 — Server-side session timeout:** Needs DB `last_active_at` tracking
+- **M5 — Pin dependency versions:** Config change, low risk
+- **M6 — Verify KYC storage encryption:** Supabase dashboard check
+- **MFA:** Bud plans to add multi-factor auth at launch
+
+#### PDF/Image Viewer — Drag to Pan ✅
+Added click-and-drag panning on both PDF and image viewers when zoomed in.
+- `useDragToPan` hook: tracks mouse down/move/up, scrolls container proportionally
+- Cursor changes to grab hand when zoomed past default, grabbing while dragging
+- `draggable={false}` on images to prevent browser native image drag conflict
+**Files:** `app/(dashboard)/admin/deals/[id]/page.tsx`
+
+#### PDF/Image Viewer — Zoom Fix ✅ (carried from Session 4)
+**Problem:** Zoom buttons changed the percentage display but didn't change actual visual size. Then it jumped to one huge zoom with no in-between.
+**Solution (PDF):** Always render at 2x resolution for crispness, control visual size via CSS `width` percentage proportional to zoom level. No more re-rendering canvases at different scales.
+**Solution (Image):** Removed flex container that was absorbing width increases. Used block layout with `maxWidth: 'none'`.
+**Files:** `app/(dashboard)/admin/deals/[id]/page.tsx`
+
 ---
 
 ## Server Actions Still in Use (Potential Hang Risk)
@@ -330,23 +388,33 @@ These server actions are still called from the codebase. Most work fine for smal
 ### 2. `.claude/worktrees` Git Corruption — RECURRING
 A `.claude/worktrees` submodule reference sometimes gets staged. Fix: `git reset HEAD .claude` on Bud's machine before committing.
 
-### 3. Dead Code — CLEANED UP ✅ (Session 4)
-All dead code identified in Sessions 1-3 has been removed. See Session 4 notes below.
+### 3. Rate Limiting Not Yet Implemented — LAUNCH BLOCKER
+Login, API routes, and password change have no rate limiting. Needs Upstash Redis or similar infrastructure. See SECURITY-AUDIT.md items C3/H4.
+
+### 4. Dead Code — CLEANED UP ✅ (Session 4)
+All dead code identified in Sessions 1-3 has been removed.
+
+### 5. Security Audit — MOSTLY COMPLETE ✅ (Session 5)
+19 of 24 findings fixed. See `SECURITY-AUDIT.md` for full details. Remaining items need infrastructure changes (rate limiting, magic links, session timeout).
 
 ---
 
 ## Planned / Future Work (Priority Order)
 
-1. **Convert desktop KYC upload to signed URL pattern** — prevent potential Netlify hang
-2. **Document request UI** — admin button to request specific documents from agents (email function `sendDocumentRequestNotification()` exists, no UI yet)
-3. **FINTRAC compliance reporting/documentation** — needs legal guidance
-4. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
-5. **Agent deal history and commission tracking improvements**
-6. **Additional admin reporting features**
-7. **Mobile-responsive optimization**
-9. **Set up CRON_SECRET env var** + external scheduler for daily closing date alerts
-10. **E-signature integration** (DocuSign/HelloSign) — needs account + API key
-11. **Nexone integration** — waiting on API response
+1. **Rate limiting (C3/H4)** — needs Upstash Redis or Netlify rate limit config. Login, password change, and API routes are unprotected.
+2. **Multi-factor authentication** — Bud plans to add at launch. Supabase Auth supports TOTP.
+3. **Convert desktop KYC upload to signed URL pattern** — prevent potential Netlify hang
+4. **Document request UI** — admin button to request specific documents from agents (email function `sendDocumentRequestNotification()` exists, no UI yet)
+5. **Magic link invites (C5)** — replace temp passwords in emails with secure magic links
+6. **FINTRAC compliance reporting/documentation** — needs legal guidance
+7. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
+8. **Agent deal history and commission tracking improvements**
+9. **Additional admin reporting features**
+10. **Mobile-responsive optimization**
+11. **Set up external scheduler** for daily closing date alerts (CRON_SECRET env var is configured)
+12. **E-signature integration** (DocuSign/HelloSign) — needs account + API key
+13. **Nexone integration** — waiting on API response
+14. **Professional penetration test** — recommended before handling real financial data
 
 ---
 
@@ -360,6 +428,9 @@ All dead code identified in Sessions 1-3 has been removed. See Session 4 notes b
 | 014 | Agent archived status constraint | Applied |
 | 015 | must_reset_password column | Applied |
 | — | Partial unique index on agents.email (excludes archived) | Applied manually |
+| 004* | Audit log immutability (RLS + triggers, prevents UPDATE/DELETE) | Applied (Session 5) |
+
+*Note: `migrations/004_audit_log_immutable.sql` — numbering is in the `migrations/` directory (separate from `supabase/migrations/`).
 
 **New migration workflow:** Write `.sql` in `supabase/migrations/`, give Bud the SQL to run in Supabase SQL Editor, then push the code.
 
@@ -378,6 +449,9 @@ All dead code identified in Sessions 1-3 has been removed. See Session 4 notes b
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `RESEND_API_KEY`
+- `SEED_SECRET` — random string for seed route auth (added Session 5)
+- `CRON_SECRET` — random string for cron job Bearer token auth (added Session 5)
+- `ENABLE_SEED` — only set to `true` if you need to seed in production (leave absent to block)
 
 ---
 
@@ -439,9 +513,10 @@ await fetch('/api/kyc-mobile-upload', {
 
 ### 7. Password change (fully client-side)
 ```typescript
+// Password policy: 12+ chars, uppercase, lowercase, number, special char
 await supabase.auth.updateUser({ password: newPassword, data: { password_changed: true } })
 await supabase.auth.refreshSession()
-fetch('/api/clear-reset-flag', { method: 'POST' }).catch(() => {}) // fire-and-forget
+await fetch('/api/clear-reset-flag', { method: 'POST' }) // awaited (writes audit log)
 window.location.href = redirectPath
 ```
 
@@ -474,6 +549,11 @@ git push origin main
 5. **Financial calculations server-side only** in `lib/calculations.ts` — dollars not cents
 6. **Run `npx tsc --noEmit` before telling Bud to push** — zero errors or don't ship
 7. **Every push auto-deploys** — no staging environment
-8. **CSP in `next.config.ts`** — update when adding external resources
+8. **CSP in `next.config.ts`** — update when adding external resources (no unsafe-eval!)
 9. **Next.js 16.2.1 breaking changes** — `params` are Promises, read docs first
 10. **Email notifications go to bud@firmfunds.ca ONLY** — James has admin access but no emails
+11. **Zod validate all user input** — admin actions use schemas from `lib/validations.ts`, strip HTML
+12. **Never trust client-provided IDs** — always derive entity ownership server-side from auth/tokens
+13. **Audit log is immutable** — INSERT-only, no UPDATE/DELETE even via service_role (DB triggers)
+14. **CSRF protection on cookie-auth API routes** — use `validateOrigin()` from `lib/csrf.ts`
+15. **Magic byte verification on file uploads** — use `verifyFileMagicBytes()` from `lib/file-validation.ts`
