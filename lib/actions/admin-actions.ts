@@ -628,7 +628,10 @@ export async function inviteAgent(input: {
     }
 
     // 2. Create auth user with a random password (agent will set their own via magic link)
+    //    If the email already exists in Supabase Auth (e.g. previously archived agent), reuse that auth user
     const tempPassword = generateTempPassword()  // Used only as initial placeholder — never shown to agent
+
+    let authUserId: string
 
     const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email,
@@ -636,20 +639,50 @@ export async function inviteAgent(input: {
       email_confirm: true,
     })
 
-    if (signUpError || !authData?.user) {
+    if (signUpError && signUpError.message?.includes('already been registered')) {
+      // Email exists in Supabase Auth (e.g. previously archived/deleted agent) — find and reuse
+      const { data: { users } } = await serviceClient.auth.admin.listUsers()
+      const existingAuthUser = users?.find((u: any) => u.email === email)
+
+      if (!existingAuthUser) {
+        console.error('Auth user exists but could not be found for reuse:', email)
+        return {
+          success: false,
+          error: `Agent record created but login creation failed: Could not find existing auth user for ${email}. Fix manually in Supabase.`,
+          data: { agentId: agent.id, agentCreated: true, loginCreated: false },
+        }
+      }
+
+      authUserId = existingAuthUser.id
+
+      // Reset the password and ensure the user is confirmed + active
+      await serviceClient.auth.admin.updateUserById(authUserId, {
+        password: tempPassword,
+        email_confirm: true,
+      })
+
+      // Clean up any old user_profile for this auth user (from a previous agent record)
+      await serviceClient
+        .from('user_profiles')
+        .delete()
+        .eq('id', authUserId)
+
+    } else if (signUpError || !authData?.user) {
       console.error('Auth user create error:', signUpError?.message)
       return {
         success: false,
         error: `Agent record created but login creation failed: ${signUpError?.message || 'Unknown error'}. Create the login manually via the Supabase dashboard.`,
         data: { agentId: agent.id, agentCreated: true, loginCreated: false },
       }
+    } else {
+      authUserId = authData.user.id
     }
 
     // 3. Create user_profile record (use service client to bypass RLS)
     const { error: profileError } = await serviceClient
       .from('user_profiles')
       .insert({
-        id: authData.user.id,
+        id: authUserId,
         email,
         role: 'agent',
         full_name: `${input.firstName.trim()} ${input.lastName.trim()}`,
@@ -676,7 +709,7 @@ export async function inviteAgent(input: {
       .from('invite_tokens')
       .insert({
         token: inviteToken,
-        user_id: authData.user.id,
+        user_id: authUserId,
         agent_id: agent.id,
         email,
         expires_at: expiresAt,
@@ -717,7 +750,7 @@ export async function inviteAgent(input: {
       success: true,
       data: {
         agentId: agent.id,
-        userId: authData.user.id,
+        userId: authUserId,
         agentCreated: true,
         loginCreated: true,
         profileCreated: true,
