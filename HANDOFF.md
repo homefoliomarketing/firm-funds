@@ -1,6 +1,6 @@
 # Firm Funds — Developer Handoff Document
 
-**Last Updated:** April 3, 2026 (Session 5)
+**Last Updated:** April 4, 2026 (Session 6)
 **Owner:** Bud (homefoliomarketing@gmail.com)
 **Project:** Firm Funds Inc. (firmfunds.ca) — Commission Advance Platform for Ontario Real Estate Agents
 **Repo:** GitHub (`github.com/homefoliomarketing/firm-funds`) → deployed via Netlify (every push to `main` auto-deploys to production, NO staging environment)
@@ -106,13 +106,14 @@ Key color properties: `pageBg`, `cardBg`, `textPrimary`, `textSecondary`, `textM
 ```
 app/
 ├── (auth)/
-│   ├── login/page.tsx              # Login page
+│   ├── login/page.tsx              # Login page (+ login success/failure audit logging)
 │   └── change-password/page.tsx    # Force password change (first login) — FULLY CLIENT-SIDE
 ├── (dashboard)/
 │   ├── admin/
-│   │   ├── page.tsx                # Admin dashboard
+│   │   ├── page.tsx                # Admin dashboard (3 KPI cards, quick links, deals table)
+│   │   ├── audit/page.tsx          # Audit explorer — search, filter, paginate, export (Session 6)
 │   │   ├── brokerages/page.tsx     # Brokerage & agent management (HUGE file ~1800+ lines)
-│   │   ├── deals/[id]/page.tsx     # Deal detail + underwriting checklist + doc viewer + PDF/Image zoom
+│   │   ├── deals/[id]/page.tsx     # Deal detail + underwriting checklist + doc viewer + audit trail
 │   │   └── reports/page.tsx        # Reports
 │   ├── agent/
 │   │   ├── page.tsx                # Agent dashboard
@@ -120,6 +121,7 @@ app/
 │   │   └── deals/[id]/page.tsx     # Agent deal detail
 │   └── brokerage/page.tsx          # Brokerage admin dashboard
 ├── api/
+│   ├── audit/export/route.ts       # Audit log CSV/JSON export (auth + CSRF protected) (Session 6)
 │   ├── clear-reset-flag/route.ts   # Clears must_reset_password DB flag (fire-and-forget)
 │   ├── kyc-mobile-upload/route.ts  # Mobile KYC: POST=get signed URLs, PUT=finalize DB
 │   ├── kyc-validate-token/route.ts # Validate KYC upload tokens
@@ -133,19 +135,23 @@ app/
 
 components/
 ├── AgentKycGate.tsx                # KYC upload + mobile link + 5s polling for status
+├── AuditTimeline.tsx               # Visual audit timeline with severity dots, diffs (Session 6)
 ├── SessionTimeout.tsx
-└── SignOutModal.tsx
+└── SignOutModal.tsx                 # (+ logout audit logging, Session 6)
 
 lib/
 ├── actions/
-│   ├── admin-actions.ts            # All admin CRUD (agents, brokerages, archive, invite, resend welcome)
-│   ├── deal-actions.ts             # Deal CRUD, document management, checklist
+│   ├── admin-actions.ts            # All admin CRUD + EFT/payment audit logging (Session 6)
+│   ├── audit-actions.ts            # Audit log queries: timeline, global search, export (Session 6)
+│   ├── deal-actions.ts             # Deal CRUD + checklist/status/edit audit with diffs (Session 6)
 │   ├── kyc-actions.ts              # KYC submit, verify, reject, mobile token, document URLs
 │   └── report-actions.ts           # Reporting queries
 ├── supabase/
 │   ├── client.ts                   # Browser client (sync, createBrowserClient)
 │   └── server.ts                   # Server client (async, uses cookies) + service role client (sync)
-├── auth-helpers.ts                 # Shared getAuthenticatedAdmin() + getAuthenticatedUser() — used by all action files
+├── audit.ts                        # Audit logging (server actions): logAuditEvent, diffValues (Session 6 rewrite)
+├── audit-labels.ts                 # Client-safe audit labels/types — NO 'use server' (Session 6)
+├── auth-helpers.ts                 # Shared getAuthenticatedAdmin() + getAuthenticatedUser()
 ├── calculations.ts                 # Deal financial calculations (server-side ONLY)
 ├── constants.ts                    # Status badges, KYC types, upload limits
 ├── csrf.ts                         # CSRF origin validation utility (Session 5)
@@ -153,11 +159,11 @@ lib/
 ├── file-validation.ts              # Magic byte file content verification (Session 5)
 ├── formatting.ts                   # Shared formatCurrency, formatCurrencyWhole, formatDate, formatDateTime
 ├── theme.tsx                       # Theme context + color definitions
-├── audit.ts                        # Audit logging utilities
 └── validations.ts                  # Zod schemas (expanded Session 5: admin action schemas)
 
 middleware.ts                       # Auth, role-based routing, force password change
                                     # Excludes: /login, /auth, /kyc-upload, /api/kyc-*
+                                    # Fixed: signs out users with missing profiles (prevents redirect loop)
 ```
 
 ---
@@ -204,8 +210,12 @@ Has: deal_id, label, checked, category (Agent Verification, Deal Document Review
 ### kyc_upload_tokens
 Has: token (32 hex bytes), agent_id, expires_at (30 min), used_at (single-use)
 
-### audit_log
-Has: action, entity_type, entity_id, user_id, metadata (JSONB), created_at
+### audit_log (Enhanced Session 6)
+Has: action, entity_type, entity_id, user_id, metadata (JSONB), created_at, severity (info/warning/critical), actor_email, actor_role, old_value (JSONB), new_value (JSONB), user_agent, session_id
+- INSERT-only (DB triggers prevent UPDATE/DELETE even via service_role)
+- RLS: authenticated can INSERT, admins can SELECT
+- 7 indexes including composite, partial (severity='critical'), and GIN (metadata)
+- 50+ action types mapped in `lib/audit-labels.ts`
 
 ---
 
@@ -363,6 +373,76 @@ Added click-and-drag panning on both PDF and image viewers when zoomed in.
 **Solution (Image):** Removed flex container that was absorbing width increases. Used block layout with `maxWidth: 'none'`.
 **Files:** `app/(dashboard)/admin/deals/[id]/page.tsx`
 
+### Session 6: Audit Trail System + Dashboard Cleanup (April 4, 2026)
+
+#### Full Audit Trail & Event Ledger System ✅
+Built a comprehensive audit trail with enhanced schema, backend logging, query/export APIs, deal-level timeline UI, and global audit explorer page.
+
+**Schema Enhancement (migration `005_audit_log_enhanced.sql`):**
+- Added 7 columns to audit_log: severity, actor_email, actor_role, old_value, new_value, user_agent, session_id
+- CHECK constraint on severity ('info', 'warning', 'critical')
+- 7 new indexes including composite, partial (severity='critical'), GIN (metadata)
+- Recreated SELECT RLS policy
+
+**Backend (`lib/audit.ts` rewrite + `lib/audit-labels.ts` new):**
+- `audit.ts` is `'use server'` — ONLY async function exports (Next.js 16 Turbopack requirement)
+- Contains: logAuditEvent(), logAuditEventServiceRole(), extractRequestContext(), diffValues()
+- Now populates severity, actor_email, actor_role, old_value, new_value from user profile
+- `audit-labels.ts` is client-safe (NO `'use server'`) — contains ACTION_LABELS map (50+ action→label mappings), getActionLabel(), AuditSeverity type
+- **Critical pattern:** client components import from `audit-labels.ts`, server actions import from `audit.ts`. Mixing this up causes Turbopack build failures.
+
+**Query & Export APIs (`lib/actions/audit-actions.ts` + `app/api/audit/export/route.ts`):**
+- getEntityAuditTimeline() — fetches deal + related document audit events
+- queryAuditLogs() — paginated, filterable global query with parallel count+data
+- exportAuditLogs() — up to 10,000 records
+- getDistinctAuditActions(), getDistinctEntityTypes() — for filter dropdowns
+- Export route supports CSV and JSON with auth + CSRF validation
+
+**Deal-Level Timeline (`components/AuditTimeline.tsx`):**
+- Visual timeline with severity-colored dots (green=info, amber=warning, red=critical)
+- Action-specific icons, expandable entries showing metadata
+- Old→new value diffs with strikethrough/green styling
+- "Show All X Events" toggle when >10 events
+- Integrated into deal detail page as collapsible "Audit Trail" section
+
+**Global Audit Explorer (`app/(dashboard)/admin/audit/page.tsx`):**
+- Full admin page at /admin/audit with search bar, 6 filter types
+- Collapsible filter panel, paginated table (50/page), expandable row details
+- CSV and JSON export buttons, entity click-through to deal detail
+
+**Instrumented Audit Events:**
+- Login success/failure (login page)
+- Logout (SignOutModal)
+- Checklist toggle with old/new values (deal-actions)
+- Deal edit with field-level diffs (deal-actions)
+- Deal status change with old/new (deal-actions)
+- Closing date update with old/new + fee recalc (deal-actions)
+- EFT confirm/remove (admin-actions, severity: critical)
+- Brokerage payment remove (admin-actions, severity: critical)
+- Document view/download (deal detail page, fire-and-forget)
+
+**Files created:** `lib/audit-labels.ts`, `lib/actions/audit-actions.ts`, `components/AuditTimeline.tsx`, `app/(dashboard)/admin/audit/page.tsx`, `app/api/audit/export/route.ts`, `migrations/005_audit_log_enhanced.sql`
+**Files modified:** `lib/audit.ts`, `lib/actions/deal-actions.ts`, `lib/actions/admin-actions.ts`, `app/(dashboard)/admin/deals/[id]/page.tsx`, `app/(dashboard)/admin/page.tsx`, `app/(auth)/login/page.tsx`, `components/SignOutModal.tsx`
+
+#### Middleware Redirect Loop Fix ✅
+**Problem:** After data wipe, users with auth sessions but no user_profiles row caused infinite redirect loop: `/login` → `/agent` → `/login`.
+**Solution:** Updated middleware to call `supabase.auth.signOut()` and stay on login page when profile is missing (instead of redirecting to role-based route).
+**Files:** `middleware.ts`
+
+#### Test Data Wipe ✅
+Wiped all test data (brokerages, agents, deals, documents, audit logs) while preserving Bud and James admin accounts.
+- Must DROP audit immutability triggers before DELETE, then recreate them
+- Individual SQL statements (NOT `DO $` blocks — Supabase rolls back entire block if any statement fails)
+- Storage buckets must be emptied via Supabase Dashboard (direct DELETE from storage.objects blocked)
+
+#### Admin Dashboard Cleanup ✅
+- Removed "Registered Agents" KPI tile (redundantly linked to brokerages page)
+- Removed "Manage Brokerages" quick link button (Partner Brokerages card already links there)
+- Changed KPI grid from 4-column to 3-column layout (Total Deals, Total Advanced, Partner Brokerages)
+- Removed unused `totalAgents` query (one fewer DB call per page load)
+- Quick links trimmed to just Reports and Audit Trail
+**Files:** `app/(dashboard)/admin/page.tsx`
+
 ---
 
 ## Server Actions Still in Use (Potential Hang Risk)
@@ -403,18 +483,46 @@ All dead code identified in Sessions 1-3 has been removed.
 
 1. **Rate limiting (C3/H4)** — needs Upstash Redis or Netlify rate limit config. Login, password change, and API routes are unprotected.
 2. **Multi-factor authentication** — Bud plans to add at launch. Supabase Auth supports TOTP.
-3. **Convert desktop KYC upload to signed URL pattern** — prevent potential Netlify hang
-4. **Document request UI** — admin button to request specific documents from agents (email function `sendDocumentRequestNotification()` exists, no UI yet)
-5. **Magic link invites (C5)** — replace temp passwords in emails with secure magic links
-6. **FINTRAC compliance reporting/documentation** — needs legal guidance
-7. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
-8. **Agent deal history and commission tracking improvements**
-9. **Additional admin reporting features**
-10. **Mobile-responsive optimization**
-11. **Set up external scheduler** for daily closing date alerts (CRON_SECRET env var is configured)
-12. **E-signature integration** (DocuSign/HelloSign) — needs account + API key
-13. **Nexone integration** — waiting on API response
+3. **E-signature integration** (DocuSign/HelloSign) — needs account + API key. Required for agents to sign commission purchase agreements digitally.
+4. **Nexone integration** — see detailed notes below
+5. **Convert desktop KYC upload to signed URL pattern** — prevent potential Netlify hang
+6. **Document request UI** — admin button to request specific documents from agents (email function `sendDocumentRequestNotification()` exists, no UI yet)
+7. **Magic link invites (C5)** — replace temp passwords in emails with secure magic links
+8. **FINTRAC compliance reporting/documentation** — needs legal guidance
+9. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
+10. **Agent deal history and commission tracking improvements**
+11. **Additional admin reporting features**
+12. **Mobile-responsive optimization**
+13. **Set up external scheduler** for daily closing date alerts (CRON_SECRET env var is configured)
 14. **Professional penetration test** — recommended before handling real financial data
+
+### Nexone Integration — Strategic Priority
+
+Nexone is a trade record management platform used by some Ontario real estate brokerages. Agents use Nexone to complete trade records, fill out commission details, and submit deal documents to their office admin. Integrating with Nexone would create a seamless pipeline where agents can request commission advances directly from within their existing workflow.
+
+**Desired User Flow:**
+1. Agent completes their trade record in Nexone (fills commissions, uploads documents)
+2. Agent sees a "Get Paid Tomorrow with Firm Funds" button in the commission calculator section
+3. Agent clicks the button → redirected to Firm Funds login (or already logged in)
+4. After authentication, Firm Funds pulls trade data + documents from Nexone automatically
+5. Deal is created in Firm Funds with docs attached, brokerage admin notified, pipeline begins
+6. Agent sees two options: receive $X tomorrow (minus brokerage split) or wait for full amount at closing
+
+**The login/auth step is critical** — it confirms agent identity AND acts as explicit consent to transfer their data.
+
+**Integration Paths (in order of preference):**
+
+- **Path 1 — Nexone API (gold standard):** If Nexone exposes a REST/OAuth API, Firm Funds authenticates the agent, then calls back to Nexone to pull the trade record + documents. Brokerage authorizes the connection at the account level, agents authorize per-deal via login. Standard integration pattern.
+
+- **Path 2 — Nexone partner/embed program:** Many SaaS platforms offer partner integrations or iframe embeds. Approach Nexone as a technology partner — their brokerage clients get a new revenue feature, agents get faster pay. Similar to "Buy Now Pay Later" buttons embedded in other platforms.
+
+- **Path 3 — Webhook + brokerage bridge:** Even without a full API, most platforms support webhooks or email notifications. Brokerage sets up automated export from Nexone. Firm Funds watches that feed and matches incoming trade records to agent accounts. The "button" in Nexone is a branded link the brokerage adds to their workspace.
+
+- **Fully manual flow is NOT acceptable** — Bud has stated the integration must be seamless regardless of what Nexone offers.
+
+**First Step:** Reach out to Nexone directly. Ask about partner API, integration program, or webhook support. Frame as value-added service for their brokerage clients.
+
+**Even if Nexone won't cooperate:** The brokerage can still bridge the gap by adding a branded link in their Nexone workspace → agent clicks → logs into Firm Funds → brokerage admin exports/forwards the trade file. From the agent's perspective it still feels like: click, login, done. The current Firm Funds system already handles everything after that point.
 
 ---
 
@@ -429,8 +537,9 @@ All dead code identified in Sessions 1-3 has been removed.
 | 015 | must_reset_password column | Applied |
 | — | Partial unique index on agents.email (excludes archived) | Applied manually |
 | 004* | Audit log immutability (RLS + triggers, prevents UPDATE/DELETE) | Applied (Session 5) |
+| 005* | Audit log enhanced (7 new columns, severity, diffs, indexes) | Applied (Session 6) |
 
-*Note: `migrations/004_audit_log_immutable.sql` — numbering is in the `migrations/` directory (separate from `supabase/migrations/`).
+*Note: `migrations/004_*` and `005_*` — numbering is in the `migrations/` directory (separate from `supabase/migrations/`).
 
 **New migration workflow:** Write `.sql` in `supabase/migrations/`, give Bud the SQL to run in Supabase SQL Editor, then push the code.
 
@@ -442,7 +551,9 @@ All dead code identified in Sessions 1-3 has been removed.
 - **Supabase project**: `bzijzmxhrpiwuhzhbiqc.supabase.co`
 - **Production**: `firmfunds.ca` (Netlify)
 - **Admin login**: `bud@firmfunds.ca` (super_admin)
-- **Test agent**: `bud.jones@century21.ca` at Century 21 Choice Realty
+- **Admin login**: James (super_admin) — second admin account
+- **Test data**: Wiped clean in Session 6. No brokerages, agents, or deals. Fresh start.
+- **Previous test agent**: `bud.jones@century21.ca` at Century 21 Choice Realty (deleted in wipe)
 
 ### Environment Variables (Netlify)
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -557,3 +668,6 @@ git push origin main
 13. **Audit log is immutable** — INSERT-only, no UPDATE/DELETE even via service_role (DB triggers)
 14. **CSRF protection on cookie-auth API routes** — use `validateOrigin()` from `lib/csrf.ts`
 15. **Magic byte verification on file uploads** — use `verifyFileMagicBytes()` from `lib/file-validation.ts`
+16. **`'use server'` files can ONLY export async functions** — no constants, no sync functions, no types. If client components need shared labels/types, put them in a separate file WITHOUT `'use server'`. See `audit.ts` vs `audit-labels.ts` split.
+17. **Audit log diffs** — when editing deals or changing status, always capture old_value and new_value via `diffValues()` from `lib/audit.ts`
+18. **Data wipe gotchas** — must DROP audit immutability triggers before DELETE; use individual SQL statements (not `DO $` blocks); storage buckets must be emptied via Supabase Dashboard
