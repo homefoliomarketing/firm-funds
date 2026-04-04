@@ -638,36 +638,100 @@ export default function AgentDealDetailPage() {
             <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
               <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
                 <Clock size={14} style={{ color: colors.gold }} />
-                <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Timeline</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Deal Timeline</h3>
               </div>
-              <div className="p-4 space-y-3 text-sm">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={16} style={{ color: colors.successText }} className="mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium" style={{ color: colors.textPrimary }}>Submitted</p>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>{formatDateTime(deal.created_at)}</p>
-                  </div>
-                </div>
-                {deal.funding_date && (
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 size={16} style={{ color: '#5B3D99' }} className="mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="font-medium" style={{ color: colors.textPrimary }}>Funded</p>
-                      <p className="text-xs" style={{ color: colors.textMuted }}>{formatDate(deal.funding_date)}</p>
+              <div className="p-4">
+                {(() => {
+                  const events: { label: string; date: string | null; color: string; active: boolean }[] = [
+                    { label: 'Submitted', date: deal.created_at, color: colors.successText, active: true },
+                    { label: 'Under Review', date: ['under_review', 'approved', 'funded', 'repaid', 'closed'].includes(deal.status) ? deal.created_at : null, color: colors.infoText, active: deal.status === 'under_review' },
+                    { label: 'Approved', date: ['approved', 'funded', 'repaid', 'closed'].includes(deal.status) ? (deal.funding_date || deal.created_at) : null, color: colors.successText, active: deal.status === 'approved' },
+                    { label: 'Funded', date: deal.funding_date, color: '#A385D0', active: deal.status === 'funded' },
+                    { label: 'Repaid', date: deal.repayment_date, color: '#5FB8A0', active: deal.status === 'repaid' },
+                  ]
+                  // Add denied/cancelled if applicable
+                  if (deal.status === 'denied') {
+                    events.push({ label: 'Denied', date: deal.updated_at, color: colors.errorText, active: true })
+                  }
+                  if (deal.status === 'cancelled') {
+                    events.push({ label: 'Cancelled', date: deal.updated_at, color: colors.warningText, active: true })
+                  }
+
+                  return (
+                    <div className="space-y-0">
+                      {events.map((event, idx) => {
+                        const isCompleted = event.date !== null
+                        const isLast = idx === events.length - 1 || !events[idx + 1]?.date
+                        return (
+                          <div key={event.label} className="flex items-start gap-3 relative">
+                            {/* Vertical line */}
+                            {!isLast && isCompleted && (
+                              <div style={{
+                                position: 'absolute',
+                                left: '7px',
+                                top: '18px',
+                                bottom: '-4px',
+                                width: '2px',
+                                background: colors.divider,
+                              }} />
+                            )}
+                            {/* Dot */}
+                            <div className="flex-shrink-0 mt-1" style={{
+                              width: '16px',
+                              height: '16px',
+                              borderRadius: '50%',
+                              background: isCompleted ? event.color : colors.inputBg,
+                              border: isCompleted ? 'none' : `2px solid ${colors.border}`,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}>
+                              {isCompleted && (
+                                <CheckCircle2 size={16} style={{ color: '#FFF' }} />
+                              )}
+                            </div>
+                            {/* Content */}
+                            <div className="pb-4">
+                              <p className={`text-sm ${event.active ? 'font-bold' : 'font-medium'}`}
+                                style={{ color: isCompleted ? colors.textPrimary : colors.textFaint }}>
+                                {event.label}
+                              </p>
+                              {isCompleted && event.date && (
+                                <p className="text-xs" style={{ color: colors.textMuted }}>
+                                  {event.label === 'Submitted' ? formatDateTime(event.date) : formatDate(event.date)}
+                                </p>
+                              )}
+                              {!isCompleted && (
+                                <p className="text-xs" style={{ color: colors.textFaint }}>Pending</p>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  </div>
-                )}
-                {deal.repayment_date && (
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 size={16} style={{ color: '#0D7A5F' }} className="mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="font-medium" style={{ color: colors.textPrimary }}>Repaid</p>
-                      <p className="text-xs" style={{ color: colors.textMuted }}>{formatDate(deal.repayment_date)}</p>
-                    </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             </div>
+
+            {/* What Happens Next — contextual info */}
+            {(() => {
+              const tips: Record<string, { title: string; message: string; color: string; bg: string; border: string }> = {
+                under_review: { title: 'Under Review', message: 'Our team is reviewing your deal. Upload all required documents to speed up the process.', color: colors.infoText, bg: colors.infoBg, border: colors.infoBorder },
+                approved: { title: 'Approved!', message: 'Your advance has been approved. Funding will be processed shortly — typically within 24 hours.', color: colors.successText, bg: colors.successBg, border: colors.successBorder },
+                funded: { title: 'Funded', message: 'Your advance has been sent! The amount will be repaid from the proceeds at closing.', color: '#A385D0', bg: '#1F1535', border: '#352A50' },
+                repaid: { title: 'Repaid', message: 'This advance has been fully repaid from the closing proceeds. No further action needed.', color: '#5FB8A0', bg: '#0F2A24', border: '#1E4A3C' },
+              }
+              const tip = tips[deal.status]
+              if (!tip) return null
+
+              return (
+                <div className="rounded-xl p-4" style={{ background: tip.bg, border: `1px solid ${tip.border}` }}>
+                  <h4 className="text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: tip.color }}>{tip.title}</h4>
+                  <p className="text-xs leading-relaxed" style={{ color: tip.color, opacity: 0.85 }}>{tip.message}</p>
+                </div>
+              )
+            })()}
 
             {/* Documents checklist - dynamic, shows what's uploaded vs missing */}
             {(() => {

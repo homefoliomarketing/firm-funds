@@ -80,6 +80,7 @@ const ACTION_SEVERITY: Record<string, AuditSeverity> = {
   'user.create':              'info',
   'auth.login':               'info',
   'auth.logout':              'info',
+  'auth.session_timeout':     'warning',
 }
 
 /**

@@ -260,6 +260,16 @@ export default function AdminDashboard() {
             Reports
           </button>
           <button
+            onClick={() => router.push('/admin/payments')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
+          >
+            <DollarSign size={14} style={{ color: colors.gold }} />
+            Payments
+          </button>
+          <button
             onClick={() => router.push('/admin/audit')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
             style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}

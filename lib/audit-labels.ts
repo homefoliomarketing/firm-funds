@@ -55,6 +55,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'auth.login':               'Logged In',
   'auth.login_failed':        'Login Failed',
   'auth.logout':              'Logged Out',
+  'auth.session_timeout':     'Session Timed Out',
 }
 
 export function getActionLabel(action: string): string {

@@ -54,7 +54,7 @@ export default function BrokerageDashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [expandedDeal, setExpandedDeal] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'deals' | 'agents' | 'referrals'>('deals')
+  const [activeTab, setActiveTab] = useState<'deals' | 'agents' | 'referrals' | 'payments'>('deals')
   const [loading, setLoading] = useState(true)
   const [uploadingDeal, setUploadingDeal] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -373,7 +373,7 @@ export default function BrokerageDashboard() {
         {/* Tabbed Content */}
         <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
           <div className="flex overflow-x-auto" style={{ borderBottom: `1px solid ${colors.border}` }}>
-            {(['deals', 'agents', 'referrals'] as const).map((tab) => (
+            {(['deals', 'agents', 'referrals', 'payments'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -385,7 +385,7 @@ export default function BrokerageDashboard() {
                 onMouseEnter={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textSecondary }}
                 onMouseLeave={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textMuted }}
               >
-                {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : 'Referral Fees'}
+                {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : 'Payment Status'}
               </button>
             ))}
           </div>
@@ -760,6 +760,141 @@ export default function BrokerageDashboard() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ================================================================ */}
+          {/* PAYMENTS TAB                                                     */}
+          {/* ================================================================ */}
+          {activeTab === 'payments' && (
+            <div className="p-4 sm:p-6">
+              {(() => {
+                const fundedDeals = deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
+                if (fundedDeals.length === 0) {
+                  return (
+                    <div className="py-12 text-center">
+                      <DollarSign className="mx-auto mb-4" size={40} style={{ color: colors.textFaint }} />
+                      <p className="text-base font-semibold" style={{ color: colors.textSecondary }}>No payments to track</p>
+                      <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Payment tracking appears when your agents have funded deals.</p>
+                    </div>
+                  )
+                }
+
+                const totalOwed = fundedDeals.reduce((sum, d) => sum + (d.amount_due_from_brokerage || 0), 0)
+                const totalPaid = fundedDeals.reduce((sum, d) => {
+                  const payments = (d as any).brokerage_payments || []
+                  return sum + payments.reduce((s: number, p: any) => s + p.amount, 0)
+                }, 0)
+                const outstanding = totalOwed - totalPaid
+                const paidPct = totalOwed > 0 ? Math.min((totalPaid / totalOwed) * 100, 100) : 0
+
+                return (
+                  <>
+                    {/* Payment Summary Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                      <div className="rounded-lg p-4" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.infoText }}>Total Owed</p>
+                        <p className="text-xl font-black mt-1" style={{ color: colors.infoText }}>{formatCurrency(totalOwed)}</p>
+                      </div>
+                      <div className="rounded-lg p-4" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText }}>Paid</p>
+                        <p className="text-xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalPaid)}</p>
+                      </div>
+                      <div className="rounded-lg p-4" style={{
+                        background: outstanding > 0.01 ? colors.warningBg : colors.successBg,
+                        border: `1px solid ${outstanding > 0.01 ? colors.warningBorder : colors.successBorder}`,
+                      }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: outstanding > 0.01 ? colors.warningText : colors.successText }}>Outstanding</p>
+                        <p className="text-xl font-black mt-1" style={{ color: outstanding > 0.01 ? colors.warningText : colors.successText }}>{formatCurrency(Math.max(outstanding, 0))}</p>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold" style={{ color: colors.textMuted }}>Payment Progress</span>
+                        <span className="text-xs font-semibold" style={{ color: colors.textMuted }}>{paidPct.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-3 rounded-full overflow-hidden" style={{ background: colors.inputBg }}>
+                        <div className="h-full rounded-full transition-all duration-500" style={{
+                          width: `${paidPct}%`,
+                          background: paidPct >= 99.9 ? colors.successText : colors.gold,
+                        }} />
+                      </div>
+                    </div>
+
+                    {/* Per-Deal Payment Status */}
+                    <div className="space-y-3">
+                      {fundedDeals.map(deal => {
+                        const owed = deal.amount_due_from_brokerage || 0
+                        const payments = (deal as any).brokerage_payments || []
+                        const paid = payments.reduce((s: number, p: any) => s + p.amount, 0)
+                        const remaining = owed - paid
+                        const isPaid = Math.abs(remaining) < 0.01 && paid > 0
+                        const isPartial = paid > 0 && !isPaid
+
+                        return (
+                          <div key={deal.id} className="rounded-lg p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                            <div className="flex items-start justify-between mb-2">
+                              <div>
+                                <p className="font-medium text-sm" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
+                                <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                                  {deal.agent ? `${deal.agent.first_name} ${deal.agent.last_name}` : ''} &middot; {formatStatusLabel(deal.status)}
+                                </p>
+                              </div>
+                              <span
+                                className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
+                                style={{
+                                  background: isPaid ? colors.successBg : isPartial ? colors.warningBg : colors.inputBg,
+                                  color: isPaid ? colors.successText : isPartial ? colors.warningText : colors.textMuted,
+                                  border: `1px solid ${isPaid ? colors.successBorder : isPartial ? colors.warningBorder : colors.border}`,
+                                }}
+                              >
+                                {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Pending'}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 text-sm">
+                              <div>
+                                <span style={{ color: colors.textMuted }}>Owed: </span>
+                                <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(owed)}</span>
+                              </div>
+                              <div>
+                                <span style={{ color: colors.textMuted }}>Paid: </span>
+                                <span className="font-semibold" style={{ color: paid > 0 ? colors.successText : colors.textMuted }}>{formatCurrency(paid)}</span>
+                              </div>
+                              <div>
+                                <span style={{ color: colors.textMuted }}>Remaining: </span>
+                                <span className="font-semibold" style={{ color: remaining > 0.01 ? colors.warningText : colors.successText }}>
+                                  {formatCurrency(Math.max(remaining, 0))}
+                                </span>
+                              </div>
+                            </div>
+                            {/* Payment history */}
+                            {payments.length > 0 && (
+                              <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}>
+                                {payments.map((p: any, idx: number) => (
+                                  <div key={idx} className="flex justify-between items-center text-xs py-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: colors.successText }} />
+                                      <span style={{ color: colors.textSecondary }}>{formatDate(p.date)}</span>
+                                      {p.reference && <span style={{ color: colors.textMuted }}>Ref: {p.reference}</span>}
+                                    </div>
+                                    <span className="font-semibold" style={{ color: colors.successText }}>{formatCurrency(p.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <p className="text-xs mt-4" style={{ color: colors.textFaint }}>
+                      Payments shown are recorded by Firm Funds. Contact your account manager if you believe there is a discrepancy.
+                    </p>
+                  </>
+                )
+              })()}
             </div>
           )}
         </div>
