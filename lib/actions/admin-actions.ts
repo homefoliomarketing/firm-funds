@@ -641,24 +641,47 @@ export async function inviteAgent(input: {
     })
 
     if (signUpError && signUpError.message?.includes('already been registered')) {
-      // Email exists in Supabase Auth (e.g. previously archived agent)
-      // Delete the old auth user entirely via direct DB query, then create fresh
-      const { error: deleteErr } = await serviceClient.rpc('delete_auth_user_by_email', { lookup_email: email })
+      // Email exists in Supabase Auth (e.g. previously archived agent whose auth user wasn't fully cleaned up)
+      // Look up the old user_profiles record (still exists with is_active=false after archiving)
+      const { data: oldProfile } = await serviceClient
+        .from('user_profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle()
 
-      if (deleteErr) {
-        console.error('Failed to delete old auth user:', deleteErr.message)
-        return {
-          success: false,
-          error: `Agent record created but login creation failed: could not clean up old auth user for ${email}. Run the delete_auth_user_by_email migration in Supabase.`,
-          data: { agentId: agent.id, agentCreated: true, loginCreated: false },
+      if (oldProfile?.id) {
+        // Delete the old auth user using the proper admin SDK method
+        try {
+          await serviceClient.auth.admin.deleteUser(oldProfile.id)
+        } catch (delErr: any) {
+          console.error('Failed to delete old auth user via admin API:', delErr?.message)
+        }
+        // Delete the old profile record
+        await serviceClient
+          .from('user_profiles')
+          .delete()
+          .eq('id', oldProfile.id)
+      } else {
+        // No profile found — try brute force: list auth users page by page to find the ID
+        let deletedOldUser = false
+        let page = 1
+        while (!deletedOldUser) {
+          const { data: { users = [] } = {}, error: listErr } = await serviceClient.auth.admin.listUsers({ page, perPage: 1000 })
+          if (listErr || users.length === 0) break
+          const match = users.find((u: any) => u.email === email)
+          if (match) {
+            try {
+              await serviceClient.auth.admin.deleteUser(match.id)
+              deletedOldUser = true
+            } catch (delErr: any) {
+              console.error('Failed to delete old auth user from listUsers match:', delErr?.message)
+            }
+            break
+          }
+          if (users.length < 1000) break
+          page++
         }
       }
-
-      // Clean up any old user_profile linked to that auth user
-      await serviceClient
-        .from('user_profiles')
-        .delete()
-        .eq('email', email)
 
       // Now create a fresh auth user
       const retry = await serviceClient.auth.admin.createUser({
