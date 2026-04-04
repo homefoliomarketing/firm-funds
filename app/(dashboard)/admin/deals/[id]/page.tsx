@@ -193,13 +193,20 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const zoomPct = Math.round(ZOOM_LEVELS[zoomIndex] * 100)
 
   // Scroll-to-zoom: Ctrl+wheel or pinch-to-zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault()
-      if (e.deltaY < 0) setZoomIndex(i => Math.min(i + 1, ZOOM_LEVELS.length - 1))
-      else setZoomIndex(i => Math.max(i - 1, 0))
+  // Must use native listener with { passive: false } to actually prevent browser zoom
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        if (e.deltaY < 0) setZoomIndex(i => Math.min(i + 1, ZOOM_LEVELS.length - 1))
+        else setZoomIndex(i => Math.max(i - 1, 0))
+      }
     }
-  }, [])
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [status])
 
   if (status === 'error') {
     return (
@@ -252,7 +259,6 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
       <div
         ref={containerRef}
         {...dragHandlers}
-        onWheel={handleWheel}
         style={{ flex: 1, overflow: 'auto', padding: 0, cursor: isZoomed ? 'grab' : 'default' }}
       >
         {status === 'loading' && (
@@ -283,14 +289,20 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   const zoomPct = Math.round(imgZoomLevels[zoomIndex] * 100)
   const scale = imgZoomLevels[zoomIndex]
 
-  // Scroll-to-zoom: Ctrl+wheel or pinch-to-zoom
-  const handleImgWheel = useCallback((e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault()
-      if (e.deltaY < 0) setZoomIndex(i => Math.min(i + 1, imgZoomLevels.length - 1))
-      else setZoomIndex(i => Math.max(i - 1, 0))
+  // Scroll-to-zoom: native listener with { passive: false } to prevent browser zoom
+  useEffect(() => {
+    const el = imgScrollRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        if (e.deltaY < 0) setZoomIndex(i => Math.min(i + 1, imgZoomLevels.length - 1))
+        else setZoomIndex(i => Math.max(i - 1, 0))
+      }
     }
-  }, [])
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [src])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -326,7 +338,6 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
       <div
         ref={imgScrollRef}
         {...imgDragHandlers}
-        onWheel={handleImgWheel}
         style={{ flex: 1, overflow: 'auto', padding: 8, cursor: isImgZoomed ? 'grab' : 'default' }}
       >
         <img
