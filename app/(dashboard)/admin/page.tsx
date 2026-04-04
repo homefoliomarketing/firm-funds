@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3 } from 'lucide-react'
+import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 
@@ -264,6 +264,16 @@ export default function AdminDashboard() {
           >
             <BarChart3 size={14} style={{ color: colors.gold }} />
             Reports
+          </button>
+          <button
+            onClick={() => router.push('/admin/audit')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
+          >
+            <Shield size={14} style={{ color: colors.gold }} />
+            Audit Trail
           </button>
         </div>
 

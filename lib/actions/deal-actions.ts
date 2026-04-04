@@ -402,6 +402,8 @@ export async function updateDealStatus(input: {
         denial_reason: input.denialReason || null,
         recalculated: input.newStatus === 'funded',
       },
+      oldValue: { status: deal.status },
+      newValue: { status: input.newStatus },
     })
 
     // Email notification → agent
@@ -459,6 +461,13 @@ export async function toggleChecklistItem(input: {
       console.error('Checklist toggle error:', error.message)
       return { success: false, error: 'Failed to update checklist item' }
     }
+
+    await logAuditEvent({
+      action: 'checklist.toggle',
+      entityType: 'deal',
+      entityId: input.itemId,
+      metadata: { checked: input.isChecked },
+    })
 
     return { success: true }
   } catch (err: any) {
@@ -825,6 +834,20 @@ export async function updateDealDetails(input: {
       entityType: 'deal',
       entityId: input.dealId,
       metadata: { property_address: input.propertyAddress, advance_amount: calc.advanceAmount },
+      oldValue: {
+        property_address: deal.property_address,
+        closing_date: deal.closing_date,
+        gross_commission: deal.gross_commission,
+        brokerage_split_pct: deal.brokerage_split_pct,
+        advance_amount: deal.advance_amount,
+      },
+      newValue: {
+        property_address: input.propertyAddress,
+        closing_date: input.closingDate,
+        gross_commission: input.grossCommission,
+        brokerage_split_pct: input.brokerageSplitPct,
+        advance_amount: calc.advanceAmount,
+      },
     })
 
     return { success: true, data: updatedDeal }
@@ -1317,11 +1340,17 @@ export async function updateClosingDate(input: {
       entityType: 'deal',
       entityId: input.dealId,
       metadata: {
-        old_closing_date: oldValues.closing_date,
-        new_closing_date: input.newClosingDate,
-        old_advance: oldValues.advance_amount,
-        new_advance: newCalc.advanceAmount,
         updated_by: profile.full_name,
+      },
+      oldValue: {
+        closing_date: oldValues.closing_date,
+        advance_amount: oldValues.advance_amount,
+        discount_fee: oldValues.discount_fee,
+      },
+      newValue: {
+        closing_date: input.newClosingDate,
+        advance_amount: newCalc.advanceAmount,
+        discount_fee: newCalc.discountFee,
       },
     })
 

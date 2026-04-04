@@ -28,6 +28,14 @@ export default function LoginPage() {
     })
 
     if (error) {
+      // Log failed login attempt (fire-and-forget, will fail if no session — that's ok)
+      void supabase.from('audit_log').insert({
+        action: 'auth.login_failed',
+        entity_type: 'auth',
+        severity: 'warning',
+        metadata: { email, reason: error.message },
+        actor_email: email,
+      })
       setError(error.message)
       setLoading(false)
       return
@@ -40,6 +48,17 @@ export default function LoginPage() {
         .select('role')
         .eq('id', user.id)
         .single()
+
+      // Log successful login
+      void supabase.from('audit_log').insert({
+        user_id: user.id,
+        action: 'auth.login',
+        entity_type: 'auth',
+        severity: 'info',
+        actor_email: user.email,
+        actor_role: profile?.role || null,
+        metadata: { email: user.email },
+      })
 
       if (profile) {
         switch (profile.role) {

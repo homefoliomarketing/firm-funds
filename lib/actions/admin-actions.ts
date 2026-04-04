@@ -916,6 +916,14 @@ export async function confirmEftTransfer(input: {
       return { success: false, error: `Failed to confirm transfer: ${updateError.message}` }
     }
 
+    await logAuditEvent({
+      action: 'eft.confirm',
+      entityType: 'deal',
+      entityId: input.dealId,
+      severity: 'critical',
+      metadata: { transfer_index: input.transferIndex, transfer: transfers[input.transferIndex] },
+    })
+
     return { success: true, data: updatedDeal }
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
@@ -943,6 +951,7 @@ export async function removeEftTransfer(input: {
       return { success: false, error: 'Invalid transfer index' }
     }
 
+    const removedTransfer = transfers[input.transferIndex]
     transfers.splice(input.transferIndex, 1)
 
     const { data: updatedDeal, error: updateError } = await supabase
@@ -955,6 +964,14 @@ export async function removeEftTransfer(input: {
     if (updateError) {
       return { success: false, error: `Failed to remove transfer: ${updateError.message}` }
     }
+
+    await logAuditEvent({
+      action: 'eft.remove',
+      entityType: 'deal',
+      entityId: input.dealId,
+      severity: 'critical',
+      metadata: { transfer_index: input.transferIndex, removed_transfer: removedTransfer },
+    })
 
     return { success: true, data: updatedDeal }
   } catch (err: any) {
@@ -1053,6 +1070,7 @@ export async function removeBrokeragePayment(input: {
       return { success: false, error: 'Invalid payment index' }
     }
 
+    const removedPayment = payments[input.paymentIndex]
     payments.splice(input.paymentIndex, 1)
     const newTotal = payments.reduce((sum: number, p: any) => sum + p.amount, 0)
 
@@ -1069,6 +1087,14 @@ export async function removeBrokeragePayment(input: {
     if (updateError) {
       return { success: false, error: `Failed to remove payment: ${updateError.message}` }
     }
+
+    await logAuditEvent({
+      action: 'brokerage_payment.remove',
+      entityType: 'deal',
+      entityId: input.dealId,
+      severity: 'critical',
+      metadata: { payment_index: input.paymentIndex, removed_payment: removedPayment },
+    })
 
     return { success: true, data: updatedDeal }
   } catch (err: any) {

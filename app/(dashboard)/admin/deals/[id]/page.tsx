@@ -26,6 +26,7 @@ import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokera
 import { getStatusBadgeStyle } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+import AuditTimeline from '@/components/AuditTimeline'
 
 // ============================================================================
 // Drag-to-pan hook — click and drag to scroll a container when zoomed
@@ -496,6 +497,7 @@ export default function DealDetailPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [checklistExpanded, setChecklistExpanded] = useState(true)
   const [docsExpanded, setDocsExpanded] = useState(true)
+  const [auditExpanded, setAuditExpanded] = useState(false)
   const [showEftForm, setShowEftForm] = useState(false)
   const [eftAmount, setEftAmount] = useState('')
   const [eftDate, setEftDate] = useState(new Date().toISOString().split('T')[0])
@@ -616,6 +618,20 @@ export default function DealDetailPage() {
     if (!signedUrl) {
       setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
     }
+    // Audit: log document download (fire-and-forget, user context from auth session)
+    if (deal) {
+      supabase.auth.getUser().then(({ data: { user: authUser } }) => {
+        void supabase.from('audit_log').insert({
+          user_id: authUser?.id || null,
+          action: 'document.view',
+          entity_type: 'document',
+          entity_id: doc.id,
+          severity: 'info',
+          actor_email: authUser?.email || null,
+          metadata: { deal_id: deal.id, file_name: doc.file_name, access_type: 'download' },
+        })
+      })
+    }
     window.open(signedUrl, '_blank')
   }
 
@@ -658,6 +674,20 @@ export default function DealDetailPage() {
         type: isImage ? 'image' : 'pdf',
         ...(isPdf ? { pdfData: arrayBuffer } : {}),
       })
+      // Audit: log document view (fire-and-forget, user context from auth session)
+      if (deal) {
+        supabase.auth.getUser().then(({ data: { user: authUser } }) => {
+          void supabase.from('audit_log').insert({
+            user_id: authUser?.id || null,
+            action: 'document.view',
+            entity_type: 'document',
+            entity_id: doc.id,
+            severity: 'info',
+            actor_email: authUser?.email || null,
+            metadata: { deal_id: deal.id, file_name: doc.file_name, access_type: 'view' },
+          })
+        })
+      }
     } catch (err) {
       console.error('Blob fetch failed:', err)
       // Fallback: open in new tab if blob fetch fails
@@ -2020,6 +2050,31 @@ export default function DealDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* AUDIT TRAIL */}
+        {deal && (
+          <div className="rounded-lg overflow-hidden" style={{
+            background: colors.cardBg,
+            border: `1px solid ${colors.border}`,
+          }}>
+            <div
+              className="flex items-center justify-between px-6 py-3 cursor-pointer"
+              style={{ background: colors.goldBg, borderBottom: auditExpanded ? `1px solid ${colors.gold}` : 'none' }}
+              onClick={() => setAuditExpanded(!auditExpanded)}
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+                <Shield className="w-4 h-4" />
+                Audit Trail
+              </div>
+              {auditExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+            </div>
+            {auditExpanded && (
+              <div className="p-4 max-h-[500px] overflow-y-auto">
+                <AuditTimeline entityType="deal" entityId={deal.id} />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* DELETE DEAL (only for under_review, cancelled, or denied) */}
         {deal && ['under_review', 'cancelled', 'denied'].includes(deal.status) && (

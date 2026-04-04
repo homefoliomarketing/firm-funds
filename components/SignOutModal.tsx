@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTheme } from '@/lib/theme'
 import { LogOut, X } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 interface SignOutModalProps {
   onConfirm: () => void | Promise<void>
@@ -15,6 +16,29 @@ export default function SignOutModal({ onConfirm }: SignOutModalProps) {
 
   const handleConfirm = async () => {
     setSigningOut(true)
+    // Log logout event before signing out (fire-and-forget)
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        void supabase.from('audit_log').insert({
+          user_id: user.id,
+          action: 'auth.logout',
+          entity_type: 'auth',
+          severity: 'info',
+          actor_email: user.email,
+          actor_role: profile?.role || null,
+          metadata: { email: user.email },
+        })
+      }
+    } catch {
+      // Don't block logout on audit failure
+    }
     await onConfirm()
   }
 
