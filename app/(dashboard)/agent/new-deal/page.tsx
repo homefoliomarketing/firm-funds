@@ -36,7 +36,6 @@ export default function NewDealPage() {
     aps: [],
     notice_of_fulfillment: [],
     amendment: [],
-    trade_record: [],
     banking_info: [],
   })
   const [uploadingDocs, setUploadingDocs] = useState(false)
@@ -475,14 +474,13 @@ export default function NewDealPage() {
           <div className="rounded-xl overflow-hidden mb-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
             <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}` }}>
               <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Deal Documents</h3>
-              <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Upload your documents below. APS is required — other documents can be added later from your dashboard.</p>
+              <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Upload ALL documents associated with this trade (Agreement of Purchase and Sale, Schedules, Amendments, NOFs/Waivers).</p>
             </div>
             <div className="p-6 space-y-4">
               {[
-                { key: 'aps', label: 'Agreement of Purchase & Sale', required: true, hint: 'Confirmation of co-op included' },
+                { key: 'aps', label: 'Agreement of Purchase & Sale', required: true, hint: 'Including schedules and confirmation of co-op' },
                 { key: 'notice_of_fulfillment', label: 'Notice of Fulfillment / Waiver', required: false, hint: 'If applicable' },
                 { key: 'amendment', label: 'Amendments', required: false, hint: 'Any amendments to the APS' },
-                { key: 'trade_record', label: 'Trade Record / File', required: false, hint: 'Brokerage trade record sheet' },
                 ...(isFirstAdvance ? [{ key: 'banking_info', label: 'Banking Information', required: true, hint: 'Void cheque or direct deposit form — required for your first advance' }] : []),
               ].map(slot => (
                 <div key={slot.key} className="rounded-lg p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
@@ -514,15 +512,28 @@ export default function NewDealPage() {
                     </div>
                   )}
 
-                  <label className="flex items-center justify-center gap-1.5 rounded-md py-2 px-3 cursor-pointer transition-colors text-xs font-medium"
+                  <div
+                    onClick={() => {
+                      const input = document.createElement('input')
+                      input.type = 'file'
+                      input.multiple = true
+                      input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx'
+                      input.onchange = (ev) => {
+                        const target = ev.target as HTMLInputElement
+                        if (target.files) {
+                          setDocSlots(prev => ({ ...prev, [slot.key]: [...prev[slot.key], ...Array.from(target.files!)] }))
+                        }
+                      }
+                      input.click()
+                    }}
+                    className="flex items-center justify-center gap-1.5 rounded-md py-2 px-3 cursor-pointer transition-colors text-xs font-medium"
                     style={{ border: `1.5px dashed ${colors.border}`, color: colors.textSecondary }}
                     onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
                   >
                     <Upload size={13} />
                     {docSlots[slot.key]?.length > 0 ? 'Add more files' : 'Choose files'}
-                    <input type="file" className="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={(e) => handleSlotFileAdd(slot.key, e)} />
-                  </label>
+                  </div>
                 </div>
               ))}
             </div>
