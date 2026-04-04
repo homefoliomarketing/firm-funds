@@ -73,17 +73,20 @@ export async function middleware(request: NextRequest) {
         .eq('id', user.id)
         .single()
 
+      // If no profile exists, sign them out and let them stay on login
+      // (prevents redirect loop when profile row is missing)
+      if (!profile) {
+        await supabase.auth.signOut()
+        return supabaseResponse
+      }
+
       const url = request.nextUrl.clone()
-      if (profile) {
-        switch (profile.role) {
-          case 'agent': url.pathname = '/agent'; break
-          case 'brokerage_admin': url.pathname = '/brokerage'; break
-          case 'firm_funds_admin':
-          case 'super_admin': url.pathname = '/admin'; break
-          default: url.pathname = '/agent'
-        }
-      } else {
-        url.pathname = '/agent'
+      switch (profile.role) {
+        case 'agent': url.pathname = '/agent'; break
+        case 'brokerage_admin': url.pathname = '/brokerage'; break
+        case 'firm_funds_admin':
+        case 'super_admin': url.pathname = '/admin'; break
+        default: url.pathname = '/agent'
       }
       return NextResponse.redirect(url)
     }
@@ -98,7 +101,8 @@ export async function middleware(request: NextRequest) {
           .single()
 
         if (!profile || !allowedRoles.includes(profile.role)) {
-          // User doesn't have the right role — redirect to login
+          // User doesn't have the right role or no profile — sign out and redirect to login
+          await supabase.auth.signOut()
           const url = request.nextUrl.clone()
           url.pathname = '/login'
           return NextResponse.redirect(url)
