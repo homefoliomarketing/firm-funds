@@ -708,3 +708,198 @@ export async function sendKycApprovedNotification(params: {
     console.error('[email] Failed to send KYC approved notification:', err)
   }
 }
+
+// ============================================================================
+// Email: Document Returned → Agent
+// ============================================================================
+
+export async function sendDocumentReturnNotification(params: {
+  dealId: string
+  propertyAddress: string
+  agentEmail: string
+  agentFirstName: string
+  documentName: string
+  documentType: string
+  reason: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Action Required — Document Returned for ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#F87171; font-size:20px;">Document Returned</h2>
+        <p style="margin:0 0 20px; color:#999;">
+          Hi ${params.agentFirstName}, a document for your deal has been returned and needs attention. This may cause delays in processing your advance.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Property</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.propertyAddress}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Document</td>
+                  <td style="padding:6px 0; color:#F87171; font-size:14px; font-weight:600;">${params.documentName}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <div style="margin:16px 0; padding:12px 16px; background:#2A1212; border-left:3px solid #F87171; border-radius:0 8px 8px 0;">
+          <p style="margin:0 0 4px; color:#F87171; font-size:12px; font-weight:600;">REASON FOR RETURN</p>
+          <p style="margin:0; color:#E8E4DF; font-size:14px;">${params.reason}</p>
+        </div>
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#F87171; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View Deal & Upload Replacement
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send document return notification:', err)
+  }
+}
+
+// ============================================================================
+// Email: Deal Message → Agent
+// ============================================================================
+
+export async function sendDealMessageNotification(params: {
+  dealId: string
+  propertyAddress: string
+  agentEmail: string
+  agentFirstName: string
+  message: string
+  senderName: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      replyTo: 'support@firmfunds.ca',
+      to: params.agentEmail,
+      subject: `Message from Firm Funds — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">New Message</h2>
+        <p style="margin:0 0 20px; color:#999;">
+          Hi ${params.agentFirstName}, you have a new message regarding your deal.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
+          <tr>
+            <td style="padding:6px 0; color:#999; font-size:13px; width:100px;">Property</td>
+            <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.propertyAddress}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0; color:#999; font-size:13px;">From</td>
+            <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.senderName}</td>
+          </tr>
+        </table>
+        <div style="margin:16px 0; padding:12px 16px; background:#222; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
+          <p style="margin:0; color:#E8E4DF; font-size:14px; line-height:1.6;">${params.message.replace(/\n/g, '<br>')}</p>
+        </div>
+        <p style="margin:16px 0; color:#999; font-size:13px;">
+          You can reply to this email and your response will be added to your deal.
+        </p>
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View Deal
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send deal message notification:', err)
+  }
+}
+
+// ============================================================================
+// Email: Invoice → Agent
+// ============================================================================
+
+export async function sendInvoiceNotification(params: {
+  invoiceNumber: string
+  agentName: string
+  agentEmail: string
+  amount: number
+  dueDate: string
+  lineItems: { description: string; amount: number; date: string }[]
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const formatMoney = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n)
+  const formatDateStr = (d: string) => new Date(d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+
+  const lineItemsHtml = params.lineItems.map(item => `
+    <tr>
+      <td style="padding:8px 12px; color:#E8E4DF; font-size:13px; border-bottom:1px solid #333;">${item.description}</td>
+      <td style="padding:8px 12px; color:#E8E4DF; font-size:13px; text-align:right; border-bottom:1px solid #333;">${formatMoney(item.amount)}</td>
+    </tr>
+  `).join('')
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#D4A04A; font-size:20px;">Invoice ${params.invoiceNumber}</h2>
+        <p style="margin:0 0 20px; color:#999;">
+          Hi ${params.agentName}, please find your invoice below for outstanding charges on your Firm Funds account.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Invoice #</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px; font-weight:600;">${params.invoiceNumber}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Amount Due</td>
+                  <td style="padding:6px 0; color:#D4A04A; font-size:16px; font-weight:700;">${formatMoney(params.amount)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Due Date</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${formatDateStr(params.dueDate)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        ${params.lineItems.length > 0 ? `
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px; background:#1A1A1A; border-radius:8px; overflow:hidden;">
+          <tr style="background:#222;">
+            <th style="padding:10px 12px; color:#999; font-size:12px; text-align:left; text-transform:uppercase;">Description</th>
+            <th style="padding:10px 12px; color:#999; font-size:12px; text-align:right; text-transform:uppercase;">Amount</th>
+          </tr>
+          ${lineItemsHtml}
+          <tr style="background:#222;">
+            <td style="padding:10px 12px; color:#D4A04A; font-size:14px; font-weight:700;">Total</td>
+            <td style="padding:10px 12px; color:#D4A04A; font-size:14px; font-weight:700; text-align:right;">${formatMoney(params.amount)}</td>
+          </tr>
+        </table>
+        ` : ''}
+        <p style="margin:16px 0; color:#999; font-size:13px;">
+          Please remit payment at your earliest convenience. If you have questions about this invoice, reply to this email or contact us at support@firmfunds.ca.
+        </p>
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/agent" style="display:inline-block; padding:12px 28px; background:#D4A04A; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View My Account
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send invoice notification:', err)
+  }
+}

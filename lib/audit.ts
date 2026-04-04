@@ -47,9 +47,14 @@ const ACTION_SEVERITY: Record<string, AuditSeverity> = {
   'brokerage.kyc_verify':     'critical',
   'brokerage.kyc_revoke':     'critical',
   'deal.delete':              'critical',
+  'account.late_interest':    'critical',
+  'account.balance_deduction':'critical',
+  'account.adjustment':       'critical',
+  'invoice.paid':             'critical',
 
   // Warning — edits to financial data, password changes, document deletions
   'deal.edit':                'warning',
+  'document.returned':        'warning',
   'deal.closing_date_updated':'warning',
   'deal.cancel':              'warning',
   'deal.withdrawn':           'warning',
@@ -81,6 +86,10 @@ const ACTION_SEVERITY: Record<string, AuditSeverity> = {
   'auth.login':               'info',
   'auth.logout':              'info',
   'auth.session_timeout':     'warning',
+  'invoice.create':           'info',
+  'invoice.sent':             'info',
+  'message.sent':             'info',
+  'document.return_resolved': 'info',
 }
 
 /**

@@ -38,9 +38,12 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
   // Redirect unauthenticated users to login (except login/auth/kyc-upload/kyc API routes/invite/magic-link)
+  // Preserve the original URL so we can redirect back after login
   if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/kyc-upload') && !pathname.startsWith('/api/kyc-') && !pathname.startsWith('/invite') && !pathname.startsWith('/api/magic-link') && !pathname.startsWith('/api/rate-limit')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    // Pass the original destination so login can redirect back
+    url.searchParams.set('redirect', pathname)
     return NextResponse.redirect(url)
   }
 
@@ -65,7 +68,7 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // If on login page, redirect to appropriate dashboard
+    // If on login page, redirect to appropriate dashboard (or redirect param if present)
     if (pathname.startsWith('/login')) {
       const { data: profile } = await supabase
         .from('user_profiles')
@@ -81,6 +84,24 @@ export async function middleware(request: NextRequest) {
       }
 
       const url = request.nextUrl.clone()
+      const redirectParam = request.nextUrl.searchParams.get('redirect')
+
+      // If there's a redirect URL, validate it matches the user's role prefix
+      if (redirectParam) {
+        const roleRoutes: Record<string, string> = {
+          agent: '/agent',
+          brokerage_admin: '/brokerage',
+          firm_funds_admin: '/admin',
+          super_admin: '/admin',
+        }
+        const allowedPrefix = roleRoutes[profile.role] || '/agent'
+        if (redirectParam.startsWith(allowedPrefix)) {
+          url.pathname = redirectParam
+          url.searchParams.delete('redirect')
+          return NextResponse.redirect(url)
+        }
+      }
+
       switch (profile.role) {
         case 'agent': url.pathname = '/agent'; break
         case 'brokerage_admin': url.pathname = '/brokerage'; break

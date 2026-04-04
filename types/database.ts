@@ -148,10 +148,55 @@ export interface UnderwritingChecklistItem {
   category: string
   checklist_item: string
   is_checked: boolean
+  is_na: boolean
   checked_by: string | null
   checked_at: string | null
   notes: string | null
   sort_order: number
+}
+
+export interface AgentAccountTransaction {
+  id: string
+  agent_id: string
+  deal_id: string | null
+  type: 'late_closing_interest' | 'balance_deduction' | 'invoice_payment' | 'adjustment'
+  amount: number
+  description: string
+  reference_id: string | null
+  created_at: string
+}
+
+export interface AgentInvoice {
+  id: string
+  agent_id: string
+  invoice_number: string
+  amount: number
+  status: 'pending' | 'paid' | 'overdue' | 'cancelled'
+  due_date: string
+  paid_at: string | null
+  sent_at: string | null
+  created_at: string
+}
+
+export interface DealMessage {
+  id: string
+  deal_id: string
+  sender_id: string | null
+  sender_role: 'admin' | 'agent'
+  message: string
+  is_email_reply: boolean
+  created_at: string
+}
+
+export interface DocumentReturn {
+  id: string
+  deal_id: string
+  document_id: string
+  returned_by: string
+  reason: string
+  status: 'pending' | 'resolved'
+  resolved_at: string | null
+  created_at: string
 }
 
 export interface UserProfile {

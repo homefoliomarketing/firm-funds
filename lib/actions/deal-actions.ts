@@ -448,6 +448,35 @@ export async function toggleChecklistItem(input: {
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
+    // Check if this is the auto-managed "good standing" item
+    const { data: item } = await supabase
+      .from('underwriting_checklist')
+      .select('checklist_item, deal_id')
+      .eq('id', input.itemId)
+      .single()
+
+    if (item?.checklist_item === 'Agent in good standing with Brokerage (Not flagged)') {
+      // Look up the agent's flag status via the deal
+      const { data: deal } = await supabase
+        .from('deals')
+        .select('agent_id')
+        .eq('id', item.deal_id)
+        .single()
+
+      if (deal?.agent_id) {
+        const serviceClient = createServiceRoleClient()
+        const { data: agent } = await serviceClient
+          .from('agents')
+          .select('flagged_by_brokerage')
+          .eq('id', deal.agent_id)
+          .single()
+
+        if (agent?.flagged_by_brokerage) {
+          return { success: false, error: 'Cannot check this item — agent is flagged by their brokerage. Remove the flag first.' }
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('underwriting_checklist')
       .update({

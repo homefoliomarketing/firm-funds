@@ -20,6 +20,9 @@ export const MIN_DAYS_UNTIL_CLOSING = 1
 /** Maximum days until closing for a deal to be eligible */
 export const MAX_DAYS_UNTIL_CLOSING = 120
 
+/** Grace period (days) after closing before late interest starts */
+export const LATE_CLOSING_GRACE_DAYS = 5
+
 /** Maximum gross commission allowed (sanity check) */
 export const MAX_GROSS_COMMISSION = 1_000_000
 

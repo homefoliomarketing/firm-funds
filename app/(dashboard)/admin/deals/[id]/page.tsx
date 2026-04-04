@@ -23,6 +23,11 @@ import {
   cancelDocumentRequest,
   deleteDeal,
 } from '@/lib/actions/deal-actions'
+import {
+  sendDealMessage,
+  returnDocument,
+  chargeLateClosingInterest,
+} from '@/lib/actions/account-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
 import { getStatusBadgeStyle } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
@@ -371,6 +376,18 @@ interface Deal {
   notes: string | null; created_at: string; updated_at: string
   admin_notes: string | null
   admin_notes_timeline: { id: string; text: string; author_name: string; created_at: string }[] | null
+  actual_closing_date: string | null
+  late_interest_charged: number | null
+}
+
+interface DealMessage {
+  id: string; deal_id: string; sender_id: string | null; sender_role: string
+  sender_name: string | null; message: string; is_email_reply: boolean; created_at: string
+}
+
+interface DocumentReturn {
+  id: string; deal_id: string; document_id: string; returned_by: string
+  reason: string; status: string; created_at: string
 }
 
 interface ChecklistItem {
@@ -455,8 +472,10 @@ interface ChecklistCategory {
 // Category display config — keyed by category name stored in DB
 const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; border: string }> = {
   'Agent Verification': { icon: User, color: '#5B3D99', bg: '#F5F0FF', border: '#D5C5F0' },
+  'Deal Verification': { icon: FileText, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
   'Deal Document Review': { icon: FileText, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
   'Financial': { icon: DollarSign, color: '#92700C', bg: '#FFF8ED', border: '#E8D5A8' },
+  'Firm Fund Documents': { icon: Shield, color: '#2D7A4F', bg: '#F0FFF5', border: '#B5E0C5' },
   'Firm Funds Documents': { icon: Shield, color: '#2D7A4F', bg: '#F0FFF5', border: '#B5E0C5' },
 }
 
@@ -464,7 +483,7 @@ const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; bo
 const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: '#666', bg: '#F5F5F5', border: '#DDD' }
 
 // Category display order
-const CATEGORY_ORDER = ['Agent Verification', 'Deal Document Review', 'Financial', 'Firm Funds Documents']
+const CATEGORY_ORDER = ['Agent Verification', 'Deal Verification', 'Firm Fund Documents']
 
 function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
   // Group items by their DB category, preserving sort_order within each group
@@ -557,6 +576,22 @@ export default function DealDetailPage() {
   const [docRequestSending, setDocRequestSending] = useState(false)
   const [viewingDoc, setViewingDoc] = useState<{ blobUrl: string; originalUrl: string; fileName: string; type: 'pdf' | 'image'; pdfData?: ArrayBuffer } | null>(null)
   const [viewLoading, setViewLoading] = useState<string | null>(null)
+  // Messages
+  const [messages, setMessages] = useState<DealMessage[]>([])
+  const [showMessageForm, setShowMessageForm] = useState(false)
+  const [messageText, setMessageText] = useState('')
+  const [messageSending, setMessageSending] = useState(false)
+  // Document returns
+  const [docReturns, setDocReturns] = useState<DocumentReturn[]>([])
+  const [returningDocId, setReturningDocId] = useState<string | null>(null)
+  const [returnReason, setReturnReason] = useState('')
+  const [returnSending, setReturnSending] = useState(false)
+  // Late closing interest
+  const [showLateInterest, setShowLateInterest] = useState(false)
+  const [actualClosingDate, setActualClosingDate] = useState('')
+  const [lateInterestSaving, setLateInterestSaving] = useState(false)
+  // Agent account balance (fetched alongside agent)
+  const [agentBalance, setAgentBalance] = useState<number>(0)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -582,6 +617,7 @@ export default function DealDetailPage() {
     setNotesTimeline(Array.isArray(dealData.admin_notes_timeline) ? dealData.admin_notes_timeline : [])
     const { data: agentData } = await supabase.from('agents').select('*').eq('id', dealData.agent_id).single()
     setAgent(agentData)
+    setAgentBalance(agentData?.account_balance || 0)
     const { data: brokerageData } = await supabase.from('brokerages').select('*').eq('id', dealData.brokerage_id).single()
     setBrokerage(brokerageData)
     const { data: checklistData } = await supabase.from('underwriting_checklist').select('*').eq('deal_id', dealId).order('sort_order', { ascending: true })
@@ -590,17 +626,76 @@ export default function DealDetailPage() {
     setDocuments(docsData || [])
     const { data: requestsData } = await supabase.from('document_requests').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocRequests(requestsData || [])
+    const { data: messagesData } = await supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true })
+    setMessages(messagesData || [])
+    const { data: returnsData } = await supabase.from('document_returns').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
+    setDocReturns(returnsData || [])
     setLoading(false)
   }
 
   const handleChecklistToggle = async (item: ChecklistItem) => {
     if (item.is_na) return // Can't check/uncheck N/A items — must remove N/A first
+    // Block if agent is flagged and this is the good standing item
+    if (item.checklist_item === 'Agent in good standing with Brokerage (Not flagged)' && agent?.flagged_by_brokerage) {
+      setStatusMessage({ type: 'error', text: 'Cannot check — agent is flagged by their brokerage' })
+      return
+    }
     const newChecked = !item.is_checked
     const result = await serverToggleChecklistItem({ itemId: item.id, isChecked: newChecked })
     if (result.success) {
       const { data: { user } } = await supabase.auth.getUser()
       setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: newChecked, checked_by: newChecked ? user?.id || null : null, checked_at: newChecked ? new Date().toISOString() : null } : c))
+    } else if (result.error) {
+      setStatusMessage({ type: 'error', text: result.error })
     }
+  }
+
+  // === Message sending ===
+  const handleSendMessage = async () => {
+    if (!deal || !messageText.trim()) return
+    setMessageSending(true)
+    const result = await sendDealMessage({ dealId: deal.id, message: messageText.trim() })
+    if (result.success) {
+      setMessages(prev => [...prev, result.data.message])
+      setMessageText('')
+      setShowMessageForm(false)
+      setStatusMessage({ type: 'success', text: 'Message sent to agent' })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send message' })
+    }
+    setMessageSending(false)
+  }
+
+  // === Document return ===
+  const handleReturnDocument = async (docId: string) => {
+    if (!deal || !returnReason.trim()) return
+    setReturnSending(true)
+    const result = await returnDocument({ dealId: deal.id, documentId: docId, reason: returnReason.trim() })
+    if (result.success) {
+      setDocReturns(prev => [{ id: result.data.returnId, deal_id: deal.id, document_id: docId, returned_by: '', reason: returnReason, status: 'pending', created_at: new Date().toISOString() }, ...prev])
+      setReturningDocId(null)
+      setReturnReason('')
+      setStatusMessage({ type: 'success', text: 'Document returned to agent — email notification sent' })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to return document' })
+    }
+    setReturnSending(false)
+  }
+
+  // === Late closing interest ===
+  const handleChargeLateInterest = async () => {
+    if (!deal || !actualClosingDate) return
+    setLateInterestSaving(true)
+    const result = await chargeLateClosingInterest({ dealId: deal.id, actualClosingDate })
+    if (result.success) {
+      setAgentBalance(result.data.newBalance)
+      setDeal(prev => prev ? { ...prev, actual_closing_date: actualClosingDate, late_interest_charged: (prev.late_interest_charged || 0) + result.data.interest } : prev)
+      setShowLateInterest(false)
+      setStatusMessage({ type: 'success', text: `Late interest of $${result.data.interest.toFixed(2)} charged to agent account (new balance: $${result.data.newBalance.toFixed(2)})` })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to charge late interest' })
+    }
+    setLateInterestSaving(false)
   }
 
   const handleChecklistNA = async (e: React.MouseEvent, item: ChecklistItem) => {
@@ -1690,6 +1785,146 @@ export default function DealDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* DEAL MESSAGES */}
+            <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                  <Send className="w-4 h-4" style={{ color: colors.gold }} />
+                  Messages
+                  {messages.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: colors.tableHeaderBg, color: colors.textMuted }}>{messages.length}</span>}
+                </h2>
+                <button
+                  onClick={() => setShowMessageForm(!showMessageForm)}
+                  className="px-2.5 py-1 rounded text-xs font-medium text-white transition-colors"
+                  style={{ background: '#5FA873' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#4A9060'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
+                >
+                  {showMessageForm ? 'Cancel' : 'New Message'}
+                </button>
+              </div>
+
+              {showMessageForm && (
+                <div className="mb-3 space-y-2">
+                  <textarea
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type a message to the agent... (this will also send an email)"
+                    className="w-full px-3 py-2 rounded border text-sm resize-none focus:outline-none"
+                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText, minHeight: '80px' }}
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={messageSending || !messageText.trim()}
+                    className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                    style={{ background: '#5FA873' }}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    {messageSending ? 'Sending...' : 'Send Message'}
+                  </button>
+                </div>
+              )}
+
+              {messages.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                  {messages.map(msg => (
+                    <div key={msg.id} className="rounded-lg px-3 py-2" style={{
+                      background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
+                      border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.divider}`,
+                    }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
+                          {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
+                        </span>
+                        {msg.is_email_reply && <span className="text-xs px-1 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>via email</span>}
+                        <span className="text-xs" style={{ color: colors.textFaint }}>{formatDateTime(msg.created_at)}</span>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-center py-2" style={{ color: colors.textMuted }}>No messages yet</p>
+              )}
+            </div>
+
+            {/* LATE CLOSING INTEREST (show for funded/repaid deals) */}
+            {deal && ['funded', 'repaid'].includes(deal.status) && (
+              <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                    <AlertCircle className="w-4 h-4" style={{ color: '#D4A04A' }} />
+                    Late Closing Interest
+                  </h2>
+                  {!showLateInterest && (
+                    <button
+                      onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
+                      className="px-2.5 py-1 rounded text-xs font-medium text-white transition-colors"
+                      style={{ background: '#D4A04A' }}
+                    >
+                      Charge Interest
+                    </button>
+                  )}
+                </div>
+
+                {agentBalance > 0 && (
+                  <div className="mb-2 px-3 py-2 rounded" style={{ background: '#2A1F0F', border: '1px solid #4A3820' }}>
+                    <p className="text-xs" style={{ color: '#D4A04A' }}>
+                      Agent account balance: <strong>${agentBalance.toFixed(2)}</strong>
+                    </p>
+                  </div>
+                )}
+
+                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
+                  <div className="mb-2 px-3 py-2 rounded" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
+                    <p className="text-xs" style={{ color: '#E07B7B' }}>
+                      Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
+                      {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
+                    </p>
+                  </div>
+                )}
+
+                {showLateInterest && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs font-semibold block mb-1" style={{ color: colors.textSecondary }}>Actual Closing Date</label>
+                      <input
+                        type="date"
+                        value={actualClosingDate}
+                        onChange={(e) => setActualClosingDate(e.target.value)}
+                        className="w-full px-3 py-2 rounded border text-sm focus:outline-none"
+                        style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                      />
+                    </div>
+                    <p className="text-xs" style={{ color: colors.textMuted }}>
+                      Rate: $0.75 per $1,000/day. 5-day grace period after expected closing ({deal.closing_date}).
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleChargeLateInterest}
+                        disabled={lateInterestSaving || !actualClosingDate}
+                        className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
+                        style={{ background: '#D4A04A' }}
+                      >
+                        {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
+                      </button>
+                      <button
+                        onClick={() => setShowLateInterest(false)}
+                        className="px-3 py-1.5 rounded text-sm font-medium"
+                        style={{ color: colors.textMuted, background: colors.tableHeaderBg }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!showLateInterest && !deal.late_interest_charged && (
+                  <p className="text-xs" style={{ color: colors.textMuted }}>No late interest charged for this deal.</p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* AGENT & BROKERAGE CARDS (right 1/3) */}
@@ -2202,6 +2437,14 @@ export default function DealDetailPage() {
                             <Download className="w-3 h-3" />
                           </button>
                           <button
+                            onClick={() => { setReturningDocId(returningDocId === doc.id ? null : doc.id); setReturnReason('') }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
+                            style={{ background: '#2A1F0F', color: '#D4A04A', border: '1px solid #4A3820' }}
+                            title="Return to agent"
+                          >
+                            <Undo2 className="w-3 h-3" />
+                          </button>
+                          <button
                             onClick={() => handleDocumentDelete(doc)}
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
                             style={{ background: colors.errorBg, color: colors.errorText }}
@@ -2211,6 +2454,41 @@ export default function DealDetailPage() {
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
+                        {/* Document return form (inline) */}
+                        {returningDocId === doc.id && (
+                          <div className="mt-2 p-2 rounded" style={{ background: '#2A1F0F', border: '1px solid #4A3820' }}>
+                            <textarea
+                              value={returnReason}
+                              onChange={(e) => setReturnReason(e.target.value)}
+                              placeholder="Reason for returning this document..."
+                              className="w-full px-2 py-1.5 rounded border text-xs resize-none focus:outline-none mb-2"
+                              style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText, minHeight: '50px' }}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleReturnDocument(doc.id)}
+                                disabled={returnSending || !returnReason.trim()}
+                                className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50"
+                                style={{ background: '#D4A04A' }}
+                              >
+                                {returnSending ? 'Returning...' : 'Return & Notify Agent'}
+                              </button>
+                              <button
+                                onClick={() => { setReturningDocId(null); setReturnReason('') }}
+                                className="px-2 py-1 rounded text-xs font-medium"
+                                style={{ color: colors.textMuted }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {/* Show if document was previously returned */}
+                        {docReturns.some(r => r.document_id === doc.id && r.status === 'pending') && (
+                          <div className="mt-1 px-2 py-1 rounded text-xs" style={{ background: '#2A1212', border: '1px solid #4A2020', color: '#E07B7B' }}>
+                            ⚠ Returned — {docReturns.find(r => r.document_id === doc.id && r.status === 'pending')?.reason}
+                          </div>
+                        )}
                       </div>
                     ))
                   ) : (

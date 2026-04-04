@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTheme } from '@/lib/theme'
 
 export default function LoginPage() {
@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [resetSent, setResetSent] = useState(false)
   const [resetting, setResetting] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get('redirect')
   const supabase = createClient()
   const { colors, isDark } = useTheme()
 
@@ -78,6 +80,22 @@ export default function LoginPage() {
       })
 
       if (profile) {
+        // If there's a redirect URL from before login, use it (but verify it matches the user's role)
+        if (redirectTo) {
+          const roleRoutes: Record<string, string> = {
+            agent: '/agent',
+            brokerage_admin: '/brokerage',
+            firm_funds_admin: '/admin',
+            super_admin: '/admin',
+          }
+          const allowedPrefix = roleRoutes[profile.role] || '/agent'
+          // Only redirect to the saved URL if it starts with the user's allowed route
+          if (redirectTo.startsWith(allowedPrefix)) {
+            router.push(redirectTo)
+            return
+          }
+        }
+
         switch (profile.role) {
           case 'agent':
             router.push('/agent')

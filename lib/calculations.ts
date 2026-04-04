@@ -10,6 +10,7 @@ import {
   MAX_GROSS_COMMISSION,
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
+  LATE_CLOSING_GRACE_DAYS,
 } from './constants'
 
 export interface DealCalculation {
@@ -93,6 +94,33 @@ export function calculateDeal(input: DealCalculation): DealResult {
     amountDueFromBrokerage: roundToCents(amountDueFromBrokerage),
     eftTransferDays,
   }
+}
+
+/**
+ * Calculate late closing interest.
+ * Same discount rate ($0.75 per $1,000 per day), starting 5 days after expected closing.
+ * @param advanceAmount - The amount advanced to the agent
+ * @param expectedClosingDate - Original closing date (YYYY-MM-DD)
+ * @param actualClosingDate - Actual/current date for calculation (YYYY-MM-DD)
+ * @returns Interest amount (0 if within grace period)
+ */
+export function calculateLateInterest(
+  advanceAmount: number,
+  expectedClosingDate: string,
+  actualClosingDate: string,
+): number {
+  const expectedMs = new Date(expectedClosingDate + 'T00:00:00Z').getTime()
+  const actualMs = new Date(actualClosingDate + 'T00:00:00Z').getTime()
+  const daysLate = Math.floor((actualMs - expectedMs) / (1000 * 60 * 60 * 24))
+
+  // No interest if closed on time or within grace period
+  if (daysLate <= LATE_CLOSING_GRACE_DAYS) return 0
+
+  // Interest days = total days late minus grace period
+  const interestDays = daysLate - LATE_CLOSING_GRACE_DAYS
+  const interest = advanceAmount * (DISCOUNT_RATE_PER_1000_PER_DAY / 1000) * interestDays
+
+  return roundToCents(interest)
 }
 
 // Format currency for display

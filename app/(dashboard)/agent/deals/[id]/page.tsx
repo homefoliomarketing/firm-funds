@@ -46,6 +46,25 @@ interface DocumentRequest {
   created_at: string
 }
 
+interface ChecklistItem {
+  id: string
+  deal_id: string
+  category: string
+  checklist_item: string
+  is_checked: boolean
+  is_na: boolean
+  sort_order: number
+}
+
+interface DocumentReturnItem {
+  id: string; document_id: string; reason: string; status: string; created_at: string
+}
+
+interface DealMessageItem {
+  id: string; sender_role: string; sender_name: string | null; message: string
+  is_email_reply: boolean; created_at: string
+}
+
 const DOCUMENT_TYPES = DOC_TYPES
 
 // Status badge styles and labels now imported from @/lib/constants
@@ -54,6 +73,9 @@ export default function AgentDealDetailPage() {
   const [deal, setDeal] = useState<Deal | null>(null)
   const [documents, setDocuments] = useState<DealDocument[]>([])
   const [docRequests, setDocRequests] = useState<DocumentRequest[]>([])
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([])
+  const [docReturns, setDocReturns] = useState<DocumentReturnItem[]>([])
+  const [dealMessages, setDealMessages] = useState<DealMessageItem[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('aps')
@@ -95,6 +117,12 @@ export default function AgentDealDetailPage() {
     setDocuments(docsData || [])
     const { data: requestsData } = await supabase.from('document_requests').select('*').eq('deal_id', dealId).eq('status', 'pending').order('created_at', { ascending: false })
     setDocRequests(requestsData || [])
+    const { data: checklistData } = await supabase.from('underwriting_checklist').select('*').eq('deal_id', dealId).order('sort_order', { ascending: true })
+    setChecklistItems(checklistData || [])
+    const { data: returnsData } = await supabase.from('document_returns').select('*').eq('deal_id', dealId).eq('status', 'pending').order('created_at', { ascending: false })
+    setDocReturns(returnsData || [])
+    const { data: messagesData } = await supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true })
+    setDealMessages(messagesData || [])
     setLoading(false)
   }
 
@@ -714,6 +742,52 @@ export default function AgentDealDetailPage() {
               </div>
             </div>
 
+            {/* RETURNED DOCUMENTS ALERT */}
+            {docReturns.length > 0 && (
+              <div className="rounded-xl p-4" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
+                <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#F87171' }}>
+                  Action Required — Returned Documents
+                </h4>
+                <div className="space-y-2">
+                  {docReturns.map(ret => {
+                    const doc = documents.find(d => d.id === ret.document_id)
+                    return (
+                      <div key={ret.id} className="px-3 py-2 rounded" style={{ background: '#1A0F0F', border: '1px solid #3A1515' }}>
+                        <p className="text-xs font-semibold" style={{ color: '#E07B7B' }}>{doc?.file_name || 'Document'}</p>
+                        <p className="text-xs mt-1" style={{ color: '#CC9999' }}>Reason: {ret.reason}</p>
+                        <p className="text-xs mt-1" style={{ color: '#806060' }}>Please upload a corrected version below.</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* MESSAGES FROM FIRM FUNDS */}
+            {dealMessages.length > 0 && (
+              <div className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
+                <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>Messages</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                  {dealMessages.map(msg => (
+                    <div key={msg.id} className="px-3 py-2 rounded" style={{
+                      background: msg.sender_role === 'admin' ? '#0F2A18' : colors.cardBg,
+                      border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.border}`,
+                    }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
+                          {msg.sender_name || 'Firm Funds'}
+                        </span>
+                        <span className="text-xs" style={{ color: colors.textFaint }}>
+                          {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* What Happens Next — contextual info */}
             {(() => {
               const tips: Record<string, { title: string; message: string; color: string; bg: string; border: string }> = {
@@ -733,80 +807,66 @@ export default function AgentDealDetailPage() {
               )
             })()}
 
-            {/* Documents checklist - dynamic, shows what's uploaded vs missing */}
+            {/* Underwriting Checklist — mirrors admin checklist items from DB */}
             {(() => {
-              const requiredDocs = [
-                { type: 'aps', label: 'Agreement of Purchase and Sale', required: true },
-                { type: 'trade_record', label: 'Trade Record Sheet', required: true, note: 'Uploaded by your brokerage' },
-                { type: 'notice_of_fulfillment', label: 'Notice of Fulfillment / Waiver', required: false },
-                { type: 'amendment', label: 'Amendments', required: false },
-              ]
-              const firstTimeDocs = [
-                { type: 'kyc_fintrac', label: 'FINTRAC / ID Documents', required: true },
-                { type: 'id_verification', label: 'Void Cheque or Banking Info', required: true },
-              ]
-              const uploadedTypes = new Set(documents.map(d => d.document_type))
-              const allDocs = [...requiredDocs, ...firstTimeDocs]
-              const missingRequired = allDocs.filter(d => d.required && !uploadedTypes.has(d.type))
-              const allUploaded = missingRequired.length === 0
-              // Don't show "needed" warnings on deals that are already approved/funded/repaid/closed
-              const showWarnings = ['under_review', 'denied'].includes(deal.status) || deal.status === undefined
+              const checkedCount = checklistItems.filter(c => c.is_checked || c.is_na).length
+              const totalItems = checklistItems.length
+              const allComplete = totalItems > 0 && checkedCount === totalItems
+              // Don't show progress warnings on deals past review
+              const showProgress = ['under_review', 'denied'].includes(deal.status) || deal.status === undefined
+              // Group items by category
+              const categories = checklistItems.reduce<Record<string, ChecklistItem[]>>((acc, item) => {
+                if (!acc[item.category]) acc[item.category] = []
+                acc[item.category].push(item)
+                return acc
+              }, {})
 
               return (
                 <div className="rounded-xl p-4" style={{
-                  background: allUploaded || !showWarnings ? colors.successBg : colors.tableHeaderBg,
-                  border: `1px solid ${allUploaded || !showWarnings ? colors.successBorder : colors.border}`
+                  background: allComplete || !showProgress ? colors.successBg : colors.tableHeaderBg,
+                  border: `1px solid ${allComplete || !showProgress ? colors.successBorder : colors.border}`
                 }}>
                   <div className="flex items-center gap-2 mb-3">
-                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Document Checklist</h4>
-                    {allUploaded || !showWarnings ? (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>{showWarnings ? 'Complete' : 'Accepted'}</span>
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Underwriting Checklist</h4>
+                    {allComplete || !showProgress ? (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>{showProgress ? 'Complete' : 'Accepted'}</span>
                     ) : (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>{missingRequired.length} needed</span>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>{checkedCount}/{totalItems}</span>
                     )}
                   </div>
 
-                  <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textPrimary }}>Each Advance</p>
-                  <div className="space-y-1.5 mb-3">
-                    {requiredDocs.map(doc => {
-                      const uploaded = uploadedTypes.has(doc.type)
-                      return (
-                        <div key={doc.type} className="flex items-start gap-2">
-                          {uploaded || !showWarnings
-                            ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
-                            : <AlertTriangle size={14} style={{ color: doc.required ? colors.warningText : colors.textFaint, marginTop: 1 }} />
-                          }
-                          <div>
-                            <span className="text-xs" style={{ color: uploaded ? colors.successText : (doc.required ? colors.textPrimary : colors.textSecondary) }}>
-                              {doc.label}
-                            </span>
-                            {doc.note && <span className="text-xs ml-1" style={{ color: colors.textFaint }}>({doc.note})</span>}
-                            {!doc.required && !uploaded && <span className="text-xs ml-1" style={{ color: colors.textFaint }}>(if applicable)</span>}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  {Object.entries(categories).map(([category, items]) => (
+                    <div key={category} className="mb-3">
+                      <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textPrimary }}>{category}</p>
+                      <div className="space-y-1.5">
+                        {items.map(item => {
+                          const done = item.is_checked || item.is_na
+                          return (
+                            <div key={item.id} className="flex items-start gap-2">
+                              {done || !showProgress
+                                ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
+                                : <Clock size={14} style={{ color: colors.textFaint, marginTop: 1 }} />
+                              }
+                              <span className="text-xs" style={{
+                                color: done ? colors.successText : colors.textSecondary,
+                                textDecoration: item.is_na ? 'line-through' : 'none',
+                                opacity: item.is_na ? 0.5 : 1,
+                              }}>
+                                {item.checklist_item}
+                                {item.is_na && <span className="ml-1 text-xs" style={{ color: colors.textFaint }}>(N/A)</span>}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
 
-                  <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textPrimary }}>First Time Only</p>
-                  <div className="space-y-1.5 mb-3">
-                    {firstTimeDocs.map(doc => {
-                      const uploaded = uploadedTypes.has(doc.type)
-                      return (
-                        <div key={doc.type} className="flex items-start gap-2">
-                          {uploaded || !showWarnings
-                            ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
-                            : <AlertTriangle size={14} style={{ color: colors.warningText, marginTop: 1 }} />
-                          }
-                          <span className="text-xs" style={{ color: uploaded || !showWarnings ? colors.successText : colors.textPrimary }}>
-                            {doc.label}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  {totalItems === 0 && (
+                    <p className="text-xs" style={{ color: colors.textMuted }}>Checklist items will appear once your deal is being reviewed.</p>
+                  )}
 
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Uploading all documents upfront helps us process your advance faster.</p>
+                  <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Uploading all documents upfront helps us process your advance faster.</p>
                 </div>
               )
             })()}
