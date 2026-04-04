@@ -641,10 +641,30 @@ export async function inviteAgent(input: {
 
     if (signUpError && signUpError.message?.includes('already been registered')) {
       // Email exists in Supabase Auth (e.g. previously archived/deleted agent) — find and reuse
-      const { data: { users } } = await serviceClient.auth.admin.listUsers()
-      const existingAuthUser = users?.find((u: any) => u.email === email)
+      // First try: check our user_profiles table (fastest, no pagination issues)
+      const { data: existingProfile } = await serviceClient
+        .from('user_profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle()
 
-      if (!existingAuthUser) {
+      let foundUserId: string | null = existingProfile?.id || null
+
+      // Fallback: paginate through auth users if profile was already deleted
+      if (!foundUserId) {
+        let page = 1
+        const perPage = 100
+        while (!foundUserId) {
+          const { data: { users }, error: listErr } = await serviceClient.auth.admin.listUsers({ page, perPage })
+          if (listErr || !users || users.length === 0) break
+          const found = users.find((u: any) => u.email === email)
+          if (found) { foundUserId = found.id; break }
+          if (users.length < perPage) break  // last page
+          page++
+        }
+      }
+
+      if (!foundUserId) {
         console.error('Auth user exists but could not be found for reuse:', email)
         return {
           success: false,
@@ -653,7 +673,7 @@ export async function inviteAgent(input: {
         }
       }
 
-      authUserId = existingAuthUser.id
+      authUserId = foundUserId
 
       // Reset the password and ensure the user is confirmed + active
       await serviceClient.auth.admin.updateUserById(authUserId, {
