@@ -18,8 +18,14 @@ export default function ChangePasswordPage() {
     e.preventDefault()
     setError(null)
 
-    if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters long.')
+    // Strong password policy for financial app (FINTRAC/PIPEDA compliance)
+    const hasUpper = /[A-Z]/.test(newPassword)
+    const hasLower = /[a-z]/.test(newPassword)
+    const hasNumber = /\d/.test(newPassword)
+    const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword)
+
+    if (newPassword.length < 12 || !hasUpper || !hasLower || !hasNumber || !hasSpecial) {
+      setError('Password must be at least 12 characters with uppercase, lowercase, number, and special character.')
       return
     }
 
@@ -48,13 +54,20 @@ export default function ChangePasswordPage() {
       // Without this, the middleware might see the OLD JWT without password_changed
       await supabase.auth.refreshSession()
 
-      // Step 3: Try to clear the DB flag via API route (fire-and-forget, non-blocking)
-      // If this hangs on Netlify, we don't care — the metadata flag is already set
-      // and the middleware checks metadata FIRST before the DB flag
-      fetch('/api/clear-reset-flag', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }).catch(() => {}) // Silently ignore any failure
+      // Step 3: Clear the DB flag via API route
+      // Await this to ensure audit log is written and DB state is consistent
+      try {
+        const resetResponse = await fetch('/api/clear-reset-flag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (!resetResponse.ok) {
+          console.warn('Failed to clear reset flag, but password was updated successfully')
+        }
+      } catch {
+        // Non-critical: metadata flag is already set and middleware checks it first
+        console.warn('clear-reset-flag request failed, continuing')
+      }
 
       // Step 4: Get role for redirect (direct Supabase query, no Netlify)
       const { data: { user } } = await supabase.auth.getUser()
@@ -131,7 +144,7 @@ export default function ChangePasswordPage() {
                 style={{ border: `1.5px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                 onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
                 onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
-                placeholder="Min. 8 characters"
+                placeholder="Min. 12 chars, upper/lower/number/special"
               />
             </div>
 
