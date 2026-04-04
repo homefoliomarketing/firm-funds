@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
@@ -26,6 +26,48 @@ import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokera
 import { getStatusBadgeStyle } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+
+// ============================================================================
+// Drag-to-pan hook — click and drag to scroll a container when zoomed
+// ============================================================================
+function useDragToPan(scrollRef: React.RefObject<HTMLDivElement | null>, isZoomed: boolean) {
+  const isDragging = useRef(false)
+  const startX = useRef(0)
+  const startY = useRef(0)
+  const scrollLeft = useRef(0)
+  const scrollTop = useRef(0)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!isZoomed || !scrollRef.current) return
+    // Only left-click
+    if (e.button !== 0) return
+    isDragging.current = true
+    startX.current = e.clientX
+    startY.current = e.clientY
+    scrollLeft.current = scrollRef.current.scrollLeft
+    scrollTop.current = scrollRef.current.scrollTop
+    scrollRef.current.style.cursor = 'grabbing'
+    scrollRef.current.style.userSelect = 'none'
+    e.preventDefault()
+  }, [isZoomed, scrollRef])
+
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging.current || !scrollRef.current) return
+    const dx = e.clientX - startX.current
+    const dy = e.clientY - startY.current
+    scrollRef.current.scrollLeft = scrollLeft.current - dx
+    scrollRef.current.scrollTop = scrollTop.current - dy
+  }, [scrollRef])
+
+  const onMouseUp = useCallback(() => {
+    if (!isDragging.current || !scrollRef.current) return
+    isDragging.current = false
+    scrollRef.current.style.cursor = isZoomed ? 'grab' : 'default'
+    scrollRef.current.style.userSelect = ''
+  }, [isZoomed, scrollRef])
+
+  return { onMouseDown, onMouseMove, onMouseUp, onMouseLeave: onMouseUp }
+}
 
 // ============================================================================
 // PDF Canvas Viewer — renders PDFs via pdf.js 3.x (CDN) to canvas
@@ -67,6 +109,8 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading')
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX)
   const [numPages, setNumPages] = useState(0)
+  const isZoomed = zoomIndex > DEFAULT_ZOOM_INDEX
+  const dragHandlers = useDragToPan(containerRef, isZoomed)
 
   // Load the PDF document once
   useEffect(() => {
@@ -193,8 +237,12 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
           )}
         </div>
       )}
-      {/* Scrollable PDF content */}
-      <div ref={containerRef} style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+      {/* Scrollable PDF content — drag to pan when zoomed */}
+      <div
+        ref={containerRef}
+        {...dragHandlers}
+        style={{ flex: 1, overflow: 'auto', padding: 0, cursor: isZoomed ? 'grab' : 'default' }}
+      >
         {status === 'loading' && (
           <div className="flex items-center justify-center p-8">
             <div style={{
@@ -214,6 +262,9 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
 function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   const [zoomIndex, setZoomIndex] = useState(0)
   const imgZoomLevels = [1, 1.5, 2, 2.5, 3]
+  const imgScrollRef = useRef<HTMLDivElement>(null)
+  const isImgZoomed = zoomIndex > 0
+  const imgDragHandlers = useDragToPan(imgScrollRef, isImgZoomed)
 
   const zoomIn = () => setZoomIndex(i => Math.min(i + 1, imgZoomLevels.length - 1))
   const zoomOut = () => setZoomIndex(i => Math.max(i - 1, 0))
@@ -251,10 +302,15 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
           }}
         >+</button>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
+      <div
+        ref={imgScrollRef}
+        {...imgDragHandlers}
+        style={{ flex: 1, overflow: 'auto', padding: 8, cursor: isImgZoomed ? 'grab' : 'default' }}
+      >
         <img
           src={src}
           alt={alt}
+          draggable={false}
           style={{
             display: 'block',
             width: `${scale * 100}%`,
