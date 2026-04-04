@@ -105,25 +105,24 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
       const toRemove = container.querySelectorAll('canvas, .pdf-page-sep')
       toRemove.forEach((el: Element) => el.remove())
 
-      const scale = ZOOM_LEVELS[zoomIndex]
+      // Always render at 2x for crisp output, control visual size via CSS
+      const renderScale = 2
+      const visualZoom = ZOOM_LEVELS[zoomIndex]
+      // At 100% (index 1), the visual width = 100% of container.
+      // At other levels, scale proportionally (e.g. 75% = 75%, 150% = 150%).
+      const widthPct = (visualZoom / ZOOM_LEVELS[DEFAULT_ZOOM_INDEX]) * 100
 
       for (let i = 1; i <= pdf.numPages; i++) {
         if (cancelled) return
         const page = await pdf.getPage(i)
-        const viewport = page.getViewport({ scale })
+        const viewport = page.getViewport({ scale: renderScale })
 
         const canvas = document.createElement('canvas')
         canvas.width = viewport.width
         canvas.height = viewport.height
         canvas.style.display = 'block'
-        // At zoom <= 1.5, fit to width; above that, allow horizontal scroll
-        if (scale <= 1.5) {
-          canvas.style.width = '100%'
-          canvas.style.height = 'auto'
-        } else {
-          canvas.style.width = `${viewport.width}px`
-          canvas.style.height = `${viewport.height}px`
-        }
+        canvas.style.width = `${widthPct}%`
+        canvas.style.height = 'auto'
 
         if (i > 1) {
           const sep = document.createElement('div')
@@ -252,14 +251,15 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
           }}
         >+</button>
       </div>
-      <div style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center', padding: 8 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
         <img
           src={src}
           alt={alt}
           style={{
-            width: scale === 1 ? '100%' : `${scale * 100}%`,
+            display: 'block',
+            width: `${scale * 100}%`,
+            maxWidth: 'none',
             height: 'auto',
-            objectFit: 'contain',
             borderRadius: 8,
             transition: 'width 0.15s ease',
           }}
