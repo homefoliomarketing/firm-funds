@@ -106,6 +106,15 @@ export default function AgentDealDetailPage() {
 
   useEffect(() => { loadDealData() }, [dealId])
 
+  // Auto-scroll to #messages when arriving from email link
+  useEffect(() => {
+    if (!loading && window.location.hash === '#messages') {
+      setTimeout(() => {
+        document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 200)
+    }
+  }, [loading])
+
   async function loadDealData() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
@@ -791,7 +800,7 @@ export default function AgentDealDetailPage() {
 
             {/* MESSAGES — thread between agent and Firm Funds */}
             {dealMessages.length > 0 && (
-              <div className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
+              <div id="messages" className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
                 <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>Messages</h4>
                 <div className="space-y-2 max-h-48 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
                   {dealMessages.map(msg => (

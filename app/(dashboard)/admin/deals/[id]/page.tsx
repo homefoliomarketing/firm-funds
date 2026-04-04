@@ -1793,47 +1793,15 @@ export default function DealDetailPage() {
             </div>
 
             {/* DEAL MESSAGES */}
-            <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                  <Send className="w-4 h-4" style={{ color: colors.gold }} />
-                  Messages
-                  {messages.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: colors.tableHeaderBg, color: colors.textMuted }}>{messages.length}</span>}
-                </h2>
-                <button
-                  onClick={() => setShowMessageForm(!showMessageForm)}
-                  className="px-2.5 py-1 rounded text-xs font-medium text-white transition-colors"
-                  style={{ background: '#5FA873' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#4A9060'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
-                >
-                  {showMessageForm ? 'Cancel' : 'New Message'}
-                </button>
-              </div>
+            <div id="messages" className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: colors.textPrimary }}>
+                <Send className="w-4 h-4" style={{ color: colors.gold }} />
+                Messages
+                {messages.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: colors.tableHeaderBg, color: colors.textMuted }}>{messages.length}</span>}
+              </h2>
 
-              {showMessageForm && (
-                <div className="mb-3 space-y-2">
-                  <textarea
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Type a message to the agent... (this will also send an email)"
-                    className="w-full px-3 py-2 rounded border text-sm resize-none focus:outline-none"
-                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText, minHeight: '80px' }}
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={messageSending || !messageText.trim()}
-                    className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                    style={{ background: '#5FA873' }}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    {messageSending ? 'Sending...' : 'Send Message'}
-                  </button>
-                </div>
-              )}
-
-              {messages.length > 0 ? (
-                <div className="space-y-2 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+              {messages.length > 0 && (
+                <div className="space-y-2 max-h-64 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
                   {messages.map(msg => (
                     <div key={msg.id} className="rounded-lg px-3 py-2" style={{
                       background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
@@ -1850,9 +1818,33 @@ export default function DealDetailPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-xs text-center py-2" style={{ color: colors.textMuted }}>No messages yet</p>
               )}
+
+              {messages.length === 0 && (
+                <p className="text-xs text-center py-2 mb-3" style={{ color: colors.textMuted }}>No messages yet</p>
+              )}
+
+              {/* Reply input — always visible */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder={messages.length === 0 ? 'Send a message to the agent... (sends email)' : 'Reply... (sends email)'}
+                  className="flex-1 px-3 py-2 rounded border text-sm focus:outline-none"
+                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={messageSending || !messageText.trim()}
+                  className="px-3 py-2 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                  style={{ background: '#5FA873' }}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {messageSending ? '...' : 'Send'}
+                </button>
+              </div>
             </div>
 
             {/* LATE CLOSING INTEREST (show for funded/repaid deals) */}

@@ -806,12 +806,9 @@ export async function sendDealMessageNotification(params: {
         <div style="margin:16px 0; padding:12px 16px; background:#222; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
           <p style="margin:0; color:#E8E4DF; font-size:14px; line-height:1.6;">${params.message.replace(/\n/g, '<br>')}</p>
         </div>
-        <p style="margin:16px 0; color:#999; font-size:13px;">
-          You can reply to this email and your response will be added to your deal.
-        </p>
         <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-            View Deal
+          <a href="${APP_URL}/agent/deals/${params.dealId}#messages" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            Reply
           </a>
         </div>
       `),
