@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 
@@ -17,7 +17,6 @@ interface DashboardStats {
   fundedDeals: number
   totalAdvanced: number
   totalBrokerages: number
-  totalAgents: number
 }
 
 export default function AdminDashboard() {
@@ -30,7 +29,6 @@ export default function AdminDashboard() {
     fundedDeals: 0,
     totalAdvanced: 0,
     totalBrokerages: 0,
-    totalAgents: 0,
   })
   const [recentDeals, setRecentDeals] = useState<any[]>([])
   const [allDeals, setAllDeals] = useState<any[]>([])
@@ -69,11 +67,9 @@ export default function AdminDashboard() {
       const [
         { data: deals },
         { count: totalBrokerages },
-        { count: totalAgents },
       ] = await Promise.all([
         supabase.from('deals').select('*').order('created_at', { ascending: false }),
         supabase.from('brokerages').select('*', { count: 'exact', head: true }),
-        supabase.from('agents').select('*', { count: 'exact', head: true }),
       ])
 
       const allDealsList = deals || []
@@ -88,7 +84,6 @@ export default function AdminDashboard() {
         fundedDeals: allDealsList.filter(d => d.status === 'funded').length,
         totalAdvanced,
         totalBrokerages: totalBrokerages || 0,
-        totalAgents: totalAgents || 0,
       })
 
       setAllDeals(allDealsList)
@@ -115,8 +110,8 @@ export default function AdminDashboard() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
           <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            {[1,2,3,4].map(i => (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            {[1,2,3].map(i => (
               <div key={i} className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
                 <div className="h-3 w-20 rounded animate-pulse mb-2" style={{ background: colors.skeletonHighlight }} />
                 <div className="h-7 w-16 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
@@ -213,13 +208,12 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        {/* KPI Cards + Quick Links */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
           {[
             { label: 'Total Deals', value: filteredStats.totalDeals.toString(), icon: FileText, accent: '#5FA873', link: null },
             { label: 'Total Advanced', value: formatCurrency(filteredStats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', link: null },
             { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#5FA873', link: '/admin/brokerages' },
-            { label: 'Registered Agents', value: stats.totalAgents.toString(), icon: Users, accent: '#5FA873', link: '/admin/brokerages' },
           ].map((card) => (
             <div
               key={card.label}
@@ -243,18 +237,8 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* Management Quick Links */}
+        {/* Quick Links */}
         <div className="flex flex-wrap gap-2 mb-4">
-          <button
-            onClick={() => router.push('/admin/brokerages')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <Building2 size={14} style={{ color: colors.gold }} />
-            Manage Brokerages
-          </button>
           <button
             onClick={() => router.push('/admin/reports')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
