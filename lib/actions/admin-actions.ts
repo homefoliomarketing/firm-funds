@@ -641,34 +641,15 @@ export async function inviteAgent(input: {
 
     if (signUpError && signUpError.message?.includes('already been registered')) {
       // Email exists in Supabase Auth (e.g. previously archived/deleted agent) — find and reuse
-      // First try: check our user_profiles table (fastest, no pagination issues)
-      const { data: existingProfile } = await serviceClient
-        .from('user_profiles')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle()
+      // Query auth.users directly via database function (reliable, no pagination issues)
+      const { data: foundUserId, error: rpcError } = await serviceClient
+        .rpc('get_auth_user_id_by_email', { lookup_email: email })
 
-      let foundUserId: string | null = existingProfile?.id || null
-
-      // Fallback: paginate through auth users if profile was already deleted
-      if (!foundUserId) {
-        let page = 1
-        const perPage = 100
-        while (!foundUserId) {
-          const { data: { users }, error: listErr } = await serviceClient.auth.admin.listUsers({ page, perPage })
-          if (listErr || !users || users.length === 0) break
-          const found = users.find((u: any) => u.email === email)
-          if (found) { foundUserId = found.id; break }
-          if (users.length < perPage) break  // last page
-          page++
-        }
-      }
-
-      if (!foundUserId) {
-        console.error('Auth user exists but could not be found for reuse:', email)
+      if (rpcError || !foundUserId) {
+        console.error('Auth user exists but RPC lookup failed:', rpcError?.message || 'no user found', email)
         return {
           success: false,
-          error: `Agent record created but login creation failed: Could not find existing auth user for ${email}. Fix manually in Supabase.`,
+          error: `Agent record created but login creation failed: Could not find existing auth user for ${email}. Run the get_auth_user_id_by_email migration, then retry.`,
           data: { agentId: agent.id, agentCreated: true, loginCreated: false },
         }
       }
