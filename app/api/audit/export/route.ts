@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { validateOrigin } from '@/lib/csrf'
+import { checkApiRateLimit } from '@/lib/rate-limit'
 
 // ============================================================================
 // GET /api/audit/export — Export audit logs as CSV
@@ -10,6 +11,13 @@ import { validateOrigin } from '@/lib/csrf'
 // ============================================================================
 
 export async function GET(request: Request) {
+  // Rate limit check
+  const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
+  const rl = await checkApiRateLimit(ip)
+  if (!rl.allowed) {
+    return new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429 })
+  }
+
   // CSRF check
   const originError = validateOrigin(request)
   if (originError) {

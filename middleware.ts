@@ -37,8 +37,8 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Redirect unauthenticated users to login (except login/auth/kyc-upload/kyc API routes)
-  if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/kyc-upload') && !pathname.startsWith('/api/kyc-')) {
+  // Redirect unauthenticated users to login (except login/auth/kyc-upload/kyc API routes/invite/magic-link)
+  if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/kyc-upload') && !pathname.startsWith('/api/kyc-') && !pathname.startsWith('/invite') && !pathname.startsWith('/api/magic-link') && !pathname.startsWith('/api/rate-limit')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

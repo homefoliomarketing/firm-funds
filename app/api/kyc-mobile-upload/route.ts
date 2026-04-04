@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { checkApiRateLimit } from '@/lib/rate-limit'
 
 // Step 1: Generate signed upload URLs so the client can upload directly to Supabase
 // (No files touch Netlify — just a tiny JSON request/response)
 export async function POST(request: Request) {
   try {
+    // Rate limit check
+    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
+    const rl = await checkApiRateLimit(ip)
+    if (!rl.allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
+    }
+
     const { token, fileNames, documentType } = await request.json()
 
     if (!token || !fileNames?.length || !documentType) {

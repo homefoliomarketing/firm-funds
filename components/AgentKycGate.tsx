@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Shield, Upload, CheckCircle, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
-import { submitAgentKyc, sendKycMobileLink } from '@/lib/actions/kyc-actions'
+import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
 import { createClient } from '@/lib/supabase/client'
 import { useTheme } from '@/lib/theme'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeStyle } from '@/lib/constants'
@@ -90,17 +90,58 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
     setSubmitting(true)
     setError(null)
 
-    const formData = new FormData()
-    for (const file of selectedFiles) {
-      formData.append('files', file)
-    }
-    formData.append('documentType', documentType)
+    try {
+      // Step 1: Get signed upload URLs from lightweight API route
+      const fileNames = selectedFiles.map(f => f.name)
+      const urlRes = await fetch('/api/kyc-desktop-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileNames, documentType }),
+      })
+      const urlData = await urlRes.json()
 
-    const result = await submitAgentKyc(formData)
-    if (result.success) {
-      onKycSubmitted()
-    } else {
-      setError(result.error || 'Upload failed. Please try again.')
+      if (!urlData.success) {
+        setError(urlData.error || 'Failed to prepare upload.')
+        setSubmitting(false)
+        return
+      }
+
+      // Step 2: Upload files directly to Supabase Storage (bypasses Netlify)
+      const filePaths: string[] = []
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i]
+        const { signedUrl, path } = urlData.data.uploadUrls[i]
+
+        const uploadRes = await fetch(signedUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        })
+
+        if (!uploadRes.ok) {
+          setError(`Upload failed for file ${i + 1}. Please try again.`)
+          setSubmitting(false)
+          return
+        }
+        filePaths.push(path)
+      }
+
+      // Step 3: Finalize — update DB records via lightweight API route
+      const finalRes = await fetch('/api/kyc-desktop-upload', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePaths, documentType }),
+      })
+      const finalData = await finalRes.json()
+
+      if (finalData.success) {
+        onKycSubmitted()
+      } else {
+        setError(finalData.error || 'Upload completed but status update failed. Please contact support.')
+      }
+    } catch (err) {
+      console.error('Desktop KYC upload error:', err)
+      setError('Upload failed. Please try again.')
     }
     setSubmitting(false)
   }

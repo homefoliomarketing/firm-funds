@@ -36,6 +36,23 @@ export default function ChangePasswordPage() {
 
     setLoading(true)
 
+    // Rate limit check
+    try {
+      const rlRes = await fetch('/api/rate-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'password' }),
+      })
+      const rlData = await rlRes.json()
+      if (!rlData.allowed) {
+        setError(rlData.error || 'Too many attempts. Please try again later.')
+        setLoading(false)
+        return
+      }
+    } catch {
+      // Rate limit check failed — continue (fail open)
+    }
+
     try {
       // Step 1: Update password + set metadata flag
       // This talks DIRECTLY to Supabase (not through Netlify)

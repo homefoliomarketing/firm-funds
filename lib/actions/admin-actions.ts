@@ -1,5 +1,6 @@
 'use server'
 
+import crypto from 'crypto'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification } from '@/lib/email'
@@ -625,8 +626,8 @@ export async function inviteAgent(input: {
       return { success: false, error: `Failed to create agent record: ${agentError?.message || 'Unknown error'}` }
     }
 
-    // 2. Create auth user
-    const tempPassword = generateTempPassword()
+    // 2. Create auth user with a random password (agent will set their own via magic link)
+    const tempPassword = generateTempPassword()  // Used only as initial placeholder — never shown to agent
 
     const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email,
@@ -666,12 +667,31 @@ export async function inviteAgent(input: {
       }
     }
 
-    // 4. Send invite email
+    // 4. Generate magic link invite token (72-hour expiry)
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    const { error: tokenError } = await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: authData.user.id,
+        agent_id: agent.id,
+        email,
+        expires_at: expiresAt,
+      })
+
+    if (tokenError) {
+      console.error('Invite token create error:', tokenError.message)
+      // Non-fatal — agent and auth user are already created, admin can resend invite
+    }
+
+    // 5. Send invite email with magic link (no temp password)
     await sendAgentInviteNotification({
       agentFirstName: input.firstName.trim(),
       agentEmail: email,
       brokerageName: brokerage.name,
-      tempPassword,
+      inviteToken,
     })
 
     // Audit log
@@ -685,6 +705,7 @@ export async function inviteAgent(input: {
         brokerage_id: input.brokerageId,
         brokerage_name: brokerage.name,
         invited_by: user.id,
+        invite_method: 'magic_link',
       },
     })
 
@@ -792,13 +813,40 @@ export async function resendAgentWelcomeEmail(input: {
         })
     }
 
-    // Send the welcome email
-    await sendAgentInviteNotification({
-      agentFirstName: agent.first_name,
-      agentEmail: agent.email,
-      brokerageName: brokerage?.name || 'Your Brokerage',
-      tempPassword,
-    })
+    // Get the user ID for the magic link token
+    const userId = profile ? profile.id : (await serviceClient.from('user_profiles').select('id').eq('agent_id', agent.id).single()).data?.id
+
+    if (userId) {
+      // Generate magic link invite token (72-hour expiry)
+      const inviteToken = crypto.randomBytes(32).toString('hex')
+      const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+      await serviceClient
+        .from('invite_tokens')
+        .insert({
+          token: inviteToken,
+          user_id: userId,
+          agent_id: agent.id,
+          email: agent.email,
+          expires_at: expiresAt,
+        })
+
+      // Send magic link invite email (no temp password)
+      await sendAgentInviteNotification({
+        agentFirstName: agent.first_name,
+        agentEmail: agent.email,
+        brokerageName: brokerage?.name || 'Your Brokerage',
+        inviteToken,
+      })
+    } else {
+      // Fallback: send legacy temp password email
+      await sendAgentInviteNotification({
+        agentFirstName: agent.first_name,
+        agentEmail: agent.email,
+        brokerageName: brokerage?.name || 'Your Brokerage',
+        tempPassword,
+      })
+    }
 
     await logAuditEvent({
       action: 'agent.resend_welcome',
@@ -809,6 +857,7 @@ export async function resendAgentWelcomeEmail(input: {
         email: agent.email,
         resent_by: user.id,
         had_existing_login: !!profile,
+        invite_method: userId ? 'magic_link' : 'temp_password',
       },
     })
 

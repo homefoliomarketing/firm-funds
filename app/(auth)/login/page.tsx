@@ -22,6 +22,23 @@ export default function LoginPage() {
     setError(null)
     setResetSent(false)
 
+    // Rate limit check
+    try {
+      const rlRes = await fetch('/api/rate-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login' }),
+      })
+      const rlData = await rlRes.json()
+      if (!rlData.allowed) {
+        setError(rlData.error || 'Too many login attempts. Please try again later.')
+        setLoading(false)
+        return
+      }
+    } catch {
+      // Rate limit check failed — continue (fail open)
+    }
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -86,6 +103,24 @@ export default function LoginPage() {
     }
     setResetting(true)
     setError(null)
+
+    // Rate limit check
+    try {
+      const rlRes = await fetch('/api/rate-limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      })
+      const rlData = await rlRes.json()
+      if (!rlData.allowed) {
+        setError(rlData.error || 'Too many reset attempts. Please try again later.')
+        setResetting(false)
+        return
+      }
+    } catch {
+      // Rate limit check failed — continue (fail open)
+    }
+
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/login`,
     })
