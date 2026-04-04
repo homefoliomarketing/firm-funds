@@ -1,7 +1,7 @@
 'use server'
 
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
-import type { AuditSeverity } from '@/lib/audit'
+import type { AuditSeverity } from '@/lib/audit-labels'
 
 // ============================================================================
 // Types

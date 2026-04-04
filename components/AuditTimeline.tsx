@@ -7,7 +7,7 @@ import {
   Upload, Trash2, Eye, LogIn, LogOut, Edit2, Send, Undo2
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
-import { getActionLabel } from '@/lib/audit'
+import { getActionLabel } from '@/lib/audit-labels'
 import { getEntityAuditTimeline, type AuditLogRow } from '@/lib/actions/audit-actions'
 import { formatDateTime } from '@/lib/formatting'
 

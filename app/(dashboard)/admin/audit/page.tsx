@@ -9,7 +9,7 @@ import {
   AlertTriangle, Info, FileText, Eye, ExternalLink
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
-import { getActionLabel } from '@/lib/audit'
+import { getActionLabel } from '@/lib/audit-labels'
 import {
   queryAuditLogs,
   getDistinctAuditActions,

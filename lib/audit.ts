@@ -2,12 +2,11 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import type { AuditSeverity } from '@/lib/audit-labels'
 
 // ============================================================================
 // Types
 // ============================================================================
-
-export type AuditSeverity = 'info' | 'warning' | 'critical'
 
 export interface AuditEntry {
   action: string            // e.g. 'deal.submit', 'deal.status_change', 'document.upload'
@@ -35,7 +34,7 @@ export interface AuditContext {
 
 const ACTION_SEVERITY: Record<string, AuditSeverity> = {
   // Critical — funding decisions, financial records, access changes
-  'deal.status_change':       'critical',  // Will be overridden to 'warning' for non-funding statuses below
+  'deal.status_change':       'critical',
   'eft.record':               'critical',
   'eft.confirm':              'critical',
   'eft.remove':               'critical',
@@ -99,59 +98,6 @@ function resolveSeverity(entry: AuditEntry): AuditSeverity {
   }
 
   return ACTION_SEVERITY[entry.action] || 'info'
-}
-
-// ============================================================================
-// Human-Readable Action Labels
-// ============================================================================
-
-export const ACTION_LABELS: Record<string, string> = {
-  'deal.submit':              'Deal Submitted',
-  'deal.status_change':       'Status Changed',
-  'deal.edit':                'Deal Edited',
-  'deal.cancel':              'Deal Cancelled',
-  'deal.withdrawn':           'Deal Withdrawn',
-  'deal.delete':              'Deal Deleted',
-  'deal.closing_date_updated':'Closing Date Changed',
-  'deal.admin_notes_updated': 'Admin Notes Updated',
-  'deal.admin_note_added':    'Admin Note Added',
-  'document.upload':          'Document Uploaded',
-  'document.delete':          'Document Deleted',
-  'document.view':            'Document Viewed',
-  'document.request':         'Document Requested',
-  'document.request_fulfilled':'Document Request Fulfilled',
-  'document.request_cancelled':'Document Request Cancelled',
-  'checklist.toggle':         'Checklist Item Toggled',
-  'agent.create':             'Agent Created',
-  'agent.update':             'Agent Updated',
-  'agent.archive':            'Agent Archived',
-  'agent.invite':             'Agent Invited',
-  'agent.resend_welcome':     'Welcome Email Resent',
-  'agent.bulk_import':        'Bulk Agent Import',
-  'agent.kyc_submit':         'KYC Submitted',
-  'agent.kyc_submit_mobile':  'KYC Submitted (Mobile)',
-  'agent.kyc_verify':         'KYC Verified',
-  'agent.kyc_reject':         'KYC Rejected',
-  'agent.kyc_mobile_link_sent':'KYC Mobile Link Sent',
-  'brokerage.create':         'Brokerage Created',
-  'brokerage.update':         'Brokerage Updated',
-  'brokerage.kyc_verify':     'Brokerage KYC Verified',
-  'brokerage.kyc_revoke':     'Brokerage KYC Revoked',
-  'user.create':              'User Account Created',
-  'user.password_changed':    'Password Changed',
-  'user.role_change':         'User Role Changed',
-  'eft.record':               'EFT Recorded',
-  'eft.confirm':              'EFT Confirmed',
-  'eft.remove':               'EFT Removed',
-  'brokerage_payment.record': 'Brokerage Payment Recorded',
-  'brokerage_payment.remove': 'Brokerage Payment Removed',
-  'auth.login':               'Logged In',
-  'auth.login_failed':        'Login Failed',
-  'auth.logout':              'Logged Out',
-}
-
-export function getActionLabel(action: string): string {
-  return ACTION_LABELS[action] || action.replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 // ============================================================================
@@ -262,14 +208,14 @@ export async function logAuditEventServiceRole(
 }
 
 // ============================================================================
-// Helpers
+// Helpers (async to satisfy 'use server' requirement)
 // ============================================================================
 
 /**
  * Extract IP address and user-agent from a Request object.
  * Works in both Netlify serverless and Supabase Edge contexts.
  */
-export function extractRequestContext(request: Request): AuditContext {
+export async function extractRequestContext(request: Request): Promise<AuditContext> {
   const forwarded = request.headers.get('x-forwarded-for')
   const ip = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || undefined
   const userAgent = request.headers.get('user-agent') || undefined
@@ -284,11 +230,11 @@ export function extractRequestContext(request: Request): AuditContext {
  * Build old/new value objects from before/after snapshots of a record.
  * Only includes fields that actually changed.
  */
-export function diffValues(
+export async function diffValues(
   oldRecord: Record<string, any>,
   newRecord: Record<string, any>,
   fields: string[]
-): { oldValue: Record<string, any>; newValue: Record<string, any> } | null {
+): Promise<{ oldValue: Record<string, any>; newValue: Record<string, any> } | null> {
   const oldValue: Record<string, any> = {}
   const newValue: Record<string, any> = {}
   let hasChanges = false
