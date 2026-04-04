@@ -641,12 +641,13 @@ export default function DealDetailPage() {
       return
     }
     const newChecked = !item.is_checked
+    // Optimistic update — instant UI feedback
+    setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: newChecked, checked_at: newChecked ? new Date().toISOString() : null } : c))
     const result = await serverToggleChecklistItem({ itemId: item.id, isChecked: newChecked })
-    if (result.success) {
-      const { data: { user } } = await supabase.auth.getUser()
-      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: newChecked, checked_by: newChecked ? user?.id || null : null, checked_at: newChecked ? new Date().toISOString() : null } : c))
-    } else if (result.error) {
-      setStatusMessage({ type: 'error', text: result.error })
+    if (!result.success) {
+      // Revert on failure
+      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: !newChecked, checked_at: !newChecked ? item.checked_at : null } : c))
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to update' })
     }
   }
 
@@ -701,9 +702,14 @@ export default function DealDetailPage() {
   const handleChecklistNA = async (e: React.MouseEvent, item: ChecklistItem) => {
     e.stopPropagation()
     const newNA = !item.is_na
+    const prevItem = { ...item }
+    // Optimistic update — instant UI feedback
+    setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: newNA, is_checked: newNA ? false : c.is_checked } : c))
     const result = await serverToggleChecklistItemNA({ itemId: item.id, isNA: newNA })
-    if (result.success) {
-      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: newNA, is_checked: newNA ? false : c.is_checked } : c))
+    if (!result.success) {
+      // Revert on failure
+      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: prevItem.is_na, is_checked: prevItem.is_checked } : c))
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to update' })
     }
   }
 
