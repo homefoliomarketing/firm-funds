@@ -9,6 +9,7 @@ import {
   CheckCircle2, AlertTriangle, Pencil, Save, X
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import {
   MAX_UPLOAD_SIZE_BYTES,
@@ -213,9 +214,7 @@ export default function AgentDealDetailPage() {
       setDocsExpanded(true)
     }
   }
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
-  const formatDate = (date: string) => new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-  const formatDateTime = (date: string) => new Date(date).toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  // formatCurrency, formatDate, formatDateTime imported from @/lib/formatting
 
   const statusBadge = getStatusBadgeStyle
 

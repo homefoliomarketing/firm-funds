@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 
 // ============================================================================
 // Types
@@ -77,34 +78,7 @@ export interface ReportMetrics {
   }[]
 }
 
-// ============================================================================
-// Helper: get authenticated admin user
-// ============================================================================
-
-async function getAuthenticatedAdmin() {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return { error: 'Not authenticated', user: null, profile: null, supabase }
-  }
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return { error: 'User profile not found', user, profile: null, supabase }
-  }
-
-  if (!['super_admin', 'firm_funds_admin'].includes(profile.role)) {
-    return { error: 'Insufficient permissions', user, profile, supabase }
-  }
-
-  return { error: null, user, profile, supabase }
-}
+// getAuthenticatedAdmin imported from @/lib/auth-helpers
 
 // ============================================================================
 // Fetch Report Metrics

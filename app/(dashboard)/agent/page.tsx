@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp, PlusCircle, Eye, ChevronRight, X } from 'lucide-react'
 import { cancelDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
+import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import AgentKycGate from '@/components/AgentKycGate'
 
@@ -92,13 +93,7 @@ export default function AgentDashboard() {
     )
   }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
-  }
-
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-  }
+  // formatCurrency, formatDate imported from @/lib/formatting
 
   const statusBadge = (status: string) => {
     const styles: Record<string, { bg: string; text: string; border: string }> = {

@@ -6,66 +6,43 @@ Copy and paste everything below the line into your next Claude chat to pick up r
 
 ## START OF PROMPT
 
-You are continuing development on **Firm Funds Incorporated** (firmfunds.ca), a commission advance web portal for Ontario real estate agents. You're working with **Bud**, the non-developer owner.
+Hey! You're picking up where my last Claude session left off. I'm Bud, the non-developer owner of Firm Funds Inc. (firmfunds.ca) — a commission advance platform for Ontario real estate agents built with Next.js 16.2.1, Supabase, and deployed on Netlify.
 
-### CRITICAL — Read These Files First
+**CRITICAL: Before writing any code, read these files in the project root:**
+1. `HANDOFF.md` — the master document. Full tech stack, project structure, database schema, ALL completed work, known issues, patterns, and how to work with me.
+2. `AGENTS.md` — warns about Next.js 16 breaking changes (params are Promises, read `node_modules/next/dist/docs/` before writing any dynamic route code).
 
-Before writing ANY code, you MUST read:
-1. `HANDOFF.md` in the project root — comprehensive project documentation covering architecture, what's built, what's not, known issues, gotchas, and the full recent work log
-2. `AGENTS.md` — contains the rule about Next.js 16.2.1 breaking changes (read `node_modules/next/dist/docs/` before writing dynamic route code, params are Promises)
-3. `lib/constants.ts` — ALL business constants. Never hardcode values.
-4. `types/database.ts` — TypeScript interfaces for all DB entities
-5. `lib/theme.tsx` — Theme system. All colors via `useTheme()` hook. "gold" variables are actually green (#5FA873).
+**How we work together:**
+- I can't write code — you write it, I run the commands you give me
+- I run git commands in **PowerShell on Windows** at `C:\Users\randi\Dev\firm-funds` (paths with parentheses need double quotes; use `;` not `&&`)
+- I run SQL migrations in the **Supabase SQL Editor** (you give me the exact SQL)
+- Every push to `main` auto-deploys to Netlify production — there's no staging
+- Always run `npx tsc --noEmit` before telling me to push — zero TypeScript errors or don't ship
+- Keep it casual and friendly — I like working with someone who's real, not robotic
 
-### How to Work With Bud
+**The 3 golden rules of this codebase:**
+1. **Always use `createServiceRoleClient()`** for server-side mutations. Regular Supabase clients are blocked by RLS — this has caused most of our bugs.
+2. **NEVER send file uploads through Netlify.** Server actions AND API routes hang with file payloads. Use signed upload URLs → direct Supabase Storage upload → lightweight JSON API to update DB. See HANDOFF.md for the pattern.
+3. **Update the CSP in `next.config.ts`** whenever you add external scripts/resources. Silent CSP blocks have wasted hours.
 
-- **He is NOT a developer.** Always give him copy-paste PowerShell commands. His project path is `C:\Users\randi\Dev\firm-funds`.
-- **PowerShell uses semicolons (`;`) not `&&`** for chaining commands.
-- **Casual, direct, friendly tone.** He appreciates humor, sarcasm, and a "bro" vibe. Don't be lazy. Don't take shortcuts. He will absolutely call you out.
-- **Every push to `main` auto-deploys to Netlify (production).** There is NO staging environment. ALWAYS run `npx tsc --noEmit` before telling him to push. Zero TypeScript errors or don't ship.
-- **You cannot push from the sandbox.** Always provide Bud with the git commands to run on his machine.
-- **SQL changes** need to be run manually by Bud in the Supabase SQL Editor. Give him the SQL to paste.
-- **Supabase auth user creation via SQL is unreliable.** Always use the Supabase dashboard "Add user" button, then link via `INSERT INTO user_profiles`.
+**Styling:** There's no `colors.accent` — use `colors.gold` (which is actually green #5FA873). All colors come from `useTheme()`. Dark mode is permanently locked.
 
-### Key Technical Patterns
+**What was just completed (Session 3, April 3 2026):**
+- ✅ Password change page — fully client-side, bypasses Netlify entirely
+- ✅ Document viewer PDF rendering — pdf.js 3.x canvas approach with zoom controls
+- ✅ Mobile KYC upload — 3-step signed URL pattern, bypasses Netlify for files
+- ✅ Desktop auto-refresh after mobile KYC upload — 5-second polling
+- ✅ Image and PDF zoom controls in document viewer panel
+- ✅ CSP updated for pdf.js CDN and web workers
+- ✅ Middleware updated for public /api/kyc-* routes
 
-- **RLS (Row Level Security)** is enforced on all tables. Agent-level Supabase clients CANNOT update deals or refetch data. Use `createServiceRoleClient()` from `@/lib/supabase/server` for mutations. Update client state from server action response data, NOT from client-side refetches.
-- **Financial calculations** are server-side ONLY in `lib/calculations.ts`. Amounts in DOLLARS (not cents). Discount rate: $0.75 per $1,000 of net commission per day.
-- **Server actions pattern**: Authenticate → Zod validate → act → audit log → email notification (fire-and-forget).
-- **JSONB arrays** on deal records for: `eft_transfers`, `brokerage_payments`, `admin_notes_timeline`.
-- **Status flow**: under_review → approved → funded → repaid → closed (with backward transitions for corrections).
-- **Dark mode is permanently locked.** All colors from `useTheme()` hook. Never hardcode colors.
-- **File upload limit is 25MB**, configured in `next.config.ts` via `experimental.serverActions.bodySizeLimit`.
-
-### What Was Just Completed (April 3, 2026)
-
-Everything from the 10-step audit fix plan is done. Full details in `HANDOFF.md` Section 15, but the highlights:
-- Brokerage payments redesign (multiple payments tracked, "Mark as Repaid" gated by payment match)
-- Admin notes timeline (timestamped append-only)
-- Closing date inline edit with server-side recalc
-- Agent cancel/withdraw from dashboard
-- Underwriting checklist cleanup (11 clean items) + UI redesign
-- File upload crash fix (25MB limit)
-- Dark mode date picker fix
-- Closing date cron alerts API route
-- All SQL migrations have been run through 010
-- TypeScript compiles clean
-
-### What's Next (Priority Order)
-
-See `HANDOFF.md` Section 7 for the full list. Top priorities:
-1. **Document request UI** — admin button to request specific documents from agents (email function exists, no UI yet)
-2. **Agent onboarding flow** — admin-created invite with email (NOT self-registration)
-3. **Clean up dead code** — delete `app/(dashboard)/admin/agents/page.tsx`
-4. **Gate or remove temporary delete button** on admin deal page
+**What needs attention next (priority order):**
+1. **Desktop KYC upload may hang** — `AgentKycGate.tsx` still uses `submitAgentKyc` server action which sends files through Netlify. Should be converted to the signed URL pattern like mobile was.
+2. **Document request UI** — admin button to request documents from agents (email function exists, no UI yet)
+3. **FINTRAC compliance reporting** — needs legal guidance
+4. **Clean up dead code** — delete unused agents page, unused API routes
 5. **Mobile-responsive optimization**
-6. **Set up CRON_SECRET env var** + external scheduler for daily closing date alerts
 
-### Infrastructure Setup Still Needed
-- CRON_SECRET env var in Netlify + external scheduler (cron-job.org or similar) hitting `GET /api/cron/closing-date-alerts` with `Authorization: Bearer <CRON_SECRET>`
-- Check if migration 005 (storage policies) was ever run
-- Enable MFA in Supabase Auth settings
-
-Bud may have new requests or bugs to report — that's normal. Just read HANDOFF.md, understand the codebase, and keep building. He'll tell you what he needs.
+Read HANDOFF.md, then let's get to work!
 
 ## END OF PROMPT

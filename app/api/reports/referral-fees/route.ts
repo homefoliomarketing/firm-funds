@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { DEFAULT_BROKERAGE_REFERRAL_PCT } from '@/lib/constants'
+import { formatCurrency, formatDate } from '@/lib/formatting'
 
 // =============================================================================
 // GET /api/reports/referral-fees?month=YYYY-MM (optional)
@@ -96,11 +97,7 @@ export async function GET(request: Request) {
   const GREY = rgb(0.6, 0.6, 0.6)
   const LIGHT_GREY = rgb(0.85, 0.85, 0.85)
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
-
-  const formatDate = (date: string) =>
-    new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+  // formatCurrency, formatDate imported from @/lib/formatting
 
   // Period label
   let periodLabel = 'All Time'

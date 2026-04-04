@@ -36,7 +36,7 @@ function roundToCents(value: number): number {
 }
 
 /** Validate deal calculation inputs. Throws if invalid. */
-export function validateDealInputs(input: DealCalculation): void {
+function validateDealInputs(input: DealCalculation): void {
   if (input.grossCommission < MIN_GROSS_COMMISSION || input.grossCommission > MAX_GROSS_COMMISSION) {
     throw new Error(`Gross commission must be between $${MIN_GROSS_COMMISSION} and $${MAX_GROSS_COMMISSION.toLocaleString()}`)
   }

@@ -22,6 +22,7 @@ import {
   sendDocumentUploadedNotification,
   sendDocumentRequestNotification,
 } from '@/lib/email'
+import { getAuthenticatedUser } from '@/lib/auth-helpers'
 
 // ============================================================================
 // Types
@@ -38,35 +39,6 @@ interface DealPreviewInput {
   brokerageSplitPct: number
   closingDate: string
   agentId: string
-}
-
-// ============================================================================
-// Helper: get authenticated user + profile
-// ============================================================================
-
-async function getAuthenticatedUser(requiredRoles?: string[]) {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return { error: 'Not authenticated', user: null, profile: null, supabase }
-  }
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return { error: 'User profile not found', user, profile: null, supabase }
-  }
-
-  if (requiredRoles && !requiredRoles.includes(profile.role)) {
-    return { error: 'Insufficient permissions', user, profile, supabase }
-  }
-
-  return { error: null, user, profile, supabase }
 }
 
 // ============================================================================

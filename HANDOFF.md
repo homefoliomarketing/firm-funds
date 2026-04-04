@@ -1,395 +1,479 @@
-# Firm Funds Incorporated — Complete Handoff Document
-**Last Updated:** April 3, 2026
-**Project:** firmfunds.ca — Commission advance platform for Ontario real estate agents
-**Owner:** Bud (bud@firmfunds.ca) — Non-developer, needs copy-paste PowerShell commands
-**GitHub:** github.com/homefoliomarketing/firm-funds
-**Production:** https://firmfunds.ca (Netlify auto-deploy from `main` branch)
+# Firm Funds — Developer Handoff Document
+
+**Last Updated:** April 3, 2026 (Session 4)
+**Owner:** Bud (homefoliomarketing@gmail.com)
+**Project:** Firm Funds Inc. (firmfunds.ca) — Commission Advance Platform for Ontario Real Estate Agents
+**Repo:** GitHub (`github.com/homefoliomarketing/firm-funds`) → deployed via Netlify (every push to `main` auto-deploys to production, NO staging environment)
 
 ---
 
-## 1. What Firm Funds Does
+## About Bud (The User)
 
-Firm Funds purchases pending real estate commissions from Ontario agents at a discount, giving agents cash before closing. The web portal manages the entire workflow: deal submission by agents, underwriting by admins, document collection, funding via EFT, repayment tracking, and brokerage referral fee management.
-
----
-
-## 2. Tech Stack
-
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| Framework | **Next.js 16.2.1** | BREAKING CHANGES — `params` are Promises in dynamic routes. MUST read `node_modules/next/dist/docs/` before writing route code |
-| React | **19.2.4** | |
-| Database | **Supabase PostgreSQL** | Row Level Security enabled. Supabase URL: `bzijzmxhrpiwuhzhbiqc.supabase.co` |
-| Auth | **Supabase Auth** | JWT cookies, role-based routing in middleware |
-| Email | **Resend** | Transactional email from `notifications@firmfunds.ca`, domain verified with DKIM |
-| Hosting | **Netlify** | Auto-deploy from GitHub `main` branch — NO staging environment |
-| DNS | **GoDaddy** | firmfunds.ca |
-| Email/Workspace | **Google Workspace** | @firmfunds.ca email accounts |
+Bud is the **non-developer owner** of this company. He interacts via Cowork/Claude sessions. He:
+- Runs SQL migrations manually in the **Supabase SQL Editor** (you give him the SQL, he pastes and runs it)
+- Pushes code via **PowerShell** on Windows at `C:\Users\randi\Dev\firm-funds` (you give him git commands, he runs them)
+- Tests features directly on the **live production site** (firmfunds.ca)
+- Prefers casual, bro-like conversation — swearing is fine, sarcasm appreciated, but always do your best work
+- Needs **exact copy-paste commands** — he can't write code himself
+- **PowerShell gotcha:** Paths with parentheses like `app/(dashboard)/...` must be wrapped in double quotes or PowerShell interprets them as expressions
+- **PowerShell uses semicolons (`;`), not `&&`** for chaining commands
 
 ---
 
-## 3. Codebase Architecture
+## Tech Stack
 
-### Directory Structure
+| Layer | Tech | Notes |
+|-------|------|-------|
+| Framework | **Next.js 16.2.1** (Turbopack) | BREAKING CHANGES from older Next.js — read `node_modules/next/dist/docs/` before writing code. Middleware is deprecated in favor of "proxy" but still works. `params` in dynamic routes are Promises. |
+| Frontend | **React 19.2.4** | Client components with `'use client'` directive |
+| Database | **Supabase PostgreSQL** | With Row Level Security (RLS) — THE #1 source of bugs |
+| Auth | **Supabase Auth** | JWT-based, role-based access (super_admin, firm_funds_admin, brokerage_admin, agent) |
+| Storage | **Supabase Storage** | Buckets: `deal-documents`, `agent-kyc` |
+| Email | **Resend** | Branded HTML emails |
+| Hosting | **Netlify** | Auto-deploy on push to main. Serverless functions have significant limitations (see below). |
+| Styling | **Tailwind CSS + inline styles** | Dark mode permanently locked via `useTheme()` hook |
+| PDF Rendering | **pdf.js 3.11.174** (CDN) | UMD build from cdnjs.cloudflare.com, renders to canvas elements |
+
+---
+
+## CRITICAL PATTERNS — Read These First
+
+### 1. RLS & Service Role Client (THE #1 Bug Source)
+
+The regular Supabase client (created from cookies/anon key) is subject to RLS policies. Agent-level clients typically can't UPDATE/SELECT on the `agents` table or other admin tables.
+
+**Rule:** Any server-side mutation on `agents`, `user_profiles`, `deals` (admin context), or storage operations MUST use `createServiceRoleClient()` from `@/lib/supabase/server`. This client bypasses RLS entirely.
+
+```typescript
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+
+// For reading with user's permissions:
+const supabase = await createClient()
+
+// For admin mutations (bypasses RLS):
+const serviceClient = createServiceRoleClient()
+```
+
+### 2. NEVER Send File Payloads Through Netlify
+
+**This is the most painful lesson from multiple debugging sessions.** Netlify's serverless functions have strict limitations:
+
+- **Server Actions with file uploads HANG** — the request never completes
+- **API routes with multipart FormData HANG** — same issue
+- **Only small JSON request/response API routes work reliably**
+
+**The working pattern for file uploads:**
+1. Client requests **signed upload URLs** from a lightweight JSON API route
+2. Client uploads files **directly to Supabase Storage** using the signed URLs (bypasses Netlify entirely)
+3. Client calls another lightweight JSON API route to **update DB records**
+
+This pattern is used in both the mobile KYC upload (`/api/kyc-mobile-upload`) and should be used for ANY future file upload feature.
+
+### 3. Client-Side Supabase = Most Reliable
+
+The browser Supabase client (`createClient()` from `@/lib/supabase/client`) talks **directly to Supabase**, completely bypassing Netlify. For auth operations, storage operations, and simple reads, this is the most reliable approach.
+
+### 4. Content Security Policy (CSP)
+
+The CSP in `next.config.ts` controls what external resources can load. If you add any external script, font, image source, or API endpoint, you MUST update the CSP or it will be silently blocked with no visible error.
+
+Current CSP allows:
+- Scripts: `'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com`
+- Styles: `'self' 'unsafe-inline'`
+- Images: `'self' data: blob: https://*.supabase.co`
+- Fonts: `'self' https://fonts.gstatic.com`
+- Connect: `'self' https://*.supabase.co wss://*.supabase.co`
+- Workers: `'self' blob: https://cdnjs.cloudflare.com`
+
+### 5. Theme System
+
+Dark mode is permanently locked. All colors come from `useTheme()`:
+
+```typescript
+const { colors, isDark } = useTheme()
+```
+
+**Important:** The variable named `gold` is actually **green** (`#5FA873`). This is the brand accent color. There is NO `colors.accent` property — use `colors.gold`.
+
+Key color properties: `pageBg`, `cardBg`, `textPrimary`, `textSecondary`, `textMuted`, `gold`, `goldBg`, `goldDark`, `border`, `inputBg`, `inputBorder`, `inputText`, `errorBg`, `errorBorder`, `errorText`, `successBg`, `successBorder`, `successText`, `shadowColor`, `overlayBg`
+
+---
+
+## Project Structure
+
 ```
 app/
-  (auth)/login/page.tsx              — Login page (no ThemeToggle, dark mode only)
-  (dashboard)/
-    admin/page.tsx                   — Main admin dashboard (KPI cards, deal list, time range filter)
-    admin/deals/[id]/page.tsx        — Admin deal detail (status transitions, backward revert, underwriting
-                                       checklist, doc viewer, EFT tracking, admin notes)
-    admin/brokerages/page.tsx        — Brokerage + agent CRUD management (expandable rows, bulk import)
-    admin/reports/page.tsx           — Reports dashboard (1070 lines, PDF export, charts)
-    admin/agents/page.tsx            — DEAD CODE — nothing links to it, should be deleted
-    agent/page.tsx                   — Agent dashboard (their deals list)
-    agent/deals/[id]/page.tsx        — Agent deal detail (view, edit while under_review, upload docs, cancel)
-    agent/new-deal/page.tsx          — New deal submission (4-field address, live financial preview)
-    brokerage/page.tsx               — Brokerage portal (agent list, deal activity, referral fee tracking)
-  layout.tsx                         — Root layout with favicon metadata
-  globals.css                        — CSS variables (green theme)
-
-lib/
-  actions/deal-actions.ts            — Server actions: submit deal, update status (with backward transitions),
-                                       upload docs, delete docs, signed URLs, edit deal, cancel deal,
-                                       delete deal (TEMP for testing), save admin notes
-  actions/admin-actions.ts           — Server actions: brokerage CRUD, agent CRUD, bulk import, create user
-                                       account, EFT tracking (record/confirm/remove)
-  actions/report-actions.ts          — Server actions: report metrics, brokerage detail
-  calculations.ts                    — Financial calculations (server-side ONLY, integer-cent rounding)
-  constants.ts                       — ALL business constants (discount rate, limits, status badges, roles)
-  email.ts                           — Resend email service (4 email types, branded HTML templates)
-  theme.tsx                          — Theme system via useTheme() hook (~40 color tokens)
-  validations.ts                     — Zod schemas for deal submission, status changes, document uploads
-  audit.ts                           — Audit log helper (writes to audit_log table)
-  supabase/client.ts                 — Browser Supabase client
-  supabase/server.ts                 — Server Supabase client
+├── (auth)/
+│   ├── login/page.tsx              # Login page
+│   └── change-password/page.tsx    # Force password change (first login) — FULLY CLIENT-SIDE
+├── (dashboard)/
+│   ├── admin/
+│   │   ├── page.tsx                # Admin dashboard
+│   │   ├── brokerages/page.tsx     # Brokerage & agent management (HUGE file ~1800+ lines)
+│   │   ├── deals/[id]/page.tsx     # Deal detail + underwriting checklist + doc viewer + PDF/Image zoom
+│   │   └── reports/page.tsx        # Reports
+│   ├── agent/
+│   │   ├── page.tsx                # Agent dashboard
+│   │   ├── new-deal/page.tsx       # Submit new deal
+│   │   └── deals/[id]/page.tsx     # Agent deal detail
+│   └── brokerage/page.tsx          # Brokerage admin dashboard
+├── api/
+│   ├── clear-reset-flag/route.ts   # Clears must_reset_password DB flag (fire-and-forget)
+│   ├── kyc-mobile-upload/route.ts  # Mobile KYC: POST=get signed URLs, PUT=finalize DB
+│   ├── kyc-validate-token/route.ts # Validate KYC upload tokens
+│   ├── cron/closing-date-alerts/   # Scheduled cron job
+│   ├── reports/referral-fees/      # Report generation
+│   └── seed/                       # DB seed (dev only)
+├── kyc-upload/[token]/page.tsx     # Public mobile KYC upload (token-based, no auth)
+├── layout.tsx
+├── page.tsx                        # Root redirect
+└── globals.css
 
 components/
-  SignOutModal.tsx                    — Sign out confirmation modal (on every dashboard page)
-  SessionTimeout.tsx                 — Session timeout handler
-  ThemeToggle.tsx                    — DEPRECATED stub (returns null, kept to avoid import errors)
+├── AgentKycGate.tsx                # KYC upload + mobile link + 5s polling for status
+├── SessionTimeout.tsx
+└── SignOutModal.tsx
 
-middleware.ts                        — Auth + role-based route protection
+lib/
+├── actions/
+│   ├── admin-actions.ts            # All admin CRUD (agents, brokerages, archive, invite, resend welcome)
+│   ├── deal-actions.ts             # Deal CRUD, document management, checklist
+│   ├── kyc-actions.ts              # KYC submit, verify, reject, mobile token, document URLs
+│   └── report-actions.ts           # Reporting queries
+├── supabase/
+│   ├── client.ts                   # Browser client (sync, createBrowserClient)
+│   └── server.ts                   # Server client (async, uses cookies) + service role client (sync)
+├── auth-helpers.ts                 # Shared getAuthenticatedAdmin() + getAuthenticatedUser() — used by all action files
+├── calculations.ts                 # Deal financial calculations (server-side ONLY)
+├── constants.ts                    # Status badges, KYC types, upload limits
+├── email.ts                        # All Resend email templates
+├── formatting.ts                   # Shared formatCurrency, formatCurrencyWhole, formatDate, formatDateTime
+├── theme.tsx                       # Theme context + color definitions
+├── audit.ts                        # Audit logging utilities
+└── validations.ts                  # Zod schemas
 
-public/brand/
-  white.png                          — White logo on transparent (used in dark headers + emails)
-  black.png, grey.png                — Other logo variants
-
-supabase/migrations/
-  003_audit_log.sql                  — Audit log table (CONFIRMED RUN)
-  004_rls_hardening.sql              — RLS policies (CONFIRMED RUN)
-  005_fix_storage_policies.sql       — Storage policy fixes
+middleware.ts                       # Auth, role-based routing, force password change
+                                    # Excludes: /login, /auth, /kyc-upload, /api/kyc-*
 ```
 
-### Key Patterns — MUST FOLLOW
+---
 
-**Theme System:** All colors from `lib/theme.tsx` via `useTheme()` hook. Dark mode is permanently locked (toggle is a no-op). Brand accent is green (#5FA873). Variable names still say "gold" — that's legacy naming from the original palette. Never hardcode colors.
+## Database Schema (Key Tables)
 
-**Server Actions Pattern:** Authenticate → Zod validate → act → audit log → email notification (fire-and-forget). See `lib/actions/deal-actions.ts` for the canonical pattern.
+### agents
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK |
+| brokerage_id | uuid | FK → brokerages |
+| first_name, last_name, email | text | email has partial unique index (excludes archived) |
+| phone, reco_number | text | Optional |
+| status | text | active, inactive, suspended, archived (CHECK constraint) |
+| kyc_status | text | not_submitted, submitted, verified, rejected |
+| kyc_document_path | text | JSON array of storage paths (multi-file) |
+| kyc_document_type | text | drivers_license, passport, etc. |
+| kyc_submitted_at, kyc_verified_at | timestamp | |
+| kyc_rejection_reason | text | |
+| flagged_by_brokerage | boolean | |
+| outstanding_recovery | numeric | |
 
-**Financial Calculations:** Server-side only in `lib/calculations.ts`. Uses integer-cent rounding via `roundToCents()`. Discount rate: $0.75 per $1,000 of net commission per day until closing. All amounts stored in the DB as DOLLARS (not cents).
+### user_profiles
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, matches auth.users.id |
+| email | text | |
+| role | text | super_admin, firm_funds_admin, brokerage_admin, agent |
+| full_name | text | |
+| agent_id | uuid | FK → agents (null for non-agents) |
+| brokerage_id | uuid | FK → brokerages |
+| is_active | boolean | |
+| must_reset_password | boolean | Set true on invite, cleared after password change |
 
-**Business Constants:** Everything in `lib/constants.ts` — discount rates, EFT limits, upload constraints, session timeouts, roles, status badges. Never hardcode these anywhere.
+### deals
+Has: agent_id, brokerage_id, property_address, status (draft, submitted, under_review, approved, funded, completed, denied, cancelled), advance_amount, closing_date, commission amounts, discount fee, etc.
 
-**Status Flow (including backward transitions):**
+### deal_documents
+Has: deal_id, file_name, file_path, file_size, document_type, uploaded_by, upload_source
+
+### underwriting_checklist_items
+Has: deal_id, label, checked, category (Agent Verification, Deal Document Review, Financial Verification, Compliance & Risk)
+
+### kyc_upload_tokens
+Has: token (32 hex bytes), agent_id, expires_at (30 min), used_at (single-use)
+
+### audit_log
+Has: action, entity_type, entity_id, user_id, metadata (JSONB), created_at
+
+---
+
+## Completed Work (All Sessions Combined)
+
+### Session 1-2: Core Platform
+- Admin dashboard (KPI cards, deal list, pagination, time range filter)
+- Admin deal detail (underwriting checklist, doc viewer, EFT tracking, admin notes, forward + backward status transitions with amber warning modal)
+- Brokerage management (CRUD, expandable rows, bulk agent import from Excel/CSV)
+- Reports dashboard with PDF export
+- Agent portal (deal submission with live financial preview, deal editing, doc uploads, cancel)
+- Brokerage portal (agent list, deal activity, referral fees)
+- Full auth with role-based routing + RLS
+- Email notifications via Resend (new deal → admin, status change → agent, doc uploaded → admin)
+- Sign out confirmation modal, session timeout, audit logging
+- Brokerage payments redesign (multiple payments tracked, "Mark as Repaid" gated by payment match)
+- Admin notes timeline (timestamped append-only)
+- Closing date inline edit with server-side recalc
+- Agent cancel/withdraw from dashboard
+- Underwriting checklist cleanup (11 clean items) + UI redesign
+- File upload crash fix (25MB limit)
+- Dark mode date picker fix
+- Closing date cron alerts API route
+- Agent archive (soft delete: status='archived', auth user deleted, login deactivated)
+- Email reuse after archiving (partial unique index, app-level `.neq('status', 'archived')`)
+- Resend welcome email button (new temp password, resets must_reset_password flag)
+- Agent invite with email notification
+- Bulk agent import from spreadsheet
+
+### Session 3: Critical Bug Fixes (April 3, 2026)
+
+#### Password Change Page — FIXED ✅
+**Problem:** Page hung on submit. Server actions hung on Netlify. API routes also hung.
+**Solution:** Fully client-side flow:
+1. `supabase.auth.updateUser({ password, data: { password_changed: true } })` — direct to Supabase
+2. `supabase.auth.refreshSession()` — forces JWT cookie update
+3. Fire-and-forget `fetch('/api/clear-reset-flag')` — clears DB flag via service role
+4. `window.location.href = redirectPath` — hard redirect (not `router.push()`)
+**Files:** `app/(auth)/change-password/page.tsx`, `app/api/clear-reset-flag/route.ts`
+
+#### Document Viewer PDF Rendering — FIXED ✅
+**Problem:** PDFs showed blank in `<object>`, `<iframe>`, and `<embed>` tags. Root cause: CSP was blocking external scripts AND blob URLs in embedded contexts.
+**Solution:**
+- pdf.js 3.11.174 (UMD build) loaded from cdnjs.cloudflare.com via `<script>` tag
+- Renders PDF pages to `<canvas>` elements (no browser PDF plugin dependency)
+- CSP updated: added `https://cdnjs.cloudflare.com` to `script-src` and `worker-src`
+- `PdfCanvasViewer` component with zoom controls
+**Files:** `app/(dashboard)/admin/deals/[id]/page.tsx`, `next.config.ts`
+
+#### Mobile KYC Upload — FIXED ✅
+**Problem:** Upload hung because Netlify can't handle multipart FormData in serverless functions.
+**Solution:** Three-step flow bypassing Netlify for file transfer:
+1. POST `/api/kyc-mobile-upload` (tiny JSON) → get signed upload URLs
+2. PUT files directly to Supabase Storage signed URLs (bypasses Netlify)
+3. PUT `/api/kyc-mobile-upload` (tiny JSON) → update DB records
+**Files:** `app/kyc-upload/[token]/page.tsx`, `app/api/kyc-mobile-upload/route.ts`, `app/api/kyc-validate-token/route.ts`
+
+#### Desktop Auto-Refresh After Mobile KYC Upload — FIXED ✅
+**Problem:** After agent uploads ID on phone, the desktop page didn't update.
+**Solution:** 5-second polling interval in `AgentKycGate.tsx` checking `kyc_status` on `agents` table. Triggers `onKycSubmitted()` callback when status changes to 'submitted'.
+**Files:** `components/AgentKycGate.tsx`
+
+#### Document Viewer Zoom Controls — ADDED ✅
+**Solution:**
+- `PdfCanvasViewer`: zoom levels [0.75, 1, 1.25, 1.5, 2, 2.5, 3], re-renders canvases at each scale
+- `ImageZoomViewer`: zoom levels [1, 1.5, 2, 2.5, 3], CSS width scaling
+- Both have toolbar with −/percentage/+ buttons and page count
+**Files:** `app/(dashboard)/admin/deals/[id]/page.tsx`
+
+#### Middleware Updated for Public KYC API Routes ✅
+Added `/api/kyc-*` to auth exclusion list so unauthenticated mobile uploads work.
+**Files:** `middleware.ts`
+
+#### Client-Side Signed URLs for Documents ✅
+Replaced server action `getDocumentSignedUrl` with client-side `supabase.storage.createSignedUrl()` in both admin and agent deal detail pages.
+**Files:** `app/(dashboard)/admin/deals/[id]/page.tsx`, `app/(dashboard)/agent/deals/[id]/page.tsx`
+
+### Session 4: Codebase Audit & Cleanup (April 3, 2026)
+
+#### Dead File Removal ✅
+Deleted 8 files (~1,266 lines) that were confirmed dead/orphaned:
+- `_ready-to-place/` directory (3 orphaned draft files — old versions of active pages)
+- `app/(dashboard)/admin/agents/page.tsx` (empty stub, agent management lives in brokerages page)
+- `app/api/change-password/route.ts` (unused backup — password change is client-side)
+- `app/api/documents/signed-url/route.ts` (superseded by client-side `createSignedUrl()`)
+- `lib/actions/auth-actions.ts` (entire file unused — password change is client-side)
+- `components/ThemeToggle.tsx` (rendered `null`, never imported)
+
+#### Shared Formatting Utilities ✅
+Created `lib/formatting.ts` with `formatCurrency`, `formatCurrencyWhole`, `formatDate`, `formatDateTime`.
+Replaced 7+ duplicate inline definitions across all dashboard pages and API routes.
+**Files:** `lib/formatting.ts` (new), all page files updated to import from it
+
+#### Shared Auth Helpers ✅
+Created `lib/auth-helpers.ts` with `getAuthenticatedAdmin()` and `getAuthenticatedUser()`.
+Replaced 3 identical copies (~100 lines of duplicated auth boilerplate) across action files.
+**Files:** `lib/auth-helpers.ts` (new), `admin-actions.ts`, `kyc-actions.ts`, `report-actions.ts`, `deal-actions.ts` updated
+
+#### Unused Export Cleanup ✅
+- Removed `export` from `validateDealInputs()` in `calculations.ts` (still used internally, just not exported)
+- Removed unused `DocumentUploadSchema` and `DocumentUpload` type from `validations.ts`
+- Cleaned up unused constant imports in `validations.ts`
+
+---
+
+## Server Actions Still in Use (Potential Hang Risk)
+
+These server actions are still called from the codebase. Most work fine for small JSON payloads, but any that handle file uploads could hang on Netlify:
+
+| File | Functions | Risk |
+|------|-----------|------|
+| `admin-actions.ts` | Agent CRUD, brokerage CRUD, archive, invite, resend welcome | Low (JSON only) |
+| `deal-actions.ts` | Deal CRUD, status changes, checklist, document metadata | Low (JSON only) |
+| `kyc-actions.ts` | `submitAgentKyc` (DESKTOP upload), verify, reject, mobile token | **HIGH for submitAgentKyc** — sends files through Netlify |
+| `report-actions.ts` | Report queries | Low (JSON only) |
+
+**⚠️ `submitAgentKyc` in `kyc-actions.ts` is still used for DESKTOP KYC uploads via `AgentKycGate.tsx`.** This could hang just like the mobile upload did. It should be converted to the same signed-upload-URL pattern.
+
+---
+
+## Known Issues / Needs Attention
+
+### 1. Desktop KYC Upload May Hang — MEDIUM PRIORITY
+`AgentKycGate.tsx` still uses the `submitAgentKyc` server action for desktop uploads, which sends files through Netlify. This is the same pattern that caused mobile uploads to hang. Should be converted to signed upload URLs.
+
+### 2. `.claude/worktrees` Git Corruption — RECURRING
+A `.claude/worktrees` submodule reference sometimes gets staged. Fix: `git reset HEAD .claude` on Bud's machine before committing.
+
+### 3. Dead Code — CLEANED UP ✅ (Session 4)
+All dead code identified in Sessions 1-3 has been removed. See Session 4 notes below.
+
+---
+
+## Planned / Future Work (Priority Order)
+
+1. **Convert desktop KYC upload to signed URL pattern** — prevent potential Netlify hang
+2. **Document request UI** — admin button to request specific documents from agents (email function `sendDocumentRequestNotification()` exists, no UI yet)
+3. **FINTRAC compliance reporting/documentation** — needs legal guidance
+4. **Brokerage payment tracking completion** — migration 010 exists, UI may be incomplete
+5. **Agent deal history and commission tracking improvements**
+6. **Additional admin reporting features**
+7. **Mobile-responsive optimization**
+9. **Set up CRON_SECRET env var** + external scheduler for daily closing date alerts
+10. **E-signature integration** (DocuSign/HelloSign) — needs account + API key
+11. **Nexone integration** — waiting on API response
+
+---
+
+## Migration Status
+
+| # | Description | Status |
+|---|-------------|--------|
+| 003-011 | Core schema, RLS, audit, storage, KYC, payments | Applied |
+| 012 | Checklist categories | Applied |
+| 013 | KYC upload tokens | Applied |
+| 014 | Agent archived status constraint | Applied |
+| 015 | must_reset_password column | Applied |
+| — | Partial unique index on agents.email (excludes archived) | Applied manually |
+
+**New migration workflow:** Write `.sql` in `supabase/migrations/`, give Bud the SQL to run in Supabase SQL Editor, then push the code.
+
+---
+
+## Environment
+
+- **GitHub**: `github.com/homefoliomarketing/firm-funds`
+- **Supabase project**: `bzijzmxhrpiwuhzhbiqc.supabase.co`
+- **Production**: `firmfunds.ca` (Netlify)
+- **Admin login**: `bud@firmfunds.ca` (super_admin)
+- **Test agent**: `bud.jones@century21.ca` at Century 21 Choice Realty
+
+### Environment Variables (Netlify)
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `RESEND_API_KEY`
+
+---
+
+## Key Patterns & Code Examples
+
+### 1. Service role client for mutations
+```typescript
+const serviceClient = createServiceRoleClient()
+await serviceClient.from('agents').update({...}).eq('id', agentId)
 ```
-under_review → approved, denied, cancelled
-approved     → funded, denied, cancelled, under_review (backward)
-funded       → repaid, approved (backward)
-denied       → under_review (backward)
-cancelled    → under_review (backward)
-repaid       → closed, funded (backward)
+
+### 2. Client-side signed URLs (preferred for documents)
+```typescript
+const supabase = createClient() // from @/lib/supabase/client
+const { data, error } = await supabase.storage
+  .from('deal-documents')
+  .createSignedUrl(filePath, 3600, { download: false })
 ```
-Backward transitions show an amber warning modal with contextual messaging before confirming. Server-side cleanup: reverting from denied clears `denial_reason`, reverting from repaid clears `repayment_date`.
 
-**Email Notifications (lib/email.ts):**
-- FROM: `Firm Funds <notifications@firmfunds.ca>` (via Resend)
-- Admin alerts go to: `bud@firmfunds.ca` (hardcoded as `ADMIN_EMAIL`)
-- James (james@firmfunds.ca) does NOT receive automatic emails — this is intentional
-- 4 email types: new deal → admin, status change → agent, doc requested → agent, doc uploaded → admin
-- Branded dark HTML template with green (#5FA873) accents and Firm Funds logo
-- Fire-and-forget — `catch` logs the error but never blocks the server action
-- `formatCurrency(dollars)` takes DOLLARS, not cents (this was a bug that was fixed)
-- Funded email says "our goal is to have the funds in your account within 24 business hours"
-- `RESEND_API_KEY` env var must be set in Netlify
+### 3. PDF rendering with pdf.js (canvas approach)
+```typescript
+const PDFJS_VERSION = '3.11.174'
+const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
 
-**Critical Business Rules — NEVER violate:**
-1. No "submitted" status — deals go straight to `under_review`
-2. Agents are admin-onboarded ONLY — never build self-registration
-3. Financial calculations are ALWAYS server-side
-4. All amounts stored in DOLLARS in the database
-5. `calcDaysUntilClosing()` uses Eastern Time (America/Toronto)
-6. When funding, financials are recalculated server-side using actual days to closing
+function loadPdfJs(): Promise<any> {
+  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib)
+  // Load UMD script, set workerSrc, return pdfjsLib
+}
+// Then: pdfjsLib.getDocument({ data: arrayBuffer }) → render pages to <canvas>
+```
 
----
+### 4. File upload via signed URLs (bypasses Netlify)
+```typescript
+// Step 1: Get signed URL from lightweight API route
+const { data } = await fetch('/api/kyc-mobile-upload', {
+  method: 'POST',
+  body: JSON.stringify({ token, fileNames, documentType })
+}).then(r => r.json())
 
-## 4. User Accounts
+// Step 2: Upload directly to Supabase Storage
+await fetch(data.uploadUrls[0].signedUrl, {
+  method: 'PUT',
+  headers: { 'Content-Type': file.type },
+  body: file,
+})
 
-| Email | Role | Purpose | Notes |
-|-------|------|---------|-------|
-| bud@firmfunds.ca | super_admin | Bud's main admin account | Primary admin, receives all email notifications |
-| james@firmfunds.ca | super_admin | James Caicco's admin account | Forwards to james.caicco@century21.ca via Google Groups. Does NOT receive automatic email notifications. |
-| bud.jones@century21.ca | agent | Test agent at Century 21 Choice Realty | Created via Supabase dashboard + SQL user_profile link. Real email Bud has access to. |
+// Step 3: Finalize in DB via lightweight API route
+await fetch('/api/kyc-mobile-upload', {
+  method: 'PUT',
+  body: JSON.stringify({ token, filePaths, documentType, agentId })
+})
+```
 
-**Roles in the system:**
-- `super_admin` — Full access to everything (admin dashboard)
-- `firm_funds_admin` — Same as super_admin currently (future tier differentiation)
-- `brokerage_admin` — Only their brokerage's deals/agents (brokerage dashboard)
-- `agent` — Only their own deals (agent dashboard)
+### 5. Token pattern for public routes
+32 random hex bytes, stored with agent_id + 30min expiry + used_at, validate on load, mark used after.
 
-**Role-based routing (middleware.ts):**
-- `/admin/*` → super_admin, firm_funds_admin
-- `/brokerage/*` → brokerage_admin
-- `/agent/*` → agent
-- Unauthenticated → redirected to `/login`
-- Logged in on `/login` → redirected to role-appropriate dashboard
+### 6. Multi-file storage
+`JSON.stringify(filePaths)` in single text column. Always handle backward compat (string vs JSON array).
 
----
-
-## 5. Infrastructure & Environment
-
-| Service | Details |
-|---------|---------|
-| Supabase | `bzijzmxhrpiwuhzhbiqc.supabase.co` — PostgreSQL + Auth + Storage (deal-documents bucket) |
-| Netlify | Auto-deploy from GitHub main branch |
-| Resend | Domain verified (firmfunds.ca), DKIM verified via GoDaddy |
-| GoDaddy | DNS for firmfunds.ca |
-| Google Workspace | @firmfunds.ca email accounts |
-
-**Netlify Environment Variables:**
-- `RESEND_API_KEY` — Resend API key for transactional email
-- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase anon key
-
-**Important:** Every push to `main` auto-deploys to Netlify. There is NO staging environment. Always run `npx tsc --noEmit` before pushing.
+### 7. Password change (fully client-side)
+```typescript
+await supabase.auth.updateUser({ password: newPassword, data: { password_changed: true } })
+await supabase.auth.refreshSession()
+fetch('/api/clear-reset-flag', { method: 'POST' }).catch(() => {}) // fire-and-forget
+window.location.href = redirectPath
+```
 
 ---
 
-## 6. What Is Fully Built & Working (as of April 3, 2026)
+## Git Workflow
 
-### Admin Portal
-- Dashboard with KPI cards (total deals, funded amounts, pipeline value), deal list with pagination and time range filter
-- Deal detail page (~1600 lines) with:
-  - Full underwriting checklist (3 categories, 11 items total, auto-created by DB trigger) — whole row clickable, green filled circles for checked, no strikethrough
-  - Document viewer with signed download URLs
-  - EFT transfer tracking (record/confirm/remove) with dark-mode date pickers
-  - Admin notes timeline — timestamped append-only entries (replaces old single textarea), Ctrl+Enter shortcut, legacy notes shown read-only
-  - Closing date inline edit with pencil icon — "Update & Recalc" recalculates all financials server-side, shows before/after comparison, updates state from server response (not client refetch, to avoid RLS issues)
-  - **Brokerage Payments section** (funded/repaid deals) — record multiple payments with amount, date, method (EFT/cheque/wire/other), reference number. Payment tracker shows received vs expected (green=match, yellow=outstanding, red=overpaid). Remove individual payments. "Mark as Repaid" button is GATED — only enabled when brokerage payment total matches amount_due_from_brokerage.
-  - Financial summary shows brokerage payment count + total (replaced old single repayment_amount display)
-  - Delete deal button for under_review/cancelled/denied deals (double-confirm)
-- Forward AND backward status transitions with optimistic locking (prevents concurrent admin conflicts)
-- Backward transitions show amber warning modal with contextual cleanup messaging
-- Checklist gate: forward transition buttons disabled when checklist incomplete OR (for repaid) when brokerage payments don't match
-- Brokerage management with expandable rows showing inline agent rosters, bulk agent import from Excel/CSV via `xlsx` library
-- Reports dashboard (1070 lines) with PDF export
-
-### Agent Portal
-- Dashboard showing agent's deals with inline "Withdraw Request" (under_review) / "Cancel Advance" (approved) buttons in expanded deal cards
-- New deal submission form with 4-field address, live financial preview, firmness confirmation checkbox, multi-file document upload with per-file error handling
-- Deal detail with edit capability while under_review, document upload, cancel/withdraw button
-- Withdraw (under_review) = full deletion (documents, checklist, storage files, deal record)
-- Cancel (approved) = set status to cancelled
-
-### Brokerage Portal
-- Agent list, deal activity, referral fee tracking
-
-### Auth & Security
-- Supabase Auth with JWT cookies
-- Role-based middleware routing
-- Row Level Security enforced at DB level
-- Session timeout handling (15 min admin, 30 min agent)
-- Sign out confirmation modal on every dashboard page
-- Audit logging on all deal actions
-
-### Email Notifications
-- New deal submitted → admin (bud@firmfunds.ca) AND brokerage admins for that brokerage
-- Status change → agent (with custom messaging per status: approved says "funded shortly", funded says "24 business hours", denied shows reason)
-- Document uploaded by agent → admin
-- Document request → agent (function exists, NO UI to trigger it yet)
-- Closing date alert digest (cron) → admin (overdue + approaching deals tables)
-
-### Theme
-- Dark mode permanently locked, green (#5FA873) brand accent
-- ~40 color tokens via `useTheme()` hook
-- All date inputs have `colorScheme: 'dark'` for proper native calendar rendering
-- Light mode code still exists but toggle is disabled
-
-### Cron / Scheduled Jobs
-- `/api/cron/closing-date-alerts` — daily check for approaching (≤7 days) and overdue funded/approved deals, updates days_until_closing, protected by CRON_SECRET bearer token, uses service role client
-
----
-
-## 7. What's NOT Built Yet (Priority Order)
-
-### High Priority — Next Code Tasks
-1. **Document request UI** — `sendDocumentRequestNotification()` exists in `lib/email.ts` but there's no admin button/flow to request specific documents from agents. Need a "Request Document" UI on the admin deal detail page.
-2. **Agent onboarding flow** — Currently agents are created manually (SQL/dashboard). Need admin-created invite flow with email. NOT self-registration — agents are always admin-onboarded.
-3. **Delete dead code** — Remove `app/(dashboard)/admin/agents/page.tsx` (nothing links to it)
-4. **Remove temporary delete button** — The `deleteDeal` action and its UI button on the admin deal page are for testing only. Should be removed or gated before real production use.
-5. **Mobile-responsive optimization** — App is currently desktop-focused
-
-### Medium Priority
-6. **Agent portal document request system** — After admin requests a doc (see #1), agent should see the request notification and have a streamlined upload response
-7. **Brokerage portal upgrades** — More detailed views, agent performance metrics
-8. **CPA (Commission Purchase Agreement) PDF generation** — Auto-generate from deal data
-
-### Needs Third-Party Services
-9. **E-signature integration** (DocuSign/HelloSign) — Needs account + API key
-10. **Nexone Integration** — Waiting on API response from Nexone (auto-pull deal data)
-11. **FINTRAC/AML compliance** — Needs legal counsel for ID verification requirements
-12. **Legal document templates** — Commission Purchase Agreement and Irrevocable Direction to Pay (needs lawyer)
-
-### Infrastructure / Ops Tasks
-- **Set up CRON_SECRET env var** in Netlify + external scheduler (e.g. cron-job.org) for daily closing date alerts at `GET /api/cron/closing-date-alerts` with `Authorization: Bearer <CRON_SECRET>` header
-- Run migration 005 (fix_storage_policies) — STATUS UNKNOWN, check if done
-- Enable MFA in Supabase Auth settings (TOTP)
-- Check rate limiting in Supabase Auth
-- Check Netlify SSL certificate is active and auto-renewing
-
----
-
-## 8. Known Issues & Gotchas
-
-1. **Supabase auth user creation via SQL is unreliable** — Raw SQL inserts into `auth.users` break because of missing `auth.identities` records. ALWAYS use the Supabase dashboard "Add user" button, then link via SQL `INSERT INTO user_profiles`.
-
-2. **`createUserAccount` server action needs `SUPABASE_SERVICE_ROLE_KEY`** — The admin action in `admin-actions.ts` uses `supabase.auth.admin.createUser()` which requires the service role key. This key may not be set in Netlify env vars. Until it is, user creation must be done via Supabase dashboard.
-
-3. **Variable names say "gold" but colors are green** — `gold`, `goldDark`, `goldBg` in `theme.tsx` are actually green (#5FA873). Legacy naming from original palette. Don't be confused.
-
-4. **ThemeToggle.tsx is a stub** — Returns null. Kept only to prevent import errors from any stale references. Can be safely deleted if all imports are cleaned up.
-
-5. **RLS blocks agent-level clients from UPDATE/SELECT on deals** — Agent Supabase clients (anon key) can't update deals or refetch deal data after server mutations. Pattern: use `createServiceRoleClient()` for mutations, use server action response data for state updates instead of client-side refetches. This has bitten us multiple times (cancelDeal, updateClosingDate).
-
-6. **Next.js server actions have a default 1MB body size limit** — File uploads will crash silently. Currently configured to 25MB in `next.config.ts` via `experimental.serverActions.bodySizeLimit: '25mb'`.
-
-7. **Underwriting checklist duplication** — Multiple DB trigger versions created stacked items. Fixed with migration 009 that deletes all and recreates with a clean 11-item list. If it happens again, check the DB trigger function for `create_underwriting_checklist`.
-
-8. **`.claude/worktrees/` was accidentally committed** — Removed with `git rm --cached`. If it reappears, re-run `git rm --cached .claude/worktrees/distracted-pasteur`.
-
----
-
-## 9. Color Reference
-
-The app uses green as the primary brand accent. Here are the key tokens:
-
-| Token | Dark Mode Value | Usage |
-|-------|----------------|-------|
-| gold | #C4B098 | Primary accent (yes, it's called "gold" but it's used alongside green) |
-| Brand green | #5FA873 | Headers, buttons, email accents, CSS `--ff-sand` |
-| pageBg | #121212 | Main background |
-| cardBg | #1C1C1C | Card/panel backgrounds |
-| textPrimary | #E8E4DF | Primary text |
-| textSecondary | #999999 | Secondary text |
-| border | #2E2E2E | Card borders |
-
-Status badge colors (from `constants.ts`):
-- under_review: blue (#3D5A99)
-- approved: green (#1A7A2E)
-- funded: purple (#5B3D99)
-- repaid: teal (#0D7A5F)
-- denied: red (#993D3D)
-- cancelled: orange (#995C1A)
-- closed: grey (#5A5A5A)
-
----
-
-## 10. Working With Bud
-
-- **NOT a developer.** Give copy-paste PowerShell commands every time. His project path: `C:\Users\randi\Dev\firm-funds`
-- **PowerShell uses semicolons** (`;`) not `&&` for chaining commands
-- **Casual, direct, friendly.** He appreciates humor and sarcasm. Don't be lazy or take shortcuts. He'll call you out.
-- **He says what he means.** If something looks wrong, he'll tell you bluntly. Don't get defensive, just fix it.
-- **Always run `npx tsc --noEmit` before telling him to push.** Zero TypeScript errors or don't ship.
-- **Auto-deploy means zero room for error.** Every push goes straight to production at firmfunds.ca.
-- **When in doubt about Supabase, use the dashboard.** SQL auth user creation is fragile.
-- **James Caicco is his business partner.** james@firmfunds.ca has super_admin access but should NOT receive automatic notification emails.
-
----
-
-## 11. Database Schema (Key Tables)
-
-These are the main tables. RLS is enforced on all of them.
-
-- **deals** — Core deal records. Fields: id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, funding_date, repayment_date, repayment_amount, eft_transfers (JSONB array), brokerage_payments (JSONB array — `[{amount, date, reference?, method?}]`), admin_notes_timeline (JSONB array — `[{id, text, author_name, created_at}]`), source, denial_reason, notes, admin_notes (legacy, replaced by admin_notes_timeline), created_at, updated_at
-- **agents** — Agent profiles. Fields: id, brokerage_id, first_name, last_name, email, phone, reco_number, status, flagged_by_brokerage, outstanding_recovery
-- **brokerages** — Brokerage records. Fields: id, name, email, brand, address, phone, referral_fee_percentage, transaction_system, notes, status
-- **user_profiles** — Auth user → role mapping. Fields: id (matches auth.users.id), email, full_name, role, agent_id, brokerage_id, is_active
-- **deal_documents** — Document metadata. Fields: id, deal_id, uploaded_by, document_type, file_name, file_path, file_size, upload_source, notes, created_at
-- **underwriting_checklist** — Per-deal checklist items (auto-created by DB trigger). Fields: id, deal_id, checklist_item, is_checked, checked_by, checked_at, notes
-- **audit_log** — Immutable action log. Fields: id, action, entity_type, entity_id, metadata (JSONB), created_at
-
-Storage bucket: `deal-documents` in Supabase Storage
-
----
-
-## 12. NPM Dependencies
-
-Key packages: next@16.2.1, react@19.2.4, @supabase/ssr, @supabase/supabase-js, resend@^6.10.0, zod, lucide-react, xlsx, date-fns, zustand, react-hook-form, @hookform/resolvers, @tanstack/react-query
-
----
-
-## 13. Git / Deploy Workflow
+1. You make code changes
+2. Give Bud exact `git add` + `git commit` + `git push` commands
+3. Bud runs them in PowerShell at `C:\Users\randi\Dev\firm-funds`
+4. Netlify auto-deploys from main
+5. Bud tests on production
+6. If SQL migration needed: give SQL FIRST, then push code
 
 ```powershell
-# From Bud's machine:
 cd C:\Users\randi\Dev\firm-funds
 git add -A
 git commit -m "your message here"
 git push origin main
 ```
-Netlify watches `main` and auto-deploys. No CI checks, no staging. What you push is what goes live.
 
 ---
 
-## 14. SQL Migrations History
+## Key Rules Summary
 
-All migrations live in `supabase/migrations/`. Bud runs them manually in the Supabase SQL Editor.
-
-| Migration | Purpose | Status |
-|-----------|---------|--------|
-| 003_audit_log.sql | Audit logging table | ✅ RUN |
-| 004_rls_hardening.sql | Row Level Security policies | ✅ RUN |
-| 005_fix_storage_policies.sql | Storage bucket RLS fixes | ⚠️ UNKNOWN |
-| 006_add_admin_notes.sql | admin_notes_timeline JSONB column | ✅ RUN |
-| 007_document_requests.sql | Document request tracking columns | ✅ RUN |
-| 008_audit_fixes.sql | repayment_amount column, brokerage_documents table | ✅ RUN |
-| 008_underwriting_checklist_cleanup.sql | First checklist cleanup attempt | ✅ RUN (superseded by 009) |
-| 009_checklist_cleanup_v2.sql | Delete all checklist items + recreate clean 11-item list | ✅ RUN |
-| 010_brokerage_payments.sql | brokerage_payments JSONB column on deals | ✅ RUN |
-
----
-
-## 15. Recent Session Work Log (April 3, 2026)
-
-### Completed — 10-Step Audit Fix Plan
-1. ✅ Deal submission improvements — firmness confirmation checkbox, multi-file document upload with per-file error handling
-2. ✅ Brokerage admin email notifications — new deal submission emails sent to brokerage admins
-3. ✅ Admin notes timeline — replaced single textarea with timestamped append-only entries
-4. ✅ Closing date recalculation — inline edit with server-side recalc, before/after comparison
-5. ✅ Closing date cron alerts — `/api/cron/closing-date-alerts` route for daily digest emails
-
-### Completed — Bug Fixes
-- ✅ File upload crash (Next.js 1MB body limit → bumped to 25MB)
-- ✅ Agent cancel button missing from dashboard (was only on detail page)
-- ✅ RLS blocking agent deal cancellation (switched to service role client)
-- ✅ Under_review deals now fully deleted on withdrawal (not just cancelled)
-- ✅ Admin delete deal button added
-- ✅ Underwriting checklist duplication fixed (clean 11-item migration)
-- ✅ Checklist UI redesigned (whole row clickable, no strikethrough, green circles)
-- ✅ Closing date update not persisting (RLS on client refetch — use server response data)
-- ✅ Date picker calendar not working in dark mode (added colorScheme: 'dark')
-
-### Completed — Brokerage Payments Redesign
-- ✅ Multiple brokerage payments tracked via JSONB array (replaces old single repayment_amount)
-- ✅ Record Payment form (amount, date, method, reference)
-- ✅ Payment tracker (received vs expected, color-coded)
-- ✅ Remove individual payments
-- ✅ "Mark as Repaid" gated by payment total matching amount_due_from_brokerage
-- ✅ Financial summary updated to show brokerage payment count + total
-- ✅ Old repayment state variables cleaned up
-
-### Last Push
-- Commit: `fix: date picker calendar not working in dark mode - add colorScheme dark to all date inputs`
-- All TypeScript compiling clean (`npx tsc --noEmit` = 0 errors)
-- All SQL migrations have been run
+1. **Always use `createServiceRoleClient()`** for server-side mutations
+2. **NEVER send files through Netlify** — use signed upload URLs + direct Supabase Storage
+3. **All colors from `useTheme()`** — dark mode locked, `colors.gold` = green (#5FA873)
+4. **Business constants in `lib/constants.ts`** — never hardcode rates/limits
+5. **Financial calculations server-side only** in `lib/calculations.ts` — dollars not cents
+6. **Run `npx tsc --noEmit` before telling Bud to push** — zero errors or don't ship
+7. **Every push auto-deploys** — no staging environment
+8. **CSP in `next.config.ts`** — update when adding external resources
+9. **Next.js 16.2.1 breaking changes** — `params` are Promises, read docs first
+10. **Email notifications go to bud@firmfunds.ca ONLY** — James has admin access but no emails

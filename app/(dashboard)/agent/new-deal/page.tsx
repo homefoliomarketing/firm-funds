@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle, Shield } from 'lucide-react'
 import { submitDeal, calculateDealPreview, uploadDocument } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
+import { formatCurrency } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { KYC_STATUSES } from '@/lib/constants'
 
@@ -176,7 +177,7 @@ export default function NewDealPage() {
     }
   }
 
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+  // formatCurrency imported from @/lib/formatting
 
   if (loading) {
     return (

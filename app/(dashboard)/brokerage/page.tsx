@@ -11,6 +11,7 @@ import {
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
+import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 
 interface Deal {
@@ -249,8 +250,7 @@ export default function BrokerageDashboard() {
   // Format helpers
   // =========================================================================
 
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
-  const formatDate = (date: string) => new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+  // formatCurrency, formatDate imported from @/lib/formatting
   const formatMonthLabel = (ym: string) => {
     const [year, month] = ym.split('-').map(Number)
     return new Date(year, month - 1, 1).toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })

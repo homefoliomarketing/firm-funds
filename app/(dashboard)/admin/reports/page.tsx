@@ -30,11 +30,7 @@ const DATE_RANGE_LABELS: Record<Exclude<DateRange, 'custom'>, string> = {
 // Helpers
 // ============================================================================
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(amount)
-
-const formatCurrencyFull = (amount: number) =>
-  new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
+import { formatCurrency as formatCurrencyFull, formatCurrencyWhole as formatCurrency } from '@/lib/formatting'
 
 // ============================================================================
 // Mini Bar Chart (SVG)

@@ -5,6 +5,7 @@ import { logAuditEvent } from '@/lib/audit'
 import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
 import { sendKycMobileUploadLink } from '@/lib/email'
 import { randomBytes } from 'crypto'
+import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 
 // ============================================================================
 // Types
@@ -14,35 +15,6 @@ interface ActionResult {
   success: boolean
   error?: string
   data?: Record<string, any>
-}
-
-// ============================================================================
-// Helper: get authenticated admin user
-// ============================================================================
-
-async function getAuthenticatedAdmin() {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return { error: 'Not authenticated', user: null, profile: null, supabase }
-  }
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return { error: 'User profile not found', user, profile: null, supabase }
-  }
-
-  if (!['super_admin', 'firm_funds_admin'].includes(profile.role)) {
-    return { error: 'Insufficient permissions', user, profile, supabase }
-  }
-
-  return { error: null, user, profile, supabase }
 }
 
 // ============================================================================

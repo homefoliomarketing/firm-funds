@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { FileText, Users, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3 } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { formatCurrency } from '@/lib/formatting'
 
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
@@ -138,9 +139,7 @@ export default function AdminDashboard() {
 
   // Status badge styles imported from shared constants (getStatusBadgeStyle)
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
-  }
+  // formatCurrency imported from @/lib/formatting
 
   // Filter deals by KPI time range
   const getFilteredDeals = () => {
