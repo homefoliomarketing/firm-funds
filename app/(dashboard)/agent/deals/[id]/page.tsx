@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import {
@@ -46,15 +46,6 @@ interface DocumentRequest {
   created_at: string
 }
 
-interface ChecklistItem {
-  id: string
-  deal_id: string
-  category: string
-  checklist_item: string
-  is_checked: boolean
-  is_na: boolean
-  sort_order: number
-}
 
 interface DocumentReturnItem {
   id: string; document_id: string; reason: string; status: string; created_at: string
@@ -73,11 +64,12 @@ export default function AgentDealDetailPage() {
   const [deal, setDeal] = useState<Deal | null>(null)
   const [documents, setDocuments] = useState<DealDocument[]>([])
   const [docRequests, setDocRequests] = useState<DocumentRequest[]>([])
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([])
+
   const [docReturns, setDocReturns] = useState<DocumentReturnItem[]>([])
   const [dealMessages, setDealMessages] = useState<DealMessageItem[]>([])
   const [replyText, setReplyText] = useState('')
   const [replySending, setReplySending] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('aps')
@@ -106,14 +98,29 @@ export default function AgentDealDetailPage() {
 
   useEffect(() => { loadDealData() }, [dealId])
 
-  // Auto-scroll to #messages when arriving from email link
+  // Auto-scroll to any hash anchor when arriving from email links (#messages, #returned-docs, etc.)
   useEffect(() => {
-    if (!loading && window.location.hash === '#messages') {
+    if (!loading && window.location.hash) {
+      const hash = window.location.hash.substring(1)
       setTimeout(() => {
-        document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const target = document.getElementById(hash)
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          // If scrolling to messages, also scroll the thread to the latest message
+          if (hash === 'messages') {
+            setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, 400)
+          }
+        }
       }, 200)
     }
   }, [loading])
+
+  // Scroll thread to bottom whenever new messages arrive
+  useEffect(() => {
+    if (dealMessages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [dealMessages.length])
 
   async function loadDealData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -128,8 +135,6 @@ export default function AgentDealDetailPage() {
     setDocuments(docsData || [])
     const { data: requestsData } = await supabase.from('document_requests').select('*').eq('deal_id', dealId).eq('status', 'pending').order('created_at', { ascending: false })
     setDocRequests(requestsData || [])
-    const { data: checklistData } = await supabase.from('underwriting_checklist').select('*').eq('deal_id', dealId).order('sort_order', { ascending: true })
-    setChecklistItems(checklistData || [])
     const { data: returnsData } = await supabase.from('document_returns').select('*').eq('deal_id', dealId).eq('status', 'pending').order('created_at', { ascending: false })
     setDocReturns(returnsData || [])
     const { data: messagesData } = await supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true })
@@ -779,7 +784,7 @@ export default function AgentDealDetailPage() {
 
             {/* RETURNED DOCUMENTS ALERT */}
             {docReturns.length > 0 && (
-              <div className="rounded-xl p-4" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
+              <div id="returned-docs" className="rounded-xl p-4" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
                 <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#F87171' }}>
                   Action Required — Returned Documents
                 </h4>
@@ -819,6 +824,7 @@ export default function AgentDealDetailPage() {
                       <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
                     </div>
                   ))}
+                  <div ref={messagesEndRef} />
                 </div>
                 {/* Reply input */}
                 <div className="flex gap-2">
@@ -863,69 +869,6 @@ export default function AgentDealDetailPage() {
               )
             })()}
 
-            {/* Underwriting Checklist — mirrors admin checklist items from DB */}
-            {(() => {
-              const checkedCount = checklistItems.filter(c => c.is_checked || c.is_na).length
-              const totalItems = checklistItems.length
-              const allComplete = totalItems > 0 && checkedCount === totalItems
-              // Don't show progress warnings on deals past review
-              const showProgress = ['under_review', 'denied'].includes(deal.status) || deal.status === undefined
-              // Group items by category
-              const categories = checklistItems.reduce<Record<string, ChecklistItem[]>>((acc, item) => {
-                if (!acc[item.category]) acc[item.category] = []
-                acc[item.category].push(item)
-                return acc
-              }, {})
-
-              return (
-                <div className="rounded-xl p-4" style={{
-                  background: allComplete || !showProgress ? colors.successBg : colors.tableHeaderBg,
-                  border: `1px solid ${allComplete || !showProgress ? colors.successBorder : colors.border}`
-                }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Underwriting Checklist</h4>
-                    {allComplete || !showProgress ? (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>{showProgress ? 'Complete' : 'Accepted'}</span>
-                    ) : (
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>{checkedCount}/{totalItems}</span>
-                    )}
-                  </div>
-
-                  {Object.entries(categories).map(([category, items]) => (
-                    <div key={category} className="mb-3">
-                      <p className="text-xs font-semibold mb-1.5" style={{ color: colors.textPrimary }}>{category}</p>
-                      <div className="space-y-1.5">
-                        {items.map(item => {
-                          const done = item.is_checked || item.is_na
-                          return (
-                            <div key={item.id} className="flex items-start gap-2">
-                              {done || !showProgress
-                                ? <CheckCircle2 size={14} style={{ color: colors.successText, marginTop: 1 }} />
-                                : <Clock size={14} style={{ color: colors.textFaint, marginTop: 1 }} />
-                              }
-                              <span className="text-xs" style={{
-                                color: done ? colors.successText : colors.textSecondary,
-                                textDecoration: item.is_na ? 'line-through' : 'none',
-                                opacity: item.is_na ? 0.5 : 1,
-                              }}>
-                                {item.checklist_item}
-                                {item.is_na && <span className="ml-1 text-xs" style={{ color: colors.textFaint }}>(N/A)</span>}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
-
-                  {totalItems === 0 && (
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Checklist items will appear once your deal is being reviewed.</p>
-                  )}
-
-                  <p className="text-xs mt-2" style={{ color: colors.textMuted }}>Uploading all documents upfront helps us process your advance faster.</p>
-                </div>
-              )
-            })()}
           </div>
         </div>
       </main>

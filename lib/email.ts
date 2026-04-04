@@ -756,8 +756,8 @@ export async function sendDocumentReturnNotification(params: {
           <p style="margin:0; color:#E8E4DF; font-size:14px;">${params.reason}</p>
         </div>
         <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 28px; background:#F87171; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-            View Deal & Upload Replacement
+          <a href="${APP_URL}/agent/deals/${params.dealId}#returned-docs" style="display:inline-block; padding:12px 28px; background:#F87171; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View & Fix Document
           </a>
         </div>
       `),
