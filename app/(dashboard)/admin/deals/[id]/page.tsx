@@ -581,6 +581,7 @@ export default function DealDetailPage() {
   const [showMessageForm, setShowMessageForm] = useState(false)
   const [messageText, setMessageText] = useState('')
   const [messageSending, setMessageSending] = useState(false)
+  const adminMessagesContainerRef = useRef<HTMLDivElement>(null)
   // Document returns
   const [docReturns, setDocReturns] = useState<DocumentReturn[]>([])
   const [returningDocId, setReturningDocId] = useState<string | null>(null)
@@ -592,6 +593,10 @@ export default function DealDetailPage() {
   const [lateInterestSaving, setLateInterestSaving] = useState(false)
   // Agent account balance (fetched alongside agent)
   const [agentBalance, setAgentBalance] = useState<number>(0)
+  // Collapsible sections
+  const [notesExpanded, setNotesExpanded] = useState(false)
+  const [messagesExpanded, setMessagesExpanded] = useState(true)
+  const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -604,6 +609,18 @@ export default function DealDetailPage() {
   }
 
   useEffect(() => { loadDealData() }, [dealId])
+
+  // Auto-scroll messages container to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        const container = adminMessagesContainerRef.current
+        if (container) {
+          container.scrollTop = container.scrollHeight
+        }
+      }, 100)
+    }
+  }, [messages.length])
 
   async function loadDealData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -1570,466 +1587,332 @@ export default function DealDetailPage() {
           </div>
         )}
 
-        {/* MAIN CONTENT GRID - Deal Details, Financial, Admin Notes (left 2/3) + Agent/Brokerage (right 1/3) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-          <div className="lg:col-span-2 space-y-4">
-            {/* DEAL DETAILS */}
-            <div className="rounded-lg p-4" style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}>
-              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <FileText className="w-4 h-4" style={{ color: colors.gold }} />
-                Deal Details
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Property Address</p>
-                  <p className="text-sm font-medium flex items-start gap-1" style={{ color: colors.textPrimary }}>
-                    <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                    {deal.property_address}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs flex items-center gap-1" style={{ color: colors.textMuted }}>
-                    Closing Date
-                    {!editingClosingDate && (deal.status === 'under_review' || deal.status === 'approved' || deal.status === 'funded') && (
-                      <button onClick={() => { setEditingClosingDate(true); setNewClosingDate(deal.closing_date); setClosingDateComparison(null) }}
-                        className="p-0.5 rounded transition-colors" style={{ color: colors.textFaint }}
-                        onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                        onMouseLeave={(e) => e.currentTarget.style.color = colors.textFaint}
-                        title="Edit closing date"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                    )}
-                  </p>
-                  {editingClosingDate ? (
-                    <div className="space-y-2 mt-1">
-                      <input
-                        type="date" value={newClosingDate}
-                        onChange={(e) => setNewClosingDate(e.target.value)}
-                        min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
-                        className="w-full rounded px-2 py-1 text-sm outline-none"
-                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText, colorScheme: 'dark' }}
-                      />
-                      <div className="flex gap-1.5">
-                        <button onClick={handleUpdateClosingDate} disabled={closingDateSaving || newClosingDate === deal.closing_date}
-                          className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50 transition-colors"
-                          style={{ background: colors.gold }}>
-                          {closingDateSaving ? 'Saving...' : 'Update & Recalc'}
-                        </button>
-                        <button onClick={() => { setEditingClosingDate(false); setClosingDateComparison(null) }}
-                          className="px-2 py-1 rounded text-xs transition-colors"
-                          style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>
-                          Cancel
-                        </button>
-                      </div>
-                      {closingDateComparison && (
-                        <div className="rounded-lg p-2 text-xs space-y-1" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
-                          <p className="font-semibold" style={{ color: colors.infoText }}>Recalculation complete:</p>
-                          <p style={{ color: colors.infoText }}>Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
-                          <p style={{ color: colors.infoText }}>Discount Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
-                          <p style={{ color: colors.infoText }}>Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Days Until Closing</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Source</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.source}</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Created</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDateTime(deal.created_at)}</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Last Updated</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{formatDateTime(deal.updated_at)}</p>
-                </div>
-              </div>
-              {deal.denial_reason && (
-                <div className="mt-3 p-2 rounded" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
-                  <p className="text-xs font-medium" style={{ color: colors.errorText }}>Denial Reason</p>
-                  <p className="text-sm mt-1" style={{ color: colors.errorText }}>{deal.denial_reason}</p>
-                </div>
+        {/* AGENT & BROKERAGE — compact inline bar */}
+        <div className="rounded-lg mb-3 flex flex-col sm:flex-row" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          {/* Agent */}
+          <div className="flex-1 px-3 py-2.5 flex items-center gap-3" style={{ borderRight: `1px solid ${colors.border}` }}>
+            <User className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
+            <div className="flex items-center gap-3 flex-wrap text-xs min-w-0">
+              <span className="font-semibold" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</span>
+              <span style={{ color: colors.textMuted }}>{agent.email}</span>
+              {agent.phone && <span style={{ color: colors.textMuted }}>{agent.phone}</span>}
+              {agent.reco_number && <span style={{ color: colors.textFaint }}>RECO: {agent.reco_number}</span>}
+              {agent.flagged_by_brokerage && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: colors.warningBg, color: colors.warningText }}>Flagged</span>
+              )}
+              {agent.outstanding_recovery > 0 && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: colors.errorBg, color: colors.errorText }}>Recovery: {formatCurrency(agent.outstanding_recovery)}</span>
               )}
             </div>
-
-            {/* FINANCIAL BREAKDOWN */}
-            <div className="rounded-lg p-4" style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}>
-              <h2 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <DollarSign className="w-4 h-4" style={{ color: colors.gold }} />
-                Financial Breakdown
-              </h2>
-              <div className="space-y-1">
-                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textMuted }}>Gross Commission</span>
-                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textMuted }}>Brokerage Split</span>
-                  <span className="font-medium" style={{ color: colors.textPrimary }}>{deal.brokerage_split_pct}%</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textMuted }}>Net Commission</span>
-                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textMuted }}>Discount Fee</span>
-                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.discount_fee)}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textMuted }}>Advance Amount</span>
-                  <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.advance_amount)}</span>
-                </div>
-                <div className="flex justify-between py-1.5 text-sm" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <span style={{ color: colors.textMuted }}>Brokerage Referral Fee</span>
-                  <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.brokerage_referral_fee)}</span>
-                </div>
-                <div className="flex justify-between rounded px-2 py-1.5 text-sm mt-1" style={{ background: colors.goldBg }}>
-                  <span className="font-semibold" style={{ color: colors.gold }}>Amount Due from Brokerage</span>
-                  <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
-                </div>
-                {(() => {
-                  const brokerageTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
-                  if (brokerageTotal <= 0) return null
-                  const isFullyPaid = Math.abs(brokerageTotal - deal.amount_due_from_brokerage) < 0.01
-                  const isOver = brokerageTotal > deal.amount_due_from_brokerage + 0.01
-                  const statusColor = isFullyPaid ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'
-                  return (
-                    <div className="flex justify-between rounded px-2 py-1.5 text-sm mt-1" style={{
-                      background: isFullyPaid ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.15)',
-                    }}>
-                      <span className="font-semibold" style={{ color: statusColor }}>
-                        Brokerage Payments ({(deal.brokerage_payments || []).length})
-                      </span>
-                      <span className="font-bold" style={{ color: statusColor }}>
-                        {formatCurrency(brokerageTotal)}
-                      </span>
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-
-            {/* ADMIN NOTES TIMELINE */}
-            <div className="rounded-lg p-4" style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}>
-              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <StickyNote className="w-4 h-4" style={{ color: colors.gold }} />
-                Admin Notes
-              </h2>
-
-              {/* Add new note */}
-              <div className="flex gap-2 mb-3">
-                <textarea
-                  value={newNoteText}
-                  onChange={(e) => setNewNoteText(e.target.value)}
-                  placeholder="Add a note..."
-                  className="flex-1 px-3 py-2 rounded border text-sm resize-none focus:outline-none"
-                  style={{
-                    background: colors.inputBg,
-                    borderColor: colors.inputBorder,
-                    color: colors.inputText,
-                    minHeight: '60px',
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote()
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between mb-3">
-                <button
-                  onClick={handleAddNote}
-                  disabled={addingNote || !newNoteText.trim()}
-                  className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                  style={{ background: '#3D5A99' }}
-                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#2D4A89' }}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#3D5A99'}
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  {addingNote ? 'Adding...' : 'Add Note'}
-                </button>
-                <span className="text-xs" style={{ color: colors.textFaint }}>Ctrl+Enter to submit</span>
-              </div>
-
-              {/* Timeline */}
-              {notesTimeline.length > 0 ? (
-                <div className="space-y-2 max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-                  {[...notesTimeline].reverse().map((note) => (
-                    <div key={note.id} className="rounded-lg px-3 py-2.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
-                      <p className="text-sm whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{note.text}</p>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <Clock className="w-3 h-3" style={{ color: colors.textFaint }} />
-                        <span className="text-xs" style={{ color: colors.textMuted }}>{note.author_name} &bull; {formatDateTime(note.created_at)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-center py-2" style={{ color: colors.textMuted }}>No notes yet</p>
-              )}
-
-              {/* Legacy notes (read-only, if present) */}
-              {adminNotes && (
-                <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                  <p className="text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Legacy Notes</p>
-                  <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textFaint }}>{adminNotes}</p>
-                </div>
-              )}
-            </div>
-
-            {/* DEAL MESSAGES */}
-            <div id="messages" className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <h2 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <Send className="w-4 h-4" style={{ color: colors.gold }} />
-                Messages
-                {messages.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: colors.tableHeaderBg, color: colors.textMuted }}>{messages.length}</span>}
-              </h2>
-
-              {messages.length > 0 && (
-                <div className="space-y-2 max-h-64 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
-                  {messages.map(msg => (
-                    <div key={msg.id} className="rounded-lg px-3 py-2" style={{
-                      background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
-                      border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.divider}`,
-                    }}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                          {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
-                        </span>
-                        {msg.is_email_reply && <span className="text-xs px-1 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>via email</span>}
-                        <span className="text-xs" style={{ color: colors.textFaint }}>{formatDateTime(msg.created_at)}</span>
-                      </div>
-                      <p className="text-sm whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {messages.length === 0 && (
-                <p className="text-xs text-center py-2 mb-3" style={{ color: colors.textMuted }}>No messages yet</p>
-              )}
-
-              {/* Reply input — always visible */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  placeholder={messages.length === 0 ? 'Send a message to the agent... (sends email)' : 'Reply... (sends email)'}
-                  className="flex-1 px-3 py-2 rounded border text-sm focus:outline-none"
-                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={messageSending || !messageText.trim()}
-                  className="px-3 py-2 rounded text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                  style={{ background: '#5FA873' }}
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  {messageSending ? '...' : 'Send'}
-                </button>
-              </div>
-            </div>
-
-            {/* LATE CLOSING INTEREST (show for funded/repaid deals) */}
-            {deal && ['funded', 'repaid'].includes(deal.status) && (
-              <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                    <AlertCircle className="w-4 h-4" style={{ color: '#D4A04A' }} />
-                    Late Closing Interest
-                  </h2>
-                  {!showLateInterest && (
-                    <button
-                      onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
-                      className="px-2.5 py-1 rounded text-xs font-medium text-white transition-colors"
-                      style={{ background: '#D4A04A' }}
-                    >
-                      Charge Interest
-                    </button>
-                  )}
-                </div>
-
-                {agentBalance > 0 && (
-                  <div className="mb-2 px-3 py-2 rounded" style={{ background: '#2A1F0F', border: '1px solid #4A3820' }}>
-                    <p className="text-xs" style={{ color: '#D4A04A' }}>
-                      Agent account balance: <strong>${agentBalance.toFixed(2)}</strong>
-                    </p>
-                  </div>
-                )}
-
-                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <div className="mb-2 px-3 py-2 rounded" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
-                    <p className="text-xs" style={{ color: '#E07B7B' }}>
-                      Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
-                      {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
-                    </p>
-                  </div>
-                )}
-
-                {showLateInterest && (
-                  <div className="space-y-2">
-                    <div>
-                      <label className="text-xs font-semibold block mb-1" style={{ color: colors.textSecondary }}>Actual Closing Date</label>
-                      <input
-                        type="date"
-                        value={actualClosingDate}
-                        onChange={(e) => setActualClosingDate(e.target.value)}
-                        className="w-full px-3 py-2 rounded border text-sm focus:outline-none"
-                        style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                      />
-                    </div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>
-                      Rate: $0.75 per $1,000/day. 5-day grace period after expected closing ({deal.closing_date}).
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleChargeLateInterest}
-                        disabled={lateInterestSaving || !actualClosingDate}
-                        className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
-                        style={{ background: '#D4A04A' }}
-                      >
-                        {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
-                      </button>
-                      <button
-                        onClick={() => setShowLateInterest(false)}
-                        className="px-3 py-1.5 rounded text-sm font-medium"
-                        style={{ color: colors.textMuted, background: colors.tableHeaderBg }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {!showLateInterest && !deal.late_interest_charged && (
-                  <p className="text-xs" style={{ color: colors.textMuted }}>No late interest charged for this deal.</p>
-                )}
-              </div>
-            )}
           </div>
-
-          {/* AGENT & BROKERAGE CARDS (right 1/3) */}
-          <div className="space-y-4">
-            {/* AGENT CARD */}
-            <div className="rounded-lg p-4" style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}>
-              <h3 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <User className="w-4 h-4" style={{ color: colors.gold }} />
-                Agent
-              </h3>
-              <div className="space-y-1.5">
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Name</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Email</p>
-                  <p className="text-sm font-medium break-all" style={{ color: colors.textPrimary }}>{agent.email}</p>
-                </div>
-                {agent.phone && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Phone</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.phone}</p>
-                  </div>
-                )}
-                {agent.reco_number && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>RECO #</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.reco_number}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Status</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.status}</p>
-                </div>
-                {agent.flagged_by_brokerage && (
-                  <div className="px-2 py-1 rounded" style={{ background: colors.warningBg }}>
-                    <p className="text-xs font-medium" style={{ color: colors.warningText }}>Flagged by Brokerage</p>
-                  </div>
-                )}
-                {agent.outstanding_recovery !== null && agent.outstanding_recovery > 0 && (
-                  <div className="px-2 py-1 rounded" style={{ background: colors.errorBg }}>
-                    <p className="text-xs font-medium" style={{ color: colors.errorText }}>Recovery: {formatCurrency(agent.outstanding_recovery)}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* BROKERAGE CARD */}
-            <div className="rounded-lg p-4" style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}>
-              <h3 className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <Building2 className="w-4 h-4" style={{ color: colors.gold }} />
-                Brokerage
-              </h3>
-              <div className="space-y-1.5">
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Name</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.name}</p>
-                </div>
-                {brokerage.brand && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Brand</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.brand}</p>
-                  </div>
-                )}
-                {brokerage.address && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Address</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.address}</p>
-                  </div>
-                )}
-                {brokerage.phone && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Phone</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.phone}</p>
-                  </div>
-                )}
-                {brokerage.email && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Email</p>
-                    <p className="text-sm font-medium break-all" style={{ color: colors.textPrimary }}>{brokerage.email}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>Status</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{brokerage.status}</p>
-                </div>
-                {brokerage.referral_fee_percentage !== null && (
-                  <div>
-                    <p className="text-xs" style={{ color: colors.textMuted }}>Referral Fee %</p>
-                    <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{(brokerage.referral_fee_percentage * 100).toFixed(0)}%</p>
-                  </div>
-                )}
-              </div>
+          {/* Brokerage */}
+          <div className="flex-1 px-3 py-2.5 flex items-center gap-3">
+            <Building2 className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
+            <div className="flex items-center gap-3 flex-wrap text-xs min-w-0">
+              <span className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.name}</span>
+              {brokerage.brand && <span style={{ color: colors.textMuted }}>{brokerage.brand}</span>}
+              {brokerage.email && <span style={{ color: colors.textMuted }}>{brokerage.email}</span>}
+              {brokerage.referral_fee_percentage !== null && (
+                <span style={{ color: colors.textFaint }}>Referral: {(brokerage.referral_fee_percentage * 100).toFixed(0)}%</span>
+              )}
             </div>
           </div>
         </div>
 
+        {/* DEAL DETAILS + FINANCIAL — side by side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+          {/* DEAL DETAILS */}
+          <div className="rounded-lg px-3 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider" style={{ color: colors.gold }}>
+              <FileText className="w-3.5 h-3.5" />
+              Deal Details
+            </h2>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <div className="col-span-2">
+                <p className="text-xs flex items-center gap-1" style={{ color: colors.textMuted }}><MapPin className="w-3 h-3" />{deal.property_address}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Closing Date
+                  {!editingClosingDate && (deal.status === 'under_review' || deal.status === 'approved' || deal.status === 'funded') && (
+                    <button onClick={() => { setEditingClosingDate(true); setNewClosingDate(deal.closing_date); setClosingDateComparison(null) }}
+                      className="ml-1 p-0.5 rounded transition-colors inline" style={{ color: colors.textFaint }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
+                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textFaint}
+                    ><Edit2 className="w-2.5 h-2.5 inline" /></button>
+                  )}
+                </p>
+                {editingClosingDate ? (
+                  <div className="space-y-1.5 mt-1">
+                    <input type="date" value={newClosingDate} onChange={(e) => setNewClosingDate(e.target.value)}
+                      min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                      className="w-full rounded px-2 py-1 text-xs outline-none"
+                      style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText, colorScheme: 'dark' }}
+                    />
+                    <div className="flex gap-1">
+                      <button onClick={handleUpdateClosingDate} disabled={closingDateSaving || newClosingDate === deal.closing_date}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium text-white disabled:opacity-50" style={{ background: colors.gold }}>
+                        {closingDateSaving ? 'Saving...' : 'Update & Recalc'}
+                      </button>
+                      <button onClick={() => { setEditingClosingDate(false); setClosingDateComparison(null) }}
+                        className="px-2 py-0.5 rounded text-[10px]" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>Cancel</button>
+                    </div>
+                    {closingDateComparison && (
+                      <div className="rounded p-1.5 text-[10px] space-y-0.5" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
+                        <p style={{ color: colors.infoText }}>Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
+                        <p style={{ color: colors.infoText }}>Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
+                        <p style={{ color: colors.infoText }}>Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Days Until Closing</p>
+                <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Source</p>
+                <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{deal.source}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Created</p>
+                <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{formatDateTime(deal.created_at)}</p>
+              </div>
+            </div>
+            {deal.denial_reason && (
+              <div className="mt-2 p-1.5 rounded text-xs" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }}>
+                <strong>Denial:</strong> {deal.denial_reason}
+              </div>
+            )}
+          </div>
+
+          {/* FINANCIAL BREAKDOWN — compact table */}
+          <div className="rounded-lg px-3 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider" style={{ color: colors.gold }}>
+              <DollarSign className="w-3.5 h-3.5" />
+              Financial Breakdown
+            </h2>
+            <div className="space-y-0">
+              {[
+                { label: 'Gross Commission', value: formatCurrency(deal.gross_commission) },
+                { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
+                { label: 'Net Commission', value: formatCurrency(deal.net_commission) },
+                { label: 'Discount Fee', value: formatCurrency(deal.discount_fee) },
+                { label: 'Brokerage Referral Fee', value: formatCurrency(deal.brokerage_referral_fee) },
+              ].map((row) => (
+                <div key={row.label} className="flex justify-between py-1 text-xs" style={{ borderBottom: `1px solid ${colors.divider}` }}>
+                  <span style={{ color: colors.textMuted }}>{row.label}</span>
+                  <span className="font-medium" style={{ color: colors.textPrimary }}>{row.value}</span>
+                </div>
+              ))}
+              <div className="flex justify-between py-1 text-xs" style={{ borderBottom: `1px solid ${colors.divider}` }}>
+                <span className="font-semibold" style={{ color: colors.gold }}>Advance Amount</span>
+                <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.advance_amount)}</span>
+              </div>
+              <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1" style={{ background: colors.goldBg }}>
+                <span className="font-semibold" style={{ color: colors.gold }}>Due from Brokerage</span>
+                <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
+              </div>
+              {(() => {
+                const brokerageTotal = (deal.brokerage_payments || []).reduce((sum: number, p: any) => sum + p.amount, 0)
+                if (brokerageTotal <= 0) return null
+                const isFullyPaid = Math.abs(brokerageTotal - deal.amount_due_from_brokerage) < 0.01
+                const isOver = brokerageTotal > deal.amount_due_from_brokerage + 0.01
+                const statusColor = isFullyPaid ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'
+                return (
+                  <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1" style={{
+                    background: isFullyPaid ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.15)',
+                  }}>
+                    <span className="font-semibold" style={{ color: statusColor }}>Brokerage Payments ({(deal.brokerage_payments || []).length})</span>
+                    <span className="font-bold" style={{ color: statusColor }}>{formatCurrency(brokerageTotal)}</span>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+
+        {/* MESSAGES + ADMIN NOTES + LATE INTEREST — collapsible row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+          {/* DEAL MESSAGES — collapsible */}
+          <div id="messages" className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <button
+              onClick={() => setMessagesExpanded(!messagesExpanded)}
+              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+              style={{ color: colors.gold, background: colors.tableHeaderBg }}
+            >
+              <div className="flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5" />
+                Messages
+                {messages.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: colors.cardBg, color: colors.textMuted }}>{messages.length}</span>}
+              </div>
+              {messagesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {messagesExpanded && (
+              <div className="px-3 py-2">
+                {messages.length > 0 && (
+                  <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-48 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
+                    {messages.map(msg => (
+                      <div key={msg.id} className="rounded px-2.5 py-1.5" style={{
+                        background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
+                        border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.divider}`,
+                      }}>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
+                            {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
+                          </span>
+                          {msg.is_email_reply && <span className="text-[10px] px-1 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>email</span>}
+                          <span className="text-[10px]" style={{ color: colors.textFaint }}>{formatDateTime(msg.created_at)}</span>
+                        </div>
+                        <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {messages.length === 0 && (
+                  <p className="text-xs text-center py-1 mb-2" style={{ color: colors.textMuted }}>No messages yet</p>
+                )}
+                <div className="flex gap-1.5">
+                  <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
+                    placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
+                    className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
+                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
+                  />
+                  <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
+                    className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
+                    style={{ background: '#5FA873' }}>
+                    <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ADMIN NOTES — collapsible, default collapsed */}
+          <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <button
+              onClick={() => setNotesExpanded(!notesExpanded)}
+              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+              style={{ color: colors.gold, background: colors.tableHeaderBg }}
+            >
+              <div className="flex items-center gap-1.5">
+                <StickyNote className="w-3.5 h-3.5" />
+                Admin Notes
+                {notesTimeline.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: colors.cardBg, color: colors.textMuted }}>{notesTimeline.length}</span>}
+              </div>
+              {notesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {notesExpanded && (
+              <div className="px-3 py-2">
+                <div className="flex gap-1.5 mb-2">
+                  <input type="text" value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)}
+                    placeholder="Add a note... (Ctrl+Enter)"
+                    className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
+                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote() }}
+                  />
+                  <button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
+                    className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
+                    style={{ background: '#3D5A99' }}>
+                    <Plus className="w-3 h-3" />{addingNote ? '...' : 'Add'}
+                  </button>
+                </div>
+                {notesTimeline.length > 0 ? (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                    {[...notesTimeline].reverse().map((note) => (
+                      <div key={note.id} className="rounded px-2.5 py-1.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                        <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{note.text}</p>
+                        <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>{note.author_name} · {formatDateTime(note.created_at)}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-center py-1" style={{ color: colors.textMuted }}>No notes yet</p>
+                )}
+                {adminNotes && (
+                  <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}>
+                    <p className="text-[10px] font-semibold mb-0.5" style={{ color: colors.textMuted }}>Legacy Notes</p>
+                    <p className="text-[10px] whitespace-pre-wrap" style={{ color: colors.textFaint }}>{adminNotes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* LATE CLOSING INTEREST — compact, only for funded/repaid */}
+        {deal && ['funded', 'repaid'].includes(deal.status) && (
+          <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <button
+              onClick={() => setLateInterestExpanded(!lateInterestExpanded)}
+              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+              style={{ color: '#D4A04A', background: colors.tableHeaderBg }}
+            >
+              <div className="flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Late Closing Interest
+                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#2A1212', color: '#E07B7B' }}>
+                    ${deal.late_interest_charged.toFixed(2)} charged
+                  </span>
+                )}
+              </div>
+              {lateInterestExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {lateInterestExpanded && (
+              <div className="px-3 py-2">
+                {agentBalance > 0 && (
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1F0F', border: '1px solid #4A3820', color: '#D4A04A' }}>
+                    Agent balance: <strong>${agentBalance.toFixed(2)}</strong>
+                  </div>
+                )}
+                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1212', border: '1px solid #4A2020', color: '#E07B7B' }}>
+                    Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
+                    {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
+                  </div>
+                )}
+                {!showLateInterest ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs" style={{ color: colors.textMuted }}>
+                      {deal.late_interest_charged ? 'Interest has been applied.' : 'No late interest charged.'}
+                    </p>
+                    <button onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
+                      className="px-2 py-1 rounded text-xs font-medium text-white" style={{ background: '#D4A04A' }}>
+                      Charge Interest
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium flex-shrink-0" style={{ color: colors.textSecondary }}>Actual Close:</label>
+                      <input type="date" value={actualClosingDate} onChange={(e) => setActualClosingDate(e.target.value)}
+                        className="px-2 py-1 rounded border text-xs focus:outline-none"
+                        style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                      />
+                    </div>
+                    <p className="text-[10px]" style={{ color: colors.textMuted }}>$0.75 per $1,000/day · 5-day grace after {deal.closing_date}</p>
+                    <div className="flex gap-1.5">
+                      <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
+                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50" style={{ background: '#D4A04A' }}>
+                        {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
+                      </button>
+                      <button onClick={() => setShowLateInterest(false)}
+                        className="px-2.5 py-1 rounded text-xs" style={{ color: colors.textMuted, background: colors.tableHeaderBg }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS/VIEWER RIGHT) */}
-        <div className="mb-4">
-          <h2 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Underwriting</h2>
+        <div className="mb-3">
+          <h2 className="text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: colors.gold }}>Underwriting</h2>
 
           {/* Document bar — compact horizontal list when viewer is open */}
           {viewingDoc && (
@@ -2075,7 +1958,7 @@ export default function DealDetailPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* LEFT: CHECKLIST */}
             <div className="space-y-2">
               {categorizedChecklist.map((category, catIdx) => (
@@ -2106,7 +1989,7 @@ export default function DealDetailPage() {
                           <div
                             key={item.id}
                             onClick={() => handleChecklistToggle(item)}
-                            className="flex items-start gap-3 px-4 py-3 cursor-pointer transition-all duration-200 select-none"
+                            className="flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all duration-200 select-none"
                             style={{
                               borderBottom: `1px solid ${colors.divider}`,
                               background: na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent',
