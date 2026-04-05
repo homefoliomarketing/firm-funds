@@ -1281,7 +1281,7 @@ export default function DealDetailPage() {
                         onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.background = '#4A2020'; e.currentTarget.style.borderColor = '#7A3D3D' } }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = '#3A1A1A'; e.currentTarget.style.borderColor = '#5A2D2D' }}
                       >
-                        {voidingEnvelopes ? 'Voiding...' : 'Void Envelope'}
+                        {voidingEnvelopes ? 'Cancelling...' : 'Cancel Signing'}
                       </button>
                     </div>
                   )
