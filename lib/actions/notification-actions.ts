@@ -637,13 +637,14 @@ export async function sendBrokerageMessage(input: {
     // Send email notification to admin
     try {
       const { sendBrokerageMessageNotification } = await import('@/lib/email')
-      sendBrokerageMessageNotification({
+      await sendBrokerageMessageNotification({
         dealId: deal.id,
         propertyAddress: deal.property_address,
         senderName: profile?.full_name || 'Brokerage Admin',
         message: input.message.trim(),
       })
-    } catch {
+    } catch (emailErr) {
+      console.error('[sendBrokerageMessage] Email notification failed:', emailErr)
       // Email failure shouldn't block the message
     }
 
