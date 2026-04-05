@@ -6,11 +6,11 @@ import { useRouter, useParams } from 'next/navigation'
 import {
   ArrowLeft, FileText, DollarSign, MapPin, Clock,
   Upload, Download, ChevronDown, ChevronUp, Paperclip,
-  CheckCircle2, AlertTriangle, Pencil, Save, X, Send
+  CheckCircle2, AlertTriangle, Pencil, Save, X, Send, AlertCircle
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
-import SignOutModal from '@/components/SignOutModal'
+import AgentHeader from '@/components/AgentHeader'
 import {
   MAX_UPLOAD_SIZE_BYTES,
   ALLOWED_UPLOAD_EXTENSIONS,
@@ -19,7 +19,7 @@ import {
   formatStatusLabel,
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
-import { AlertCircle } from 'lucide-react'
+import { markDealMessagesRead, autoResolvePendingReturns } from '@/lib/actions/notification-actions'
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
@@ -64,6 +64,7 @@ export default function AgentDealDetailPage() {
   const [deal, setDeal] = useState<Deal | null>(null)
   const [documents, setDocuments] = useState<DealDocument[]>([])
   const [docRequests, setDocRequests] = useState<DocumentRequest[]>([])
+  const [agentProfile, setAgentProfile] = useState<{ full_name: string; agent_id: string } | null>(null)
 
   const [docReturns, setDocReturns] = useState<DocumentReturnItem[]>([])
   const [dealMessages, setDealMessages] = useState<DealMessageItem[]>([])
@@ -91,10 +92,7 @@ export default function AgentDealDetailPage() {
   const supabase = createClient()
   const { colors, isDark } = useTheme()
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+  // handleLogout moved to AgentHeader
 
   useEffect(() => { loadDealData() }, [dealId])
 
@@ -127,6 +125,7 @@ export default function AgentDealDetailPage() {
     if (!user) { router.push('/login'); return }
     const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
     if (!profile || profile.role !== 'agent') { router.push('/login'); return }
+    setAgentProfile({ full_name: profile.full_name, agent_id: profile.agent_id })
     const { data: dealData, error: dealError } = await supabase.from('deals').select('*').eq('id', dealId).single()
     if (dealError || !dealData) { router.push('/agent'); return }
     if (dealData.agent_id !== profile.agent_id) { router.push('/agent'); return }
@@ -140,6 +139,10 @@ export default function AgentDealDetailPage() {
     const { data: messagesData } = await supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true })
     setDealMessages(messagesData || [])
     setLoading(false)
+    // Mark messages as read for notification tracking
+    if (profile.agent_id && (messagesData || []).length > 0) {
+      markDealMessagesRead({ agentId: profile.agent_id, dealId }).catch(() => {})
+    }
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -170,13 +173,25 @@ export default function AgentDealDetailPage() {
       if (docRecord) { setDocuments(prev => [docRecord, ...prev]); successCount++ }
     }
 
+    // Auto-resolve pending document returns when agent uploads new docs
+    if (successCount > 0 && docReturns.length > 0) {
+      const lastDoc = documents[0] // most recently added doc is at index 0
+      if (lastDoc) {
+        const resolveResult = await autoResolvePendingReturns({ dealId: deal.id, newDocumentId: lastDoc.id })
+        if (resolveResult.success && resolveResult.data?.resolvedCount > 0) {
+          setDocReturns([]) // Clear the returned docs alert
+        }
+      }
+    }
+
     setUploading(false)
     if (failures.length > 0 && successCount > 0) {
       setStatusMessage({ type: 'error', text: `${successCount} uploaded, ${failures.length} failed: ${failures.join(', ')}` })
     } else if (failures.length > 0) {
       setStatusMessage({ type: 'error', text: `Upload failed: ${failures.join(', ')}` })
     } else {
-      setStatusMessage({ type: 'success', text: `${successCount} document${successCount > 1 ? 's' : ''} uploaded successfully` })
+      const returnMsg = docReturns.length > 0 ? ' Returned document alerts cleared.' : ''
+      setStatusMessage({ type: 'success', text: `${successCount} document${successCount > 1 ? 's' : ''} uploaded successfully.${returnMsg}` })
     }
     e.target.value = ''
   }
@@ -324,39 +339,21 @@ export default function AgentDealDetailPage() {
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
-      {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <button
-                onClick={() => router.push('/agent')}
-                className="transition-colors"
-                style={{ color: colors.textSecondary }}
-                onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <div>
-                <h1 className="text-lg font-bold text-white">{deal.property_address}</h1>
-                <p className="text-xs" style={{ color: colors.textMuted }}>Submitted {formatDateTime(deal.created_at)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span
-                className="inline-flex px-3 py-1.5 text-sm font-semibold rounded-lg"
-                style={statusBadge(deal.status)}
-              >
-                {formatStatusLabel(deal.status)}
-              </span>
-              <SignOutModal onConfirm={handleLogout} />
-            </div>
-          </div>
-        </div>
-      </header>
+      <AgentHeader
+        agentName={agentProfile?.full_name || ''}
+        agentId={agentProfile?.agent_id || ''}
+        backHref="/agent"
+        title={deal.property_address}
+        subtitle={`Submitted ${formatDateTime(deal.created_at)}`}
+        rightContent={
+          <span
+            className="inline-flex px-3 py-1.5 text-sm font-semibold rounded-lg"
+            style={statusBadge(deal.status)}
+          >
+            {formatStatusLabel(deal.status)}
+          </span>
+        }
+      />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Status Message */}
