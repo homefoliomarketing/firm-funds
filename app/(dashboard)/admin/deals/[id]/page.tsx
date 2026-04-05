@@ -1628,8 +1628,11 @@ export default function DealDetailPage() {
               Deal Details
             </h2>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              <div className="col-span-2">
-                <p className="text-xs flex items-center gap-1" style={{ color: colors.textMuted }}><MapPin className="w-3 h-3" />{deal.property_address}</p>
+              <div className="col-span-2 mb-1">
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Property Address</p>
+                <p className="text-sm font-medium flex items-center gap-1" style={{ color: colors.textPrimary }}>
+                  <MapPin className="w-3 h-3 flex-shrink-0" style={{ color: colors.gold }} />{deal.property_address}
+                </p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Closing Date
@@ -1733,182 +1736,6 @@ export default function DealDetailPage() {
             </div>
           </div>
         </div>
-
-        {/* MESSAGES + ADMIN NOTES + LATE INTEREST — collapsible row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
-          {/* DEAL MESSAGES — collapsible */}
-          <div id="messages" className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <button
-              onClick={() => setMessagesExpanded(!messagesExpanded)}
-              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
-              style={{ color: colors.gold, background: colors.tableHeaderBg }}
-            >
-              <div className="flex items-center gap-1.5">
-                <Send className="w-3.5 h-3.5" />
-                Messages
-                {messages.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: colors.cardBg, color: colors.textMuted }}>{messages.length}</span>}
-              </div>
-              {messagesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-            {messagesExpanded && (
-              <div className="px-3 py-2">
-                {messages.length > 0 && (
-                  <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-48 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
-                    {messages.map(msg => (
-                      <div key={msg.id} className="rounded px-2.5 py-1.5" style={{
-                        background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
-                        border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.divider}`,
-                      }}>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                            {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
-                          </span>
-                          {msg.is_email_reply && <span className="text-[10px] px-1 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>email</span>}
-                          <span className="text-[10px]" style={{ color: colors.textFaint }}>{formatDateTime(msg.created_at)}</span>
-                        </div>
-                        <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {messages.length === 0 && (
-                  <p className="text-xs text-center py-1 mb-2" style={{ color: colors.textMuted }}>No messages yet</p>
-                )}
-                <div className="flex gap-1.5">
-                  <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
-                    placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
-                    className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
-                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
-                  />
-                  <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
-                    className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
-                    style={{ background: '#5FA873' }}>
-                    <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ADMIN NOTES — collapsible, default collapsed */}
-          <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <button
-              onClick={() => setNotesExpanded(!notesExpanded)}
-              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
-              style={{ color: colors.gold, background: colors.tableHeaderBg }}
-            >
-              <div className="flex items-center gap-1.5">
-                <StickyNote className="w-3.5 h-3.5" />
-                Admin Notes
-                {notesTimeline.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: colors.cardBg, color: colors.textMuted }}>{notesTimeline.length}</span>}
-              </div>
-              {notesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-            {notesExpanded && (
-              <div className="px-3 py-2">
-                <div className="flex gap-1.5 mb-2">
-                  <input type="text" value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)}
-                    placeholder="Add a note... (Ctrl+Enter)"
-                    className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
-                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote() }}
-                  />
-                  <button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
-                    className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
-                    style={{ background: '#3D5A99' }}>
-                    <Plus className="w-3 h-3" />{addingNote ? '...' : 'Add'}
-                  </button>
-                </div>
-                {notesTimeline.length > 0 ? (
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-                    {[...notesTimeline].reverse().map((note) => (
-                      <div key={note.id} className="rounded px-2.5 py-1.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
-                        <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{note.text}</p>
-                        <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>{note.author_name} · {formatDateTime(note.created_at)}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-center py-1" style={{ color: colors.textMuted }}>No notes yet</p>
-                )}
-                {adminNotes && (
-                  <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                    <p className="text-[10px] font-semibold mb-0.5" style={{ color: colors.textMuted }}>Legacy Notes</p>
-                    <p className="text-[10px] whitespace-pre-wrap" style={{ color: colors.textFaint }}>{adminNotes}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* LATE CLOSING INTEREST — compact, only for funded/repaid */}
-        {deal && ['funded', 'repaid'].includes(deal.status) && (
-          <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <button
-              onClick={() => setLateInterestExpanded(!lateInterestExpanded)}
-              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
-              style={{ color: '#D4A04A', background: colors.tableHeaderBg }}
-            >
-              <div className="flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5" />
-                Late Closing Interest
-                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#2A1212', color: '#E07B7B' }}>
-                    ${deal.late_interest_charged.toFixed(2)} charged
-                  </span>
-                )}
-              </div>
-              {lateInterestExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-            {lateInterestExpanded && (
-              <div className="px-3 py-2">
-                {agentBalance > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1F0F', border: '1px solid #4A3820', color: '#D4A04A' }}>
-                    Agent balance: <strong>${agentBalance.toFixed(2)}</strong>
-                  </div>
-                )}
-                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1212', border: '1px solid #4A2020', color: '#E07B7B' }}>
-                    Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
-                    {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
-                  </div>
-                )}
-                {!showLateInterest ? (
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs" style={{ color: colors.textMuted }}>
-                      {deal.late_interest_charged ? 'Interest has been applied.' : 'No late interest charged.'}
-                    </p>
-                    <button onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
-                      className="px-2 py-1 rounded text-xs font-medium text-white" style={{ background: '#D4A04A' }}>
-                      Charge Interest
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-medium flex-shrink-0" style={{ color: colors.textSecondary }}>Actual Close:</label>
-                      <input type="date" value={actualClosingDate} onChange={(e) => setActualClosingDate(e.target.value)}
-                        className="px-2 py-1 rounded border text-xs focus:outline-none"
-                        style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                      />
-                    </div>
-                    <p className="text-[10px]" style={{ color: colors.textMuted }}>$0.75 per $1,000/day · 5-day grace after {deal.closing_date}</p>
-                    <div className="flex gap-1.5">
-                      <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
-                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50" style={{ background: '#D4A04A' }}>
-                        {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
-                      </button>
-                      <button onClick={() => setShowLateInterest(false)}
-                        className="px-2.5 py-1 rounded text-xs" style={{ color: colors.textMuted, background: colors.tableHeaderBg }}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS/VIEWER RIGHT) */}
         <div className="mb-3">
@@ -2382,6 +2209,179 @@ export default function DealDetailPage() {
             </div>
             )}
           </div>
+        </div>
+
+        {/* MESSAGES — full width */}
+        <div id="messages" className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <button
+            onClick={() => setMessagesExpanded(!messagesExpanded)}
+            className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+            style={{ color: colors.gold, background: colors.tableHeaderBg }}
+          >
+            <div className="flex items-center gap-1.5">
+              <Send className="w-3.5 h-3.5" />
+              Messages
+              {messages.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: colors.cardBg, color: colors.textMuted }}>{messages.length}</span>}
+            </div>
+            {messagesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          {messagesExpanded && (
+            <div className="px-3 py-2">
+              {messages.length > 0 && (
+                <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-48 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
+                  {messages.map(msg => (
+                    <div key={msg.id} className="rounded px-2.5 py-1.5" style={{
+                      background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
+                      border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.divider}`,
+                    }}>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
+                          {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
+                        </span>
+                        {msg.is_email_reply && <span className="text-[10px] px-1 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>email</span>}
+                        <span className="text-[10px]" style={{ color: colors.textFaint }}>{formatDateTime(msg.created_at)}</span>
+                      </div>
+                      <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {messages.length === 0 && (
+                <p className="text-xs text-center py-1 mb-2" style={{ color: colors.textMuted }}>No messages yet</p>
+              )}
+              <div className="flex gap-1.5">
+                <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
+                  placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
+                  className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
+                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
+                />
+                <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
+                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
+                  style={{ background: '#5FA873' }}>
+                  <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* LATE CLOSING INTEREST — only for funded/repaid */}
+        {deal && ['funded', 'repaid'].includes(deal.status) && (
+          <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+            <button
+              onClick={() => setLateInterestExpanded(!lateInterestExpanded)}
+              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
+              style={{ color: '#D4A04A', background: colors.tableHeaderBg }}
+            >
+              <div className="flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Late Closing Interest
+                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#2A1212', color: '#E07B7B' }}>
+                    ${deal.late_interest_charged.toFixed(2)} charged
+                  </span>
+                )}
+              </div>
+              {lateInterestExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {lateInterestExpanded && (
+              <div className="px-3 py-2">
+                {agentBalance > 0 && (
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1F0F', border: '1px solid #4A3820', color: '#D4A04A' }}>
+                    Agent balance: <strong>${agentBalance.toFixed(2)}</strong>
+                  </div>
+                )}
+                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1212', border: '1px solid #4A2020', color: '#E07B7B' }}>
+                    Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
+                    {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
+                  </div>
+                )}
+                {!showLateInterest ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs" style={{ color: colors.textMuted }}>
+                      {deal.late_interest_charged ? 'Interest has been applied.' : 'No late interest charged.'}
+                    </p>
+                    <button onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
+                      className="px-2 py-1 rounded text-xs font-medium text-white" style={{ background: '#D4A04A' }}>
+                      Charge Interest
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium flex-shrink-0" style={{ color: colors.textSecondary }}>Actual Close:</label>
+                      <input type="date" value={actualClosingDate} onChange={(e) => setActualClosingDate(e.target.value)}
+                        className="px-2 py-1 rounded border text-xs focus:outline-none"
+                        style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                      />
+                    </div>
+                    <p className="text-[10px]" style={{ color: colors.textMuted }}>$0.75 per $1,000/day · 5-day grace after {deal.closing_date}</p>
+                    <div className="flex gap-1.5">
+                      <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
+                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50" style={{ background: '#D4A04A' }}>
+                        {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
+                      </button>
+                      <button onClick={() => setShowLateInterest(false)}
+                        className="px-2.5 py-1 rounded text-xs" style={{ color: colors.textMuted, background: colors.tableHeaderBg }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ADMIN NOTES — collapsible, audit-trail style */}
+        <div className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <div
+            className="flex items-center justify-between px-6 py-3 cursor-pointer"
+            style={{ background: colors.goldBg, borderBottom: notesExpanded ? `1px solid ${colors.gold}` : 'none' }}
+            onClick={() => setNotesExpanded(!notesExpanded)}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+              <StickyNote className="w-4 h-4" />
+              Admin Notes
+              {notesTimeline.length > 0 && <span className="text-xs font-normal" style={{ color: colors.textMuted }}>({notesTimeline.length})</span>}
+            </div>
+            {notesExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+          </div>
+          {notesExpanded && (
+            <div className="p-4">
+              <div className="flex gap-1.5 mb-3">
+                <input type="text" value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)}
+                  placeholder="Add a note... (Ctrl+Enter)"
+                  className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
+                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote() }}
+                />
+                <button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
+                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
+                  style={{ background: '#3D5A99' }}>
+                  <Plus className="w-3 h-3" />{addingNote ? '...' : 'Add'}
+                </button>
+              </div>
+              {notesTimeline.length > 0 ? (
+                <div className="space-y-1.5 max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                  {[...notesTimeline].reverse().map((note) => (
+                    <div key={note.id} className="rounded px-2.5 py-1.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                      <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{note.text}</p>
+                      <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>{note.author_name} · {formatDateTime(note.created_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-center py-1" style={{ color: colors.textMuted }}>No notes yet</p>
+              )}
+              {adminNotes && (
+                <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${colors.divider}` }}>
+                  <p className="text-[10px] font-semibold mb-0.5" style={{ color: colors.textMuted }}>Legacy Notes</p>
+                  <p className="text-[10px] whitespace-pre-wrap" style={{ color: colors.textFaint }}>{adminNotes}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* AUDIT TRAIL */}
