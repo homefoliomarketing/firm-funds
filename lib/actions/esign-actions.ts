@@ -284,10 +284,13 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
     }
 
     // Get unique envelope IDs (CPA and IDP share the same envelope)
-    const uniqueEnvelopeIds: string[] = [...new Set(envelopes.map((e: { envelope_id: string }) => e.envelope_id))]
-
-    for (const envId of uniqueEnvelopeIds) {
-      await voidEnvelope(envId as string, reason)
+    const seen = new Set<string>()
+    for (const env of envelopes) {
+      const eid = (env as { envelope_id: string }).envelope_id
+      if (!seen.has(eid)) {
+        seen.add(eid)
+        await voidEnvelope(eid, reason)
+      }
     }
 
     // Update all envelope records
