@@ -63,7 +63,7 @@ export default function AdminDashboard() {
         { data: allMsgs },
         { data: dismissals },
       ] = await Promise.all([
-        supabase.from('deals').select('*').order('created_at', { ascending: false }),
+        supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }),
         supabase.from('agents').select('*', { count: 'exact', head: true }).eq('kyc_status', 'submitted'),
         supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
         supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
@@ -296,7 +296,10 @@ export default function AdminDashboard() {
           if (statusFilter) filtered = filtered.filter(d => d.status === statusFilter)
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase()
-            filtered = filtered.filter(d => d.property_address?.toLowerCase().includes(q))
+            filtered = filtered.filter(d => {
+              const agentName = d.agents ? `${d.agents.first_name || ''} ${d.agents.last_name || ''}`.toLowerCase() : ''
+              return d.property_address?.toLowerCase().includes(q) || agentName.includes(q)
+            })
           }
           // Sort: active statuses first, then by created_at desc within each group
           filtered = [...filtered].sort((a, b) => {
@@ -335,7 +338,7 @@ export default function AdminDashboard() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-                    placeholder="Search by property address..."
+                    placeholder="Search by address or agent name..."
                     className="pl-9 pr-4 py-2 rounded-lg text-sm outline-none w-full sm:w-72"
                     style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                     onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = `0 0 0 2px rgba(95,168,115,${isDark ? '0.25' : '0.15'})` }}
@@ -359,6 +362,7 @@ export default function AdminDashboard() {
                     <thead>
                       <tr style={{ background: colors.tableHeaderBg }}>
                         <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
                         <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
                         <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Commission</th>
                         <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
@@ -386,6 +390,9 @@ export default function AdminDashboard() {
                                 </span>
                               )}
                             </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-sm" style={{ color: colors.textSecondary }}>
+                            {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
                           </td>
                           <td className="px-4 py-2.5">
                             <span

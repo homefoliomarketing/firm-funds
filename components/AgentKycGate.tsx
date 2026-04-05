@@ -280,22 +280,43 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             style={{ display: 'none' }}
             onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
           />
+          {/* Camera capture input for mobile */}
+          <input
+            id="kyc-camera-input"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
+          />
           {selectedFiles.length > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <Upload size={16} style={{ color: '#5FA873' }} />
               <span style={{ color: '#5FA873', fontSize: 13, fontWeight: 500 }}>
-                Add another photo (e.g. back of ID)
+                Tap to add another photo (e.g. back of ID)
               </span>
             </div>
           ) : (
             <>
               <Upload size={28} style={{ color: colors.textMuted, marginBottom: 8 }} />
               <p style={{ color: colors.textSecondary, fontSize: 14, margin: '0 0 4px' }}>
-                Drop your ID here or click to browse
+                Drop your ID here or tap to browse files
               </p>
               <p style={{ color: colors.textMuted, fontSize: 12, margin: 0 }}>
                 JPEG, PNG, or PDF — max 10MB per file. Upload front &amp; back if needed.
               </p>
+              <div
+                onClick={(e) => { e.stopPropagation(); document.getElementById('kyc-camera-input')?.click() }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  marginTop: 12, padding: '8px 16px', borderRadius: 8,
+                  background: 'rgba(95,168,115,0.1)', border: '1px solid rgba(95,168,115,0.3)',
+                  color: '#5FA873', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                Take Photo
+              </div>
             </>
           )}
         </div>

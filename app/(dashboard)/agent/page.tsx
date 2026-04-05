@@ -4,10 +4,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
-  FileText, Clock, ChevronDown, ChevronUp,
-  PlusCircle, Eye, X, Search, Calendar,
+  FileText, Clock,
+  PlusCircle, Search, Calendar, ChevronRight,
 } from 'lucide-react'
-import { cancelDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
@@ -37,8 +36,8 @@ export default function AgentDashboard() {
   const [profile, setProfile] = useState<any>(null)
   const [agent, setAgent] = useState<any>(null)
   const [deals, setDeals] = useState<Deal[]>([])
-  const [expandedDeal, setExpandedDeal] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showKycVerifiedModal, setShowKycVerifiedModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const router = useRouter()
@@ -111,6 +110,17 @@ export default function AgentDashboard() {
     return counts
   }, [deals])
 
+  // Show KYC verified modal once
+  useEffect(() => {
+    if (agent?.kyc_status === 'verified' && agent?.id) {
+      const key = `kyc_verified_seen_${agent.id}`
+      if (!localStorage.getItem(key)) {
+        setShowKycVerifiedModal(true)
+        localStorage.setItem(key, 'true')
+      }
+    }
+  }, [agent?.kyc_status, agent?.id])
+
   // KYC status
   const kycPending = agent && agent.kyc_status === 'pending'
   const kycSubmitted = agent && agent.kyc_status === 'submitted'
@@ -127,6 +137,57 @@ export default function AgentDashboard() {
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
+      {/* KYC Verified Congratulations Modal */}
+      {showKycVerifiedModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={() => setShowKycVerifiedModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: colors.cardBg, border: `2px solid #5FA873`,
+              borderRadius: 16, padding: '40px 32px', maxWidth: 420, width: '100%',
+              textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', margin: '0 auto 20px',
+              background: 'rgba(95,168,115,0.15)', border: '2px solid #5FA873',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#5FA873" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h2 style={{ color: colors.textPrimary, fontSize: 22, fontWeight: 700, margin: '0 0 8px' }}>
+              Identity Verified!
+            </h2>
+            <p style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 1.5, margin: '0 0 24px' }}>
+              Congratulations{agent?.first_name ? `, ${agent.first_name}` : ''}! Your identity has been verified.
+              You can now submit advance requests on your deals.
+            </p>
+            <button
+              onClick={() => setShowKycVerifiedModal(false)}
+              style={{
+                background: '#5FA873', color: '#FFFFFF', border: 'none',
+                padding: '12px 32px', borderRadius: 8, fontSize: 15,
+                fontWeight: 600, cursor: 'pointer', width: '100%',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#4E9462'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
+            >
+              Get Started
+            </button>
+          </div>
+        </div>
+      )}
+
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
@@ -257,172 +318,41 @@ export default function AgentDashboard() {
           ) : (
             <div>
               {filteredDeals.map((deal, i) => (
-                <div key={deal.id}>
-                  <div
-                    className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                    style={{ borderBottom: i < filteredDeals.length - 1 && expandedDeal !== deal.id ? `1px solid ${colors.divider}` : 'none' }}
-                    onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs" style={{ color: colors.textMuted }}>
-                          {formatDate(deal.created_at)}
-                        </span>
-                        {deal.closing_date && (
-                          <>
-                            <span className="text-xs" style={{ color: colors.textFaint }}>·</span>
-                            <span className="text-xs flex items-center gap-1" style={{ color: deal.days_until_closing <= 7 ? colors.warningText : colors.textMuted }}>
-                              <Calendar size={10} />
-                              Closing {formatDate(deal.closing_date)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <span
-                        className="inline-flex px-2.5 py-1 text-xs font-semibold rounded-md"
-                        style={getStatusBadgeStyle(deal.status)}
-                      >
-                        {formatStatusLabel(deal.status)}
+                <div
+                  key={deal.id}
+                  className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
+                  style={{ borderBottom: i < filteredDeals.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                  onClick={() => router.push(`/agent/deals/${deal.id}`)}
+                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <div className="flex-1 min-w-0 mr-3">
+                    <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-xs" style={{ color: colors.textMuted }}>
+                        {formatDate(deal.created_at)}
                       </span>
-                      <p className="text-sm font-bold w-28 text-right" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
-                      {expandedDeal === deal.id
-                        ? <ChevronUp size={16} style={{ color: colors.textFaint }} />
-                        : <ChevronDown size={16} style={{ color: colors.textFaint }} />
-                      }
+                      {deal.closing_date && (
+                        <>
+                          <span className="text-xs hidden sm:inline" style={{ color: colors.textFaint }}>·</span>
+                          <span className="text-xs flex items-center gap-1" style={{ color: deal.days_until_closing <= 7 ? colors.warningText : colors.textMuted }}>
+                            <Calendar size={10} />
+                            Closing {formatDate(deal.closing_date)}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
-
-                  {expandedDeal === deal.id && (
-                    <div className="px-6 pb-6" style={{ background: colors.tableHeaderBg, borderBottom: `1px solid ${colors.divider}` }}>
-                      {/* Mini Pipeline */}
-                      <div className="pt-5 mb-5">
-                        <div className="flex items-center gap-1">
-                          {['under_review', 'approved', 'funded', 'repaid', 'closed'].map((status, index) => {
-                            const isActive = status === deal.status
-                            const isPast = ['under_review', 'approved', 'funded', 'repaid', 'closed'].indexOf(deal.status) > index
-                            const isDenied = deal.status === 'denied' || deal.status === 'cancelled'
-                            const barColor = isDenied ? colors.errorBorder : isActive ? colors.gold : isPast ? colors.successText : colors.inputBg
-                            return (
-                              <div key={status} className="flex-1">
-                                <div className="h-1.5 rounded-full" style={{ background: barColor }} />
-                                <p className={`text-[10px] mt-1 text-center ${isActive ? 'font-bold' : ''}`}
-                                  style={{ color: isActive ? colors.gold : isPast ? colors.successText : colors.textFaint }}>
-                                  {formatStatusLabel(status)}
-                                </p>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Deal Details</h4>
-                          <div className="space-y-2.5 text-sm">
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Property</span>
-                              <span className="font-medium text-right" style={{ color: colors.textPrimary }}>{deal.property_address}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Closing Date</span>
-                              <span className="font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Days Until Closing</span>
-                              <span className="font-medium" style={{ color: deal.days_until_closing <= 7 ? colors.warningText : colors.textPrimary }}>
-                                {deal.days_until_closing} days
-                              </span>
-                            </div>
-                            {deal.funding_date && (
-                              <div className="flex justify-between">
-                                <span style={{ color: colors.textMuted }}>Funded On</span>
-                                <span className="font-medium" style={{ color: colors.successText }}>{formatDate(deal.funding_date)}</span>
-                              </div>
-                            )}
-                            {deal.repayment_date && (
-                              <div className="flex justify-between">
-                                <span style={{ color: colors.textMuted }}>Repaid On</span>
-                                <span className="font-medium" style={{ color: colors.successText }}>{formatDate(deal.repayment_date)}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Financial Summary</h4>
-                          <div className="space-y-2.5 text-sm">
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Gross Commission</span>
-                              <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Brokerage Split</span>
-                              <span className="font-medium" style={{ color: colors.textPrimary }}>{deal.brokerage_split_pct}%</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Your Net Commission</span>
-                              <span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.net_commission)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span style={{ color: colors.textMuted }}>Discount Fee</span>
-                              <span className="font-medium" style={{ color: colors.errorText }}>-{formatCurrency(deal.discount_fee)}</span>
-                            </div>
-                            <div className="flex justify-between pt-2.5 mt-2.5" style={{ borderTop: `1px solid ${colors.border}` }}>
-                              <span className="font-bold" style={{ color: colors.textPrimary }}>Advance Amount</span>
-                              <span className="font-bold" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 pt-4 flex items-center gap-3" style={{ borderTop: `1px solid ${colors.border}` }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); router.push(`/agent/deals/${deal.id}`) }}
-                          className="flex items-center gap-2 text-white px-4 py-2.5 rounded-lg font-medium text-sm transition-colors"
-                          style={{ background: colors.headerBgGradient }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #3D3D3D)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = colors.headerBgGradient}
-                        >
-                          <Eye size={16} />
-                          View Deal & Upload Documents
-                        </button>
-                        {['under_review', 'approved'].includes(deal.status) && (
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                              const msg = deal.status === 'under_review'
-                                ? 'Withdraw this advance request? It will be permanently removed.'
-                                : 'Are you sure you want to cancel this advance request? This cannot be undone.'
-                              if (!confirm(msg)) return
-                              const result = await cancelDeal({ dealId: deal.id })
-                              if (result.success) {
-                                if (result.data?.deleted) {
-                                  setDeals(prev => prev.filter(d => d.id !== deal.id))
-                                  setExpandedDeal(null)
-                                } else {
-                                  setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, status: 'cancelled' } : d))
-                                }
-                              } else {
-                                alert(result.error || 'Failed to cancel deal')
-                              }
-                            }}
-                            className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors"
-                            style={{ color: colors.errorText, border: `1px solid ${colors.errorBorder}`, background: colors.errorBg }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = colors.errorBorder}
-                            onMouseLeave={(e) => e.currentTarget.style.background = colors.errorBg}
-                          >
-                            <X size={14} />
-                            {deal.status === 'under_review' ? 'Withdraw' : 'Cancel'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+                    <span
+                      className="inline-flex px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-semibold rounded-md whitespace-nowrap"
+                      style={getStatusBadgeStyle(deal.status)}
+                    >
+                      {formatStatusLabel(deal.status)}
+                    </span>
+                    <p className="text-sm font-bold text-right hidden sm:block" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
+                    <ChevronRight size={16} style={{ color: colors.textFaint }} />
+                  </div>
                 </div>
               ))}
             </div>
