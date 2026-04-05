@@ -3,7 +3,7 @@
 import crypto from 'crypto'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
-import { sendAgentInviteNotification } from '@/lib/email'
+import { sendAgentInviteNotification, sendPasswordResetNotification, sendEmailChangeNotification } from '@/lib/email'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import {
   CreateBrokerageSchema,
@@ -1338,6 +1338,246 @@ export async function removeBrokeragePayment(input: {
     })
 
     return { success: true, data: updatedDeal }
+  } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Admin: Reset any user's password (agent or brokerage admin)
+// ============================================================================
+
+export async function adminResetUserPassword(input: {
+  userId?: string   // user_profiles.id (auth user id) — use for brokerage admins
+  agentId?: string  // agents.id — use for agents (looks up user_profiles.id from agent_id)
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    // Resolve user profile ID — either direct or via agent_id lookup
+    let targetProfile: any = null
+    if (input.userId) {
+      const { data, error } = await serviceClient
+        .from('user_profiles')
+        .select('id, email, full_name, role, agent_id, brokerage_id')
+        .eq('id', input.userId)
+        .single()
+      if (error || !data) return { success: false, error: 'User not found' }
+      targetProfile = data
+    } else if (input.agentId) {
+      const { data, error } = await serviceClient
+        .from('user_profiles')
+        .select('id, email, full_name, role, agent_id, brokerage_id')
+        .eq('agent_id', input.agentId)
+        .single()
+      if (error || !data) return { success: false, error: 'No login found for this agent. They may not have been invited yet.' }
+      targetProfile = data
+    } else {
+      return { success: false, error: 'Either userId or agentId is required' }
+    }
+
+    // Generate temp password and reset
+    const tempPassword = generateTempPassword()
+    const { error: pwError } = await serviceClient.auth.admin.updateUserById(targetProfile.id, {
+      password: tempPassword,
+    })
+
+    if (pwError) {
+      return { success: false, error: `Failed to reset password: ${pwError.message}` }
+    }
+
+    // Set must_reset_password flag
+    await serviceClient
+      .from('user_profiles')
+      .update({ must_reset_password: true })
+      .eq('id', targetProfile.id)
+
+    // Clear password_changed metadata
+    await serviceClient.auth.admin.updateUserById(targetProfile.id, {
+      user_metadata: { password_changed: false },
+    })
+
+    // Generate magic link token
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: targetProfile.id,
+        agent_id: targetProfile.agent_id,
+        email: targetProfile.email,
+        expires_at: expiresAt,
+      })
+
+    // Determine role name for email
+    const roleName = targetProfile.role === 'brokerage_admin' ? 'Brokerage Admin' : 'Agent'
+
+    // Send reset email
+    await sendPasswordResetNotification({
+      recipientName: targetProfile.full_name?.split(' ')[0] || 'User',
+      recipientEmail: targetProfile.email,
+      inviteToken,
+      roleName,
+    })
+
+    await logAuditEvent({
+      action: 'admin.reset_user_password',
+      entityType: 'user',
+      entityId: targetProfile.id,
+      severity: 'critical',
+      metadata: {
+        target_email: targetProfile.email,
+        target_name: targetProfile.full_name,
+        target_role: targetProfile.role,
+        reset_by: user.id,
+      },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Admin reset password error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Admin: Change any user's login email
+// ============================================================================
+
+export async function adminChangeUserEmail(input: {
+  userId?: string   // user_profiles.id (auth user id)
+  agentId?: string  // agents.id — for agents
+  newEmail: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(input.newEmail)) {
+      return { success: false, error: 'Invalid email address' }
+    }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Resolve user profile
+    let targetProfile: any = null
+    if (input.userId) {
+      const { data, error } = await serviceClient
+        .from('user_profiles')
+        .select('id, email, full_name, role, agent_id, brokerage_id')
+        .eq('id', input.userId)
+        .single()
+      if (error || !data) return { success: false, error: 'User not found' }
+      targetProfile = data
+    } else if (input.agentId) {
+      const { data, error } = await serviceClient
+        .from('user_profiles')
+        .select('id, email, full_name, role, agent_id, brokerage_id')
+        .eq('agent_id', input.agentId)
+        .single()
+      if (error || !data) return { success: false, error: 'No login found for this agent' }
+      targetProfile = data
+    } else {
+      return { success: false, error: 'Either userId or agentId is required' }
+    }
+
+    const oldEmail = targetProfile.email
+    const newEmail = input.newEmail.toLowerCase()
+
+    if (oldEmail.toLowerCase() === newEmail) {
+      return { success: false, error: 'New email is the same as the current email' }
+    }
+
+    // Update in Supabase Auth (admin can change directly without confirmation)
+    const { error: authUpdateError } = await serviceClient.auth.admin.updateUserById(targetProfile.id, {
+      email: newEmail,
+      email_confirm: true, // Auto-confirm so user doesn't need to verify
+    })
+
+    if (authUpdateError) {
+      return { success: false, error: `Failed to update auth email: ${authUpdateError.message}` }
+    }
+
+    // Update user_profiles
+    await serviceClient
+      .from('user_profiles')
+      .update({ email: newEmail })
+      .eq('id', targetProfile.id)
+
+    // If this is an agent, update the agents table too
+    if (targetProfile.agent_id) {
+      await serviceClient
+        .from('agents')
+        .update({ email: newEmail })
+        .eq('id', targetProfile.agent_id)
+    }
+
+    // Send notification to old email
+    await sendEmailChangeNotification({
+      recipientName: targetProfile.full_name?.split(' ')[0] || 'User',
+      oldEmail,
+      newEmail,
+    })
+
+    await logAuditEvent({
+      action: 'admin.change_user_email',
+      entityType: 'user',
+      entityId: targetProfile.id,
+      severity: 'critical',
+      metadata: {
+        old_email: oldEmail,
+        new_email: newEmail,
+        target_name: targetProfile.full_name,
+        target_role: targetProfile.role,
+        changed_by: user.id,
+      },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Admin change email error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Admin: Get user profiles for a brokerage (for user management)
+// ============================================================================
+
+export async function getBrokerageUserProfiles(brokerageId: string): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    // Get the brokerage admin profile
+    const { data: brokerageAdminProfiles } = await serviceClient
+      .from('user_profiles')
+      .select('id, email, full_name, role, is_active, last_login, created_at')
+      .eq('brokerage_id', brokerageId)
+      .eq('role', 'brokerage_admin')
+
+    // Get all agent profiles for this brokerage
+    const { data: agentProfiles } = await serviceClient
+      .from('user_profiles')
+      .select('id, email, full_name, role, agent_id, is_active, last_login, created_at')
+      .eq('brokerage_id', brokerageId)
+      .eq('role', 'agent')
+
+    return {
+      success: true,
+      data: {
+        brokerageAdmins: brokerageAdminProfiles || [],
+        agents: agentProfiles || [],
+      },
+    }
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }

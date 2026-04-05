@@ -1012,3 +1012,95 @@ export async function sendBrokerageStatusNotification(params: {
     console.error('[email] Failed to send brokerage status notification:', err)
   }
 }
+
+// ============================================================================
+// Password Reset Email (admin-triggered)
+// ============================================================================
+
+export async function sendPasswordResetNotification(params: {
+  recipientName: string
+  recipientEmail: string
+  inviteToken: string
+  roleName: string // e.g. "Agent" or "Brokerage Admin"
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const resetUrl = `${APP_URL}/invite/${params.inviteToken}`
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.recipientEmail,
+      subject: `Firm Funds — Password Reset`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Password Reset</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          Hi ${params.recipientName}, a Firm Funds administrator has reset your password. Please click the button below to set a new password.
+        </p>
+        <p style="margin:0 0 20px; color:#999; font-size:13px;">
+          This link expires in 72 hours. If you did not request this, please contact your administrator.
+        </p>
+        <div style="text-align:center; margin:28px 0;">
+          <a href="${resetUrl}" style="display:inline-block; padding:16px 40px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:16px;">
+            Set New Password
+          </a>
+        </div>
+        <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
+          <a href="${resetUrl}" style="color:#5FA873; word-break:break-all;">${resetUrl}</a>
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send password reset notification:', err)
+  }
+}
+
+// ============================================================================
+// Email Change Notification
+// ============================================================================
+
+export async function sendEmailChangeNotification(params: {
+  recipientName: string
+  oldEmail: string
+  newEmail: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    // Notify old email
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.oldEmail,
+      subject: `Firm Funds — Your Login Email Has Been Changed`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Email Address Changed</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          Hi ${params.recipientName}, your Firm Funds login email has been changed by an administrator.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Old Email</td>
+                  <td style="padding:6px 0; color:#EF4444; font-size:14px;">${params.oldEmail}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">New Email</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${params.newEmail}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#999; font-size:13px;">
+          Please use your new email address to log in going forward. If you did not expect this change, contact Firm Funds immediately.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send email change notification:', err)
+  }
+}

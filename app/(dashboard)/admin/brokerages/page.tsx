@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents } from '@/lib/actions/admin-actions'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign } from 'lucide-react'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles } from '@/lib/actions/admin-actions'
 import { updateAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
@@ -138,6 +138,14 @@ export default function BrokeragesPage() {
   const [bankingSaving, setBankingSaving] = useState(false)
   const [bankingMessage, setBankingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [preauthViewingAgentId, setPreauthViewingAgentId] = useState<string | null>(null)
+  // User management state (password reset, email change)
+  const [resettingPasswordForUserId, setResettingPasswordForUserId] = useState<string | null>(null)
+  const [changingEmailForUserId, setChangingEmailForUserId] = useState<string | null>(null)
+  const [changeEmailValue, setChangeEmailValue] = useState('')
+  const [changingEmailSaving, setChangingEmailSaving] = useState(false)
+  const [brokerageUserProfiles, setBrokerageUserProfiles] = useState<Record<string, { brokerageAdmins: any[]; agents: any[] }>>({})
+  const [loadingUserProfiles, setLoadingUserProfiles] = useState<string | null>(null)
+  const [showUserManagement, setShowUserManagement] = useState<string | null>(null)
   const kycPanelWidth = 520
   const closeKycPanel = () => {
     if (kycPreviewPanel) {
@@ -568,6 +576,51 @@ export default function BrokeragesPage() {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to resend email' })
     }
     setResendingAgentId(null)
+  }
+
+  const handleResetPassword = async (id: string, userName: string, type: 'agent' | 'user' = 'agent') => {
+    if (!confirm(`Reset password for ${userName}? They will receive an email with a link to set a new password.`)) return
+    setResettingPasswordForUserId(id)
+    const result = await adminResetUserPassword(type === 'agent' ? { agentId: id } : { userId: id })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `Password reset email sent to ${userName}` })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to reset password' })
+    }
+    setResettingPasswordForUserId(null)
+  }
+
+  const handleChangeEmail = async (id: string, userName: string, type: 'agent' | 'user' = 'agent') => {
+    if (!changeEmailValue.trim()) {
+      setStatusMessage({ type: 'error', text: 'Enter a new email address' })
+      return
+    }
+    if (!confirm(`Change login email for ${userName} to ${changeEmailValue}? They will be notified at their old email.`)) return
+    setChangingEmailSaving(true)
+    const result = await adminChangeUserEmail(type === 'agent' ? { agentId: id, newEmail: changeEmailValue } : { userId: id, newEmail: changeEmailValue })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `Email changed for ${userName}. Notification sent to old address.` })
+      setChangingEmailForUserId(null)
+      setChangeEmailValue('')
+      loadBrokerages()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to change email' })
+    }
+    setChangingEmailSaving(false)
+  }
+
+  const handleLoadUserProfiles = async (brokerageId: string) => {
+    if (showUserManagement === brokerageId) {
+      setShowUserManagement(null)
+      return
+    }
+    setLoadingUserProfiles(brokerageId)
+    const result = await getBrokerageUserProfiles(brokerageId)
+    if (result.success && result.data) {
+      setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: result.data as { brokerageAdmins: any[]; agents: any[] } }))
+    }
+    setShowUserManagement(brokerageId)
+    setLoadingUserProfiles(null)
   }
 
   const handleExpandAgent = async (agentId: string) => {
@@ -1307,9 +1360,94 @@ export default function BrokeragesPage() {
                               >
                                 <Mail size={13} /> {sendingAllFor === brokerage.id ? 'Sending...' : 'Send Welcome to All'}
                               </button>
+                              <button
+                                onClick={() => handleLoadUserProfiles(brokerage.id)}
+                                disabled={loadingUserProfiles === brokerage.id}
+                                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                style={{ color: showUserManagement === brokerage.id ? '#fff' : colors.textMuted, background: showUserManagement === brokerage.id ? colors.gold : 'transparent', border: `1px solid ${showUserManagement === brokerage.id ? colors.gold : colors.border}`, opacity: loadingUserProfiles === brokerage.id ? 0.6 : 1 }}
+                                onMouseEnter={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = colors.cardHoverBg } }}
+                                onMouseLeave={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = 'transparent' } }}
+                                title="Manage brokerage admin logins"
+                              >
+                                <KeyRound size={13} /> {loadingUserProfiles === brokerage.id ? 'Loading...' : 'Manage Logins'}
+                              </button>
                             </div>
                           )}
                         </div>
+
+                        {/* Brokerage Admin Login Management Panel */}
+                        {showUserManagement === brokerage.id && brokerageUserProfiles[brokerage.id] && (
+                          <div className="mb-4 p-4 rounded-lg" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
+                            <h4 className="text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: colors.infoText }}>
+                              <KeyRound size={14} /> Brokerage Admin Login{brokerageUserProfiles[brokerage.id].brokerageAdmins.length !== 1 ? 's' : ''}
+                            </h4>
+                            {brokerageUserProfiles[brokerage.id].brokerageAdmins.length === 0 ? (
+                              <p className="text-xs" style={{ color: colors.textMuted }}>No brokerage admin login found. Create one using the user management tools.</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {brokerageUserProfiles[brokerage.id].brokerageAdmins.map((admin: any) => (
+                                  <div key={admin.id} className="flex items-center justify-between gap-3 p-3 rounded-lg" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{admin.full_name}</p>
+                                      <p className="text-xs truncate" style={{ color: colors.textMuted }}>{admin.email}</p>
+                                      <p className="text-[10px]" style={{ color: colors.textFaint }}>
+                                        Last login: {admin.last_login ? new Date(admin.last_login).toLocaleString('en-CA') : 'Never'}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleResetPassword(admin.id, admin.full_name, 'user')}
+                                        disabled={resettingPasswordForUserId === admin.id}
+                                        className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                                        style={{ color: colors.warningText, background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}
+                                      >
+                                        <KeyRound size={12} /> Reset Password
+                                      </button>
+                                      <button
+                                        onClick={() => { setChangingEmailForUserId(changingEmailForUserId === admin.id ? null : admin.id); setChangeEmailValue(admin.email) }}
+                                        className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors"
+                                        style={{ color: colors.infoText, background: changingEmailForUserId === admin.id ? colors.gold + '30' : colors.cardBg, border: `1px solid ${changingEmailForUserId === admin.id ? colors.gold : colors.border}` }}
+                                      >
+                                        <AtSign size={12} /> Change Email
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                                {/* Inline email change for brokerage admin */}
+                                {brokerageUserProfiles[brokerage.id].brokerageAdmins.some((a: any) => changingEmailForUserId === a.id) && (
+                                  <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                                    <input
+                                      type="email"
+                                      value={changeEmailValue}
+                                      onChange={(e) => setChangeEmailValue(e.target.value)}
+                                      className="rounded-md px-2 py-1 text-xs flex-1"
+                                      style={inputStyle}
+                                      placeholder="New login email"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const admin = brokerageUserProfiles[brokerage.id].brokerageAdmins.find((a: any) => a.id === changingEmailForUserId)
+                                        if (admin) handleChangeEmail(admin.id, admin.full_name, 'user')
+                                      }}
+                                      disabled={changingEmailSaving || !changeEmailValue.trim()}
+                                      className="text-xs font-semibold px-3 py-1 rounded-md disabled:opacity-50"
+                                      style={{ background: colors.gold, color: '#fff' }}
+                                    >
+                                      {changingEmailSaving ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button
+                                      onClick={() => { setChangingEmailForUserId(null); setChangeEmailValue('') }}
+                                      className="text-xs px-2 py-1 rounded-md"
+                                      style={{ color: colors.textMuted }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Add Agent Form */}
                         {showAddAgentFor === brokerage.id && (
@@ -1717,6 +1855,31 @@ export default function BrokeragesPage() {
                                             )}
                                             {agent.status !== 'archived' && (
                                               <button
+                                                onClick={() => handleResetPassword(agent.id, `${agent.first_name} ${agent.last_name}`)}
+                                                disabled={resettingPasswordForUserId === agent.id}
+                                                className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                                style={{ color: colors.textMuted }}
+                                                onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.color = colors.warningText; e.currentTarget.style.background = colors.warningBg } }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent' }}
+                                                title="Reset password"
+                                              >
+                                                <KeyRound size={13} />
+                                              </button>
+                                            )}
+                                            {agent.status !== 'archived' && (
+                                              <button
+                                                onClick={() => { setChangingEmailForUserId(changingEmailForUserId === agent.id ? null : agent.id); setChangeEmailValue(agent.email) }}
+                                                className="text-xs px-2 py-1 rounded transition-colors"
+                                                style={{ color: changingEmailForUserId === agent.id ? colors.gold : colors.textMuted }}
+                                                onMouseEnter={(e) => { e.currentTarget.style.color = colors.infoText; e.currentTarget.style.background = colors.infoBg }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.color = changingEmailForUserId === agent.id ? colors.gold : colors.textMuted; e.currentTarget.style.background = 'transparent' }}
+                                                title="Change login email"
+                                              >
+                                                <AtSign size={13} />
+                                              </button>
+                                            )}
+                                            {agent.status !== 'archived' && (
+                                              <button
                                                 onClick={() => handleArchiveAgent(agent.id, `${agent.first_name} ${agent.last_name}`)}
                                                 disabled={archivingAgentId === agent.id}
                                                 className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50"
@@ -1731,6 +1894,40 @@ export default function BrokeragesPage() {
                                           </div>
                                         </td>
                                       </tr>,
+                                      // Inline email change row
+                                      changingEmailForUserId === agent.id && (
+                                        <tr key={`email-${agent.id}`} style={{ background: colors.infoBg, borderBottom: `1px solid ${colors.divider}` }}>
+                                          <td colSpan={7} className="px-4 py-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <AtSign size={14} style={{ color: colors.infoText }} />
+                                              <span className="text-xs font-semibold" style={{ color: colors.infoText }}>Change login email for {agent.first_name} {agent.last_name}:</span>
+                                              <input
+                                                type="email"
+                                                value={changeEmailValue}
+                                                onChange={(e) => setChangeEmailValue(e.target.value)}
+                                                className="rounded-md px-2 py-1 text-xs flex-1 min-w-[200px]"
+                                                style={inputStyle}
+                                                placeholder="New email address"
+                                              />
+                                              <button
+                                                onClick={() => handleChangeEmail(agent.id, `${agent.first_name} ${agent.last_name}`)}
+                                                disabled={changingEmailSaving || !changeEmailValue.trim() || changeEmailValue === agent.email}
+                                                className="text-xs font-semibold px-3 py-1 rounded-md disabled:opacity-50"
+                                                style={{ background: colors.gold, color: '#fff' }}
+                                              >
+                                                {changingEmailSaving ? 'Saving...' : 'Save'}
+                                              </button>
+                                              <button
+                                                onClick={() => { setChangingEmailForUserId(null); setChangeEmailValue('') }}
+                                                className="text-xs px-2 py-1 rounded-md"
+                                                style={{ color: colors.textMuted }}
+                                              >
+                                                Cancel
+                                              </button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ),
                                       // Expanded deals row
                                       expandedAgentId === agent.id && (
                                         <tr key={`deals-${agent.id}`} style={{ background: colors.cardBg, borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}>
