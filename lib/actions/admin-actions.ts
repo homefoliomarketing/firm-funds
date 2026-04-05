@@ -3,7 +3,7 @@
 import crypto from 'crypto'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
-import { sendAgentInviteNotification, sendPasswordResetNotification, sendEmailChangeNotification } from '@/lib/email'
+import { sendAgentInviteNotification, sendBrokerageInviteNotification, sendPasswordResetNotification, sendEmailChangeNotification } from '@/lib/email'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import {
   CreateBrokerageSchema,
@@ -1579,6 +1579,199 @@ export async function getBrokerageUserProfiles(brokerageId: string): Promise<Act
       },
     }
   } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Invite Brokerage Admin (create login + send magic link setup email)
+// ============================================================================
+
+export async function inviteBrokerageAdmin(input: {
+  brokerageId: string
+  fullName: string
+  email: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    // Get brokerage info
+    const { data: brokerage } = await serviceClient
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+    // Check if a login already exists for this brokerage
+    const { data: existingProfile } = await serviceClient
+      .from('user_profiles')
+      .select('id')
+      .eq('brokerage_id', input.brokerageId)
+      .eq('role', 'brokerage_admin')
+      .maybeSingle()
+
+    if (existingProfile) {
+      return { success: false, error: 'A brokerage admin login already exists. Use "Manage Logins" to reset their password or resend the setup link.' }
+    }
+
+    // Create auth user with temp password (they'll set their own via magic link)
+    const tempPassword = generateTempPassword()
+
+    const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
+      email: input.email,
+      password: tempPassword,
+      email_confirm: true,
+    })
+
+    if (signUpError || !authData?.user) {
+      return { success: false, error: `Failed to create login: ${signUpError?.message || 'Unknown error'}` }
+    }
+
+    // Create user_profile
+    const { error: profileError } = await serviceClient
+      .from('user_profiles')
+      .insert({
+        id: authData.user.id,
+        email: input.email,
+        role: 'brokerage_admin',
+        full_name: input.fullName,
+        brokerage_id: input.brokerageId,
+        is_active: true,
+        must_reset_password: true,
+      })
+
+    if (profileError) {
+      console.error('Brokerage profile create error:', profileError.message)
+      return { success: false, error: `Login created but profile failed: ${profileError.message}` }
+    }
+
+    // Generate magic link token (72-hour expiry)
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: authData.user.id,
+        email: input.email,
+        expires_at: expiresAt,
+      })
+
+    // Send branded invite email
+    await sendBrokerageInviteNotification({
+      adminName: input.fullName.split(' ')[0],
+      adminEmail: input.email,
+      brokerageName: brokerage.name,
+      inviteToken,
+    })
+
+    await logAuditEvent({
+      action: 'brokerage_admin.invite',
+      entityType: 'user',
+      entityId: authData.user.id,
+      metadata: {
+        brokerage_id: input.brokerageId,
+        brokerage_name: brokerage.name,
+        admin_name: input.fullName,
+        admin_email: input.email,
+        invited_by: user.id,
+        invite_method: 'magic_link',
+      },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Invite brokerage admin error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Resend Brokerage Admin Setup Link
+// ============================================================================
+
+export async function resendBrokerageSetupLink(input: {
+  userId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    const { data: profile } = await serviceClient
+      .from('user_profiles')
+      .select('id, email, full_name, brokerage_id, role')
+      .eq('id', input.userId)
+      .single()
+
+    if (!profile || profile.role !== 'brokerage_admin') {
+      return { success: false, error: 'Brokerage admin not found' }
+    }
+
+    const { data: brokerage } = await serviceClient
+      .from('brokerages')
+      .select('name')
+      .eq('id', profile.brokerage_id)
+      .single()
+
+    // Reset password to temp
+    const tempPassword = generateTempPassword()
+    await serviceClient.auth.admin.updateUserById(profile.id, {
+      password: tempPassword,
+    })
+
+    // Set must_reset_password
+    await serviceClient
+      .from('user_profiles')
+      .update({ must_reset_password: true })
+      .eq('id', profile.id)
+
+    await serviceClient.auth.admin.updateUserById(profile.id, {
+      user_metadata: { password_changed: false },
+    })
+
+    // Generate new magic link
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: profile.id,
+        email: profile.email,
+        expires_at: expiresAt,
+      })
+
+    // Send email
+    await sendBrokerageInviteNotification({
+      adminName: profile.full_name?.split(' ')[0] || 'Admin',
+      adminEmail: profile.email,
+      brokerageName: brokerage?.name || 'Your Brokerage',
+      inviteToken,
+    })
+
+    await logAuditEvent({
+      action: 'brokerage_admin.resend_setup',
+      entityType: 'user',
+      entityId: profile.id,
+      metadata: {
+        email: profile.email,
+        name: profile.full_name,
+        resent_by: user.id,
+      },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Resend brokerage setup link error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

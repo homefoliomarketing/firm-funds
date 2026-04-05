@@ -1014,6 +1014,65 @@ export async function sendBrokerageStatusNotification(params: {
 }
 
 // ============================================================================
+// Brokerage Admin Invite Email
+// ============================================================================
+
+export async function sendBrokerageInviteNotification(params: {
+  adminName: string
+  adminEmail: string
+  brokerageName: string
+  inviteToken: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.adminEmail,
+      subject: `Welcome to Firm Funds — Set Up Your Brokerage Portal`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px;">Welcome to Firm Funds!</h2>
+        <p style="margin:0 0 20px; color:#E8E4DF;">
+          Hi ${params.adminName}, your Firm Funds Brokerage Portal account has been created for <strong>${params.brokerageName}</strong>. You can now manage your agents' commission advance activity online.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#222; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px; width:140px;">Brokerage</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.brokerageName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0; color:#999; font-size:13px;">Email</td>
+                  <td style="padding:6px 0; color:#E8E4DF; font-size:14px;">${params.adminEmail}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#999; font-size:13px;">
+          Click the button below to set your password and access your brokerage portal. This link expires in 72 hours.
+        </p>
+        <div style="text-align:center; margin:28px 0;">
+          <a href="${inviteUrl}" style="display:inline-block; padding:16px 40px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:16px;">
+            Set Up My Account
+          </a>
+        </div>
+        <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
+          <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage invite notification:', err)
+  }
+}
+
+// ============================================================================
 // Password Reset Email (admin-triggered)
 // ============================================================================
 

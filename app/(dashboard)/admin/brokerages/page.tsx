@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
 import { updateAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
@@ -146,6 +146,10 @@ export default function BrokeragesPage() {
   const [brokerageUserProfiles, setBrokerageUserProfiles] = useState<Record<string, { brokerageAdmins: any[]; agents: any[] }>>({})
   const [loadingUserProfiles, setLoadingUserProfiles] = useState<string | null>(null)
   const [showUserManagement, setShowUserManagement] = useState<string | null>(null)
+  const [showCreateBrokerageLogin, setShowCreateBrokerageLogin] = useState(false)
+  const [brokerageLoginForm, setBrokerageLoginForm] = useState({ fullName: '', email: '' })
+  const [creatingBrokerageLogin, setCreatingBrokerageLogin] = useState(false)
+  const [resendingSetupLink, setResendingSetupLink] = useState<string | null>(null)
   const kycPanelWidth = 520
   const closeKycPanel = () => {
     if (kycPreviewPanel) {
@@ -621,6 +625,44 @@ export default function BrokeragesPage() {
     }
     setShowUserManagement(brokerageId)
     setLoadingUserProfiles(null)
+  }
+
+  const handleCreateBrokerageLogin = async (brokerageId: string, brokerageName: string) => {
+    if (!brokerageLoginForm.fullName.trim() || !brokerageLoginForm.email.trim()) {
+      setStatusMessage({ type: 'error', text: 'Full name and email are required' })
+      return
+    }
+    setCreatingBrokerageLogin(true)
+    const result = await inviteBrokerageAdmin({
+      brokerageId,
+      fullName: brokerageLoginForm.fullName,
+      email: brokerageLoginForm.email,
+    })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `Setup link sent to ${brokerageLoginForm.email} for ${brokerageName}` })
+      setShowCreateBrokerageLogin(false)
+      setBrokerageLoginForm({ fullName: '', email: '' })
+      // Reload the user profiles to show the new login
+      const refreshed = await getBrokerageUserProfiles(brokerageId)
+      if (refreshed.success && refreshed.data) {
+        setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: refreshed.data as { brokerageAdmins: any[]; agents: any[] } }))
+      }
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to invite brokerage admin' })
+    }
+    setCreatingBrokerageLogin(false)
+  }
+
+  const handleResendSetupLink = async (userId: string, adminName: string) => {
+    if (!confirm(`Resend setup link to ${adminName}? This will generate a new magic link and email it to them.`)) return
+    setResendingSetupLink(userId)
+    const result = await resendBrokerageSetupLink({ userId })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `New setup link sent to ${adminName}` })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to resend setup link' })
+    }
+    setResendingSetupLink(null)
   }
 
   const handleExpandAgent = async (agentId: string) => {
@@ -1382,7 +1424,66 @@ export default function BrokeragesPage() {
                               <KeyRound size={14} /> Brokerage Admin Login{brokerageUserProfiles[brokerage.id].brokerageAdmins.length !== 1 ? 's' : ''}
                             </h4>
                             {brokerageUserProfiles[brokerage.id].brokerageAdmins.length === 0 ? (
-                              <p className="text-xs" style={{ color: colors.textMuted }}>No brokerage admin login found. Create one using the user management tools.</p>
+                              <div>
+                                {!showCreateBrokerageLogin ? (
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs" style={{ color: colors.textMuted }}>No brokerage admin login found.</p>
+                                    <button
+                                      onClick={() => { setShowCreateBrokerageLogin(true); setBrokerageLoginForm({ fullName: '', email: brokerage.email || '' }) }}
+                                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
+                                      style={{ background: colors.gold, color: '#fff' }}
+                                    >
+                                      <Plus size={13} /> Create Login
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="p-3 rounded-lg space-y-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                                    <div className="flex items-center justify-between">
+                                      <p className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Create Brokerage Admin Login</p>
+                                      <button onClick={() => setShowCreateBrokerageLogin(false)} style={{ color: colors.textMuted }}><X size={14} /></button>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-[10px] font-semibold mb-0.5" style={{ color: colors.textMuted }}>Full Name *</label>
+                                        <input
+                                          type="text" value={brokerageLoginForm.fullName}
+                                          onChange={(e) => setBrokerageLoginForm({ ...brokerageLoginForm, fullName: e.target.value })}
+                                          className="w-full rounded-md px-2 py-1.5 text-xs" style={inputStyle} placeholder="e.g. John Smith"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-semibold mb-0.5" style={{ color: colors.textMuted }}>Email *</label>
+                                        <input
+                                          type="email" value={brokerageLoginForm.email}
+                                          onChange={(e) => setBrokerageLoginForm({ ...brokerageLoginForm, email: e.target.value })}
+                                          className="w-full rounded-md px-2 py-1.5 text-xs" style={inputStyle} placeholder="admin@brokerage.com"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => handleCreateBrokerageLogin(brokerage.id, brokerage.name)}
+                                        disabled={creatingBrokerageLogin || !brokerageLoginForm.fullName.trim() || !brokerageLoginForm.email.trim()}
+                                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md disabled:opacity-50"
+                                        style={{ background: colors.gold, color: '#fff' }}
+                                      >
+                                        <Mail size={13} /> {creatingBrokerageLogin ? 'Sending...' : 'Create Login & Send Setup Link'}
+                                      </button>
+                                      <button
+                                        onClick={() => setShowCreateBrokerageLogin(false)}
+                                        className="text-xs px-3 py-1.5 rounded-md"
+                                        style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                    <p className="text-[10px]" style={{ color: colors.textFaint }}>
+                                      <Mail size={10} className="inline mr-1" style={{ verticalAlign: 'middle' }} />
+                                      A branded setup email will be sent with a magic link. They&apos;ll set their own password — no credentials to share.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <div className="space-y-2">
                                 {brokerageUserProfiles[brokerage.id].brokerageAdmins.map((admin: any) => (
@@ -1409,6 +1510,14 @@ export default function BrokeragesPage() {
                                         style={{ color: colors.infoText, background: changingEmailForUserId === admin.id ? colors.gold + '30' : colors.cardBg, border: `1px solid ${changingEmailForUserId === admin.id ? colors.gold : colors.border}` }}
                                       >
                                         <AtSign size={12} /> Change Email
+                                      </button>
+                                      <button
+                                        onClick={() => handleResendSetupLink(admin.id, admin.full_name)}
+                                        disabled={resendingSetupLink === admin.id}
+                                        className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                                        style={{ color: colors.gold, background: colors.cardBg, border: `1px solid ${colors.border}` }}
+                                      >
+                                        <Mail size={12} /> {resendingSetupLink === admin.id ? 'Sending...' : 'Resend Setup Link'}
                                       </button>
                                     </div>
                                   </div>
