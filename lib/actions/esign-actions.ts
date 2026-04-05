@@ -308,7 +308,7 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
       action: 'esignature.voided',
       entityType: 'deal',
       entityId: dealId,
-      metadata: { reason, envelopeIds: uniqueEnvelopeIds },
+      metadata: { reason, envelopeIds: Array.from(seen) },
     })
 
     return { success: true }
