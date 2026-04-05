@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Eye, EyeOff } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 
 export default function LoginPage() {
@@ -20,6 +21,7 @@ function LoginPageInner() {
   const [loading, setLoading] = useState(false)
   const [resetSent, setResetSent] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirect')
@@ -214,22 +216,36 @@ function LoginPageInner() {
               <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textPrimary }}>
                 Password
               </label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(null) }}
-                className="block w-full px-4 py-3 rounded-lg text-sm transition-all duration-200 outline-none"
-                style={{
-                  border: `1.5px solid ${colors.inputBorder}`,
-                  color: colors.inputText,
-                  background: colors.inputBg,
-                }}
-                onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
-                onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
-                placeholder="Enter your password"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(null) }}
+                  className="block w-full px-4 py-3 pr-11 rounded-lg text-sm transition-all duration-200 outline-none"
+                  style={{
+                    border: `1.5px solid ${colors.inputBorder}`,
+                    color: colors.inputText,
+                    background: colors.inputBg,
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
+                  onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
+                  placeholder="Enter your password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: colors.textMuted }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#5FA873'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                  tabIndex={-1}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-end">

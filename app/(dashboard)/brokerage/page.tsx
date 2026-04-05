@@ -317,14 +317,7 @@ export default function BrokerageDashboard() {
         <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
           <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                <div className="h-3 w-20 rounded animate-pulse mb-2" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-7 w-16 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
-              </div>
-            ))}
-          </div>
+          <div className="h-3 w-48 rounded animate-pulse mb-4" style={{ background: colors.skeletonHighlight }} />
         </main>
       </div>
     )
@@ -368,62 +361,6 @@ export default function BrokerageDashboard() {
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h2>
           <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Manage your brokerage&apos;s commission advance activity.</p>
-        </div>
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          {[
-            {
-              label: 'Deals Submitted',
-              value: deals.length.toString(),
-              subtitle: `${pendingDeals.length} in progress`,
-              icon: FileText,
-              accent: '#5FA873',
-              onClick: () => setActiveTab('deals'),
-            },
-            {
-              label: 'Referral Fees Earned',
-              value: formatCurrency(totalReferralFees),
-              subtitle: `${earnedDeals.length} funded deal${earnedDeals.length !== 1 ? 's' : ''}`,
-              icon: DollarSign,
-              accent: '#1A7A2E',
-              onClick: () => { setActiveTab('referrals'); setReferralFilter('earned') },
-            },
-            {
-              label: 'Pending Fees',
-              value: formatCurrency(pendingReferralFees),
-              subtitle: `${pendingDeals.length} deal${pendingDeals.length !== 1 ? 's' : ''} awaiting funding`,
-              icon: TrendingUp,
-              accent: '#92700C',
-              onClick: () => { setActiveTab('referrals'); setReferralFilter('pending') },
-            },
-            {
-              label: 'Avg. Fee per Deal',
-              value: earnedDeals.length > 0 ? formatCurrency(avgFeePerDeal) : '—',
-              subtitle: `${agents.filter(a => a.status === 'active').length} active agent${agents.filter(a => a.status === 'active').length !== 1 ? 's' : ''}`,
-              icon: BarChart3,
-              accent: '#5FA873',
-              onClick: () => { setActiveTab('referrals'); setReferralFilter('all') },
-            },
-          ].map((card) => (
-            <div
-              key={card.label}
-              className="rounded-lg px-4 py-3 transition-shadow hover:shadow-lg cursor-pointer"
-              style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
-              onClick={card.onClick}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-xl font-black mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
-                  <p className="text-xs" style={{ color: colors.textFaint }}>{card.subtitle}</p>
-                </div>
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={18} style={{ color: card.accent }} />
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
 
         {/* Tabbed Content */}
