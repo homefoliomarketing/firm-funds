@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, AlertTriangle, UserCheck, TrendingUp, Users } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, TrendingUp, Users, MessageSquare } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 
@@ -20,6 +20,8 @@ interface DashboardStats {
   totalAgentsWithDeals: number
   pendingKycCount: number
   pendingDocReviewCount: number
+  unreadAgentMessages: number
+  dealsWithUnreadMessages: string[]
 }
 
 export default function AdminDashboard() {
@@ -35,6 +37,8 @@ export default function AdminDashboard() {
     totalAgentsWithDeals: 0,
     pendingKycCount: 0,
     pendingDocReviewCount: 0,
+    unreadAgentMessages: 0,
+    dealsWithUnreadMessages: [],
   })
   const [recentDeals, setRecentDeals] = useState<any[]>([])
   const [allDeals, setAllDeals] = useState<any[]>([])
@@ -75,17 +79,48 @@ export default function AdminDashboard() {
         { count: totalBrokerages },
         { count: pendingKycCount },
         { data: pendingDocDeals },
+        { data: allMsgs },
+        { data: dismissals },
       ] = await Promise.all([
         supabase.from('deals').select('*').order('created_at', { ascending: false }),
         supabase.from('brokerages').select('*', { count: 'exact', head: true }),
-        supabase.from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'agent').eq('kyc_status', 'pending'),
+        supabase.from('agents').select('*', { count: 'exact', head: true }).eq('kyc_status', 'submitted'),
         supabase.from('deals').select('id').eq('status', 'under_review'),
+        supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
+        supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
       ])
 
       const allDealsList = deals || []
       const totalAdvanced = allDealsList
         .filter(d => d.status === 'funded')
         .reduce((sum, d) => sum + Number(d.advance_amount), 0)
+
+      // Build dismissal map: deal_id -> dismissed_at
+      const dismissMap = new Map<string, string>()
+      if (dismissals) {
+        for (const d of dismissals) {
+          dismissMap.set(d.deal_id, d.dismissed_at)
+        }
+      }
+
+      // Find deals with unanswered agent messages (latest message is from agent, not dismissed)
+      const msgsByDeal = new Map<string, { sender_role: string; created_at: string }>()
+      for (const msg of (allMsgs || [])) {
+        if (!msgsByDeal.has(msg.deal_id)) {
+          msgsByDeal.set(msg.deal_id, msg) // first = most recent (sorted desc)
+        }
+      }
+      const dealsWithUnread: string[] = []
+      msgsByDeal.forEach((latestMsg, dealId) => {
+        if (latestMsg.sender_role === 'agent') {
+          // Check if admin dismissed this conversation after the latest agent message
+          const dismissedAt = dismissMap.get(dealId)
+          if (dismissedAt && new Date(dismissedAt) >= new Date(latestMsg.created_at)) {
+            return // dismissed — skip
+          }
+          dealsWithUnread.push(dealId)
+        }
+      })
 
       // Count unique agents with at least one approved/funded/repaid deal
       const agentIdsWithDeals = new Set(
@@ -104,6 +139,8 @@ export default function AdminDashboard() {
         totalAgentsWithDeals: agentIdsWithDeals.size,
         pendingKycCount: pendingKycCount || 0,
         pendingDocReviewCount: (pendingDocDeals || []).length,
+        unreadAgentMessages: dealsWithUnread.length,
+        dealsWithUnreadMessages: dealsWithUnread,
       })
 
       setAllDeals(allDealsList)
@@ -256,49 +293,37 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        {/* Action Needed Alerts */}
-        {(stats.pendingKycCount > 0 || stats.pendingDocReviewCount > 0) && (
-          <div className="rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center gap-3" style={{ background: isDark ? '#2A2000' : '#FFF8E1', border: `1px solid ${isDark ? '#5C4A00' : '#FFE082'}` }}>
-            <AlertTriangle size={16} style={{ color: '#D4A843' }} />
-            <span className="text-xs font-bold" style={{ color: isDark ? '#FFD54F' : '#8D6E00' }}>Action Needed</span>
-            {stats.pendingKycCount > 0 && (
-              <button
-                onClick={() => router.push('/admin/brokerages')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                style={{ background: isDark ? '#332800' : '#FFF3CD', color: isDark ? '#FFD54F' : '#8D6E00', border: `1px solid ${isDark ? '#5C4A00' : '#FFE082'}` }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? '#443500' : '#FFECB3' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = isDark ? '#332800' : '#FFF3CD' }}
-              >
-                <UserCheck size={13} />
-                {stats.pendingKycCount} ID{stats.pendingKycCount !== 1 ? 's' : ''} to verify
-              </button>
-            )}
-            {stats.pendingDocReviewCount > 0 && (
-              <button
-                onClick={() => { setStatusFilter('under_review'); setCurrentPage(1) }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                style={{ background: isDark ? '#332800' : '#FFF3CD', color: isDark ? '#FFD54F' : '#8D6E00', border: `1px solid ${isDark ? '#5C4A00' : '#FFE082'}` }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? '#443500' : '#FFECB3' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = isDark ? '#332800' : '#FFF3CD' }}
-              >
-                <FileText size={13} />
-                {stats.pendingDocReviewCount} deal{stats.pendingDocReviewCount !== 1 ? 's' : ''} under review
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Quick Links */}
         <div className="flex flex-wrap gap-2 mb-4">
           <button
+            onClick={() => router.push('/admin/messages')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors relative"
+            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
+          >
+            <MessageSquare size={14} style={{ color: colors.gold }} />
+            Messages
+            {stats.unreadAgentMessages > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                {stats.unreadAgentMessages}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => router.push('/admin/brokerages')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors relative"
             style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
             onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
             onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
           >
             <Building2 size={14} style={{ color: colors.gold }} />
             Brokerages
+            {stats.pendingKycCount > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                {stats.pendingKycCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => router.push('/admin/reports')}
@@ -349,6 +374,11 @@ export default function AdminDashboard() {
           ].map((tab) => {
             const isActive = statusFilter === tab.value
             const count = tab.value ? allDeals.filter(d => d.status === tab.value).length : allDeals.length
+            // Count unread messages for deals in this status
+            const unreadInStatus = tab.value
+              ? allDeals.filter(d => d.status === tab.value && stats.dealsWithUnreadMessages.includes(d.id)).length
+              : stats.unreadAgentMessages
+            const showNotificationDot = tab.value === 'under_review' && (count > 0 || unreadInStatus > 0)
             return (
               <button
                 key={tab.label}
@@ -363,6 +393,11 @@ export default function AdminDashboard() {
               >
                 {tab.label}
                 <span className="text-xs opacity-60">({count})</span>
+                {showNotificationDot && (
+                  <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                    {unreadInStatus > 0 ? unreadInStatus : '!'}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -461,7 +496,17 @@ export default function AdminDashboard() {
                           onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
+                          <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>
+                            <span className="flex items-center gap-1.5">
+                              {deal.property_address}
+                              {stats.dealsWithUnreadMessages.includes(deal.id) && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#DC262615', color: '#DC2626', flexShrink: 0 }}>
+                                  <MessageSquare size={11} />
+                                  New
+                                </span>
+                              )}
+                            </span>
+                          </td>
                           <td className="px-4 py-2.5">
                             <span
                               className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"

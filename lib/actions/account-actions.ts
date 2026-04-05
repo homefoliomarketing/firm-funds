@@ -483,15 +483,29 @@ export async function sendDealMessage(input: {
 
     if (insertErr) return { success: false, error: `Failed to send message: ${insertErr.message}` }
 
-    // Send email notification
-    sendDealMessageNotification({
-      dealId: deal.id,
-      propertyAddress: deal.property_address,
-      agentEmail: agent.email,
-      agentFirstName: agent.first_name,
-      message: input.message.trim(),
-      senderName: profile?.full_name || 'Firm Funds',
-    })
+    // Send email notification — throttled to 1 per deal per 15 min to avoid spam during back-and-forth
+    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
+    const { data: recentAdminMsgs } = await serviceClient
+      .from('deal_messages')
+      .select('id')
+      .eq('deal_id', deal.id)
+      .eq('sender_role', 'admin')
+      .neq('id', msg.id) // exclude the message we just inserted
+      .gte('created_at', fifteenMinsAgo)
+      .limit(1)
+
+    const shouldSendEmail = !recentAdminMsgs || recentAdminMsgs.length === 0
+
+    if (shouldSendEmail) {
+      sendDealMessageNotification({
+        dealId: deal.id,
+        propertyAddress: deal.property_address,
+        agentEmail: agent.email,
+        agentFirstName: agent.first_name,
+        message: input.message.trim(),
+        senderName: profile?.full_name || 'Firm Funds',
+      })
+    }
 
     await logAuditEvent({
       action: 'message.sent',
