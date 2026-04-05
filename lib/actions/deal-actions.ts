@@ -559,6 +559,55 @@ export async function toggleChecklistItemNA(input: {
 }
 
 // ============================================================================
+// Server Action: Link/unlink a document to a checklist item (admin only)
+// ============================================================================
+
+export async function linkDocumentToChecklist(input: {
+  checklistItemId: string
+  documentId: string | null  // null = unlink
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // If unlinking, verify the item is NOT already checked (locked)
+    if (input.documentId === null) {
+      const { data: item } = await supabase
+        .from('underwriting_checklist')
+        .select('is_checked')
+        .eq('id', input.checklistItemId)
+        .single()
+
+      if (item?.is_checked) {
+        return { success: false, error: 'Cannot unlink document from a confirmed checklist item. Uncheck the item first.' }
+      }
+    }
+
+    const { error } = await supabase
+      .from('underwriting_checklist')
+      .update({ linked_document_id: input.documentId })
+      .eq('id', input.checklistItemId)
+
+    if (error) {
+      console.error('Link document error:', error.message)
+      return { success: false, error: 'Failed to link document to checklist item' }
+    }
+
+    await logAuditEvent({
+      action: input.documentId ? 'checklist.link_document' : 'checklist.unlink_document',
+      entityType: 'deal',
+      entityId: input.checklistItemId,
+      metadata: { documentId: input.documentId },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Link document error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Server Action: Delete document (admin only)
 // ============================================================================
 

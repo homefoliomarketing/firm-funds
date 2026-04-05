@@ -8,7 +8,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink
+  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -22,6 +22,7 @@ import {
   fulfillDocumentRequest,
   cancelDocumentRequest,
   deleteDeal,
+  linkDocumentToChecklist,
 } from '@/lib/actions/deal-actions'
 import {
   sendDealMessage,
@@ -393,6 +394,7 @@ interface DocumentReturn {
 interface ChecklistItem {
   id: string; deal_id: string; category: string; checklist_item: string; is_checked: boolean
   is_na: boolean; checked_by: string | null; checked_at: string | null; notes: string | null; sort_order: number
+  linked_document_id: string | null
 }
 
 interface DealDocument {
@@ -582,6 +584,7 @@ export default function DealDetailPage() {
   const [messageText, setMessageText] = useState('')
   const [messageSending, setMessageSending] = useState(false)
   const adminMessagesContainerRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   // Document returns
   const [docReturns, setDocReturns] = useState<DocumentReturn[]>([])
   const [returningDocId, setReturningDocId] = useState<string | null>(null)
@@ -595,8 +598,11 @@ export default function DealDetailPage() {
   const [agentBalance, setAgentBalance] = useState<number>(0)
   // Collapsible sections
   const [notesExpanded, setNotesExpanded] = useState(false)
-  const [messagesExpanded, setMessagesExpanded] = useState(true)
+  const [messagesExpanded, setMessagesExpanded] = useState(false)
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
+  // Drag-and-drop: link documents to checklist items
+  const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
+  const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -610,18 +616,20 @@ export default function DealDetailPage() {
 
   useEffect(() => { loadDealData() }, [dealId])
 
-  // Auto-scroll messages container to bottom when messages change
+  // Auto-scroll messages container to bottom when messages change or section expands
   useEffect(() => {
     if (messages.length > 0 && messagesExpanded) {
-      const raf = requestAnimationFrame(() => {
-        setTimeout(() => {
-          const container = adminMessagesContainerRef.current
-          if (container) {
-            container.scrollTop = container.scrollHeight
-          }
-        }, 50)
-      })
-      return () => cancelAnimationFrame(raf)
+      // Use multiple strategies for reliability
+      const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ block: 'end' })
+      }
+      // Immediate attempt
+      scrollToBottom()
+      // Delayed attempt (after DOM paint)
+      const raf = requestAnimationFrame(() => scrollToBottom())
+      // Extra safety net
+      const timer = setTimeout(scrollToBottom, 200)
+      return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
     }
   }, [messages.length, messagesExpanded])
 
@@ -730,6 +738,58 @@ export default function DealDetailPage() {
       // Revert on failure
       setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: prevItem.is_na, is_checked: prevItem.is_checked } : c))
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update' })
+    }
+  }
+
+  // ---- Drag-and-drop: link documents to checklist items ----
+  const handleDocDragStart = (e: React.DragEvent, docId: string) => {
+    e.dataTransfer.setData('text/plain', docId)
+    e.dataTransfer.effectAllowed = 'link'
+    setDraggingDocId(docId)
+  }
+  const handleDocDragEnd = () => {
+    setDraggingDocId(null)
+    setDropTargetItemId(null)
+  }
+  const handleChecklistDragOver = (e: React.DragEvent, item: ChecklistItem) => {
+    // Don't allow drop on checked/NA items (locked) or items that already have a linked doc
+    if (item.is_checked || item.is_na) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'link'
+    setDropTargetItemId(item.id)
+  }
+  const handleChecklistDragLeave = () => {
+    setDropTargetItemId(null)
+  }
+  const handleChecklistDrop = async (e: React.DragEvent, item: ChecklistItem) => {
+    e.preventDefault()
+    setDropTargetItemId(null)
+    setDraggingDocId(null)
+    if (item.is_checked || item.is_na) return
+    const docId = e.dataTransfer.getData('text/plain')
+    if (!docId) return
+    // Optimistic update
+    setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: docId } : c))
+    const result = await linkDocumentToChecklist({ checklistItemId: item.id, documentId: docId })
+    if (!result.success) {
+      // Revert
+      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: item.linked_document_id } : c))
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to link document' })
+    }
+  }
+  const handleUnlinkDocument = async (e: React.MouseEvent, item: ChecklistItem) => {
+    e.stopPropagation()
+    if (item.is_checked) {
+      setStatusMessage({ type: 'error', text: 'Uncheck the item first before removing the linked document.' })
+      return
+    }
+    const prevDocId = item.linked_document_id
+    // Optimistic
+    setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: null } : c))
+    const result = await linkDocumentToChecklist({ checklistItemId: item.id, documentId: null })
+    if (!result.success) {
+      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: prevDocId } : c))
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to unlink document' })
     }
   }
 
@@ -1761,12 +1821,17 @@ export default function DealDetailPage() {
                     return (
                       <button
                         key={doc.id}
+                        draggable
+                        onDragStart={(e) => handleDocDragStart(e, doc.id)}
+                        onDragEnd={handleDocDragEnd}
                         onClick={() => isViewable ? handleDocumentView(doc) : handleDocumentDownload(doc)}
                         className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all flex-shrink-0"
                         style={{
                           background: isActive ? `${colors.gold}20` : colors.tableHeaderBg,
                           color: isActive ? colors.gold : colors.textSecondary,
                           border: `1px solid ${isActive ? colors.gold : colors.border}`,
+                          opacity: draggingDocId === doc.id ? 0.5 : 1,
+                          cursor: 'grab',
                         }}
                         onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.borderColor = colors.gold }}
                         onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.borderColor = colors.border }}
@@ -1818,18 +1883,25 @@ export default function DealDetailPage() {
                         const matchingDocs = category.matchingDocs.get(item.id) || []
                         const checked = item.is_checked
                         const na = item.is_na
+                        const linkedDoc = item.linked_document_id ? documents.find(d => d.id === item.linked_document_id) : null
+                        const isDropTarget = dropTargetItemId === item.id
                         return (
                           <div
                             key={item.id}
                             onClick={() => handleChecklistToggle(item)}
+                            onDragOver={(e) => handleChecklistDragOver(e, item)}
+                            onDragLeave={handleChecklistDragLeave}
+                            onDrop={(e) => handleChecklistDrop(e, item)}
                             className="flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all duration-200 select-none"
                             style={{
                               borderBottom: `1px solid ${colors.divider}`,
-                              background: na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent',
+                              background: isDropTarget ? `${colors.gold}1A` : na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent',
                               opacity: na ? 0.6 : 1,
+                              outline: isDropTarget ? `2px dashed ${colors.gold}` : 'none',
+                              outlineOffset: '-2px',
                             }}
-                            onMouseEnter={(e) => { if (!checked && !na) e.currentTarget.style.background = `${colors.gold}0D` }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent' }}
+                            onMouseEnter={(e) => { if (!checked && !na && !isDropTarget) e.currentTarget.style.background = `${colors.gold}0D` }}
+                            onMouseLeave={(e) => { if (!isDropTarget) e.currentTarget.style.background = na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent' }}
                           >
                             <div className="flex-shrink-0 mt-0.5 transition-transform duration-200" style={{ transform: checked ? 'scale(1.1)' : 'scale(1)' }}>
                               {na ? (
@@ -1857,7 +1929,46 @@ export default function DealDetailPage() {
                                   Completed {formatDateTime(item.checked_at)}
                                 </p>
                               )}
-                              {matchingDocs.length > 0 && (
+                              {/* Linked document badge */}
+                              {linkedDoc && (
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <span
+                                    onClick={(e) => { e.stopPropagation(); handleDocumentDownload(linkedDoc) }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity"
+                                    style={{
+                                      background: checked ? `${colors.gold}20` : `${colors.gold}15`,
+                                      color: colors.gold,
+                                      border: `1px solid ${checked ? colors.gold : `${colors.gold}40`}`,
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                                  >
+                                    <Link2 className="w-3 h-3" />
+                                    {linkedDoc.file_name.length > 30 ? linkedDoc.file_name.slice(0, 27) + '...' : linkedDoc.file_name}
+                                    {checked && <span className="ml-1 text-[9px] opacity-70">locked</span>}
+                                  </span>
+                                  {!checked && (
+                                    <button
+                                      onClick={(e) => handleUnlinkDocument(e, item)}
+                                      className="p-0.5 rounded transition-colors"
+                                      style={{ color: colors.textFaint }}
+                                      onMouseEnter={(e) => { e.currentTarget.style.color = colors.errorText }}
+                                      onMouseLeave={(e) => { e.currentTarget.style.color = colors.textFaint }}
+                                      title="Unlink document"
+                                    >
+                                      <Unlink className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {/* Drop hint when dragging */}
+                              {draggingDocId && !linkedDoc && !checked && !na && !isDropTarget && (
+                                <p className="text-[10px] mt-1 italic" style={{ color: colors.textFaint }}>
+                                  Drop document here
+                                </p>
+                              )}
+                              {/* Legacy matching docs (auto-matched, no drag-drop) */}
+                              {matchingDocs.length > 0 && !linkedDoc && (
                                 <div className="mt-1.5 space-y-0.5">
                                   {matchingDocs.map(doc => (
                                     <a
@@ -2115,7 +2226,15 @@ export default function DealDetailPage() {
                 <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: colors.border }}>
                   {documents.length > 0 ? (
                     documents.map(doc => (
-                      <div key={doc.id} className="px-4 py-2 flex items-center gap-3">
+                      <div
+                        key={doc.id}
+                        className="px-4 py-2 flex items-center gap-3"
+                        draggable
+                        onDragStart={(e) => handleDocDragStart(e, doc.id)}
+                        onDragEnd={handleDocDragEnd}
+                        style={{ opacity: draggingDocId === doc.id ? 0.5 : 1, cursor: 'grab' }}
+                      >
+                        <GripVertical className="w-3.5 h-3.5 flex-shrink-0" style={{ color: colors.textFaint }} />
                         <FileText className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
@@ -2217,22 +2336,22 @@ export default function DealDetailPage() {
           </div>
         </div>
 
-        {/* MESSAGES — full width */}
+        {/* MESSAGES — collapsible, audit-trail style */}
         <div id="messages" className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-          <button
+          <div
+            className="flex items-center justify-between px-6 py-3 cursor-pointer"
+            style={{ background: colors.goldBg, borderBottom: messagesExpanded ? `1px solid ${colors.gold}` : 'none' }}
             onClick={() => setMessagesExpanded(!messagesExpanded)}
-            className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
-            style={{ color: colors.gold, background: colors.tableHeaderBg }}
           >
-            <div className="flex items-center gap-1.5">
-              <Send className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+              <Send className="w-4 h-4" />
               Messages
-              {messages.length > 0 && <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ background: colors.cardBg, color: colors.textMuted }}>{messages.length}</span>}
+              {messages.length > 0 && <span className="text-xs font-normal" style={{ color: colors.textMuted }}>({messages.length})</span>}
             </div>
-            {messagesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
+            {messagesExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+          </div>
           {messagesExpanded && (
-            <div className="px-3 py-2">
+            <div className="p-4">
               {messages.length > 0 && (
                 <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-48 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
                   {messages.map(msg => (
@@ -2250,6 +2369,7 @@ export default function DealDetailPage() {
                       <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
                     </div>
                   ))}
+                  <div ref={messagesEndRef} />
                 </div>
               )}
               {messages.length === 0 && (
