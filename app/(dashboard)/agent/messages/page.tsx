@@ -192,13 +192,13 @@ export default function AgentMessagesPage() {
           </div>
         )}
 
-        {inbox.length === 0 && pendingReturns.length === 0 ? (
-          /* Empty state */
+        {inbox.length === 0 ? (
+          /* Empty state — agent has no active deals at all */
           <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
             <Inbox className="mx-auto mb-4" size={48} style={{ color: colors.textFaint }} />
-            <p className="text-lg font-semibold" style={{ color: colors.textSecondary }}>No messages yet</p>
+            <p className="text-lg font-semibold" style={{ color: colors.textSecondary }}>No active deals</p>
             <p className="text-sm mt-2" style={{ color: colors.textMuted }}>
-              When Firm Funds sends you messages or returns documents, they&apos;ll show up here.
+              Submit an advance request to get started. You can message the Firm Funds team about any active deal.
             </p>
           </div>
         ) : (
@@ -306,8 +306,15 @@ export default function AgentMessagesPage() {
                         className={`text-xs mt-1.5 truncate ${hasUnread ? 'font-medium' : ''}`}
                         style={{ color: hasUnread ? colors.textSecondary : colors.textMuted }}
                       >
-                        {item.latest_sender_role === 'admin' ? 'Firm Funds: ' : 'You: '}
-                        {item.latest_message || (item.pending_return_count > 0 ? 'Document returned for revision' : '')}
+                        {item.total_message_count === 0 && item.pending_return_count === 0
+                          ? 'No messages yet — tap to start a conversation'
+                          : (
+                            <>
+                              {item.latest_sender_role === 'admin' ? 'Firm Funds: ' : item.latest_sender_role === 'agent' ? 'You: ' : ''}
+                              {item.latest_message || (item.pending_return_count > 0 ? 'Document returned for revision' : '')}
+                            </>
+                          )
+                        }
                       </p>
                     </button>
                   )
@@ -407,7 +414,11 @@ export default function AgentMessagesPage() {
                       </div>
                     ) : messages.length === 0 ? (
                       <div className="flex items-center justify-center h-full">
-                        <p className="text-xs" style={{ color: colors.textMuted }}>No messages in this thread yet</p>
+                        <div className="text-center">
+                          <MessageSquare size={32} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
+                          <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>No messages yet</p>
+                          <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Send a message to the Firm Funds team below</p>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -449,7 +460,7 @@ export default function AgentMessagesPage() {
                       type="text"
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
-                      placeholder="Type a reply..."
+                      placeholder={messages.length > 0 ? 'Type a reply...' : 'Type a message...'}
                       className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none"
                       style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
                       onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}

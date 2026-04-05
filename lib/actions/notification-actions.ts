@@ -116,7 +116,7 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
     // Get all deals for this agent
     const { data: deals } = await serviceClient
       .from('deals')
-      .select('id, property_address, status, closing_date')
+      .select('id, property_address, status, closing_date, created_at')
       .eq('agent_id', agentId)
 
     if (!deals || deals.length === 0) {
@@ -171,14 +171,15 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
       deal_documents: docNameMap.get(r.document_id) || { file_name: 'Document', document_type: 'other' },
     }))
 
-    // Build inbox items: only deals that have messages OR pending returns
+    // Build inbox items: ALL active deals (agents can start conversations on any deal)
     const inboxDeals: InboxDeal[] = []
 
     for (const deal of deals) {
+      // Skip denied/cancelled deals — no reason to message about those
+      if (['denied', 'cancelled'].includes(deal.status)) continue
+
       const msgs = (allMessages || []).filter(m => m.deal_id === deal.id)
       const returns = (allReturns || []).filter(r => r.deal_id === deal.id)
-
-      if (msgs.length === 0 && returns.length === 0) continue
 
       const latestMsg = msgs[0] // already sorted desc
       const lastRead = readMap.get(deal.id)
@@ -194,8 +195,8 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
         deal_status: deal.status,
         closing_date: deal.closing_date,
         latest_message: latestMsg?.message || '',
-        latest_message_at: latestMsg?.created_at || returns[0]?.created_at || '',
-        latest_sender_role: latestMsg?.sender_role || 'system',
+        latest_message_at: latestMsg?.created_at || returns[0]?.created_at || deal.created_at || '',
+        latest_sender_role: latestMsg?.sender_role || '',
         latest_sender_name: latestMsg?.sender_name || null,
         unread_message_count: unreadCount,
         pending_return_count: returns.length,
@@ -203,8 +204,12 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
       })
     }
 
-    // Sort by most recent activity (latest message or return)
+    // Sort: deals with unread messages first, then by most recent activity
     inboxDeals.sort((a, b) => {
+      // Unread first
+      if (a.unread_message_count > 0 && b.unread_message_count === 0) return -1
+      if (b.unread_message_count > 0 && a.unread_message_count === 0) return 1
+      // Then by latest activity
       const aTime = new Date(a.latest_message_at).getTime() || 0
       const bTime = new Date(b.latest_message_at).getTime() || 0
       return bTime - aTime
