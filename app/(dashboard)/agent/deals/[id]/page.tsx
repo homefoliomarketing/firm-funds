@@ -71,6 +71,7 @@ export default function AgentDealDetailPage() {
   const [replyText, setReplyText] = useState('')
   const [replySending, setReplySending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const initialMessageCountRef = useRef<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('aps')
@@ -116,10 +117,17 @@ export default function AgentDealDetailPage() {
     }
   }, [loading])
 
-  // Scroll thread to bottom whenever new messages arrive
+  // Scroll thread to bottom only when NEW messages arrive (not on initial load)
   useEffect(() => {
     if (dealMessages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      if (initialMessageCountRef.current === null) {
+        // First load — record the count but don't scroll
+        initialMessageCountRef.current = dealMessages.length
+      } else if (dealMessages.length > initialMessageCountRef.current) {
+        // New message added after initial load — scroll to it
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        initialMessageCountRef.current = dealMessages.length
+      }
     }
   }, [dealMessages.length])
 
