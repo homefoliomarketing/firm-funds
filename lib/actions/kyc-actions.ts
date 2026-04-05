@@ -273,7 +273,8 @@ export async function verifyAgentKyc(input: {
       if (agentDeals && agentDeals.length > 0) {
         const dealIds = agentDeals.map(d => d.id)
 
-        // Check off "Agent ID & KYC/FINTRAC verification" in underwriting_checklist
+        // Check off "Agent ID - FINTRAC Verification" in underwriting_checklist
+        // NOTE: Must match EXACT checklist_item text from migration 017
         await serviceClient
           .from('underwriting_checklist')
           .update({
@@ -283,9 +284,10 @@ export async function verifyAgentKyc(input: {
             notes: 'Auto-checked: Agent KYC verified',
           })
           .in('deal_id', dealIds)
-          .eq('checklist_item', 'Agent ID & KYC/FINTRAC verification')
+          .eq('checklist_item', 'Agent ID - FINTRAC Verification')
 
         // Auto-attach the agent's KYC document to each deal as a kyc_fintrac document
+        // AND auto-link it to the checklist item
         if (fullAgent?.kyc_document_path) {
           for (const deal of agentDeals) {
             // Check if a kyc_fintrac doc already exists for this deal
@@ -297,11 +299,13 @@ export async function verifyAgentKyc(input: {
               .limit(1)
               .single()
 
-            if (!existingDoc) {
+            let docId = existingDoc?.id
+
+            if (!docId) {
               const ext = fullAgent.kyc_document_path.split('.').pop() || 'jpg'
               const fileName = `agent-kyc-id.${ext}`
 
-              await serviceClient
+              const { data: newDoc } = await serviceClient
                 .from('deal_documents')
                 .insert({
                   deal_id: deal.id,
@@ -313,6 +317,19 @@ export async function verifyAgentKyc(input: {
                   upload_source: 'manual_upload',
                   notes: `Auto-attached: Agent KYC ${fullAgent.kyc_document_type || 'ID'} verified by ${profile.full_name || user.email}`,
                 })
+                .select('id')
+                .single()
+
+              docId = newDoc?.id
+            }
+
+            // Auto-link the KYC document to the checklist item
+            if (docId) {
+              await serviceClient
+                .from('underwriting_checklist')
+                .update({ linked_document_id: docId })
+                .eq('deal_id', deal.id)
+                .eq('checklist_item', 'Agent ID - FINTRAC Verification')
             }
           }
         }

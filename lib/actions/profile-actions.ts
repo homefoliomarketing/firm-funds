@@ -122,6 +122,55 @@ export async function updateAgentBanking(data: {
     },
   })
 
+  // Auto-attach preauth form to all agent's deals if it exists
+  try {
+    const { data: agent } = await serviceClient
+      .from('agents')
+      .select('preauth_form_path')
+      .eq('id', data.agentId)
+      .single()
+
+    if (agent?.preauth_form_path) {
+      const { data: agentDeals } = await serviceClient
+        .from('deals')
+        .select('id')
+        .eq('agent_id', data.agentId)
+
+      if (agentDeals && agentDeals.length > 0) {
+        for (const deal of agentDeals) {
+          // Check if preauth doc already exists for this deal
+          const { data: existing } = await serviceClient
+            .from('deal_documents')
+            .select('id')
+            .eq('deal_id', deal.id)
+            .eq('document_type', 'other')
+            .ilike('file_name', '%preauth%')
+            .limit(1)
+            .single()
+
+          if (!existing) {
+            const ext = agent.preauth_form_path.split('.').pop() || 'pdf'
+            await serviceClient
+              .from('deal_documents')
+              .insert({
+                deal_id: deal.id,
+                uploaded_by: user.id,
+                document_type: 'other',
+                file_name: `preauth-debit-form.${ext}`,
+                file_path: `agent-preauth-forms/${agent.preauth_form_path}`,
+                file_size: 0,
+                upload_source: 'manual_upload',
+                notes: 'Auto-attached: Pre-authorized debit form (banking verified)',
+              })
+          }
+        }
+      }
+    }
+  } catch (preauthErr: any) {
+    // Non-fatal — don't fail the banking verification
+    console.error('Auto-attach preauth form error (non-fatal):', preauthErr?.message)
+  }
+
   return { success: true }
 }
 
