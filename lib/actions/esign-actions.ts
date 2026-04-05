@@ -198,6 +198,12 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
               { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
               { documentId: '2', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
             ],
+            initialHereTabs: [
+              // CPA — initials on pages 1-4 (page 5 is signature page, no initials needed)
+              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              // IDP — initials on page 1 (page 2 is signature page)
+              { documentId: '2', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
           },
         },
       ],
@@ -345,6 +351,14 @@ export async function getDealSignatureStatus(dealId: string): Promise<ActionResu
 function generateCpaHtml(data: Record<string, string>): string {
   const r = (key: string) => data[key] || key
 
+  const pageFooter = (pageNum: number, totalPages: number) => `
+<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center;">
+  <span style="font-size: 9pt; color: #666;">Page ${pageNum} of ${totalPages}</span>
+  <span style="font-size: 8pt; color: #999;">Seller Initials: /ini1/</span>
+</div>`
+
+  const totalPages = 5
+
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
@@ -355,15 +369,15 @@ function generateCpaHtml(data: Record<string, string>): string {
   .parties { margin-left: 40px; margin-bottom: 10px; }
   .indent { margin-left: 20px; }
   .section { margin-bottom: 8px; }
-  .lettered { margin-left: 40px; margin-bottom: 4px; }
   table.schedule { width: 100%; border-collapse: collapse; margin: 10px 0; }
   table.schedule td, table.schedule th { border: 1px solid #999; padding: 6px 10px; font-size: 11pt; }
   table.schedule th { background: #eee; text-align: left; font-weight: bold; }
-  .sig-line { border-bottom: 1px solid #000; width: 300px; display: inline-block; margin-bottom: 4px; }
   .sig-block { margin-top: 30px; }
   .page-break { page-break-before: always; }
   .header { text-align: center; font-size: 9pt; color: #666; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 8px; }
 </style></head><body>
+
+<!-- PAGE 1: Title, Parties, Recitals, Definitions -->
 <div class="header">FIRM FUNDS INC. — Commission Purchase Agreement</div>
 <h1>COMMISSION PURCHASE AGREEMENT</h1>
 <p class="subtitle">True Sale of Commission Receivable</p>
@@ -397,6 +411,11 @@ function generateCpaHtml(data: Record<string, string>): string {
 <p class="indent"><strong>"Purchase Price"</strong> means the amount paid by the Purchaser to the Seller, being the Face Value less the Purchase Discount;</p>
 <p class="indent"><strong>"Referral Fee"</strong> means any referral or cooperation fee payable by the Purchaser to the Brokerage in connection with this transaction;</p>
 <p class="indent"><strong>"RECO"</strong> means the Real Estate Council of Ontario.</p>
+${pageFooter(1, totalPages)}
+
+<!-- PAGE 2: Articles 2–7 -->
+<div class="page-break"></div>
+<div class="header">FIRM FUNDS INC. — Commission Purchase Agreement</div>
 
 <h2>ARTICLE 2 — PURCHASE AND SALE</h2>
 <p class="section"><strong>2.1 Sale and Assignment.</strong> The Seller hereby sells, assigns, and transfers to the Purchaser, absolutely and unconditionally, all of the Seller's right, title, interest, and entitlement in and to the Commission, free and clear of all liens, charges, encumbrances, claims, and security interests of any kind.</p>
@@ -427,6 +446,11 @@ function generateCpaHtml(data: Record<string, string>): string {
 <p class="section"><strong>7.1 Substitution.</strong> If the Real Estate Transaction does not close, the Seller shall use commercially reasonable efforts, within thirty (30) days, to identify and offer a substitute commission receivable of equal or greater Face Value.</p>
 <p class="section"><strong>7.2 Repayment Arrangement.</strong> If the Seller is unable to provide a substitute commission, the Seller shall enter into a reasonable repayment arrangement: (a) repayment of the Purchase Price only; (b) not exceeding six (6) monthly installments; (c) no additional fees or penalties; (d) no compounding or escalation.</p>
 <p class="section"><strong>7.3 Recovery Balance.</strong> Any amount owing by the Seller shall be recorded as a recovery balance on the Seller's account with the Purchaser. The Purchaser may offset any recovery balance against future commission purchases.</p>
+${pageFooter(2, totalPages)}
+
+<!-- PAGE 3: Articles 8–12 -->
+<div class="page-break"></div>
+<div class="header">FIRM FUNDS INC. — Commission Purchase Agreement</div>
 
 <h2>ARTICLE 8 — SELLER'S REPRESENTATIONS AND WARRANTIES</h2>
 <p class="section">The Seller represents and warrants: (a) valid RECO registration and good standing; (b) full authority to sell and assign the Commission; (c) firm transaction with all conditions satisfied; (d) no prior assignment of the Commission; (e) no impediments to closing; (f) all information provided is true and accurate; (g) no pending litigation; (h) no PPSA registrations against the Commission; (i) buyer financing verified; (j) sufficient proceeds to pay the Commission.</p>
@@ -442,7 +466,9 @@ function generateCpaHtml(data: Record<string, string>): string {
 
 <h2>ARTICLE 12 — GENERAL PROVISIONS</h2>
 <p class="section">Governed by the laws of Ontario. Electronic signatures valid under the Electronic Commerce Act, 2000 (Ontario). Each Party has been advised to obtain independent legal advice.</p>
+${pageFooter(3, totalPages)}
 
+<!-- PAGE 4: Schedule A -->
 <div class="page-break"></div>
 <div class="header">FIRM FUNDS INC. — Commission Purchase Agreement — Schedule "A"</div>
 <h2 style="text-align:center;">SCHEDULE "A" — TRANSACTION DETAILS</h2>
@@ -463,7 +489,9 @@ function generateCpaHtml(data: Record<string, string>): string {
 <tr><td>Brokerage Address</td><td>${r('{{BROKERAGE_ADDRESS}}')}</td></tr>
 <tr><td>Broker of Record</td><td>${r('{{BROKER_OF_RECORD}}')}</td></tr>
 </table>
+${pageFooter(4, totalPages)}
 
+<!-- PAGE 5: Signature Page -->
 <div class="page-break"></div>
 <div class="header">FIRM FUNDS INC. — Commission Purchase Agreement — Signature Page</div>
 <h2 style="text-align:center;">SIGNATURE PAGE</h2>
@@ -482,6 +510,10 @@ function generateCpaHtml(data: Record<string, string>): string {
 <p>Title: President</p>
 </div>
 
+<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc;">
+  <span style="font-size: 9pt; color: #666;">Page ${totalPages} of ${totalPages}</span>
+</div>
+
 </body></html>`
 }
 
@@ -497,13 +529,15 @@ function generateIdpHtml(data: Record<string, string>): string {
   .subtitle { text-align: center; font-style: italic; margin-bottom: 30px; }
   .indent { margin-left: 20px; }
   .section { margin-bottom: 8px; }
-  .lettered { margin-left: 40px; margin-bottom: 4px; }
   table.info { border-collapse: collapse; margin: 10px 0; }
   table.info td { border: 1px solid #999; padding: 6px 10px; font-size: 11pt; }
   table.info td:first-child { font-weight: bold; background: #f5f5f5; width: 200px; }
   .sig-block { margin-top: 30px; }
+  .page-break { page-break-before: always; }
   .header { text-align: center; font-size: 9pt; color: #666; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 8px; }
 </style></head><body>
+
+<!-- PAGE 1: Direction, Payment Details, Brokerage Auth -->
 <div class="header">FIRM FUNDS INC. — Irrevocable Direction to Pay</div>
 <h1>IRREVOCABLE DIRECTION TO PAY</h1>
 <p class="subtitle">Commission Payment Direction</p>
@@ -537,6 +571,15 @@ function generateIdpHtml(data: Record<string, string>): string {
 <h2>BROKERAGE AUTHORIZATION</h2>
 <p>I acknowledge that the Brokerage has entered into a Brokerage Cooperation Agreement with Firm Funds Inc., under which the Brokerage has agreed to honour Irrevocable Directions to Pay. A copy of this Direction will be provided to the Brokerage upon execution.</p>
 
+<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center;">
+  <span style="font-size: 9pt; color: #666;">Page 1 of 2</span>
+  <span style="font-size: 8pt; color: #999;">Agent Initials: /ini1/</span>
+</div>
+
+<!-- PAGE 2: Remaining Clauses + Signature -->
+<div class="page-break"></div>
+<div class="header">FIRM FUNDS INC. — Irrevocable Direction to Pay</div>
+
 <h2>EXTENSION FEE ACKNOWLEDGMENT</h2>
 <p>I acknowledge that an Extension Fee may apply if the real estate transaction does not close on or before the Expected Closing Date. The Extension Fee applies at the rate of $0.75 per $1,000.00 of Face Value per day, following a five (5) calendar day grace period after the Expected Closing Date.</p>
 
@@ -555,6 +598,10 @@ function generateIdpHtml(data: Record<string, string>): string {
 <p>RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}</p>
 <p style="margin-top: 40px;"><em>Signature: /sig1/</em></p>
 <p><em>Date Signed: /dat1/</em></p>
+</div>
+
+<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc;">
+  <span style="font-size: 9pt; color: #666;">Page 2 of 2</span>
 </div>
 
 </body></html>`

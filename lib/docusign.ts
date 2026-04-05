@@ -215,6 +215,7 @@ interface EnvelopeRecipient {
   tabs?: {
     signHereTabs?: { documentId: string; anchorString: string; anchorXOffset: string; anchorYOffset: string; anchorUnits?: string }[]
     dateSignedTabs?: { documentId: string; anchorString: string; anchorXOffset: string; anchorYOffset: string; anchorUnits?: string }[]
+    initialHereTabs?: { documentId: string; anchorString: string; anchorXOffset: string; anchorYOffset: string; anchorUnits?: string }[]
   }
 }
 
