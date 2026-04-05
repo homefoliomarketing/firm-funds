@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents } from '@/lib/actions/admin-actions'
+import { updateAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
@@ -25,6 +26,13 @@ interface Agent {
   status: 'active' | 'suspended' | 'archived'
   flagged_by_brokerage: boolean
   outstanding_recovery: number
+  // Banking fields
+  bank_transit_number: string | null
+  bank_institution_number: string | null
+  bank_account_number: string | null
+  banking_verified: boolean
+  preauth_form_path: string | null
+  preauth_form_uploaded_at: string | null
   created_at: string
 }
 
@@ -124,6 +132,12 @@ export default function BrokeragesPage() {
   const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
   const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; fileName: string; agentName: string; agentId: string } | null>(null)
   const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
+  // Banking state
+  const [bankingForm, setBankingForm] = useState<{ transit: string; institution: string; account: string }>({ transit: '', institution: '', account: '' })
+  const [bankingEditingAgentId, setBankingEditingAgentId] = useState<string | null>(null)
+  const [bankingSaving, setBankingSaving] = useState(false)
+  const [bankingMessage, setBankingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [preauthViewingAgentId, setPreauthViewingAgentId] = useState<string | null>(null)
   const kycPanelWidth = 520
   const closeKycPanel = () => {
     if (kycPreviewPanel) {
@@ -1722,6 +1736,175 @@ export default function BrokeragesPage() {
                                         <tr key={`deals-${agent.id}`} style={{ background: colors.cardBg, borderBottom: idx < agentCount - 1 ? `1px solid ${colors.divider}` : 'none' }}>
                                           <td colSpan={7} className="px-4 py-4">
                                             <div style={{ marginLeft: '20px' }}>
+                                              {/* Banking Information */}
+                                              <div className="mb-5 p-3 rounded-lg" style={{ background: colors.tableRowHoverBg, border: `1px solid ${colors.border}` }}>
+                                                <div className="flex items-center justify-between mb-2">
+                                                  <h4 className="text-xs font-semibold flex items-center gap-1.5" style={{ color: colors.textPrimary }}>
+                                                    <CreditCard size={13} style={{ color: colors.gold }} />
+                                                    Banking Information
+                                                  </h4>
+                                                  <div className="flex items-center gap-2">
+                                                    {agent.preauth_form_path && (
+                                                      <button
+                                                        onClick={async () => {
+                                                          try {
+                                                            setPreauthViewingAgentId(agent.id)
+                                                            const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path!, 300)
+                                                            if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                                                          } catch { /* ignore */ }
+                                                          setPreauthViewingAgentId(null)
+                                                        }}
+                                                        disabled={preauthViewingAgentId === agent.id}
+                                                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors"
+                                                        style={{ background: colors.inputBg, color: colors.gold, border: `1px solid ${colors.border}` }}
+                                                      >
+                                                        <Eye size={12} />
+                                                        {preauthViewingAgentId === agent.id ? 'Loading...' : 'View Pre-Auth Form'}
+                                                      </button>
+                                                    )}
+                                                    {!agent.preauth_form_path && (
+                                                      <span className="text-xs" style={{ color: colors.textMuted }}>No pre-auth form uploaded</span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                                {agent.banking_verified && agent.bank_transit_number ? (
+                                                  <div className="flex items-center gap-4">
+                                                    <div className="flex items-center gap-1.5">
+                                                      <CheckCircle size={13} style={{ color: colors.gold }} />
+                                                      <span className="text-xs font-medium" style={{ color: colors.gold }}>Verified</span>
+                                                    </div>
+                                                    <span className="text-xs font-mono" style={{ color: colors.textSecondary }}>
+                                                      Transit: {agent.bank_transit_number} · Inst: {agent.bank_institution_number} · Acct: {'•'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
+                                                    </span>
+                                                    <button
+                                                      onClick={() => {
+                                                        setBankingEditingAgentId(agent.id)
+                                                        setBankingForm({
+                                                          transit: agent.bank_transit_number || '',
+                                                          institution: agent.bank_institution_number || '',
+                                                          account: agent.bank_account_number || '',
+                                                        })
+                                                        setBankingMessage(null)
+                                                      }}
+                                                      className="text-xs font-medium transition-colors"
+                                                      style={{ color: colors.textMuted }}
+                                                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
+                                                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                                                    >
+                                                      Edit
+                                                    </button>
+                                                  </div>
+                                                ) : bankingEditingAgentId === agent.id ? null : (
+                                                  <button
+                                                    onClick={() => {
+                                                      setBankingEditingAgentId(agent.id)
+                                                      setBankingForm({ transit: '', institution: '', account: '' })
+                                                      setBankingMessage(null)
+                                                    }}
+                                                    className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                                    style={{ background: colors.gold, color: '#FFFFFF' }}
+                                                  >
+                                                    Enter Banking Info
+                                                  </button>
+                                                )}
+                                                {bankingEditingAgentId === agent.id && (
+                                                  <div className="mt-3 flex items-end gap-2 flex-wrap">
+                                                    <div>
+                                                      <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Transit (5 digits)</label>
+                                                      <input
+                                                        type="text"
+                                                        maxLength={5}
+                                                        value={bankingForm.transit}
+                                                        onChange={(e) => setBankingForm(f => ({ ...f, transit: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                                                        placeholder="12345"
+                                                        className="w-24 rounded px-2 py-1.5 text-xs font-mono outline-none"
+                                                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                                                        onFocus={(e) => e.currentTarget.style.borderColor = colors.gold}
+                                                        onBlur={(e) => e.currentTarget.style.borderColor = colors.inputBorder}
+                                                      />
+                                                    </div>
+                                                    <div>
+                                                      <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Institution (3 digits)</label>
+                                                      <input
+                                                        type="text"
+                                                        maxLength={3}
+                                                        value={bankingForm.institution}
+                                                        onChange={(e) => setBankingForm(f => ({ ...f, institution: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
+                                                        placeholder="001"
+                                                        className="w-16 rounded px-2 py-1.5 text-xs font-mono outline-none"
+                                                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                                                        onFocus={(e) => e.currentTarget.style.borderColor = colors.gold}
+                                                        onBlur={(e) => e.currentTarget.style.borderColor = colors.inputBorder}
+                                                      />
+                                                    </div>
+                                                    <div>
+                                                      <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Account (7-12 digits)</label>
+                                                      <input
+                                                        type="text"
+                                                        maxLength={12}
+                                                        value={bankingForm.account}
+                                                        onChange={(e) => setBankingForm(f => ({ ...f, account: e.target.value.replace(/\D/g, '').slice(0, 12) }))}
+                                                        placeholder="1234567"
+                                                        className="w-36 rounded px-2 py-1.5 text-xs font-mono outline-none"
+                                                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                                                        onFocus={(e) => e.currentTarget.style.borderColor = colors.gold}
+                                                        onBlur={(e) => e.currentTarget.style.borderColor = colors.inputBorder}
+                                                      />
+                                                    </div>
+                                                    <button
+                                                      disabled={bankingSaving || bankingForm.transit.length !== 5 || bankingForm.institution.length !== 3 || bankingForm.account.length < 7}
+                                                      onClick={async () => {
+                                                        setBankingSaving(true)
+                                                        setBankingMessage(null)
+                                                        const res = await updateAgentBanking({
+                                                          agentId: agent.id,
+                                                          transitNumber: bankingForm.transit,
+                                                          institutionNumber: bankingForm.institution,
+                                                          accountNumber: bankingForm.account,
+                                                        })
+                                                        if (res.success) {
+                                                          // Update local state
+                                                          setBrokerages(prev => prev.map(b => ({
+                                                            ...b,
+                                                            agents: b.agents.map((a: Agent) => a.id === agent.id ? {
+                                                              ...a,
+                                                              bank_transit_number: bankingForm.transit,
+                                                              bank_institution_number: bankingForm.institution,
+                                                              bank_account_number: bankingForm.account,
+                                                              banking_verified: true,
+                                                            } : a),
+                                                          })))
+                                                          setBankingEditingAgentId(null)
+                                                          setBankingMessage({ type: 'success', text: 'Banking info saved' })
+                                                          setTimeout(() => setBankingMessage(null), 3000)
+                                                        } else {
+                                                          setBankingMessage({ type: 'error', text: res.error || 'Failed to save' })
+                                                        }
+                                                        setBankingSaving(false)
+                                                      }}
+                                                      className="px-3 py-1.5 rounded text-xs font-semibold text-white transition-colors disabled:opacity-40"
+                                                      style={{ background: '#1A7A2E' }}
+                                                    >
+                                                      {bankingSaving ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                    <button
+                                                      onClick={() => setBankingEditingAgentId(null)}
+                                                      className="px-2 py-1.5 rounded text-xs font-medium transition-colors"
+                                                      style={{ color: colors.textMuted }}
+                                                      onMouseEnter={(e) => e.currentTarget.style.color = colors.textPrimary}
+                                                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                                                    >
+                                                      Cancel
+                                                    </button>
+                                                    {bankingMessage && (
+                                                      <span className="text-xs font-medium" style={{ color: bankingMessage.type === 'success' ? colors.gold : colors.errorText }}>
+                                                        {bankingMessage.text}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+
                                               <h4 className="text-xs font-semibold mb-3" style={{ color: colors.textPrimary }}>Deal History</h4>
                                               {(agentDeals[agent.id]?.length ?? 0) === 0 ? (
                                                 <p className="text-xs" style={{ color: colors.textMuted }}>No deals yet</p>

@@ -315,6 +315,19 @@ export async function updateDealStatus(input: {
       return { success: false, error: 'Denial reason is required' }
     }
 
+    // Block approval if agent banking info is not verified
+    if (input.newStatus === 'approved') {
+      const { data: agent } = await supabase
+        .from('agents')
+        .select('banking_verified, bank_transit_number, bank_institution_number, bank_account_number')
+        .eq('id', deal.agent_id)
+        .single()
+
+      if (!agent?.banking_verified || !agent?.bank_transit_number || !agent?.bank_institution_number || !agent?.bank_account_number) {
+        return { success: false, error: 'Cannot approve: agent banking information has not been verified. Please enter banking details on the agent\'s profile first.' }
+      }
+    }
+
     // Build update payload
     const updateData: Record<string, any> = { status: input.newStatus }
 

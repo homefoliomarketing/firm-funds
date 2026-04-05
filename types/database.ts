@@ -78,6 +78,21 @@ export interface Agent {
   kyc_document_path: string | null
   kyc_document_type: AgentKycDocumentType | null
   kyc_rejection_reason: string | null
+  // Banking fields (admin-entered)
+  bank_transit_number: string | null
+  bank_institution_number: string | null
+  bank_account_number: string | null
+  banking_verified: boolean
+  banking_verified_at: string | null
+  banking_verified_by: string | null
+  // Preauthorized debit form
+  preauth_form_path: string | null
+  preauth_form_uploaded_at: string | null
+  // Address
+  address_street: string | null
+  address_city: string | null
+  address_province: string | null
+  address_postal_code: string | null
   created_at: string
   updated_at: string
 }

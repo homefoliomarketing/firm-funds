@@ -3,23 +3,14 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, TrendingUp, Users, MessageSquare } from 'lucide-react'
+import { FileText, Building2, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
-import { formatCurrency } from '@/lib/formatting'
-
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 
 interface DashboardStats {
-  totalDeals: number
   underReviewDeals: number
-  approvedDeals: number
-  fundedDeals: number
-  totalAdvanced: number
-  totalBrokerages: number
-  totalAgentsWithDeals: number
   pendingKycCount: number
-  pendingDocReviewCount: number
   unreadAgentMessages: number
   dealsWithUnreadMessages: string[]
 }
@@ -28,25 +19,16 @@ export default function AdminDashboard() {
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [stats, setStats] = useState<DashboardStats>({
-    totalDeals: 0,
     underReviewDeals: 0,
-    approvedDeals: 0,
-    fundedDeals: 0,
-    totalAdvanced: 0,
-    totalBrokerages: 0,
-    totalAgentsWithDeals: 0,
     pendingKycCount: 0,
-    pendingDocReviewCount: 0,
     unreadAgentMessages: 0,
     dealsWithUnreadMessages: [],
   })
-  const [recentDeals, setRecentDeals] = useState<any[]>([])
   const [allDeals, setAllDeals] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [kpiRange, setKpiRange] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('all')
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
@@ -76,24 +58,17 @@ export default function AdminDashboard() {
       // Fetch all deals once and compute stats client-side (replaces 6 separate count queries)
       const [
         { data: deals },
-        { count: totalBrokerages },
         { count: pendingKycCount },
-        { data: pendingDocDeals },
         { data: allMsgs },
         { data: dismissals },
       ] = await Promise.all([
         supabase.from('deals').select('*').order('created_at', { ascending: false }),
-        supabase.from('brokerages').select('*', { count: 'exact', head: true }),
         supabase.from('agents').select('*', { count: 'exact', head: true }).eq('kyc_status', 'submitted'),
-        supabase.from('deals').select('id').eq('status', 'under_review'),
         supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
         supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
       ])
 
       const allDealsList = deals || []
-      const totalAdvanced = allDealsList
-        .filter(d => d.status === 'funded')
-        .reduce((sum, d) => sum + Number(d.advance_amount), 0)
 
       // Build dismissal map: deal_id -> dismissed_at
       const dismissMap = new Map<string, string>()
@@ -113,7 +88,6 @@ export default function AdminDashboard() {
       const dealsWithUnread: string[] = []
       msgsByDeal.forEach((latestMsg, dealId) => {
         if (latestMsg.sender_role === 'agent') {
-          // Check if admin dismissed this conversation after the latest agent message
           const dismissedAt = dismissMap.get(dealId)
           if (dismissedAt && new Date(dismissedAt) >= new Date(latestMsg.created_at)) {
             return // dismissed — skip
@@ -122,29 +96,14 @@ export default function AdminDashboard() {
         }
       })
 
-      // Count unique agents with at least one approved/funded/repaid deal
-      const agentIdsWithDeals = new Set(
-        allDealsList
-          .filter(d => ['approved', 'funded', 'repaid'].includes(d.status))
-          .map(d => d.agent_id)
-      )
-
       setStats({
-        totalDeals: allDealsList.length,
         underReviewDeals: allDealsList.filter(d => d.status === 'under_review').length,
-        approvedDeals: allDealsList.filter(d => d.status === 'approved').length,
-        fundedDeals: allDealsList.filter(d => d.status === 'funded').length,
-        totalAdvanced,
-        totalBrokerages: totalBrokerages || 0,
-        totalAgentsWithDeals: agentIdsWithDeals.size,
         pendingKycCount: pendingKycCount || 0,
-        pendingDocReviewCount: (pendingDocDeals || []).length,
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
       })
 
       setAllDeals(allDealsList)
-      setRecentDeals(allDealsList)
 
       setLoading(false)
     }
@@ -167,14 +126,6 @@ export default function AdminDashboard() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
           <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                <div className="h-3 w-20 rounded animate-pulse mb-2" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-7 w-16 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
-              </div>
-            ))}
-          </div>
           <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
             {[1,2,3,4,5].map(i => (
               <div key={i} className="flex gap-4 mb-4">
@@ -192,32 +143,6 @@ export default function AdminDashboard() {
   // Status badge styles imported from shared constants (getStatusBadgeStyle)
 
   // formatCurrency imported from @/lib/formatting
-
-  // Filter deals by KPI time range
-  const getFilteredDeals = () => {
-    if (kpiRange === 'all') return allDeals
-    const now = new Date()
-    let cutoff: Date
-    switch (kpiRange) {
-      case 'day': cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break
-      case 'week': cutoff = new Date(now.getTime() - 7 * 86400000); break
-      case 'month': cutoff = new Date(now.getFullYear(), now.getMonth(), 1); break
-      case 'year': cutoff = new Date(now.getFullYear(), 0, 1); break
-    }
-    return allDeals.filter(d => new Date(d.created_at) >= cutoff)
-  }
-
-  const filteredDeals = getFilteredDeals()
-  const filteredStats = {
-    totalDeals: filteredDeals.length,
-    totalAdvanced: filteredDeals.filter(d => d.status === 'funded').reduce((sum, d) => sum + Number(d.advance_amount), 0),
-    discountsCollected: filteredDeals.filter(d => d.status === 'funded').reduce((sum, d) => sum + Number(d.discount_fee || 0), 0),
-    underReviewDeals: filteredDeals.filter(d => d.status === 'under_review').length,
-    approvedDeals: filteredDeals.filter(d => d.status === 'approved').length,
-    fundedDeals: filteredDeals.filter(d => d.status === 'funded').length,
-  }
-
-  const kpiRangeLabel = { day: 'Today', week: 'This Week', month: 'This Month', year: 'This Year', all: 'All Time' }
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
@@ -239,58 +164,12 @@ export default function AdminDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        {/* Welcome + Time Range Toggle */}
-        <div className="flex items-end justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
-              Welcome back, {profile?.full_name?.split(' ')[0]}
-            </h2>
-            <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds{kpiRange === 'all' ? '' : ` — ${kpiRangeLabel[kpiRange].toLowerCase()}`}.</p>
-          </div>
-          <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            {(['day', 'week', 'month', 'year', 'all'] as const).map((range) => (
-              <button
-                key={range}
-                onClick={() => setKpiRange(range)}
-                className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                style={{
-                  background: kpiRange === range ? colors.gold : 'transparent',
-                  color: kpiRange === range ? '#FFFFFF' : colors.textMuted,
-                }}
-                onMouseEnter={(e) => { if (kpiRange !== range) e.currentTarget.style.color = colors.textPrimary }}
-                onMouseLeave={(e) => { if (kpiRange !== range) e.currentTarget.style.color = colors.textMuted }}
-              >
-                {range === 'day' ? 'D' : range === 'week' ? 'W' : range === 'month' ? 'M' : range === 'year' ? 'Y' : 'All'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          {[
-            { label: 'Total Deals', value: filteredStats.totalDeals.toString(), icon: FileText, accent: '#5FA873', sub: null },
-            { label: 'Total Advanced', value: formatCurrency(filteredStats.totalAdvanced), icon: DollarSign, accent: '#1A7A2E', sub: null },
-            { label: 'Discounts Collected', value: formatCurrency(filteredStats.discountsCollected), icon: TrendingUp, accent: '#D4A843', sub: null },
-            { label: 'Partner Brokerages', value: stats.totalBrokerages.toString(), icon: Building2, accent: '#5FA873', sub: `${stats.totalAgentsWithDeals} active agent${stats.totalAgentsWithDeals !== 1 ? 's' : ''}` },
-          ].map((card) => (
-            <div
-              key={card.label}
-              className="rounded-lg px-4 py-3 transition-all"
-              style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-xl font-black mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
-                  {card.sub && <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>{card.sub}</p>}
-                </div>
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={18} style={{ color: card.accent }} />
-                </div>
-              </div>
-            </div>
-          ))}
+        {/* Welcome */}
+        <div className="mb-4">
+          <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+            Welcome back, {profile?.full_name?.split(' ')[0]}
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds.</p>
         </div>
 
         {/* Quick Links */}

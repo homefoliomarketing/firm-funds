@@ -4,15 +4,15 @@ import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
-  FileText, DollarSign, Clock, CheckCircle, ChevronDown, ChevronUp,
-  PlusCircle, Eye, X, Search, TrendingUp, Calendar,
+  FileText, Clock, ChevronDown, ChevronUp,
+  PlusCircle, Eye, X, Search, Calendar,
 } from 'lucide-react'
 import { cancelDeal } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
-import SignOutModal from '@/components/SignOutModal'
 import AgentKycGate from '@/components/AgentKycGate'
+import AgentHeader from '@/components/AgentHeader'
 
 interface Deal {
   id: string
@@ -80,32 +80,7 @@ export default function AgentDashboard() {
     loadAgent()
   }, [])
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
-  // KPI calculations
-  const totalAdvanced = useMemo(() =>
-    deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
-      .reduce((sum, d) => sum + d.advance_amount, 0), [deals])
-
-  const avgTurnaround = useMemo(() => {
-    const funded = deals.filter(d => d.funding_date && d.created_at)
-    if (funded.length === 0) return null
-    const totalDays = funded.reduce((sum, d) => {
-      const submitted = new Date(d.created_at).getTime()
-      const fundedDate = new Date(d.funding_date!).getTime()
-      return sum + Math.max(1, Math.round((fundedDate - submitted) / 86400000))
-    }, 0)
-    return Math.round(totalDays / funded.length)
-  }, [deals])
-
-  const activeDeals = useMemo(() =>
-    deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length, [deals])
-
-  const completedDeals = useMemo(() =>
-    deals.filter(d => ['repaid', 'closed'].includes(d.status)).length, [deals])
+  // handleLogout moved to AgentHeader
 
   // Filtered deals
   const filteredDeals = useMemo(() => {
@@ -152,22 +127,10 @@ export default function AgentDashboard() {
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
-      {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Agent Portal</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: colors.gold }}>{profile?.full_name}</span>
-              <SignOutModal onConfirm={handleLogout} />
-            </div>
-          </div>
-        </div>
-      </header>
+      <AgentHeader
+        agentName={profile?.full_name || ''}
+        agentId={agent?.id || ''}
+      />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* KYC Banner */}
@@ -208,33 +171,6 @@ export default function AgentDashboard() {
             <PlusCircle size={16} />
             New Advance Request
           </button>
-        </div>
-
-        {/* KPI Cards — friendly, positive stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Funds Received', value: formatCurrency(totalAdvanced), icon: DollarSign, accent: colors.successText, sub: completedDeals > 0 ? `across ${completedDeals + activeDeals} deal${(completedDeals + activeDeals) !== 1 ? 's' : ''}` : null },
-            { label: 'Active Deals', value: activeDeals.toString(), icon: Clock, accent: colors.infoText, sub: activeDeals > 0 ? 'in progress' : null },
-            { label: 'Completed', value: completedDeals.toString(), icon: CheckCircle, accent: '#0D7A5F', sub: completedDeals > 0 ? 'fully settled' : null },
-            { label: 'Avg. Turnaround', value: avgTurnaround ? `${avgTurnaround} day${avgTurnaround !== 1 ? 's' : ''}` : '—', icon: TrendingUp, accent: colors.gold, sub: avgTurnaround ? 'submission to funding' : 'no funded deals yet' },
-          ].map((card) => (
-            <div
-              key={card.label}
-              className="rounded-xl p-5 transition-shadow hover:shadow-lg"
-              style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-2xl font-black mt-1.5" style={{ color: colors.textPrimary }}>{card.value}</p>
-                  {card.sub && <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>{card.sub}</p>}
-                </div>
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={18} style={{ color: card.accent }} />
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
 
         {/* Deals List */}
