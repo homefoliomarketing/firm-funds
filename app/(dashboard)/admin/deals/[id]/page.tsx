@@ -612,15 +612,18 @@ export default function DealDetailPage() {
 
   // Auto-scroll messages container to bottom when messages change
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        const container = adminMessagesContainerRef.current
-        if (container) {
-          container.scrollTop = container.scrollHeight
-        }
-      }, 100)
+    if (messages.length > 0 && messagesExpanded) {
+      const raf = requestAnimationFrame(() => {
+        setTimeout(() => {
+          const container = adminMessagesContainerRef.current
+          if (container) {
+            container.scrollTop = container.scrollHeight
+          }
+        }, 50)
+      })
+      return () => cancelAnimationFrame(raf)
     }
-  }, [messages.length])
+  }, [messages.length, messagesExpanded])
 
   async function loadDealData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -1101,7 +1104,10 @@ export default function DealDetailPage() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               {statusBadge(deal.status) && (
-                <div style={statusBadge(deal.status)}>
+                <div
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide"
+                  style={statusBadge(deal.status)}
+                >
                   {STATUS_LABELS[deal.status]}
                 </div>
               )}
