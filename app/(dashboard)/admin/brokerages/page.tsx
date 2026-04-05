@@ -594,7 +594,7 @@ export default function BrokeragesPage() {
     setResettingPasswordForUserId(null)
   }
 
-  const handleChangeEmail = async (id: string, userName: string, type: 'agent' | 'user' = 'agent') => {
+  const handleChangeEmail = async (id: string, userName: string, type: 'agent' | 'user' = 'agent', brokerageId?: string) => {
     if (!changeEmailValue.trim()) {
       setStatusMessage({ type: 'error', text: 'Enter a new email address' })
       return
@@ -607,6 +607,13 @@ export default function BrokeragesPage() {
       setChangingEmailForUserId(null)
       setChangeEmailValue('')
       loadBrokerages()
+      // Also refresh the manage logins panel if open for a brokerage
+      if (brokerageId) {
+        const refreshed = await getBrokerageUserProfiles(brokerageId)
+        if (refreshed.success && refreshed.data) {
+          setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: refreshed.data as { brokerageAdmins: any[]; agents: any[] } }))
+        }
+      }
     } else {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to change email' })
     }
@@ -1406,9 +1413,9 @@ export default function BrokeragesPage() {
                                 onClick={() => handleLoadUserProfiles(brokerage.id)}
                                 disabled={loadingUserProfiles === brokerage.id}
                                 className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                                style={{ color: showUserManagement === brokerage.id ? '#fff' : colors.textMuted, background: showUserManagement === brokerage.id ? colors.gold : 'transparent', border: `1px solid ${showUserManagement === brokerage.id ? colors.gold : colors.border}`, opacity: loadingUserProfiles === brokerage.id ? 0.6 : 1 }}
+                                style={{ color: showUserManagement === brokerage.id ? '#fff' : colors.textPrimary, background: showUserManagement === brokerage.id ? colors.gold : colors.cardBg, border: `1px solid ${showUserManagement === brokerage.id ? colors.gold : colors.border}`, opacity: loadingUserProfiles === brokerage.id ? 0.6 : 1 }}
                                 onMouseEnter={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = colors.cardHoverBg } }}
-                                onMouseLeave={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = 'transparent' } }}
+                                onMouseLeave={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = colors.cardBg } }}
                                 title="Manage brokerage admin logins"
                               >
                                 <KeyRound size={13} /> {loadingUserProfiles === brokerage.id ? 'Loading...' : 'Manage Logins'}
@@ -1536,7 +1543,7 @@ export default function BrokeragesPage() {
                                     <button
                                       onClick={() => {
                                         const admin = brokerageUserProfiles[brokerage.id].brokerageAdmins.find((a: any) => a.id === changingEmailForUserId)
-                                        if (admin) handleChangeEmail(admin.id, admin.full_name, 'user')
+                                        if (admin) handleChangeEmail(admin.id, admin.full_name, 'user', brokerage.id)
                                       }}
                                       disabled={changingEmailSaving || !changeEmailValue.trim()}
                                       className="text-xs font-semibold px-3 py-1 rounded-md disabled:opacity-50"
