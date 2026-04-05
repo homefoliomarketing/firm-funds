@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
 import { updateAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
@@ -56,6 +56,8 @@ interface Brokerage {
   referral_fee_percentage: number
   transaction_system: string | null
   notes: string | null
+  broker_of_record_name: string | null
+  broker_of_record_email: string | null
   created_at: string
   updated_at: string
 }
@@ -73,6 +75,8 @@ interface BrokerageFormData {
   referralFeePercentage: string
   transactionSystem: string
   notes: string
+  brokerOfRecordName: string
+  brokerOfRecordEmail: string
   status?: 'active' | 'suspended' | 'inactive'
 }
 
@@ -103,10 +107,10 @@ export default function BrokeragesPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
-    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '',
+    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '',
   })
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' }>({
-    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', status: 'active',
+    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
@@ -223,6 +227,7 @@ export default function BrokeragesPage() {
       phone: createFormData.phone || undefined,
       referralFeePercentage: parseFloat(createFormData.referralFeePercentage) / 100,
       transactionSystem: createFormData.transactionSystem || undefined, notes: createFormData.notes || undefined,
+      brokerOfRecordName: createFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: createFormData.brokerOfRecordEmail || undefined,
     })
     if (result.success) {
       const newBrokerageId = result.data?.id
@@ -270,7 +275,7 @@ export default function BrokeragesPage() {
       }
 
       setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}` })
-      setCreateFormData({ name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '' })
+      setCreateFormData({ name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '' })
       setCreateRosterFile(null)
       setShowCreateForm(false)
       await loadBrokerages()
@@ -293,6 +298,7 @@ export default function BrokeragesPage() {
       phone: editFormData.phone || undefined,
       referralFeePercentage: parseFloat(editFormData.referralFeePercentage) / 100,
       transactionSystem: editFormData.transactionSystem || undefined, notes: editFormData.notes || undefined,
+      brokerOfRecordName: editFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: editFormData.brokerOfRecordEmail || undefined,
       status: editFormData.status,
     })
     if (result.success) {
@@ -312,6 +318,7 @@ export default function BrokeragesPage() {
       phone: brokerage.phone || '',
       referralFeePercentage: (brokerage.referral_fee_percentage * 100).toString(),
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
+      brokerOfRecordName: brokerage.broker_of_record_name || '', brokerOfRecordEmail: brokerage.broker_of_record_email || '',
       status: brokerage.status,
     })
     setEditingBrokerageId(brokerage.id)
@@ -547,6 +554,21 @@ export default function BrokeragesPage() {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to archive agent' })
     }
     setArchivingAgentId(null)
+  }
+
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null)
+
+  const handlePermanentlyDeleteAgent = async (agentId: string, agentName: string) => {
+    if (!confirm(`PERMANENTLY DELETE "${agentName}"?\n\nThis will delete the agent and ALL associated data (deals, transactions, invoices, messages). This cannot be undone!`)) return
+    setDeletingAgentId(agentId)
+    const result = await permanentlyDeleteAgent({ agentId })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `${agentName} has been permanently deleted` })
+      await loadBrokerages()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to delete agent' })
+    }
+    setDeletingAgentId(null)
   }
 
   const [resendingAgentId, setResendingAgentId] = useState<string | null>(null)
@@ -887,6 +909,8 @@ export default function BrokeragesPage() {
                 {renderInput('Address', createFormData.address, (v) => setCreateFormData({ ...createFormData, address: v }), { placeholder: '123 Main St, Toronto, ON' })}
                 {renderInput('Phone', createFormData.phone, (v) => setCreateFormData({ ...createFormData, phone: v }), { placeholder: '(416) 555-0123', type: 'tel' })}
                 {renderInput('Transaction System', createFormData.transactionSystem, (v) => setCreateFormData({ ...createFormData, transactionSystem: v }), { placeholder: 'e.g., Nexone' })}
+                {renderInput('Broker of Record', createFormData.brokerOfRecordName, (v) => setCreateFormData({ ...createFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
+                {renderInput('Broker of Record Email', createFormData.brokerOfRecordEmail, (v) => setCreateFormData({ ...createFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Notes</label>
@@ -1092,6 +1116,8 @@ export default function BrokeragesPage() {
                             {renderInput('Address', editFormData.address, (v) => setEditFormData({ ...editFormData, address: v }))}
                             {renderInput('Phone', editFormData.phone, (v) => setEditFormData({ ...editFormData, phone: v }), { type: 'tel' })}
                             {renderInput('Transaction System', editFormData.transactionSystem, (v) => setEditFormData({ ...editFormData, transactionSystem: v }))}
+                            {renderInput('Broker of Record', editFormData.brokerOfRecordName, (v) => setEditFormData({ ...editFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
+                            {renderInput('Broker of Record Email', editFormData.brokerOfRecordEmail, (v) => setEditFormData({ ...editFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
                           </div>
                           <div>
                             <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Notes</label>
@@ -1127,6 +1153,13 @@ export default function BrokeragesPage() {
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Notes</p>
                             <p style={{ color: colors.textPrimary }}>{brokerage.notes || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Broker of Record</p>
+                            <p style={{ color: colors.textPrimary }}>{brokerage.broker_of_record_name || '—'}</p>
+                            {brokerage.broker_of_record_email && (
+                              <p className="text-xs mt-0.5" style={{ color: colors.textSecondary }}>{brokerage.broker_of_record_email}</p>
+                            )}
                           </div>
                         </div>
                       )}
@@ -2005,6 +2038,17 @@ export default function BrokeragesPage() {
                                                 title="Archive agent"
                                               >
                                                 <Archive size={13} />
+                                              </button>
+                                            )}
+                                            {agent.status === 'archived' && (
+                                              <button
+                                                onClick={() => handlePermanentlyDeleteAgent(agent.id, `${agent.first_name} ${agent.last_name}`)}
+                                                disabled={deletingAgentId === agent.id}
+                                                className="flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                                style={{ color: colors.errorText, background: colors.errorBg, border: `1px solid ${colors.errorBorder || 'rgba(220,50,50,0.3)'}` }}
+                                                title="Permanently delete agent and all associated data"
+                                              >
+                                                <Trash2 size={12} /> {deletingAgentId === agent.id ? 'Deleting...' : 'Delete'}
                                               </button>
                                             )}
                                           </div>

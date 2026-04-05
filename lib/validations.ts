@@ -73,6 +73,8 @@ export const CreateBrokerageSchema = z.object({
   referralFeePercentage: z.number().min(0).max(1, 'Referral fee must be between 0 and 1'),
   transactionSystem: sanitizedString(100).optional().nullable(),
   notes: sanitizedString(2000).optional().nullable(),
+  brokerOfRecordName: sanitizedString(200).optional().nullable(),
+  brokerOfRecordEmail: emailSchema.optional().nullable(),
 })
 
 export const UpdateBrokerageSchema = CreateBrokerageSchema.extend({

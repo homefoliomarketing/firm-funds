@@ -54,6 +54,9 @@ export interface Brokerage {
   reco_registration_number: string | null
   reco_verification_date: string | null
   reco_verification_notes: string | null
+  // Broker of Record (legal authority — signs BCA, receives IDP copies)
+  broker_of_record_name: string | null
+  broker_of_record_email: string | null
   created_at: string
   updated_at: string
 }

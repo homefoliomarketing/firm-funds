@@ -36,6 +36,8 @@ export async function createBrokerage(input: {
   referralFeePercentage: number
   transactionSystem?: string
   notes?: string
+  brokerOfRecordName?: string
+  brokerOfRecordEmail?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -58,6 +60,8 @@ export async function createBrokerage(input: {
         referral_fee_percentage: v.referralFeePercentage,
         transaction_system: v.transactionSystem || null,
         notes: v.notes || null,
+        broker_of_record_name: v.brokerOfRecordName || null,
+        broker_of_record_email: v.brokerOfRecordEmail || null,
         status: 'active',
       })
       .select()
@@ -92,6 +96,8 @@ export async function updateBrokerage(input: {
   referralFeePercentage: number
   transactionSystem?: string
   notes?: string
+  brokerOfRecordName?: string
+  brokerOfRecordEmail?: string
   status: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
@@ -115,6 +121,8 @@ export async function updateBrokerage(input: {
         referral_fee_percentage: v.referralFeePercentage,
         transaction_system: v.transactionSystem || null,
         notes: v.notes || null,
+        broker_of_record_name: v.brokerOfRecordName || null,
+        broker_of_record_email: v.brokerOfRecordEmail || null,
         status: v.status,
       })
       .eq('id', v.id)
@@ -546,6 +554,80 @@ export async function archiveAgent(input: {
     return { success: true, data: { agentId: input.agentId } }
   } catch (err: any) {
     console.error('Agent archive error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Permanently Delete Agent (archived only)
+// ============================================================================
+
+export async function permanentlyDeleteAgent(input: {
+  agentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Fetch agent — must be archived
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, status, brokerage_id')
+      .eq('id', input.agentId)
+      .single()
+
+    if (agentError || !agent) return { success: false, error: 'Agent not found' }
+    if (agent.status !== 'archived') return { success: false, error: 'Only archived agents can be permanently deleted' }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Delete any linked user_profile + auth user first
+    const { data: profile } = await serviceClient
+      .from('user_profiles')
+      .select('id')
+      .eq('agent_id', input.agentId)
+      .maybeSingle()
+
+    if (profile) {
+      // Delete user_profile (auth user may already be deleted from archive step)
+      await serviceClient
+        .from('user_profiles')
+        .delete()
+        .eq('id', profile.id)
+
+      try {
+        await serviceClient.auth.admin.deleteUser(profile.id)
+      } catch {
+        // May already be deleted — that's fine
+      }
+    }
+
+    // Delete the agent record — FK cascades will clean up deals, transactions, invoices, etc.
+    const { error: deleteError } = await serviceClient
+      .from('agents')
+      .delete()
+      .eq('id', input.agentId)
+
+    if (deleteError) {
+      console.error('Agent permanent delete error:', deleteError.message)
+      return { success: false, error: `Failed to delete agent: ${deleteError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'agent.permanent_delete',
+      entityType: 'agent',
+      entityId: input.agentId,
+      metadata: {
+        name: `${agent.first_name} ${agent.last_name}`,
+        email: agent.email,
+        brokerage_id: agent.brokerage_id,
+        deleted_by: user.id,
+      },
+    })
+
+    return { success: true, data: { agentId: input.agentId } }
+  } catch (err: any) {
+    console.error('Agent permanent delete error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
