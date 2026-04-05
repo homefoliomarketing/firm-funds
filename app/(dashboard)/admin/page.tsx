@@ -79,7 +79,7 @@ export default function AdminDashboard() {
         }
       }
 
-      // Find deals with unanswered agent messages (latest message is from agent, not dismissed)
+      // Find deals with unanswered messages (latest message is from agent or brokerage, not dismissed)
       const msgsByDeal = new Map<string, { sender_role: string; created_at: string }>()
       for (const msg of (allMsgs || [])) {
         if (!msgsByDeal.has(msg.deal_id)) {
@@ -88,7 +88,7 @@ export default function AdminDashboard() {
       }
       const dealsWithUnread: string[] = []
       msgsByDeal.forEach((latestMsg, dealId) => {
-        if (latestMsg.sender_role === 'agent') {
+        if (latestMsg.sender_role === 'agent' || latestMsg.sender_role === 'brokerage_admin') {
           const dismissedAt = dismissMap.get(dealId)
           if (dismissedAt && new Date(dismissedAt) >= new Date(latestMsg.created_at)) {
             return // dismissed — skip
