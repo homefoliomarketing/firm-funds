@@ -109,6 +109,10 @@ export default function BrokerageDashboard() {
         }
         const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profileData.brokerage_id).order('last_name', { ascending: true })
         setAgents(agentData || [])
+        // Pre-load inbox for message notification badge
+        getBrokerageInbox(profileData.brokerage_id).then(r => {
+          if (r.success && r.data) setBrokerageInbox(r.data.inbox)
+        })
       }
       setLoading(false)
     }
@@ -235,6 +239,14 @@ export default function BrokerageDashboard() {
     deals.filter(d => ['funded', 'completed'].includes(d.status)), [deals])
   const pendingDeals = useMemo(() =>
     deals.filter(d => ['under_review', 'approved'].includes(d.status)), [deals])
+
+  // Notification counts for tabs
+  const dealsMissingTradeRecord = useMemo(() =>
+    deals.filter(d => !['denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
+    [deals, dealTradeRecords])
+  const unansweredMessageCount = useMemo(() =>
+    brokerageInbox.filter((item: any) => item.total_message_count > 0 && item.latest_sender_role === 'admin').length,
+    [brokerageInbox])
   const totalReferralFees = useMemo(() =>
     earnedDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [earnedDeals])
   const pendingReferralFees = useMemo(() =>
@@ -377,7 +389,7 @@ export default function BrokerageDashboard() {
                     })
                   }
                 }}
-                className="px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap"
+                className="px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5"
                 style={activeTab === tab
                   ? { color: colors.gold, borderBottom: `2px solid ${colors.gold}`, marginBottom: '-1px' }
                   : { color: colors.textMuted }
@@ -386,6 +398,16 @@ export default function BrokerageDashboard() {
                 onMouseLeave={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textMuted }}
               >
                 {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : tab === 'payments' ? 'Payment Status' : 'Messages'}
+                {tab === 'deals' && dealsMissingTradeRecord > 0 && (
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                    {dealsMissingTradeRecord}
+                  </span>
+                )}
+                {tab === 'messages' && unansweredMessageCount > 0 && (
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                    {unansweredMessageCount}
+                  </span>
+                )}
               </button>
             ))}
           </div>
