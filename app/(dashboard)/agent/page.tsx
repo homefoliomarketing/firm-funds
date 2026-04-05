@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   FileText, Clock,
-  PlusCircle, Search, Calendar, ChevronRight,
+  PlusCircle, Search, Calendar, ChevronRight, ChevronLeft,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
@@ -40,6 +40,8 @@ export default function AgentDashboard() {
   const [showKycVerifiedModal, setShowKycVerifiedModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const DEALS_PER_PAGE = 10
   const router = useRouter()
   const supabase = createClient()
   const { colors, isDark } = useTheme()
@@ -247,7 +249,7 @@ export default function AgentDashboard() {
                     type="text"
                     placeholder="Search by address..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                     className="w-full rounded-lg pl-8 pr-3 py-2 text-sm outline-none"
                     style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                     onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
@@ -261,7 +263,7 @@ export default function AgentDashboard() {
             {deals.length > 3 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
                 <button
-                  onClick={() => setStatusFilter(null)}
+                  onClick={() => { setStatusFilter(null); setCurrentPage(1) }}
                   className="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                   style={{
                     background: statusFilter === null ? colors.gold : 'transparent',
@@ -277,7 +279,7 @@ export default function AgentDashboard() {
                   return (
                     <button
                       key={status}
-                      onClick={() => setStatusFilter(statusFilter === status ? null : status)}
+                      onClick={() => { setStatusFilter(statusFilter === status ? null : status); setCurrentPage(1) }}
                       className="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                       style={{
                         background: statusFilter === status ? colors.gold : 'transparent',
@@ -316,46 +318,85 @@ export default function AgentDashboard() {
               <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Try adjusting your search or filter.</p>
             </div>
           ) : (
-            <div>
-              {filteredDeals.map((deal, i) => (
-                <div
-                  key={deal.id}
-                  className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                  style={{ borderBottom: i < filteredDeals.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
-                  onClick={() => router.push(`/agent/deals/${deal.id}`)}
-                  onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <div className="flex-1 min-w-0 mr-3">
-                    <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-xs" style={{ color: colors.textMuted }}>
-                        {formatDate(deal.created_at)}
-                      </span>
-                      {deal.closing_date && (
-                        <>
-                          <span className="text-xs hidden sm:inline" style={{ color: colors.textFaint }}>·</span>
-                          <span className="text-xs flex items-center gap-1" style={{ color: deal.days_until_closing <= 7 ? colors.warningText : colors.textMuted }}>
-                            <Calendar size={10} />
-                            Closing {formatDate(deal.closing_date)}
-                          </span>
-                        </>
-                      )}
+            <>
+              {(() => {
+                const totalPages = Math.max(1, Math.ceil(filteredDeals.length / DEALS_PER_PAGE))
+                const page = Math.min(currentPage, totalPages)
+                const paged = filteredDeals.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
+                return (
+                  <>
+                    <div>
+                      {paged.map((deal, i) => (
+                        <div
+                          key={deal.id}
+                          className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
+                          style={{ borderBottom: i < paged.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                          onClick={() => router.push(`/agent/deals/${deal.id}`)}
+                          onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <div className="flex-1 min-w-0 mr-3">
+                            <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <span className="text-xs" style={{ color: colors.textMuted }}>
+                                {formatDate(deal.created_at)}
+                              </span>
+                              {deal.closing_date && (
+                                <>
+                                  <span className="text-xs hidden sm:inline" style={{ color: colors.textFaint }}>·</span>
+                                  <span className="text-xs flex items-center gap-1" style={{ color: deal.days_until_closing <= 7 ? colors.warningText : colors.textMuted }}>
+                                    <Calendar size={10} />
+                                    Closing {formatDate(deal.closing_date)}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+                            <span
+                              className="inline-flex px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-semibold rounded-md whitespace-nowrap"
+                              style={getStatusBadgeStyle(deal.status)}
+                            >
+                              {formatStatusLabel(deal.status)}
+                            </span>
+                            <p className="text-sm font-bold text-right hidden sm:block" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
+                            <ChevronRight size={16} style={{ color: colors.textFaint }} />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-                    <span
-                      className="inline-flex px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-semibold rounded-md whitespace-nowrap"
-                      style={getStatusBadgeStyle(deal.status)}
-                    >
-                      {formatStatusLabel(deal.status)}
-                    </span>
-                    <p className="text-sm font-bold text-right hidden sm:block" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
-                    <ChevronRight size={16} style={{ color: colors.textFaint }} />
-                  </div>
-                </div>
-              ))}
-            </div>
+                    {totalPages > 1 && (
+                      <div className="px-6 py-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}` }}>
+                        <p className="text-xs" style={{ color: colors.textMuted }}>
+                          Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, filteredDeals.length)} of {filteredDeals.length}
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="p-2 rounded-lg transition-colors disabled:opacity-30"
+                            style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                          >
+                            <ChevronLeft size={14} />
+                          </button>
+                          <span className="px-3 text-xs font-semibold" style={{ color: colors.textPrimary }}>
+                            {page} / {totalPages}
+                          </span>
+                          <button
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="p-2 rounded-lg transition-colors disabled:opacity-30"
+                            style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                          >
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </>
           )}
         </div>
       </main>

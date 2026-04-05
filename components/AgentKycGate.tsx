@@ -29,30 +29,59 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const [mobileLinkSent, setMobileLinkSent] = useState(false)
   const [mobileLinkEmail, setMobileLinkEmail] = useState<string | null>(null)
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const elapsedTimeRef = useRef<number>(0)
+  const currentDelayRef = useRef<number>(5000)
 
   // Poll for KYC status changes after mobile link is sent
   useEffect(() => {
     if (!mobileLinkSent) return
 
     const supabase = createClient()
+    const MAX_ELAPSED_TIME = 30 * 60 * 1000 // 30 minutes
+    const INTERVALS = [5000, 10000, 15000, 20000, 30000] // 5s → 10s → 15s → 20s → 30s
 
-    pollRef.current = setInterval(async () => {
-      const { data } = await supabase
-        .from('agents')
-        .select('kyc_status')
-        .eq('id', agent.id)
-        .single()
-
-      if (data && data.kyc_status !== agent.kyc_status && data.kyc_status === 'submitted') {
-        // Mobile upload completed — trigger refresh
-        if (pollRef.current) clearInterval(pollRef.current)
-        onKycSubmitted()
+    const schedulePoll = async () => {
+      // Check if we've exceeded 30 minutes
+      if (elapsedTimeRef.current >= MAX_ELAPSED_TIME) {
+        return // Give up — stop polling
       }
-    }, 5000) // Check every 5 seconds
+
+      try {
+        const { data } = await supabase
+          .from('agents')
+          .select('kyc_status')
+          .eq('id', agent.id)
+          .single()
+
+        if (data && data.kyc_status !== agent.kyc_status && data.kyc_status === 'submitted') {
+          // Mobile upload completed — trigger refresh
+          if (pollRef.current) clearTimeout(pollRef.current)
+          onKycSubmitted()
+          return
+        }
+      } catch (error) {
+        console.error('KYC poll error:', error)
+      }
+
+      // Determine next delay: find current position in intervals, then cap at 30s
+      const nextDelay = INTERVALS[Math.min(Math.floor(elapsedTimeRef.current / 5000), INTERVALS.length - 1)]
+      currentDelayRef.current = nextDelay
+
+      // Schedule next poll
+      elapsedTimeRef.current += nextDelay
+      pollRef.current = setTimeout(schedulePoll, nextDelay)
+    }
+
+    // Start polling with initial 5s delay
+    elapsedTimeRef.current = 0
+    currentDelayRef.current = 5000
+    pollRef.current = setTimeout(schedulePoll, 5000)
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      if (pollRef.current) clearTimeout(pollRef.current)
+      elapsedTimeRef.current = 0
+      currentDelayRef.current = 5000
     }
   }, [mobileLinkSent, agent.id, agent.kyc_status, onKycSubmitted])
 

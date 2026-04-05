@@ -356,60 +356,129 @@ export default function AdminDashboard() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr style={{ background: colors.tableHeaderBg }}>
-                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Commission</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing</th>
-                        <th className="px-4 py-2 w-8"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paged.map((deal, i) => (
-                        <tr
-                          key={deal.id}
-                          className="cursor-pointer transition-colors"
-                          style={{ borderBottom: i < paged.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
-                          onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                          onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>
-                            <span className="flex items-center gap-1.5">
-                              {deal.property_address}
-                              {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#DC262615', color: '#DC2626', flexShrink: 0 }}>
-                                  <MessageSquare size={11} />
-                                  New
-                                </span>
-                              )}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-sm" style={{ color: colors.textSecondary }}>
-                            {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span
-                              className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
-                              style={getStatusBadgeStyle(deal.status)}
-                            >
-                              {formatStatusLabel(deal.status)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
-                          <td className="px-4 py-2.5 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
-                          <td className="px-4 py-2.5 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
-                          <td className="px-4 py-2.5"><ChevronRight size={14} style={{ color: colors.textFaint }} /></td>
+                <>
+                  {/* Desktop Table - hidden on mobile */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ background: colors.tableHeaderBg }}>
+                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
+                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
+                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
+                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Commission</th>
+                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
+                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing</th>
+                          <th className="px-4 py-2 w-8"></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {paged.map((deal, i) => (
+                          <tr
+                            key={deal.id}
+                            className="cursor-pointer transition-colors"
+                            style={{ borderBottom: i < paged.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                            onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                            onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>
+                              <span className="flex items-center gap-1.5">
+                                {deal.property_address}
+                                {stats.dealsWithUnreadMessages.includes(deal.id) && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#DC262615', color: '#DC2626', flexShrink: 0 }}>
+                                    <MessageSquare size={11} />
+                                    New
+                                  </span>
+                                )}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-sm" style={{ color: colors.textSecondary }}>
+                              {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span
+                                className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
+                                style={getStatusBadgeStyle(deal.status)}
+                              >
+                                {formatStatusLabel(deal.status)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
+                            <td className="px-4 py-2.5 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
+                            <td className="px-4 py-2.5 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
+                            <td className="px-4 py-2.5"><ChevronRight size={14} style={{ color: colors.textFaint }} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Card Layout - visible only on mobile */}
+                  <div className="md:hidden space-y-2 px-4 py-3">
+                    {paged.map((deal) => (
+                      <div
+                        key={deal.id}
+                        className="cursor-pointer transition-colors rounded-lg p-3.5"
+                        style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}
+                        onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                        onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
+                        onMouseLeave={(e) => e.currentTarget.style.background = colors.cardBg}
+                      >
+                        {/* Property Address + New Badge */}
+                        <div className="flex items-start gap-2 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold truncate" style={{ color: colors.textPrimary }}>
+                              {deal.property_address}
+                            </p>
+                          </div>
+                          {stats.dealsWithUnreadMessages.includes(deal.id) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" style={{ background: '#DC262615', color: '#DC2626', flexShrink: 0 }}>
+                              <MessageSquare size={11} />
+                              New
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Agent Name + Status Badge */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <p className="text-sm truncate" style={{ color: colors.textSecondary }}>
+                            {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
+                          </p>
+                          <span
+                            className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap"
+                            style={getStatusBadgeStyle(deal.status)}
+                          >
+                            {formatStatusLabel(deal.status)}
+                          </span>
+                        </div>
+
+                        {/* Commission and Advance */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div>
+                            <p className="text-xs" style={{ color: colors.textMuted }}>Commission</p>
+                            <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+                              {formatCurrency(deal.gross_commission)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs" style={{ color: colors.textMuted }}>Advance</p>
+                            <p className="text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>
+                              {formatCurrency(deal.advance_amount)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Closing Date */}
+                        <div>
+                          <p className="text-xs" style={{ color: colors.textMuted }}>Closing</p>
+                          <p className="text-sm" style={{ color: colors.textSecondary }}>
+                            {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
               {/* Pagination */}
               {totalPages > 1 && (
