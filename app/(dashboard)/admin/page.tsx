@@ -355,7 +355,8 @@ export default function AdminDashboard() {
             const unreadInStatus = tab.value
               ? allDeals.filter(d => d.status === tab.value && stats.dealsWithUnreadMessages.includes(d.id)).length
               : stats.unreadAgentMessages
-            const showNotificationDot = tab.value === 'under_review' && (count > 0 || unreadInStatus > 0)
+            const showNotificationBadge = (tab.value === 'under_review' && count > 0) || unreadInStatus > 0
+            const badgeNumber = unreadInStatus > 0 ? unreadInStatus : count
             return (
               <button
                 key={tab.label}
@@ -369,11 +370,12 @@ export default function AdminDashboard() {
                 onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = colors.cardBg }}
               >
                 {tab.label}
-                <span className="text-xs opacity-60">({count})</span>
-                {showNotificationDot && (
-                  <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
-                    {unreadInStatus > 0 ? unreadInStatus : '!'}
+                {showNotificationBadge ? (
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                    {badgeNumber}
                   </span>
+                ) : (
+                  <span className="text-xs opacity-60">({count})</span>
                 )}
               </button>
             )
