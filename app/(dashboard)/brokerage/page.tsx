@@ -7,7 +7,7 @@ import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
-  MessageSquare, Inbox,
+  MessageSquare, Inbox, Settings,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { getBrokerageInbox, getDealMessages, sendBrokerageMessage } from '@/lib/actions/notification-actions'
@@ -345,6 +345,16 @@ export default function BrokerageDashboard() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs hidden sm:inline" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+              <button
+                onClick={() => router.push('/brokerage/settings')}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: 'rgba(255,255,255,0.5)' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#5FA873'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+                title="Settings"
+              >
+                <Settings size={16} />
+              </button>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>

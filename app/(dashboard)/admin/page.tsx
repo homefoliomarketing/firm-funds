@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle, Settings } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 import { useTheme } from '@/lib/theme'
@@ -158,6 +158,16 @@ export default function AdminDashboard() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+              <button
+                onClick={() => router.push('/admin/settings')}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: 'rgba(255,255,255,0.5)' }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#5FA873'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+                title="Settings"
+              >
+                <Settings size={16} />
+              </button>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>

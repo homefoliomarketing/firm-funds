@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Bell, MessageSquare, Home, ArrowLeft, User } from 'lucide-react'
+import { Bell, MessageSquare, Home, ArrowLeft, User, Settings } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
@@ -100,6 +100,7 @@ export default function AgentHeader({
   const isMessagesPage = pathname === '/agent/messages'
   const isDashboard = pathname === '/agent'
   const isProfilePage = pathname === '/agent/profile'
+  const isSettingsPage = pathname === '/agent/settings'
 
   return (
     <header style={{ background: colors.headerBgGradient }}>
@@ -184,6 +185,19 @@ export default function AgentHeader({
                   >
                     <User size={14} />
                     Profile
+                  </button>
+                  <button
+                    onClick={() => router.push('/agent/settings')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      color: isSettingsPage ? '#FFFFFF' : 'rgba(255,255,255,0.5)',
+                      background: isSettingsPage ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => { if (!isSettingsPage) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                    onMouseLeave={(e) => { if (!isSettingsPage) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <Settings size={14} />
+                    Settings
                   </button>
                 </nav>
               </div>
