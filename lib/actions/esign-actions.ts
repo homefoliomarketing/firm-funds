@@ -352,10 +352,12 @@ function generateCpaHtml(data: Record<string, string>): string {
   const r = (key: string) => data[key] || key
 
   const pageFooter = (pageNum: number, totalPages: number) => `
-<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center;">
-  <span style="font-size: 9pt; color: #666;">Page ${pageNum} of ${totalPages}</span>
-  <span style="font-size: 8pt; color: #999;">Seller Initials: /ini1/</span>
-</div>`
+<table style="width: 100%; margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; border-collapse: collapse;">
+<tr>
+  <td style="text-align: left; font-size: 9pt; color: #666; border: none; padding: 0;">Page ${pageNum} of ${totalPages}</td>
+  <td style="text-align: right; font-size: 8pt; color: #999; border: none; padding: 0;">Seller Initials: /ini1/</td>
+</tr>
+</table>`
 
   const totalPages = 5
 
@@ -510,9 +512,11 @@ ${pageFooter(4, totalPages)}
 <p>Title: President</p>
 </div>
 
-<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc;">
-  <span style="font-size: 9pt; color: #666;">Page ${totalPages} of ${totalPages}</span>
-</div>
+<table style="width: 100%; margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; border-collapse: collapse;">
+<tr>
+  <td style="text-align: left; font-size: 9pt; color: #666; border: none; padding: 0;">Page ${totalPages} of ${totalPages}</td>
+</tr>
+</table>
 
 </body></html>`
 }
@@ -571,10 +575,12 @@ function generateIdpHtml(data: Record<string, string>): string {
 <h2>BROKERAGE AUTHORIZATION</h2>
 <p>I acknowledge that the Brokerage has entered into a Brokerage Cooperation Agreement with Firm Funds Inc., under which the Brokerage has agreed to honour Irrevocable Directions to Pay. A copy of this Direction will be provided to the Brokerage upon execution.</p>
 
-<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center;">
-  <span style="font-size: 9pt; color: #666;">Page 1 of 2</span>
-  <span style="font-size: 8pt; color: #999;">Agent Initials: /ini1/</span>
-</div>
+<table style="width: 100%; margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; border-collapse: collapse;">
+<tr>
+  <td style="text-align: left; font-size: 9pt; color: #666; border: none; padding: 0;">Page 1 of 2</td>
+  <td style="text-align: right; font-size: 8pt; color: #999; border: none; padding: 0;">Agent Initials: /ini1/</td>
+</tr>
+</table>
 
 <!-- PAGE 2: Remaining Clauses + Signature -->
 <div class="page-break"></div>
@@ -600,9 +606,11 @@ function generateIdpHtml(data: Record<string, string>): string {
 <p><em>Date Signed: /dat1/</em></p>
 </div>
 
-<div style="margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc;">
-  <span style="font-size: 9pt; color: #666;">Page 2 of 2</span>
-</div>
+<table style="width: 100%; margin-top: 40px; padding-top: 10px; border-top: 1px solid #ccc; border-collapse: collapse;">
+<tr>
+  <td style="text-align: left; font-size: 9pt; color: #666; border: none; padding: 0;">Page 2 of 2</td>
+</tr>
+</table>
 
 </body></html>`
 }

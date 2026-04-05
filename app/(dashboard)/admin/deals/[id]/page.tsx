@@ -1276,12 +1276,12 @@ export default function DealDetailPage() {
                       <button
                         onClick={handleVoidEnvelopes}
                         disabled={voidingEnvelopes}
-                        className="px-2 py-1.5 rounded-lg text-xs font-medium transition"
-                        style={{ color: '#E07B7B', border: `1px solid ${colors.border}` }}
-                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#E07B7B' }}
-                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50"
+                        style={{ background: '#3A1A1A', color: '#E07B7B', border: '1px solid #5A2D2D' }}
+                        onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.background = '#4A2020'; e.currentTarget.style.borderColor = '#7A3D3D' } }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = '#3A1A1A'; e.currentTarget.style.borderColor = '#5A2D2D' }}
                       >
-                        {voidingEnvelopes ? 'Voiding...' : 'Void'}
+                        {voidingEnvelopes ? 'Voiding...' : 'Void Envelope'}
                       </button>
                     </div>
                   )
