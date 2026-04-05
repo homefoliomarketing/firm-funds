@@ -271,7 +271,7 @@ export default function AgentDashboard() {
                 >
                   All ({deals.length})
                 </button>
-                {['under_review', 'approved', 'funded', 'repaid', 'closed', 'denied', 'cancelled'].map(status => {
+                {['under_review', 'approved', 'funded', 'completed', 'denied', 'cancelled'].map(status => {
                   const count = statusCounts[status] || 0
                   if (count === 0) return null
                   return (

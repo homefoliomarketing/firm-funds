@@ -75,8 +75,8 @@ export default function NewDealPage() {
       if (profileData?.agent_id) {
         const { data: agentData } = await supabase.from('agents').select('*, brokerages(*)').eq('id', profileData.agent_id).single()
         setAgent(agentData)
-        // Check if this is the agent's first advance (no previously funded/repaid deals)
-        const { count } = await supabase.from('deals').select('*', { count: 'exact', head: true }).eq('agent_id', profileData.agent_id).in('status', ['funded', 'repaid', 'closed'])
+        // Check if this is the agent's first advance (no previously funded/completed deals)
+        const { count } = await supabase.from('deals').select('*', { count: 'exact', head: true }).eq('agent_id', profileData.agent_id).in('status', ['funded', 'completed'])
         setIsFirstAdvance(!count || count === 0)
       }
       setLoading(false)

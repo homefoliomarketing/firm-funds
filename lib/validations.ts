@@ -46,7 +46,7 @@ export const DealSubmissionSchema = z.object({
 /** Schema for deal status change */
 export const DealStatusChangeSchema = z.object({
   dealId: z.string().uuid('Invalid deal ID'),
-  newStatus: z.enum(['under_review', 'approved', 'funded', 'repaid', 'closed', 'denied', 'cancelled']),
+  newStatus: z.enum(['under_review', 'approved', 'funded', 'completed', 'denied', 'cancelled']),
   denialReason: z.string().max(500).optional().nullable(),
 })
 

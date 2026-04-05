@@ -189,8 +189,7 @@ function PipelineDonut({ pipeline }: { pipeline: ReportMetrics['pipeline'] }) {
     { key: 'under_review', value: pipeline.under_review, color: '#3D5A99' },
     { key: 'approved', value: pipeline.approved, color: '#1A7A2E' },
     { key: 'funded', value: pipeline.funded, color: '#5B3D99' },
-    { key: 'repaid', value: pipeline.repaid, color: '#0D7A5F' },
-    { key: 'closed', value: pipeline.closed, color: '#5A5A5A' },
+    { key: 'completed', value: pipeline.completed, color: '#0D7A5F' },
     { key: 'denied', value: pipeline.denied, color: '#993D3D' },
     { key: 'cancelled', value: pipeline.cancelled, color: '#995C1A' },
   ].filter(s => s.value > 0)

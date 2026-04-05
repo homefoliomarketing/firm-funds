@@ -443,8 +443,8 @@ interface Brokerage {
 
 const STATUS_FLOW: Record<string, string[]> = {
   submitted: ['under_review', 'denied'], under_review: ['approved', 'denied', 'cancelled'],
-  approved: ['funded', 'denied', 'cancelled', 'under_review'], funded: ['repaid', 'approved'],
-  denied: ['under_review'], cancelled: ['under_review'], repaid: ['closed', 'funded'],
+  approved: ['funded', 'denied', 'cancelled', 'under_review'], funded: ['completed', 'approved'],
+  denied: ['under_review'], cancelled: ['under_review'], completed: ['funded'],
 }
 
 // Backward transitions that should trigger a warning
@@ -453,12 +453,12 @@ const BACKWARD_STATUSES: Record<string, string[]> = {
   funded: ['approved'],
   denied: ['under_review'],
   cancelled: ['under_review'],
-  repaid: ['funded'],
+  completed: ['funded'],
 }
 
 const STATUS_LABELS: Record<string, string> = {
   submitted: 'Submitted', under_review: 'Under Review', approved: 'Approved',
-  funded: 'Funded', repaid: 'Repaid', closed: 'Closed', denied: 'Denied', cancelled: 'Cancelled',
+  funded: 'Funded', completed: 'Completed', denied: 'Denied', cancelled: 'Cancelled',
 }
 
 interface ChecklistCategory {
@@ -522,8 +522,7 @@ const ACTION_CONFIG: Record<string, { label: string; icon: any; bg: string; hove
   under_review: { label: 'Start Review', icon: RefreshCw, bg: '#3D5A99', hoverBg: '#2D4A89' },
   approved:     { label: 'Approve Deal', icon: CheckCircle2, bg: '#1A7A2E', hoverBg: '#156A24' },
   funded:       { label: 'Mark as Funded', icon: Banknote, bg: '#5B3D99', hoverBg: '#4B2D89' },
-  repaid:       { label: 'Mark as Repaid', icon: DollarSign, bg: '#0D7A5F', hoverBg: '#0A6A4F' },
-  closed:       { label: 'Close Deal', icon: CheckCircle2, bg: '#5A5A5A', hoverBg: '#4A4A4A' },
+  completed:    { label: 'Mark Complete', icon: CheckCircle2, bg: '#0D7A5F', hoverBg: '#0A6A4F' },
   denied:       { label: 'Deny Deal', icon: XCircle, bg: '#993D3D', hoverBg: '#892D2D' },
   cancelled:    { label: 'Cancel Deal', icon: XCircle, bg: '#666666', hoverBg: '#555555' },
 }
@@ -1181,10 +1180,10 @@ export default function DealDetailPage() {
                 const Icon = config.icon
                 // Block approval/funding until all checklist items are complete
                 const needsChecklist = (status === 'approved' || status === 'funded') && !allChecklistComplete
-                // Block repaid until brokerage payments match expected amount
+                // Block completed until brokerage payments match expected amount
                 const paymentTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
                 const paymentsMatch = Math.abs(paymentTotal - deal.amount_due_from_brokerage) < 0.01 && paymentTotal > 0
-                const needsPayments = status === 'repaid' && !paymentsMatch
+                const needsPayments = status === 'completed' && !paymentsMatch
                 const isDisabled = updating || needsChecklist || needsPayments
                 return (
                   <div key={status} className="relative group">
@@ -1320,7 +1319,7 @@ export default function DealDetailPage() {
         </div>
 
         {/* EFT SECTION - ONLY FOR FUNDED/REPAID */}
-        {['funded', 'repaid'].includes(deal.status) && (
+        {['funded', 'completed'].includes(deal.status) && (
           <div className="mb-4 rounded-lg p-4" style={{
             background: colors.cardBg,
             border: `1px solid ${colors.border}`,
@@ -1488,7 +1487,7 @@ export default function DealDetailPage() {
         )}
 
         {/* BROKERAGE PAYMENTS SECTION - ONLY FOR FUNDED/REPAID */}
-        {['funded', 'repaid'].includes(deal.status) && (
+        {['funded', 'completed'].includes(deal.status) && (
           <div className="mb-4 rounded-lg p-4" style={{
             background: colors.cardBg,
             border: `1px solid ${colors.border}`,
@@ -1605,7 +1604,7 @@ export default function DealDetailPage() {
                     <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(expected)}</span>
                   </div>
                   <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
-                    {isMatch ? '✓ Ready to mark Repaid' : isOver ? `Over by ${formatCurrency(payTotal - expected)}` : `Outstanding: ${formatCurrency(diff)}`}
+                    {isMatch ? '✓ Ready to mark Complete' : isOver ? `Over by ${formatCurrency(payTotal - expected)}` : `Outstanding: ${formatCurrency(diff)}`}
                   </span>
                 </div>
               ) : (
@@ -2392,8 +2391,8 @@ export default function DealDetailPage() {
           )}
         </div>
 
-        {/* LATE CLOSING INTEREST — only for funded/repaid */}
-        {deal && ['funded', 'repaid'].includes(deal.status) && (
+        {/* LATE CLOSING INTEREST — only for funded/completed */}
+        {deal && ['funded', 'completed'].includes(deal.status) && (
           <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
             <button
               onClick={() => setLateInterestExpanded(!lateInterestExpanded)}

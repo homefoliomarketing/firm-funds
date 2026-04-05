@@ -95,8 +95,7 @@ function statusColor(status: string): string {
     funded: '#8B5CF6',
     denied: '#EF4444',
     cancelled: '#888888',
-    repaid: '#06B6D4',
-    closed: '#666666',
+    completed: '#06B6D4',
   }
   return map[status] || '#5FA873'
 }

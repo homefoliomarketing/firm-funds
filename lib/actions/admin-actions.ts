@@ -1244,8 +1244,8 @@ export async function recordBrokeragePayment(input: {
       .single()
 
     if (dealError || !deal) return { success: false, error: 'Deal not found' }
-    if (!['funded', 'repaid'].includes(deal.status)) {
-      return { success: false, error: 'Brokerage payments can only be recorded on funded or repaid deals' }
+    if (!['funded', 'completed'].includes(deal.status)) {
+      return { success: false, error: 'Brokerage payments can only be recorded on funded or completed deals' }
     }
 
     const existingPayments = deal.brokerage_payments || []

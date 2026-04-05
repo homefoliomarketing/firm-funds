@@ -4,8 +4,7 @@ export type DealStatus =
   | 'under_review'
   | 'approved'
   | 'funded'
-  | 'repaid'
-  | 'closed'
+  | 'completed'
   | 'denied'
   | 'cancelled'
 

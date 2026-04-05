@@ -15,22 +15,21 @@ interface ActionResult<T = Record<string, unknown>> {
 
 export interface ReportMetrics {
   // Summary KPIs
-  totalRevenue: number          // sum of discount_fee on funded/repaid/closed deals
-  totalAdvanced: number         // sum of advance_amount on funded/repaid/closed deals
-  totalReferralFeesPaid: number // sum of brokerage_referral_fee on funded/repaid/closed
+  totalRevenue: number          // sum of discount_fee on funded/completed deals
+  totalAdvanced: number         // sum of advance_amount on funded/completed deals
+  totalReferralFeesPaid: number // sum of brokerage_referral_fee on funded/completed
   totalProfit: number           // revenue - referral fees
-  avgDiscountFee: number        // average discount_fee across funded/repaid/closed
+  avgDiscountFee: number        // average discount_fee across funded/completed
   avgDaysToClose: number        // average days_until_closing on funded deals
   totalDeals: number
-  conversionRate: number        // funded+repaid+closed / total deals (%)
+  conversionRate: number        // funded+completed / total deals (%)
 
   // Pipeline breakdown
   pipeline: {
     under_review: number
     approved: number
     funded: number
-    repaid: number
-    closed: number
+    completed: number
     denied: number
     cancelled: number
   }
@@ -167,7 +166,7 @@ export async function fetchReportMetrics(input: {
     const allDeals = deals || []
 
     // Funded statuses (money has moved)
-    const fundedStatuses = ['funded', 'repaid', 'closed']
+    const fundedStatuses = ['funded', 'completed']
     const fundedDeals = allDeals.filter(d => fundedStatuses.includes(d.status))
 
     // Summary KPIs
@@ -188,8 +187,7 @@ export async function fetchReportMetrics(input: {
       under_review: allDeals.filter(d => d.status === 'under_review').length,
       approved: allDeals.filter(d => d.status === 'approved').length,
       funded: allDeals.filter(d => d.status === 'funded').length,
-      repaid: allDeals.filter(d => d.status === 'repaid').length,
-      closed: allDeals.filter(d => d.status === 'closed').length,
+      completed: allDeals.filter(d => d.status === 'completed').length,
       denied: allDeals.filter(d => d.status === 'denied').length,
       cancelled: allDeals.filter(d => d.status === 'cancelled').length,
     }
@@ -399,7 +397,7 @@ export async function fetchBrokerageDetail(input: {
 
     const allDeals = deals || []
     const allAgents = agents || []
-    const fundedStatuses = ['funded', 'repaid', 'closed']
+    const fundedStatuses = ['funded', 'completed']
     const fundedDeals = allDeals.filter(d => fundedStatuses.includes(d.status))
 
     const totalRevenue = fundedDeals.reduce((s, d) => s + Number(d.discount_fee || 0), 0)

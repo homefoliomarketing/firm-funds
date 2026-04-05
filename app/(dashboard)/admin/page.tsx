@@ -247,8 +247,7 @@ export default function AdminDashboard() {
             { label: 'Under Review', value: 'under_review' },
             { label: 'Approved', value: 'approved' },
             { label: 'Funded', value: 'funded' },
-            { label: 'Repaid', value: 'repaid' },
-            { label: 'Closed', value: 'closed' },
+            { label: 'Completed', value: 'completed' },
             { label: 'Denied', value: 'denied' },
             { label: 'Cancelled', value: 'cancelled' },
           ].map((tab) => {
@@ -288,7 +287,7 @@ export default function AdminDashboard() {
           // Status priority for sorting (lower = show first)
           const statusPriority: Record<string, number> = {
             under_review: 0, approved: 1, funded: 2,
-            repaid: 3, closed: 4, denied: 5, cancelled: 6,
+            completed: 3, denied: 4, cancelled: 5,
           }
 
           // Filter, search, and sort by priority

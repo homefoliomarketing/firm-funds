@@ -172,7 +172,7 @@ export default function BrokerageDashboard() {
       if (deal.status === 'under_review') return 1 // Under review, has trade record
       if (deal.status === 'approved') return 2
       if (deal.status === 'funded') return 3
-      return 4 // repaid, closed, denied, cancelled
+      return 4 // completed, denied, cancelled
     }
     const sorted = [...deals]
     sorted.sort((a, b) => {
@@ -186,7 +186,7 @@ export default function BrokerageDashboard() {
   }, [deals, dealTradeRecords])
 
   const earnedDeals = useMemo(() =>
-    deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status)), [deals])
+    deals.filter(d => ['funded', 'completed'].includes(d.status)), [deals])
   const pendingDeals = useMemo(() =>
     deals.filter(d => ['under_review', 'approved'].includes(d.status)), [deals])
   const totalReferralFees = useMemo(() =>
@@ -198,7 +198,7 @@ export default function BrokerageDashboard() {
   const availableMonths = useMemo(() => {
     const months = new Set<string>()
     deals.forEach(d => {
-      if (['funded', 'repaid', 'closed', 'under_review', 'approved'].includes(d.status) && d.closing_date) {
+      if (['funded', 'completed', 'under_review', 'approved'].includes(d.status) && d.closing_date) {
         months.add(d.closing_date.slice(0, 7)) // YYYY-MM
       }
     })
@@ -211,7 +211,7 @@ export default function BrokerageDashboard() {
 
     // Apply earned/pending filter
     if (referralFilter === 'earned') {
-      allReferral = allReferral.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
+      allReferral = allReferral.filter(d => ['funded', 'completed'].includes(d.status))
     } else if (referralFilter === 'pending') {
       allReferral = allReferral.filter(d => ['under_review', 'approved'].includes(d.status))
     }
@@ -721,7 +721,7 @@ export default function BrokerageDashboard() {
                         ) : (
                           <>
                             {filteredReferralDeals.map((deal) => {
-                              const isEarned = ['funded', 'repaid', 'closed'].includes(deal.status)
+                              const isEarned = ['funded', 'completed'].includes(deal.status)
                               return (
                                 <tr key={deal.id} style={{ borderBottom: `1px solid ${colors.divider}` }}>
                                   <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
@@ -769,7 +769,7 @@ export default function BrokerageDashboard() {
           {activeTab === 'payments' && (
             <div className="p-4 sm:p-6">
               {(() => {
-                const fundedDeals = deals.filter(d => ['funded', 'repaid', 'closed'].includes(d.status))
+                const fundedDeals = deals.filter(d => ['funded', 'completed'].includes(d.status))
                 if (fundedDeals.length === 0) {
                   return (
                     <div className="py-12 text-center">

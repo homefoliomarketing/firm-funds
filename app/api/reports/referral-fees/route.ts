@@ -60,12 +60,12 @@ export async function GET(request: Request) {
   const monthParam = url.searchParams.get('month') // YYYY-MM format
   const allTime = url.searchParams.get('all') === 'true'
 
-  // Build query — funded/repaid/closed deals only (earned referral fees)
+  // Build query — funded/completed deals only (earned referral fees)
   let query = supabase
     .from('deals')
     .select('*, agent:agents(first_name, last_name, email)')
     .eq('brokerage_id', profile.brokerage_id)
-    .in('status', ['funded', 'repaid', 'closed'])
+    .in('status', ['funded', 'completed'])
     .order('closing_date', { ascending: false })
 
   // Apply month filter if provided

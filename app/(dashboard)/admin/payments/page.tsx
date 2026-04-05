@@ -63,11 +63,11 @@ export default function AdminPaymentsPage() {
       router.push('/login'); return
     }
 
-    // Fetch all funded/repaid/closed deals with brokerage info
+    // Fetch all funded/completed deals with brokerage info
     const { data: deals } = await supabase
       .from('deals')
       .select('id, property_address, status, advance_amount, amount_due_from_brokerage, brokerage_referral_fee, brokerage_payments, funding_date, closing_date, brokerage_id, agent:agents(first_name, last_name)')
-      .in('status', ['funded', 'repaid', 'closed'])
+      .in('status', ['funded', 'completed'])
       .order('funding_date', { ascending: false })
 
     // Fetch all brokerages

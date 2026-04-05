@@ -94,8 +94,7 @@ export const DEAL_STATUSES = {
   UNDER_REVIEW: 'under_review',
   APPROVED: 'approved',
   FUNDED: 'funded',
-  REPAID: 'repaid',
-  CLOSED: 'closed',
+  COMPLETED: 'completed',
   DENIED: 'denied',
   CANCELLED: 'cancelled',
 } as const
@@ -111,15 +110,14 @@ export const STATUS_BADGE_STYLES: Record<string, { bg: string; text: string; bor
   under_review: { bg: '#1A2240', text: '#7B9FE0', border: '#2D3A5C' },
   approved:     { bg: '#0F2A18', text: '#5FA873', border: '#1E4A2C' },
   funded:       { bg: '#1F1535', text: '#A385D0', border: '#352A50' },
-  repaid:       { bg: '#0F2A24', text: '#5FB8A0', border: '#1E4A3C' },
-  closed:       { bg: '#1A1A1A', text: '#808080', border: '#333333' },
+  completed:    { bg: '#0F2A24', text: '#5FB8A0', border: '#1E4A3C' },
   denied:       { bg: '#2A1212', text: '#E07B7B', border: '#4A2020' },
   cancelled:    { bg: '#2A1F0F', text: '#D4A04A', border: '#4A3820' },
 }
 
 /** Helper: get inline style object for a status badge */
 export function getStatusBadgeStyle(status: string) {
-  const s = STATUS_BADGE_STYLES[status] || STATUS_BADGE_STYLES.closed
+  const s = STATUS_BADGE_STYLES[status] || STATUS_BADGE_STYLES.completed
   return { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
 }
 

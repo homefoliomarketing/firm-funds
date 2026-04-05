@@ -299,10 +299,10 @@ export async function updateDealStatus(input: {
     const STATUS_FLOW: Record<string, string[]> = {
       under_review: ['approved', 'denied', 'cancelled'],
       approved: ['funded', 'denied', 'cancelled', 'under_review'],
-      funded: ['repaid', 'approved'],
+      funded: ['completed', 'approved'],
       denied: ['under_review'],
       cancelled: ['under_review'],
-      repaid: ['closed', 'funded'],
+      completed: ['funded'],
     }
 
     const allowedTransitions = STATUS_FLOW[deal.status] || []
@@ -340,8 +340,8 @@ export async function updateDealStatus(input: {
       updateData.denial_reason = null
     }
 
-    // Clear repayment date and amount when reverting from repaid
-    if (deal.status === 'repaid' && input.newStatus === 'funded') {
+    // Clear repayment date and amount when reverting from completed
+    if (deal.status === 'completed' && input.newStatus === 'funded') {
       updateData.repayment_date = null
       updateData.repayment_amount = null
     }
@@ -379,7 +379,7 @@ export async function updateDealStatus(input: {
       updateData.amount_due_from_brokerage = calc.amountDueFromBrokerage
     }
 
-    if (input.newStatus === 'repaid') {
+    if (input.newStatus === 'completed') {
       updateData.repayment_date = new Date().toISOString().split('T')[0]
       if (input.repaymentAmount !== undefined) {
         updateData.repayment_amount = input.repaymentAmount

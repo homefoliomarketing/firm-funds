@@ -19,6 +19,7 @@ import {
   formatStatusLabel,
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
+import { sendAgentReply } from '@/lib/actions/notification-actions'
 import { AlertCircle } from 'lucide-react'
 
 interface Deal {
@@ -184,23 +185,13 @@ export default function AgentDealDetailPage() {
   const handleSendReply = async () => {
     if (!deal || !replyText.trim()) return
     setReplySending(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setReplySending(false); return }
-    const { data: profile } = await supabase.from('user_profiles').select('full_name').eq('id', user.id).single()
-    const { data: msg, error: insertErr } = await supabase.from('deal_messages').insert({
-      deal_id: deal.id,
-      sender_id: user.id,
-      sender_role: 'agent',
-      sender_name: profile?.full_name || 'Agent',
-      message: replyText.trim(),
-      is_email_reply: false,
-    }).select().single()
-    if (!insertErr && msg) {
-      setDealMessages(prev => [...prev, msg])
+    const result = await sendAgentReply({ dealId: deal.id, message: replyText.trim() })
+    if (result.success && result.data) {
+      setDealMessages(prev => [...prev, result.data])
       setReplyText('')
-      setStatusMessage({ type: 'success', text: 'Reply sent' })
+      setStatusMessage({ type: 'success', text: 'Message sent' })
     } else {
-      setStatusMessage({ type: 'error', text: 'Failed to send reply' })
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send message' })
     }
     setReplySending(false)
   }
@@ -436,9 +427,9 @@ export default function AgentDealDetailPage() {
         <div className="rounded-xl mb-6 p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
           <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: colors.gold }}>Deal Progress</h3>
           <div className="flex items-center gap-1.5">
-            {['under_review', 'approved', 'funded', 'repaid', 'closed'].map((status, index) => {
+            {['under_review', 'approved', 'funded', 'completed'].map((status, index) => {
               const isActive = status === deal.status
-              const isPast = ['under_review', 'approved', 'funded', 'repaid', 'closed'].indexOf(deal.status) > index
+              const isPast = ['under_review', 'approved', 'funded', 'completed'].indexOf(deal.status) > index
               const isDenied = deal.status === 'denied'
               const barColor = isDenied ? '#F0C5C5' : isActive ? '#5FA873' : isPast ? '#1A7A2E' : '#E8E4DF'
               const labelColor = isDenied ? '#993D3D' : isActive ? '#5FA873' : isPast ? '#1A7A2E' : '#D0D0D0'
@@ -715,10 +706,10 @@ export default function AgentDealDetailPage() {
                 {(() => {
                   const events: { label: string; date: string | null; color: string; active: boolean }[] = [
                     { label: 'Submitted', date: deal.created_at, color: colors.successText, active: true },
-                    { label: 'Under Review', date: ['under_review', 'approved', 'funded', 'repaid', 'closed'].includes(deal.status) ? deal.created_at : null, color: colors.infoText, active: deal.status === 'under_review' },
-                    { label: 'Approved', date: ['approved', 'funded', 'repaid', 'closed'].includes(deal.status) ? (deal.funding_date || deal.created_at) : null, color: colors.successText, active: deal.status === 'approved' },
+                    { label: 'Under Review', date: ['under_review', 'approved', 'funded', 'completed'].includes(deal.status) ? deal.created_at : null, color: colors.infoText, active: deal.status === 'under_review' },
+                    { label: 'Approved', date: ['approved', 'funded', 'completed'].includes(deal.status) ? (deal.funding_date || deal.created_at) : null, color: colors.successText, active: deal.status === 'approved' },
                     { label: 'Funded', date: deal.funding_date, color: '#A385D0', active: deal.status === 'funded' },
-                    { label: 'Repaid', date: deal.repayment_date, color: '#5FB8A0', active: deal.status === 'repaid' },
+                    { label: 'Completed', date: deal.repayment_date, color: '#5FB8A0', active: deal.status === 'completed' },
                   ]
                   // Add denied/cancelled if applicable
                   if (deal.status === 'denied') {
@@ -807,9 +798,9 @@ export default function AgentDealDetailPage() {
             )}
 
             {/* MESSAGES — thread between agent and Firm Funds */}
-            {dealMessages.length > 0 && (
-              <div id="messages" className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
-                <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>Messages</h4>
+            <div id="messages" className="rounded-xl p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.border}` }}>
+              <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>Messages</h4>
+              {dealMessages.length > 0 ? (
                 <div className="space-y-2 max-h-48 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
                   {dealMessages.map(msg => (
                     <div key={msg.id} className="px-3 py-2 rounded" style={{
@@ -829,37 +820,39 @@ export default function AgentDealDetailPage() {
                   ))}
                   <div ref={messagesEndRef} />
                 </div>
-                {/* Reply input */}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Type a reply..."
-                    className="flex-1 px-3 py-2 rounded border text-xs focus:outline-none"
-                    style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply() } }}
-                  />
-                  <button
-                    onClick={handleSendReply}
-                    disabled={replySending || !replyText.trim()}
-                    className="px-3 py-2 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
-                    style={{ background: '#5FA873' }}
-                  >
-                    <Send size={12} />
-                    {replySending ? '...' : 'Reply'}
-                  </button>
-                </div>
+              ) : (
+                <p className="text-xs mb-3" style={{ color: colors.textFaint }}>No messages yet. Send a message to the Firm Funds team below.</p>
+              )}
+              {/* Message input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder={dealMessages.length > 0 ? 'Type a reply...' : 'Type a message...'}
+                  className="flex-1 px-3 py-2 rounded border text-xs focus:outline-none"
+                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply() } }}
+                />
+                <button
+                  onClick={handleSendReply}
+                  disabled={replySending || !replyText.trim()}
+                  className="px-3 py-2 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
+                  style={{ background: '#5FA873' }}
+                >
+                  <Send size={12} />
+                  {replySending ? '...' : 'Send'}
+                </button>
               </div>
-            )}
+            </div>
 
             {/* What Happens Next — contextual info */}
             {(() => {
               const tips: Record<string, { title: string; message: string; color: string; bg: string; border: string }> = {
                 under_review: { title: 'Under Review', message: 'Our team is reviewing your deal. Upload all required documents to speed up the process.', color: colors.infoText, bg: colors.infoBg, border: colors.infoBorder },
                 approved: { title: 'Approved!', message: 'Your advance has been approved. Funding will be processed shortly — typically within 24 hours.', color: colors.successText, bg: colors.successBg, border: colors.successBorder },
-                funded: { title: 'Funded', message: 'Your advance has been sent! The amount will be repaid from the proceeds at closing.', color: '#A385D0', bg: '#1F1535', border: '#352A50' },
-                repaid: { title: 'Repaid', message: 'This advance has been fully repaid from the closing proceeds. No further action needed.', color: '#5FB8A0', bg: '#0F2A24', border: '#1E4A3C' },
+                funded: { title: 'Funded', message: 'Your advance has been sent! The amount will be recovered from the proceeds at closing.', color: '#A385D0', bg: '#1F1535', border: '#352A50' },
+                completed: { title: 'Completed', message: 'This advance is complete. The amount has been recovered from the closing proceeds. No further action needed.', color: '#5FB8A0', bg: '#0F2A24', border: '#1E4A3C' },
               }
               const tip = tips[deal.status]
               if (!tip) return null
