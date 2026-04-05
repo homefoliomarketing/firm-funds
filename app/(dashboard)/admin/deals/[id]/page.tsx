@@ -1600,7 +1600,7 @@ export default function DealDetailPage() {
               {agent.flagged_by_brokerage && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: colors.warningBg, color: colors.warningText }}>Flagged</span>
               )}
-              {agent.outstanding_recovery > 0 && (
+              {agent.outstanding_recovery != null && agent.outstanding_recovery > 0 && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: colors.errorBg, color: colors.errorText }}>Recovery: {formatCurrency(agent.outstanding_recovery)}</span>
               )}
             </div>
