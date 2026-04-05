@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Bell, MessageSquare, Home, ArrowLeft, User } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
@@ -35,6 +35,41 @@ export default function AgentHeader({
   const supabase = createClient()
 
   const totalNotifications = unreadCount + pendingReturns
+  const prevTotalRef = useRef<number>(0)
+  const notifPermissionAsked = useRef(false)
+
+  // Request notification permission after first successful load
+  const requestNotificationPermission = useCallback(() => {
+    if (notifPermissionAsked.current) return
+    if (typeof window === 'undefined' || !('Notification' in window)) return
+    if (Notification.permission === 'default') {
+      notifPermissionAsked.current = true
+      // Small delay so it doesn't fire immediately on page load
+      setTimeout(() => {
+        Notification.requestPermission()
+      }, 5000)
+    }
+  }, [])
+
+  // Fire browser notification when new messages arrive
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return
+    if (Notification.permission !== 'granted') return
+    // Only fire if count went UP (not on initial load)
+    if (prevTotalRef.current > 0 && totalNotifications > prevTotalRef.current) {
+      const diff = totalNotifications - prevTotalRef.current
+      try {
+        new Notification('Firm Funds', {
+          body: diff === 1
+            ? 'You have a new message from Firm Funds'
+            : `You have ${diff} new notifications`,
+          icon: '/brand/icon.png',
+          tag: 'firm-funds-notif', // prevents stacking
+        })
+      } catch { /* notification failed silently */ }
+    }
+    prevTotalRef.current = totalNotifications
+  }, [totalNotifications])
 
   const loadNotifications = useCallback(async () => {
     if (!agentId) return
@@ -43,11 +78,12 @@ export default function AgentHeader({
       if (result.success && result.data) {
         setUnreadCount(result.data.unreadMessages)
         setPendingReturns(result.data.pendingReturns)
+        requestNotificationPermission()
       }
     } catch {
       // Silently fail — don't break the header over notification counts
     }
-  }, [agentId])
+  }, [agentId, requestNotificationPermission])
 
   useEffect(() => {
     loadNotifications()

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 import { useTheme } from '@/lib/theme'
@@ -237,8 +237,96 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* Pipeline cards + Action Needed section removed — status filter tabs
-            and priority-sorted deal table handle the workflow cleanly */}
+        {/* Overdue / Needs Attention Alerts */}
+        {(() => {
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+          const todayMs = new Date(todayStr + 'T00:00:00').getTime()
+          const threeDaysAgo = todayMs - (3 * 24 * 60 * 60 * 1000)
+
+          const overdueClosings = allDeals.filter(d =>
+            d.status === 'funded' &&
+            new Date(d.closing_date + 'T00:00:00').getTime() < todayMs
+          )
+          const staleReviews = allDeals.filter(d =>
+            d.status === 'under_review' &&
+            new Date(d.created_at).getTime() < threeDaysAgo
+          )
+          const approvedNoFunding = allDeals.filter(d => {
+            if (d.status !== 'approved') return false
+            const approvedDays = (todayMs - new Date(d.created_at).getTime()) / (24 * 60 * 60 * 1000)
+            return approvedDays > 5
+          })
+
+          const totalAlerts = overdueClosings.length + staleReviews.length + approvedNoFunding.length
+          if (totalAlerts === 0) return null
+
+          return (
+            <div className="mb-4 rounded-lg overflow-hidden" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
+              <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: totalAlerts > 0 ? '1px solid #4A2020' : 'none' }}>
+                <AlertTriangle size={14} style={{ color: '#F87171' }} />
+                <span className="text-xs font-bold" style={{ color: '#F87171' }}>
+                  {totalAlerts} deal{totalAlerts !== 1 ? 's' : ''} need{totalAlerts === 1 ? 's' : ''} attention
+                </span>
+              </div>
+              <div className="px-4 py-2 space-y-1.5">
+                {overdueClosings.map(deal => (
+                  <div
+                    key={`overdue-${deal.id}`}
+                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded cursor-pointer transition-colors"
+                    style={{ background: '#3A1818' }}
+                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#4A2020'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#3A1818'}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Clock size={11} style={{ color: '#F87171' }} />
+                      <span className="text-xs truncate" style={{ color: '#FCA5A5' }}>
+                        <strong>Overdue:</strong> {deal.property_address} — closing was {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}, still funded
+                      </span>
+                    </div>
+                    <ChevronRight size={12} style={{ color: '#F87171' }} />
+                  </div>
+                ))}
+                {staleReviews.map(deal => (
+                  <div
+                    key={`stale-${deal.id}`}
+                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded cursor-pointer transition-colors"
+                    style={{ background: '#2A2210' }}
+                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#3A3218'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#2A2210'}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Clock size={11} style={{ color: '#D4A04A' }} />
+                      <span className="text-xs truncate" style={{ color: '#E8C060' }}>
+                        <strong>Stale review:</strong> {deal.property_address} — under review for {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days
+                      </span>
+                    </div>
+                    <ChevronRight size={12} style={{ color: '#D4A04A' }} />
+                  </div>
+                ))}
+                {approvedNoFunding.map(deal => (
+                  <div
+                    key={`nofund-${deal.id}`}
+                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded cursor-pointer transition-colors"
+                    style={{ background: '#1A2240' }}
+                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#2A3250'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#1A2240'}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Clock size={11} style={{ color: '#7B9FE0' }} />
+                      <span className="text-xs truncate" style={{ color: '#9BB8F0' }}>
+                        <strong>Pending funding:</strong> {deal.property_address} — approved {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
+                      </span>
+                    </div>
+                    <ChevronRight size={12} style={{ color: '#7B9FE0' }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Status Filter Tabs */}
         <div className="flex flex-wrap gap-1.5 mb-3">

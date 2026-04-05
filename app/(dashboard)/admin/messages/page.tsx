@@ -5,11 +5,11 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   MessageSquare, Send, ExternalLink, Inbox, Search, ArrowLeft,
-  AlertCircle, Clock, CheckCircle,
+  AlertCircle, Clock, CheckCircle, Zap,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { formatDateTime } from '@/lib/formatting'
-import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeStyle, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import {
   getAdminInbox,
@@ -39,6 +39,7 @@ export default function AdminMessagesPage() {
   const [replySending, setReplySending] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'needs_reply'>('all')
+  const [showQuickReplies, setShowQuickReplies] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const supabase = createClient()
@@ -431,8 +432,43 @@ export default function AdminMessagesPage() {
                     )}
                   </div>
 
+                  {/* Quick-reply templates */}
+                  {showQuickReplies && (
+                    <div className="px-5 py-2 flex flex-wrap gap-1.5" style={{ borderTop: `1px solid ${colors.border}`, background: colors.tableHeaderBg }}>
+                      {ADMIN_QUICK_REPLIES.map((template, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => { setReplyText(template.message); setShowQuickReplies(false) }}
+                          className="px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors"
+                          style={{ background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
+                        >
+                          {template.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Reply input */}
-                  <div className="px-5 py-3 flex gap-2" style={{ borderTop: `1px solid ${colors.border}`, background: colors.tableHeaderBg }}>
+                  <div className="px-5 py-3 flex gap-2" style={{ borderTop: showQuickReplies ? 'none' : `1px solid ${colors.border}`, background: colors.tableHeaderBg }}>
+                    <button
+                      onClick={() => setShowQuickReplies(!showQuickReplies)}
+                      className="p-2.5 rounded-lg transition-colors flex-shrink-0"
+                      style={{
+                        color: showQuickReplies ? colors.gold : colors.textMuted,
+                        background: showQuickReplies ? `${colors.gold}15` : 'transparent',
+                        border: `1px solid ${showQuickReplies ? colors.gold : colors.border}`,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = showQuickReplies ? colors.gold : colors.border
+                        e.currentTarget.style.color = showQuickReplies ? colors.gold : colors.textMuted
+                      }}
+                      title="Quick replies"
+                    >
+                      <Zap size={14} />
+                    </button>
                     <input
                       type="text"
                       value={replyText}

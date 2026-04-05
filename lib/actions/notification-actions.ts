@@ -594,3 +594,120 @@ export async function sendAdminMessage(input: {
     return { success: false, error: 'Failed to send message' }
   }
 }
+
+// ============================================================================
+// Brokerage messaging — send a message from a brokerage admin about a deal
+// ============================================================================
+
+export async function sendBrokerageMessage(input: {
+  dealId: string
+  message: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    // Verify the deal belongs to this brokerage
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('id, brokerage_id, property_address')
+      .eq('id', input.dealId)
+      .single()
+
+    if (!deal) return { success: false, error: 'Deal not found' }
+    if (deal.brokerage_id !== profile?.brokerage_id) return { success: false, error: 'Access denied' }
+
+    const { data: msg, error } = await serviceClient
+      .from('deal_messages')
+      .insert({
+        deal_id: input.dealId,
+        sender_id: user.id,
+        sender_role: 'brokerage_admin',
+        sender_name: profile?.full_name || 'Brokerage',
+        message: input.message.trim(),
+        is_email_reply: false,
+      })
+      .select()
+      .single()
+
+    if (error) return { success: false, error: error.message }
+
+    // Send email notification to admin
+    try {
+      const { sendBrokerageMessageNotification } = await import('@/lib/email')
+      sendBrokerageMessageNotification({
+        dealId: deal.id,
+        propertyAddress: deal.property_address,
+        senderName: profile?.full_name || 'Brokerage Admin',
+        message: input.message.trim(),
+      })
+    } catch {
+      // Email failure shouldn't block the message
+    }
+
+    return { success: true, data: msg }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to send message' }
+  }
+}
+
+// ============================================================================
+// Get brokerage inbox — deals this brokerage has, with message counts
+// ============================================================================
+
+export async function getBrokerageInbox(brokerageId: string): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.brokerage_id !== brokerageId) return { success: false, error: 'Access denied' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data: deals } = await serviceClient
+      .from('deals')
+      .select('id, property_address, status, closing_date, agent:agents(first_name, last_name)')
+      .eq('brokerage_id', brokerageId)
+      .not('status', 'in', '("denied","cancelled")')
+      .order('created_at', { ascending: false })
+
+    if (!deals || deals.length === 0) return { success: true, data: { inbox: [] } }
+
+    const dealIds = deals.map(d => d.id)
+    const { data: messages } = await serviceClient
+      .from('deal_messages')
+      .select('deal_id, sender_role, sender_name, message, created_at')
+      .in('deal_id', dealIds)
+      .order('created_at', { ascending: false })
+
+    // Build message map — latest message per deal
+    const msgMap = new Map<string, { message: string; sender_role: string; sender_name: string | null; created_at: string; count: number }>()
+    for (const msg of (messages || [])) {
+      if (!msgMap.has(msg.deal_id)) {
+        msgMap.set(msg.deal_id, { message: msg.message, sender_role: msg.sender_role, sender_name: msg.sender_name, created_at: msg.created_at, count: 0 })
+      }
+      const entry = msgMap.get(msg.deal_id)!
+      entry.count++
+    }
+
+    const inbox = deals.map(d => {
+      const msgEntry = msgMap.get(d.id)
+      const agent = d.agent as any
+      return {
+        deal_id: d.id,
+        property_address: d.property_address,
+        deal_status: d.status,
+        agent_name: agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown',
+        latest_message: msgEntry?.message || '',
+        latest_message_at: msgEntry?.created_at || '',
+        latest_sender_role: msgEntry?.sender_role || '',
+        total_message_count: msgEntry?.count || 0,
+      }
+    })
+
+    return { success: true, data: { inbox } }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to load inbox' }
+  }
+}

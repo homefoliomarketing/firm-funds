@@ -899,3 +899,116 @@ export async function sendInvoiceNotification(params: {
     console.error('[email] Failed to send invoice notification:', err)
   }
 }
+
+// ============================================================================
+// Brokerage message notification — sent to admin when brokerage sends a message
+// ============================================================================
+
+export async function sendBrokerageMessageNotification(params: {
+  dealId: string
+  propertyAddress: string
+  senderName: string
+  message: string
+}) {
+  try {
+    const resend = getResend()
+    if (!resend) return
+
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `Brokerage message: ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">New Message from Brokerage</h2>
+        <p style="margin:0 0 8px; color:#E8E4DF;">${params.senderName} sent a message about <strong>${params.propertyAddress}</strong>:</p>
+        <div style="margin:16px 0; padding:16px; background:#1A1A1A; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
+          <p style="margin:0; color:#E8E4DF; font-size:14px; white-space:pre-wrap;">${params.message}</p>
+        </div>
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/admin/deals/${params.dealId}#messages" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View Deal & Reply
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage message notification:', err)
+  }
+}
+
+// ============================================================================
+// Brokerage deal status notification — sent to brokerage when deal status changes
+// ============================================================================
+
+export async function sendBrokerageStatusNotification(params: {
+  brokerageEmail: string
+  brokerageName: string
+  propertyAddress: string
+  agentName: string
+  newStatus: string
+  dealId: string
+}) {
+  try {
+    const resend = getResend()
+    if (!resend) return
+
+    const statusLabels: Record<string, string> = {
+      under_review: 'Under Review',
+      approved: 'Approved',
+      funded: 'Funded',
+      completed: 'Completed',
+      denied: 'Denied',
+      cancelled: 'Cancelled',
+    }
+    const statusColors: Record<string, string> = {
+      under_review: '#D4A04A',
+      approved: '#5FA873',
+      funded: '#1A7A2E',
+      completed: '#5FB8A0',
+      denied: '#EF4444',
+      cancelled: '#9CA3AF',
+    }
+
+    const label = statusLabels[params.newStatus] || params.newStatus
+    const color = statusColors[params.newStatus] || '#D4A04A'
+
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.brokerageEmail,
+      subject: `Deal ${label}: ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">Deal Status Update</h2>
+        <p style="margin:0 0 16px; color:#E8E4DF;">A deal submitted by one of your agents has been updated.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#1A1A1A; border-radius:8px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:4px 0; color:#999; font-size:13px;">Property</td>
+                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right; font-weight:600;">${params.propertyAddress}</td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0; color:#999; font-size:13px;">Agent</td>
+                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right;">${params.agentName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0; color:#999; font-size:13px;">New Status</td>
+                  <td style="padding:4px 0; font-size:13px; text-align:right;">
+                    <span style="display:inline-block; padding:4px 12px; background:${color}20; color:${color}; border-radius:4px; font-weight:600; font-size:12px;">${label}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <div style="margin-top:24px;">
+          <a href="${APP_URL}/brokerage" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+            View in Brokerage Portal
+          </a>
+        </div>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage status notification:', err)
+  }
+}

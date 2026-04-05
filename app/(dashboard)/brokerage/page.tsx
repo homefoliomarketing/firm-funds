@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
-  TrendingUp, BarChart3,
+  TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
+  MessageSquare, Inbox,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
+import { getBrokerageInbox, getDealMessages, sendBrokerageMessage } from '@/lib/actions/notification-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
@@ -30,6 +32,7 @@ interface Deal {
   amount_due_from_brokerage: number
   funding_date: string | null
   created_at: string
+  denial_reason: string | null
   agent?: {
     first_name: string
     last_name: string
@@ -46,6 +49,8 @@ interface Agent {
   phone: string | null
   status: string
   flagged_by_brokerage: boolean
+  kyc_status: string | null
+  banking_verified: boolean
 }
 
 export default function BrokerageDashboard() {
@@ -54,7 +59,7 @@ export default function BrokerageDashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [expandedDeal, setExpandedDeal] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'deals' | 'agents' | 'referrals' | 'payments'>('deals')
+  const [activeTab, setActiveTab] = useState<'deals' | 'agents' | 'referrals' | 'payments' | 'messages'>('deals')
   const [loading, setLoading] = useState(true)
   const [uploadingDeal, setUploadingDeal] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -63,6 +68,16 @@ export default function BrokerageDashboard() {
   const [referralMonth, setReferralMonth] = useState<string>('all')
   const [referralFilter, setReferralFilter] = useState<'all' | 'earned' | 'pending'>('all')
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadingCsv, setDownloadingCsv] = useState(false)
+  const [showMonthlyChart, setShowMonthlyChart] = useState(true)
+  // Messaging state
+  const [brokerageInbox, setBrokerageInbox] = useState<any[]>([])
+  const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
+  const [dealMessages, setDealMessages] = useState<any[]>([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
+  const [msgText, setMsgText] = useState('')
+  const [msgSending, setMsgSending] = useState(false)
+  const msgEndRef = useRef<HTMLDivElement>(null)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
@@ -159,6 +174,37 @@ export default function BrokerageDashboard() {
       alert('Failed to download report. Please try again.')
     }
     setDownloadingPdf(false)
+  }
+
+  const handleDownloadCsv = () => {
+    setDownloadingCsv(true)
+    try {
+      const rows = filteredReferralDeals.map(d => ({
+        Property: d.property_address,
+        Agent: `${d.agent?.first_name || ''} ${d.agent?.last_name || ''}`.trim(),
+        'Closing Date': d.closing_date || '',
+        Status: d.status,
+        'Referral Fee': d.brokerage_referral_fee.toFixed(2),
+      }))
+      const headers = Object.keys(rows[0] || { Property: '', Agent: '', 'Closing Date': '', Status: '', 'Referral Fee': '' })
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(r => headers.map(h => `"${(r as any)[h]}"`).join(',')),
+      ].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const monthLabel = referralMonth === 'all' ? 'all_time' : referralMonth
+      a.download = `referral_fees_${monthLabel}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Failed to generate CSV. Please try again.')
+    }
+    setDownloadingCsv(false)
   }
 
   // =========================================================================
@@ -373,10 +419,17 @@ export default function BrokerageDashboard() {
         {/* Tabbed Content */}
         <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
           <div className="flex overflow-x-auto" style={{ borderBottom: `1px solid ${colors.border}` }}>
-            {(['deals', 'agents', 'referrals', 'payments'] as const).map((tab) => (
+            {(['deals', 'agents', 'referrals', 'payments', 'messages'] as const).map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  setActiveTab(tab)
+                  if (tab === 'messages' && brokerageInbox.length === 0 && profile?.brokerage_id) {
+                    getBrokerageInbox(profile.brokerage_id).then(r => {
+                      if (r.success && r.data) setBrokerageInbox(r.data.inbox)
+                    })
+                  }
+                }}
                 className="px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap"
                 style={activeTab === tab
                   ? { color: colors.gold, borderBottom: `2px solid ${colors.gold}`, marginBottom: '-1px' }
@@ -385,7 +438,7 @@ export default function BrokerageDashboard() {
                 onMouseEnter={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textSecondary }}
                 onMouseLeave={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textMuted }}
               >
-                {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : 'Payment Status'}
+                {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : tab === 'payments' ? 'Payment Status' : 'Messages'}
               </button>
             ))}
           </div>
@@ -485,6 +538,13 @@ export default function BrokerageDashboard() {
                                 <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Referral Fee</span><span className="font-bold" style={{ color: colors.successText }}>{formatCurrency(deal.brokerage_referral_fee)}</span></div>
                                 <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Due to Firm Funds</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
                               </div>
+                              {/* Denial Reason (if denied) */}
+                              {deal.status === 'denied' && deal.denial_reason && (
+                                <div className="mt-3 rounded-lg p-3" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
+                                  <p className="text-xs font-bold" style={{ color: colors.errorText }}>Denial Reason</p>
+                                  <p className="text-xs mt-1" style={{ color: colors.errorText, opacity: 0.9 }}>{deal.denial_reason}</p>
+                                </div>
+                              )}
                               {/* Trade Record Upload */}
                               <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${colors.border}` }}>
                                 <label
@@ -580,7 +640,38 @@ export default function BrokerageDashboard() {
                     >
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
-                        <p className="text-xs mt-1 truncate" style={{ color: colors.textMuted }}>{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="text-xs truncate" style={{ color: colors.textMuted }}>{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
+                          {/* KYC Status Badge */}
+                          {agent.kyc_status === 'verified' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
+                              style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>
+                              <Shield size={9} /> KYC
+                            </span>
+                          ) : agent.kyc_status === 'submitted' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
+                              style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>
+                              <Clock size={9} /> KYC Pending
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
+                              style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}>
+                              <XCircle size={9} /> No KYC
+                            </span>
+                          )}
+                          {/* Banking Status Badge */}
+                          {agent.banking_verified ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
+                              style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>
+                              <CreditCard size={9} /> Banking
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
+                              style={{ background: '#1A2240', color: '#6B8AC0', border: '1px solid #2D3A5C' }}>
+                              <CreditCard size={9} /> No Banking
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                         {agent.flagged_by_brokerage ? (
@@ -626,7 +717,7 @@ export default function BrokerageDashboard() {
           {activeTab === 'referrals' && (
             <div className="p-4">
               {/* Summary Cards - Clickable */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                 <div
                   className="rounded-lg px-4 py-3 cursor-pointer transition-opacity hover:opacity-80"
                   style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}
@@ -647,7 +738,77 @@ export default function BrokerageDashboard() {
                   <p className="text-xs" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
                   {referralFilter === 'pending' && <p className="text-xs mt-1 font-semibold" style={{ color: colors.warningText }}>Show All</p>}
                 </div>
+                <div className="rounded-lg px-4 py-3" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.infoText, opacity: 0.7 }}>Avg Fee / Deal</p>
+                  <p className="text-xl font-black mt-1" style={{ color: colors.infoText }}>{formatCurrency(avgFeePerDeal)}</p>
+                  <p className="text-xs" style={{ color: colors.infoText, opacity: 0.6 }}>across funded deals</p>
+                </div>
+                <div className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted, opacity: 0.7 }}>Combined Total</p>
+                  <p className="text-xl font-black mt-1" style={{ color: colors.gold }}>{formatCurrency(totalReferralFees + pendingReferralFees)}</p>
+                  <p className="text-xs" style={{ color: colors.textMuted, opacity: 0.6 }}>earned + pending</p>
+                </div>
               </div>
+
+              {/* Monthly Trend Chart */}
+              {monthlySummary.length > 1 && (
+                <div className="rounded-lg p-4 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 size={16} style={{ color: colors.gold }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Monthly Trend</h4>
+                    </div>
+                    <button
+                      className="text-xs px-2 py-1 rounded-md"
+                      style={{ color: colors.textMuted, background: colors.inputBg }}
+                      onClick={() => setShowMonthlyChart(!showMonthlyChart)}
+                    >
+                      {showMonthlyChart ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  {showMonthlyChart && (() => {
+                    const chartData = [...monthlySummary].reverse().slice(-12) // last 12 months, chronological
+                    const maxVal = Math.max(...chartData.map(m => m.earned + m.pending), 1)
+                    return (
+                      <div>
+                        {/* Legend */}
+                        <div className="flex items-center gap-4 mb-3">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-sm" style={{ background: colors.successText }} />
+                            <span className="text-xs" style={{ color: colors.textMuted }}>Earned</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-sm" style={{ background: colors.warningText }} />
+                            <span className="text-xs" style={{ color: colors.textMuted }}>Pending</span>
+                          </div>
+                        </div>
+                        {/* Bar chart */}
+                        <div className="flex items-end gap-2" style={{ height: '160px' }}>
+                          {chartData.map((m) => {
+                            const earnedH = maxVal > 0 ? (m.earned / maxVal) * 140 : 0
+                            const pendingH = maxVal > 0 ? (m.pending / maxVal) * 140 : 0
+                            const [, monthNum] = m.month.split('-')
+                            const monthLabel = new Date(2024, parseInt(monthNum) - 1, 1).toLocaleDateString('en-CA', { month: 'short' })
+                            return (
+                              <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5" title={`${formatMonthLabel(m.month)}: Earned ${formatCurrency(m.earned)}, Pending ${formatCurrency(m.pending)}`}>
+                                <div className="w-full flex flex-col items-center justify-end" style={{ height: '140px' }}>
+                                  {pendingH > 0 && (
+                                    <div className="w-full max-w-[32px] rounded-t-sm" style={{ height: `${pendingH}px`, background: colors.warningText, opacity: 0.7 }} />
+                                  )}
+                                  {earnedH > 0 && (
+                                    <div className="w-full max-w-[32px]" style={{ height: `${earnedH}px`, background: colors.successText, borderRadius: pendingH > 0 ? '0' : '4px 4px 0 0' }} />
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-medium" style={{ color: colors.textMuted }}>{monthLabel}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
 
               {/* Fee Breakdown with Filter + PDF Download */}
               {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
@@ -680,6 +841,21 @@ export default function BrokerageDashboard() {
                           ))}
                         </select>
                       </div>
+                      {/* CSV Export */}
+                      <button
+                        onClick={handleDownloadCsv}
+                        disabled={downloadingCsv || filteredReferralDeals.length === 0}
+                        className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                        style={{
+                          background: colors.cardBg,
+                          color: colors.textSecondary,
+                          border: `1px solid ${colors.border}`,
+                          opacity: downloadingCsv || filteredReferralDeals.length === 0 ? 0.5 : 1,
+                        }}
+                      >
+                        <Download size={13} />
+                        {downloadingCsv ? 'Exporting...' : 'Export CSV'}
+                      </button>
                       {/* PDF Download */}
                       <button
                         onClick={handleDownloadPdf}
@@ -694,7 +870,7 @@ export default function BrokerageDashboard() {
                         onMouseLeave={(e) => e.currentTarget.style.background = colors.gold}
                       >
                         <Download size={13} />
-                        {downloadingPdf ? 'Generating...' : 'Download PDF Report'}
+                        {downloadingPdf ? 'Generating...' : 'Download PDF'}
                       </button>
                     </div>
                   </div>
@@ -754,9 +930,54 @@ export default function BrokerageDashboard() {
                     </table>
                   </div>
 
+                  {/* Monthly Summary Table */}
+                  {monthlySummary.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>
+                        <TrendingUp size={13} className="inline mr-1" style={{ verticalAlign: 'text-bottom' }} />
+                        Monthly Summary
+                      </h4>
+                      <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+                        <table className="w-full">
+                          <thead>
+                            <tr style={{ background: colors.tableHeaderBg }}>
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Month</th>
+                              <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Deals</th>
+                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.successText }}>Earned</th>
+                              <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Pending</th>
+                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.warningText }}>Pending $</th>
+                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {monthlySummary.map((m) => (
+                              <tr key={m.month} style={{ borderBottom: `1px solid ${colors.divider}` }}>
+                                <td className="px-4 py-2 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatMonthLabel(m.month)}</td>
+                                <td className="px-4 py-2 text-sm text-center" style={{ color: colors.textSecondary }}>{m.dealCount}</td>
+                                <td className="px-4 py-2 text-sm text-right font-semibold" style={{ color: colors.successText }}>{formatCurrency(m.earned)}</td>
+                                <td className="px-4 py-2 text-sm text-center" style={{ color: colors.textSecondary }}>{m.pendingCount}</td>
+                                <td className="px-4 py-2 text-sm text-right font-semibold" style={{ color: colors.warningText }}>{formatCurrency(m.pending)}</td>
+                                <td className="px-4 py-2 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(m.earned + m.pending)}</td>
+                              </tr>
+                            ))}
+                            {/* Summary totals */}
+                            <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
+                              <td className="px-4 py-2 text-sm font-bold" style={{ color: colors.textPrimary }}>Total</td>
+                              <td className="px-4 py-2 text-sm text-center font-bold" style={{ color: colors.textPrimary }}>{monthlySummary.reduce((s, m) => s + m.dealCount, 0)}</td>
+                              <td className="px-4 py-2 text-sm text-right font-bold" style={{ color: colors.successText }}>{formatCurrency(monthlySummary.reduce((s, m) => s + m.earned, 0))}</td>
+                              <td className="px-4 py-2 text-sm text-center font-bold" style={{ color: colors.textPrimary }}>{monthlySummary.reduce((s, m) => s + m.pendingCount, 0)}</td>
+                              <td className="px-4 py-2 text-sm text-right font-bold" style={{ color: colors.warningText }}>{formatCurrency(monthlySummary.reduce((s, m) => s + m.pending, 0))}</td>
+                              <td className="px-4 py-2 text-sm text-right font-black" style={{ color: colors.gold }}>{formatCurrency(monthlySummary.reduce((s, m) => s + m.earned + m.pending, 0))}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Accounting note */}
                   <p className="text-xs mt-3" style={{ color: colors.textFaint }}>
-                    Referral fees are earned when deals reach &quot;Funded&quot; status. Download the PDF report for your accounting records.
+                    Referral fees are earned when deals reach &quot;Funded&quot; status. Export CSV for spreadsheet use or download the PDF report for accounting records.
                   </p>
                 </div>
               )}
@@ -895,6 +1116,185 @@ export default function BrokerageDashboard() {
                   </>
                 )
               })()}
+            </div>
+          )}
+
+          {/* ================================================================ */}
+          {/* MESSAGES TAB                                                     */}
+          {/* ================================================================ */}
+          {activeTab === 'messages' && (
+            <div className="flex" style={{ height: '500px' }}>
+              {/* Deal list */}
+              <div className="flex flex-col" style={{ width: '300px', minWidth: '250px', borderRight: `1px solid ${colors.border}` }}>
+                <div className="p-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <p className="text-xs font-bold" style={{ color: colors.textMuted }}>
+                    Select a deal to message Firm Funds
+                  </p>
+                </div>
+                <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                  {brokerageInbox.length === 0 ? (
+                    <div className="p-6 text-center">
+                      <Inbox size={32} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
+                      <p className="text-xs" style={{ color: colors.textMuted }}>No active deals</p>
+                    </div>
+                  ) : (
+                    brokerageInbox.map((item: any) => {
+                      const isSelected = item.deal_id === selectedMsgDealId
+                      return (
+                        <button
+                          key={item.deal_id}
+                          onClick={async () => {
+                            setSelectedMsgDealId(item.deal_id)
+                            setMessagesLoading(true)
+                            setMsgText('')
+                            const result = await getDealMessages(item.deal_id)
+                            if (result.success && result.data) setDealMessages(result.data)
+                            setMessagesLoading(false)
+                          }}
+                          className="w-full text-left px-3 py-3 transition-colors"
+                          style={{
+                            background: isSelected ? colors.tableHeaderBg : 'transparent',
+                            borderBottom: `1px solid ${colors.divider}`,
+                            borderLeft: isSelected ? `3px solid ${colors.gold}` : '3px solid transparent',
+                          }}
+                          onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = colors.cardHoverBg }}
+                          onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                        >
+                          <p className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{item.property_address}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px]" style={{ color: colors.textMuted }}>{item.agent_name}</span>
+                            <span className="inline-flex px-1.5 py-0.5 text-[9px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                              {formatStatusLabel(item.deal_status)}
+                            </span>
+                          </div>
+                          {item.total_message_count > 0 && (
+                            <p className="text-[10px] mt-1 truncate" style={{ color: colors.textFaint }}>
+                              {item.total_message_count} message{item.total_message_count !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Message thread */}
+              <div className="flex-1 flex flex-col min-w-0">
+                {!selectedMsgDealId ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center">
+                      <MessageSquare size={36} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
+                      <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>Select a deal to view messages</p>
+                      <p className="text-xs mt-1" style={{ color: colors.textMuted }}>You can message the Firm Funds team about any active deal</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Thread header */}
+                    <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <p className="text-xs font-bold truncate" style={{ color: colors.textPrimary }}>
+                        {brokerageInbox.find((d: any) => d.deal_id === selectedMsgDealId)?.property_address}
+                      </p>
+                    </div>
+
+                    {/* Messages */}
+                    <div className="flex-1 overflow-y-auto px-4 py-3" style={{ scrollbarWidth: 'thin' }}>
+                      {messagesLoading ? (
+                        <div className="space-y-2">
+                          {[1,2,3].map(i => (
+                            <div key={i} className="h-10 rounded-lg animate-pulse" style={{ background: colors.skeletonHighlight }} />
+                          ))}
+                        </div>
+                      ) : dealMessages.length === 0 ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center">
+                            <MessageSquare size={28} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
+                            <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>No messages yet</p>
+                            <p className="text-[10px] mt-0.5" style={{ color: colors.textMuted }}>Send a message to the Firm Funds team below</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {dealMessages.map((msg: any) => (
+                            <div
+                              key={msg.id}
+                              className={`px-3 py-2.5 rounded-xl max-w-[85%] ${msg.sender_role === 'brokerage_admin' ? 'ml-auto' : ''}`}
+                              style={{
+                                background: msg.sender_role === 'admin' ? '#0F2A18'
+                                  : msg.sender_role === 'brokerage_admin' ? colors.tableHeaderBg
+                                  : '#1A2240',
+                                border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : msg.sender_role === 'brokerage_admin' ? colors.border : '#2D3A5C'}`,
+                              }}
+                            >
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-[10px] font-semibold" style={{
+                                  color: msg.sender_role === 'admin' ? '#5FA873'
+                                    : msg.sender_role === 'brokerage_admin' ? colors.gold
+                                    : '#7B9FE0',
+                                }}>
+                                  {msg.sender_role === 'admin' ? 'Firm Funds' : msg.sender_role === 'brokerage_admin' ? 'You' : msg.sender_name || 'Agent'}
+                                </span>
+                                <span className="text-[9px]" style={{ color: colors.textFaint }}>
+                                  {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="text-xs whitespace-pre-wrap leading-relaxed" style={{ color: colors.textPrimary }}>{msg.message}</p>
+                            </div>
+                          ))}
+                          <div ref={msgEndRef} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Reply input */}
+                    <div className="px-4 py-2.5 flex gap-2" style={{ borderTop: `1px solid ${colors.border}`, background: colors.tableHeaderBg }}>
+                      <input
+                        type="text"
+                        value={msgText}
+                        onChange={(e) => setMsgText(e.target.value)}
+                        placeholder="Message Firm Funds..."
+                        className="flex-1 px-3 py-2 rounded-lg text-xs outline-none"
+                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
+                        onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && !e.shiftKey && msgText.trim() && selectedMsgDealId) {
+                            e.preventDefault()
+                            setMsgSending(true)
+                            const result = await sendBrokerageMessage({ dealId: selectedMsgDealId, message: msgText })
+                            if (result.success && result.data) {
+                              setDealMessages(prev => [...prev, result.data])
+                              setMsgText('')
+                              setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+                            }
+                            setMsgSending(false)
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!selectedMsgDealId || !msgText.trim()) return
+                          setMsgSending(true)
+                          const result = await sendBrokerageMessage({ dealId: selectedMsgDealId, message: msgText })
+                          if (result.success && result.data) {
+                            setDealMessages(prev => [...prev, result.data])
+                            setMsgText('')
+                            setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+                          }
+                          setMsgSending(false)
+                        }}
+                        disabled={msgSending || !msgText.trim()}
+                        className="px-3 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-40 flex items-center gap-1 transition-colors"
+                        style={{ background: '#5FA873' }}
+                      >
+                        <Send size={12} />
+                        {msgSending ? '...' : 'Send'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>

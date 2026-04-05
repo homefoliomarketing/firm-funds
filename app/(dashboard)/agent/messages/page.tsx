@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   MessageSquare, AlertTriangle, Send, FileText, ExternalLink,
-  Inbox, ChevronRight, Clock, Search,
+  Inbox, ChevronRight, Clock, Search, Upload, CheckCircle2, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { formatDate, formatDateTime } from '@/lib/formatting'
@@ -18,6 +18,7 @@ import {
   sendAgentReply,
   type InboxDeal,
 } from '@/lib/actions/notification-actions'
+import { uploadDocument } from '@/lib/actions/deal-actions'
 
 interface DealMessageItem {
   id: string
@@ -53,6 +54,9 @@ export default function AgentMessagesPage() {
   const [replySending, setReplySending] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [returnsExpanded, setReturnsExpanded] = useState(false)
+  const [uploadingReturnId, setUploadingReturnId] = useState<string | null>(null)
+  const [uploadedReturnIds, setUploadedReturnIds] = useState<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const supabase = createClient()
@@ -95,6 +99,8 @@ export default function AgentMessagesPage() {
     setSelectedDealId(dealId)
     setMessagesLoading(true)
     setReplyText('')
+    setReturnsExpanded(false)
+    setUploadedReturnIds(new Set())
 
     const result = await getDealMessages(dealId)
     if (result.success && result.data) {
@@ -380,27 +386,96 @@ export default function AgentMessagesPage() {
                     </button>
                   </div>
 
-                  {/* Returned docs alert (if any for selected deal) */}
+                  {/* Returned docs alert with inline upload */}
                   {selectedDealReturns.length > 0 && (
-                    <div className="px-5 py-2.5 flex items-center justify-between gap-3" style={{ background: '#2A1212', borderBottom: '1px solid #4A2020' }}>
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <AlertTriangle size={14} style={{ color: '#F87171', flexShrink: 0 }} />
-                        <span className="text-xs font-bold truncate" style={{ color: '#F87171' }}>
-                          {selectedDealReturns.length === 1
-                            ? `Returned: ${selectedDealReturns[0].deal_documents?.file_name || 'Document'} — ${selectedDealReturns[0].reason}`
-                            : `${selectedDealReturns.length} documents returned for revision`
-                          }
-                        </span>
-                      </div>
+                    <div style={{ background: '#2A1212', borderBottom: '1px solid #4A2020' }}>
                       <button
-                        onClick={() => router.push(`/agent/deals/${selectedDealId}#returned-docs`)}
-                        className="flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                        style={{ background: '#4A2020', color: '#F87171' }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = '#5A2525'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = '#4A2020'}
+                        onClick={() => setReturnsExpanded(!returnsExpanded)}
+                        className="w-full px-5 py-2.5 flex items-center justify-between gap-3"
                       >
-                        Fix & Upload →
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <AlertTriangle size={14} style={{ color: '#F87171', flexShrink: 0 }} />
+                          <span className="text-xs font-bold truncate" style={{ color: '#F87171' }}>
+                            {selectedDealReturns.filter(r => !uploadedReturnIds.has(r.id)).length === 0
+                              ? 'All returned documents re-uploaded!'
+                              : selectedDealReturns.length === 1
+                                ? `Returned: ${selectedDealReturns[0].deal_documents?.file_name || 'Document'} — ${selectedDealReturns[0].reason}`
+                                : `${selectedDealReturns.length} documents returned for revision`
+                            }
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {returnsExpanded
+                            ? <ChevronUp size={14} style={{ color: '#F87171' }} />
+                            : <ChevronDown size={14} style={{ color: '#F87171' }} />
+                          }
+                        </div>
                       </button>
+
+                      {returnsExpanded && (
+                        <div className="px-5 pb-3 space-y-2">
+                          {selectedDealReturns.map(ret => (
+                            <div key={ret.id} className="rounded-lg px-3 py-2.5" style={{ background: '#3A1818', border: '1px solid #4A2020' }}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold truncate" style={{ color: '#FCA5A5' }}>
+                                    {ret.deal_documents?.file_name || 'Document'}
+                                  </p>
+                                  <p className="text-[10px] mt-0.5" style={{ color: '#F87171' }}>
+                                    Reason: {ret.reason}
+                                  </p>
+                                </div>
+                                {uploadedReturnIds.has(ret.id) ? (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <CheckCircle2 size={12} style={{ color: '#5FA873' }} />
+                                    <span className="text-[10px] font-semibold" style={{ color: '#5FA873' }}>Uploaded</span>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const input = document.createElement('input')
+                                      input.type = 'file'
+                                      input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx'
+                                      input.onchange = async (ev) => {
+                                        const target = ev.target as HTMLInputElement
+                                        const file = target.files?.[0]
+                                        if (!file || !selectedDealId) return
+                                        setUploadingReturnId(ret.id)
+                                        try {
+                                          const fd = new FormData()
+                                          fd.append('file', file)
+                                          fd.append('dealId', selectedDealId)
+                                          fd.append('documentType', ret.deal_documents?.document_type || 'other')
+                                          const result = await uploadDocument(fd)
+                                          if (result.success) {
+                                            setUploadedReturnIds(prev => new Set([...prev, ret.id]))
+                                            setStatusMessage({ type: 'success', text: `${file.name} uploaded successfully` })
+                                          } else {
+                                            setStatusMessage({ type: 'error', text: result.error || 'Upload failed' })
+                                          }
+                                        } catch {
+                                          setStatusMessage({ type: 'error', text: 'Upload failed — try from the deal page' })
+                                        }
+                                        setUploadingReturnId(null)
+                                      }
+                                      input.click()
+                                    }}
+                                    disabled={uploadingReturnId === ret.id}
+                                    className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                                    style={{ background: '#4A2020', color: '#FCA5A5' }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = '#5A2525'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = '#4A2020'}
+                                  >
+                                    <Upload size={10} />
+                                    {uploadingReturnId === ret.id ? 'Uploading...' : 'Re-upload'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

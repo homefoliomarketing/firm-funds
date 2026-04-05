@@ -186,3 +186,34 @@ export function calcDaysUntilClosing(closingDateStr: string): number {
   const closingMs = new Date(closingDateStr + 'T00:00:00Z').getTime()
   return Math.ceil((closingMs - todayMs) / (1000 * 60 * 60 * 24))
 }
+
+// =============================================================================
+// Admin Quick-Reply Message Templates
+// =============================================================================
+
+export const ADMIN_QUICK_REPLIES = [
+  {
+    label: 'Request APS',
+    message: 'Hi! We need your Agreement of Purchase & Sale (including all schedules and the confirmation of co-operation) to proceed with underwriting. Please upload it to your deal page at your earliest convenience.',
+  },
+  {
+    label: 'Request NOF/Waiver',
+    message: 'Could you please upload the Notice of Fulfillment or Waiver for this deal? We need it to confirm the deal is unconditional.',
+  },
+  {
+    label: 'Closing Date Update',
+    message: 'We noticed the closing date on this deal may have changed. Could you confirm the current closing date? If it has changed, please update it on your deal page.',
+  },
+  {
+    label: 'Deal Approved',
+    message: 'Great news — your advance request has been approved! We are processing the funds and will notify you once the transfer is complete.',
+  },
+  {
+    label: 'Missing Documents',
+    message: 'We are missing some documents needed to complete underwriting on this deal. Please check your deal page for any outstanding items and upload them as soon as possible.',
+  },
+  {
+    label: 'General Follow-Up',
+    message: 'Hi! Just following up on this deal. If you have any questions or need help with anything, feel free to reply here.',
+  },
+] as const

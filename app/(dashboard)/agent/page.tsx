@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   FileText, Clock,
-  PlusCircle, Search, Calendar, ChevronRight, ChevronLeft,
+  PlusCircle, Search, Calendar, ChevronRight, ChevronLeft, CreditCard,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
@@ -208,6 +208,43 @@ export default function AgentDashboard() {
             <div>
               <p className="text-sm font-medium" style={{ color: '#7B9FE0' }}>Identity verification submitted</p>
               <p className="text-xs mt-0.5" style={{ color: '#6B8AC0' }}>Your ID is under review. You can browse your dashboard but deal submission is locked until verified.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Banking nudge — show after KYC verified but no banking on file */}
+        {agent?.kyc_status === 'verified' && !agent?.banking_verified && !agent?.preauth_form_path && (
+          <div className="mb-6 rounded-xl p-4 flex items-center justify-between gap-3"
+            style={{ background: '#2A2210', border: '1px solid #4A3A1C' }}
+          >
+            <div className="flex items-center gap-3">
+              <CreditCard size={18} style={{ color: '#D4A04A', flexShrink: 0 }} />
+              <div>
+                <p className="text-sm font-medium" style={{ color: '#D4A04A' }}>Set up your banking info</p>
+                <p className="text-xs mt-0.5" style={{ color: '#B8923E' }}>Upload your pre-authorized debit form now so your first deal isn&apos;t delayed. Banking must be verified before advances can be funded.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => router.push('/agent/profile')}
+              className="flex-shrink-0 text-xs font-semibold px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap"
+              style={{ background: '#4A3A1C', color: '#D4A04A' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#5A4A2C'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#4A3A1C'}
+            >
+              Go to Profile →
+            </button>
+          </div>
+        )}
+
+        {/* Banking submitted but not yet verified */}
+        {agent?.kyc_status === 'verified' && !agent?.banking_verified && agent?.preauth_form_path && (
+          <div className="mb-6 rounded-xl p-4 flex items-center gap-3"
+            style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}
+          >
+            <Clock size={18} style={{ color: '#7B9FE0', flexShrink: 0 }} />
+            <div>
+              <p className="text-sm font-medium" style={{ color: '#7B9FE0' }}>Banking info under review</p>
+              <p className="text-xs mt-0.5" style={{ color: '#6B8AC0' }}>Your pre-authorized debit form has been uploaded and is being reviewed. You can submit deals in the meantime.</p>
             </div>
           </div>
         )}

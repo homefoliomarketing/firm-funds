@@ -439,6 +439,29 @@ export async function updateDealStatus(input: {
       })
     }
 
+    // Email notification → brokerage (if brokerage has an email)
+    try {
+      const { data: brokerageInfo } = await supabase
+        .from('brokerages')
+        .select('name, contact_email')
+        .eq('id', deal.brokerage_id)
+        .single()
+
+      if (brokerageInfo?.contact_email) {
+        const { sendBrokerageStatusNotification } = await import('@/lib/email')
+        sendBrokerageStatusNotification({
+          brokerageEmail: brokerageInfo.contact_email,
+          brokerageName: brokerageInfo.name,
+          propertyAddress: deal.property_address,
+          agentName: agentInfo ? `${agentInfo.first_name} ${agentInfo.last_name}` : 'Agent',
+          newStatus: input.newStatus,
+          dealId: deal.id,
+        })
+      }
+    } catch {
+      // Brokerage email failure shouldn't block the status change
+    }
+
     return {
       success: true,
       data: updateData,

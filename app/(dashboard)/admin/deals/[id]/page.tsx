@@ -8,7 +8,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink
+  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -30,7 +30,7 @@ import {
   chargeLateClosingInterest,
 } from '@/lib/actions/account-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
-import { getStatusBadgeStyle } from '@/lib/constants'
+import { getStatusBadgeStyle, ADMIN_QUICK_REPLIES } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
@@ -582,6 +582,7 @@ export default function DealDetailPage() {
   const [showMessageForm, setShowMessageForm] = useState(false)
   const [messageText, setMessageText] = useState('')
   const [messageSending, setMessageSending] = useState(false)
+  const [showDealQuickReplies, setShowDealQuickReplies] = useState(false)
   const adminMessagesContainerRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Document returns
@@ -2374,7 +2375,35 @@ export default function DealDetailPage() {
               {messages.length === 0 && (
                 <p className="text-xs text-center py-1 mb-2" style={{ color: colors.textMuted }}>No messages yet</p>
               )}
+              {/* Quick-reply templates */}
+              {showDealQuickReplies && (
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {ADMIN_QUICK_REPLIES.map((template, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => { setMessageText(template.message); setShowDealQuickReplies(false) }}
+                      className="px-2 py-1 rounded text-[10px] font-medium transition-colors"
+                      style={{ background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
+                    >
+                      {template.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-1.5">
+                <button
+                  onClick={() => setShowDealQuickReplies(!showDealQuickReplies)}
+                  className="p-1.5 rounded transition-colors flex-shrink-0"
+                  style={{
+                    color: showDealQuickReplies ? colors.gold : colors.textMuted,
+                    border: `1px solid ${showDealQuickReplies ? colors.gold : colors.border}`,
+                  }}
+                  title="Quick replies"
+                >
+                  <Zap className="w-3 h-3" />
+                </button>
                 <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
                   placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
                   className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"

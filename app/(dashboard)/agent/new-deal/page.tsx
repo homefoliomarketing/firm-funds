@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle, Shield } from 'lucide-react'
+import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle, Shield, Save } from 'lucide-react'
 import { submitDeal, calculateDealPreview, uploadDocument } from '@/lib/actions/deal-actions'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency } from '@/lib/formatting'
@@ -41,6 +41,64 @@ export default function NewDealPage() {
   const [uploadingDocs, setUploadingDocs] = useState(false)
   const [uploadResults, setUploadResults] = useState<{ name: string; success: boolean; error?: string }[]>([])
   const [isFirstAdvance, setIsFirstAdvance] = useState(true)
+
+  // Autosave draft state
+  const DRAFT_KEY = 'firm_funds_deal_draft'
+  const [draftRestored, setDraftRestored] = useState(false)
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Restore draft on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY)
+      if (saved) {
+        const draft = JSON.parse(saved)
+        if (draft.streetAddress) setStreetAddress(draft.streetAddress)
+        if (draft.city) setCity(draft.city)
+        if (draft.province) setProvince(draft.province)
+        if (draft.postalCode) setPostalCode(draft.postalCode)
+        if (draft.closingDate) setClosingDate(draft.closingDate)
+        if (draft.grossCommission) setGrossCommission(draft.grossCommission)
+        if (draft.brokerageSplitPct) setBrokerageSplitPct(draft.brokerageSplitPct)
+        if (draft.transactionType) setTransactionType(draft.transactionType)
+        if (draft.notes) setNotes(draft.notes)
+        if (draft.isFirm) setIsFirm(draft.isFirm)
+        setDraftRestored(true)
+        setDraftSavedAt(draft.savedAt || null)
+      }
+    } catch { /* ignore corrupted localStorage */ }
+  }, [])
+
+  // Save draft on field changes (debounced 1s)
+  const saveDraft = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      try {
+        const draft = {
+          streetAddress, city, province, postalCode, closingDate,
+          grossCommission, brokerageSplitPct, transactionType, notes, isFirm,
+          savedAt: new Date().toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' }),
+        }
+        // Only save if at least one field has content
+        if (streetAddress || city || closingDate || grossCommission || brokerageSplitPct || notes) {
+          localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+          setDraftSavedAt(draft.savedAt)
+        }
+      } catch { /* localStorage full or unavailable */ }
+    }, 1000)
+  }, [streetAddress, city, province, postalCode, closingDate, grossCommission, brokerageSplitPct, transactionType, notes, isFirm])
+
+  useEffect(() => {
+    saveDraft()
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  }, [saveDraft])
+
+  const clearDraft = useCallback(() => {
+    try { localStorage.removeItem(DRAFT_KEY) } catch {}
+    setDraftSavedAt(null)
+    setDraftRestored(false)
+  }, [])
 
   // Flatten for backward compat
   const selectedFiles = Object.entries(docSlots).flatMap(([docType, files]) => files.map(file => ({ file, docType })))
@@ -174,10 +232,12 @@ export default function NewDealPage() {
         setUploadingDocs(false)
       }
 
+      clearDraft()
       setSubmitted(true)
     } catch (err) {
       if (dealSubmitted) {
         // Deal went through but something after it crashed — still show success
+        clearDraft()
         setSubmitted(true)
       } else {
         setError('An unexpected error occurred. Please try again.')
@@ -304,6 +364,42 @@ export default function NewDealPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Draft restored banner */}
+        {draftRestored && (
+          <div className="mb-4 px-4 py-3 rounded-xl flex items-center justify-between" style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}>
+            <div className="flex items-center gap-2">
+              <Save size={14} style={{ color: '#7B9FE0' }} />
+              <span className="text-xs font-medium" style={{ color: '#7B9FE0' }}>
+                Draft restored from your last session
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                clearDraft()
+                setStreetAddress(''); setCity(''); setProvince('Ontario'); setPostalCode('')
+                setClosingDate(''); setGrossCommission(''); setBrokerageSplitPct('')
+                setTransactionType('buy'); setNotes(''); setIsFirm(false)
+                setDocSlots({ aps: [], notice_of_fulfillment: [], amendment: [], banking_info: [] })
+              }}
+              className="text-xs font-semibold px-2.5 py-1 rounded-md transition-colors"
+              style={{ color: '#7B9FE0', background: '#2D3A5C' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#3D4A6C'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#2D3A5C'}
+            >
+              Clear & Start Fresh
+            </button>
+          </div>
+        )}
+
+        {/* Autosave indicator */}
+        {draftSavedAt && !draftRestored && (
+          <div className="mb-4 flex items-center gap-1.5">
+            <Save size={11} style={{ color: colors.textFaint }} />
+            <span className="text-[10px]" style={{ color: colors.textFaint }}>Draft saved at {draftSavedAt}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmitClick}>
           {error && (
             <div className="mb-6 p-4 rounded-xl text-sm font-medium" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }}>
