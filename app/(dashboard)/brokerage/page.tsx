@@ -1214,6 +1214,9 @@ export default function BrokerageDashboard() {
                               setDealMessages(prev => [...prev, result.data])
                               setMsgText('')
                               setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+                            } else {
+                              console.error('Send message failed:', result.error)
+                              alert(result.error || 'Failed to send message')
                             }
                             setMsgSending(false)
                           }
@@ -1228,6 +1231,9 @@ export default function BrokerageDashboard() {
                             setDealMessages(prev => [...prev, result.data])
                             setMsgText('')
                             setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+                          } else {
+                            console.error('Send message failed:', result.error)
+                            alert(result.error || 'Failed to send message')
                           }
                           setMsgSending(false)
                         }}
