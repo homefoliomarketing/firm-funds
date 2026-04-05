@@ -8,7 +8,7 @@ import {
   ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap
+  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap, FileSignature
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -30,6 +30,8 @@ import {
   chargeLateClosingInterest,
 } from '@/lib/actions/account-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
+import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
+import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeStyle, ADMIN_QUICK_REPLIES } from '@/lib/constants'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
@@ -547,6 +549,10 @@ export default function DealDetailPage() {
   const [showDenialInput, setShowDenialInput] = useState(false)
   const [pendingBackward, setPendingBackward] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  // E-Signature state
+  const [esignEnvelopes, setEsignEnvelopes] = useState<EsignatureEnvelope[]>([])
+  const [sendingForSignature, setSendingForSignature] = useState(false)
+  const [voidingEnvelopes, setVoidingEnvelopes] = useState(false)
   const [underwritingExpanded, setUnderwritingExpanded] = useState(true)
   const [checklistExpanded, setChecklistExpanded] = useState(true)
   const [docsExpanded, setDocsExpanded] = useState(true)
@@ -659,6 +665,9 @@ export default function DealDetailPage() {
     setMessages(messagesData || [])
     const { data: returnsData } = await supabase.from('document_returns').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocReturns(returnsData || [])
+    // Load e-signature envelopes
+    const esignResult = await getDealSignatureStatus(dealId)
+    if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
     setLoading(false)
   }
 
@@ -822,6 +831,38 @@ export default function DealDetailPage() {
       setShowPaymentForm(false)
     }
     setUpdating(false)
+  }
+
+  // ── E-Signature Handlers ──
+  const handleSendForSignature = async () => {
+    if (!deal) return
+    setSendingForSignature(true)
+    setStatusMessage(null)
+    const result = await sendForSignature(deal.id)
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Contracts sent for e-signature via DocuSign!' })
+      // Refresh envelope status
+      const esignResult = await getDealSignatureStatus(deal.id)
+      if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send for signature' })
+    }
+    setSendingForSignature(false)
+  }
+
+  const handleVoidEnvelopes = async () => {
+    if (!deal) return
+    if (!confirm('Are you sure you want to void the pending signature request? The agent will be notified.')) return
+    setVoidingEnvelopes(true)
+    const result = await voidDealEnvelopes(deal.id, 'Voided by admin')
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Signature request voided' })
+      const esignResult = await getDealSignatureStatus(deal.id)
+      if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to void' })
+    }
+    setVoidingEnvelopes(false)
   }
 
   // Generate signed URL client-side (direct to Supabase, no Netlify involved)
@@ -1209,6 +1250,56 @@ export default function DealDetailPage() {
                   </div>
                 )
               })}
+
+              {/* E-Signature Button */}
+              {deal.status === 'approved' && (() => {
+                const activeEnvelopes = esignEnvelopes.filter(e => ['sent', 'delivered'].includes(e.status))
+                const signedEnvelopes = esignEnvelopes.filter(e => e.status === 'signed')
+                const hasPending = activeEnvelopes.length > 0
+                const allSigned = signedEnvelopes.length >= 2 // CPA + IDP
+
+                if (allSigned) {
+                  return (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium" style={{ background: '#1A3A1A', color: '#5FA873', border: '1px solid #2D5A2D' }}>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Contracts Signed
+                    </div>
+                  )
+                }
+                if (hasPending) {
+                  return (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium" style={{ background: '#2A2000', color: '#FBBF24', border: '1px solid #5C4400' }}>
+                        <Clock className="w-4 h-4 animate-pulse" />
+                        Awaiting Signature
+                      </div>
+                      <button
+                        onClick={handleVoidEnvelopes}
+                        disabled={voidingEnvelopes}
+                        className="px-2 py-1.5 rounded-lg text-xs font-medium transition"
+                        style={{ color: '#E07B7B', border: `1px solid ${colors.border}` }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#E07B7B' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border }}
+                      >
+                        {voidingEnvelopes ? 'Voiding...' : 'Void'}
+                      </button>
+                    </div>
+                  )
+                }
+                return (
+                  <button
+                    onClick={handleSendForSignature}
+                    disabled={sendingForSignature}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
+                    style={{ background: '#1565C0' }}
+                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#0D47A1' }}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#1565C0'}
+                  >
+                    <FileSignature className="w-4 h-4" />
+                    {sendingForSignature ? 'Sending...' : 'Send for Signature'}
+                  </button>
+                )
+              })()}
 
               {/* Backward transitions — subtle style */}
               {nextStatuses.filter(s => isBackwardTransition(s)).length > 0 && (

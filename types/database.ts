@@ -228,6 +228,30 @@ export interface UserProfile {
   created_at: string
 }
 
+export type EsignatureStatus = 'sent' | 'delivered' | 'signed' | 'declined' | 'voided'
+export type EsignatureDocumentType = 'cpa' | 'idp'
+export type SignerStatus = 'pending' | 'sent' | 'delivered' | 'signed' | 'declined'
+
+export interface EsignatureEnvelope {
+  id: string
+  deal_id: string
+  envelope_id: string
+  document_type: EsignatureDocumentType
+  status: EsignatureStatus
+  agent_signer_status: SignerStatus
+  agent_signed_at: string | null
+  brokerage_signer_status: SignerStatus | null
+  brokerage_signed_at: string | null
+  sent_by: string | null
+  sent_at: string
+  completed_at: string | null
+  voided_at: string | null
+  void_reason: string | null
+  envelope_uri: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface NotificationLog {
   id: string
   user_id: string

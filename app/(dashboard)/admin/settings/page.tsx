@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide-react'
+import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, FileSignature, ExternalLink } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 import {
@@ -13,6 +13,7 @@ import {
   getNotificationPreferences,
   updateNotificationPreferences,
 } from '@/lib/actions/settings-actions'
+import { getDocuSignStatus } from '@/lib/actions/esign-actions'
 
 export default function AdminSettingsPage() {
   const [profile, setProfile] = useState<any>(null)
@@ -42,6 +43,11 @@ export default function AdminSettingsPage() {
     email_document_requests: true,
   })
   const [notifSaving, setNotifSaving] = useState(false)
+
+  // DocuSign state
+  const [docuSignConnected, setDocuSignConnected] = useState(false)
+  const [docuSignConsentUrl, setDocuSignConsentUrl] = useState<string | null>(null)
+  const [docuSignLoading, setDocuSignLoading] = useState(true)
 
   // Messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -73,6 +79,12 @@ export default function AdminSettingsPage() {
       if (prefsResult.success && prefsResult.data) {
         setNotifPrefs(prefsResult.data as Record<string, boolean>)
       }
+
+      // Load DocuSign status
+      const dsStatus = await getDocuSignStatus()
+      setDocuSignConnected(dsStatus.connected)
+      setDocuSignConsentUrl(dsStatus.consentUrl || null)
+      setDocuSignLoading(false)
 
       setLoading(false)
     }
@@ -300,6 +312,43 @@ export default function AdminSettingsPage() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* DOCUSIGN INTEGRATION */}
+        <div className="rounded-lg p-5" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+          <div className="flex items-center gap-2 mb-4">
+            <FileSignature size={18} style={{ color: colors.gold }} />
+            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>E-Signature (DocuSign)</h3>
+          </div>
+          {docuSignLoading ? (
+            <div className="h-10 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
+          ) : docuSignConnected ? (
+            <div className="flex items-center gap-3 py-3">
+              <CheckCircle size={20} style={{ color: '#5FA873' }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>DocuSign Connected</p>
+                <p className="text-xs" style={{ color: colors.textMuted }}>Commission Purchase Agreements and Irrevocable Directions to Pay will be sent through DocuSign for electronic signature.</p>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm mb-3" style={{ color: colors.textSecondary }}>
+                Connect your DocuSign account to enable electronic signatures on Commission Purchase Agreements and Irrevocable Directions to Pay.
+              </p>
+              {docuSignConsentUrl ? (
+                <a
+                  href={docuSignConsentUrl}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                  style={{ background: colors.gold, color: '#1E1E1E' }}
+                >
+                  <ExternalLink size={15} />
+                  Connect DocuSign
+                </a>
+              ) : (
+                <p className="text-xs" style={{ color: colors.textFaint }}>DocuSign configuration missing. Check environment variables.</p>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>
