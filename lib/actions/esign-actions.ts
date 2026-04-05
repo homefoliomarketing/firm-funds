@@ -189,14 +189,14 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
           routingOrder: '1',
           tabs: {
             signHereTabs: [
-              // CPA signature
-              { documentId: '1', pageNumber: 'last', xPosition: '100', yPosition: '200' },
+              // CPA signature — anchored to the text in the HTML
+              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
               // IDP signature
-              { documentId: '2', pageNumber: 'last', xPosition: '100', yPosition: '200' },
+              { documentId: '2', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
             ],
             dateSignedTabs: [
-              { documentId: '1', pageNumber: 'last', xPosition: '100', yPosition: '280' },
-              { documentId: '2', pageNumber: 'last', xPosition: '100', yPosition: '280' },
+              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              { documentId: '2', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
             ],
           },
         },
@@ -473,8 +473,8 @@ function generateCpaHtml(data: Record<string, string>): string {
 <p><strong>SELLER:</strong></p>
 <p>Name: ${r('{{AGENT_FULL_LEGAL_NAME}}')}</p>
 <p>RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}</p>
-<p style="margin-top: 40px;"><em>Signature: \\s1\\</em></p>
-<p><em>Date Signed: \\d1\\</em></p>
+<p style="margin-top: 40px;"><em>Signature: /sig1/</em></p>
+<p><em>Date Signed: /dat1/</em></p>
 </div>
 
 <div class="sig-block">
@@ -553,8 +553,8 @@ function generateIdpHtml(data: Record<string, string>): string {
 <p><strong>AGENT SIGNATURE</strong></p>
 <p>Name: ${r('{{AGENT_FULL_LEGAL_NAME}}')}</p>
 <p>RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}</p>
-<p style="margin-top: 40px;"><em>Signature: \\s1\\</em></p>
-<p><em>Date Signed: \\d1\\</em></p>
+<p style="margin-top: 40px;"><em>Signature: /sig1/</em></p>
+<p><em>Date Signed: /dat1/</em></p>
 </div>
 
 </body></html>`

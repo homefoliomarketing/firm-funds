@@ -213,9 +213,8 @@ interface EnvelopeRecipient {
   recipientId: string
   routingOrder: string
   tabs?: {
-    signHereTabs?: { documentId: string; pageNumber: string; xPosition: string; yPosition: string }[]
-    dateSignedTabs?: { documentId: string; pageNumber: string; xPosition: string; yPosition: string }[]
-    textTabs?: { documentId: string; pageNumber: string; xPosition: string; yPosition: string; tabLabel: string; value: string; locked: string; font?: string; fontSize?: string }[]
+    signHereTabs?: { documentId: string; anchorString: string; anchorXOffset: string; anchorYOffset: string; anchorUnits?: string }[]
+    dateSignedTabs?: { documentId: string; anchorString: string; anchorXOffset: string; anchorYOffset: string; anchorUnits?: string }[]
   }
 }
 
