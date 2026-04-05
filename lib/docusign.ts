@@ -17,7 +17,7 @@ const DOCUSIGN_REDIRECT_URI = process.env.DOCUSIGN_REDIRECT_URI || 'http://local
 // OAuth — Consent URL
 // ============================================================================
 
-export function getConsentUrl(): string {
+export async function getConsentUrl(): Promise<string> {
   const scopes = 'signature impersonation'
   return `${DOCUSIGN_AUTH_URL}/oauth/auth?response_type=code&scope=${encodeURIComponent(scopes)}&client_id=${DOCUSIGN_INTEGRATION_KEY}&redirect_uri=${encodeURIComponent(DOCUSIGN_REDIRECT_URI)}`
 }

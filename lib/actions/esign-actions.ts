@@ -47,7 +47,7 @@ function formatDate(dateStr: string): string {
 export async function getDocuSignStatus(): Promise<{ connected: boolean; consentUrl?: string }> {
   const connected = await isDocuSignConnected()
   if (!connected) {
-    return { connected: false, consentUrl: getConsentUrl() }
+    return { connected: false, consentUrl: await getConsentUrl() }
   }
   return { connected: true }
 }
