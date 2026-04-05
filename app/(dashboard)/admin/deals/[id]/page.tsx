@@ -471,18 +471,18 @@ interface ChecklistCategory {
   matchingDocs: Map<string, DealDocument[]>
 }
 
-// Category display config — keyed by category name stored in DB
+// Category display config — keyed by category name stored in DB (dark mode)
 const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; border: string }> = {
-  'Agent Verification': { icon: User, color: '#5B3D99', bg: '#F5F0FF', border: '#D5C5F0' },
-  'Deal Verification': { icon: FileText, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
-  'Deal Document Review': { icon: FileText, color: '#3D5A99', bg: '#F0F4FF', border: '#C5D3F0' },
-  'Financial': { icon: DollarSign, color: '#92700C', bg: '#FFF8ED', border: '#E8D5A8' },
-  'Firm Fund Documents': { icon: Shield, color: '#2D7A4F', bg: '#F0FFF5', border: '#B5E0C5' },
-  'Firm Funds Documents': { icon: Shield, color: '#2D7A4F', bg: '#F0FFF5', border: '#B5E0C5' },
+  'Agent Verification': { icon: User, color: '#C4A5F5', bg: 'rgba(91,61,153,0.15)', border: 'rgba(91,61,153,0.3)' },
+  'Deal Verification': { icon: FileText, color: '#7EB3F5', bg: 'rgba(61,90,153,0.15)', border: 'rgba(61,90,153,0.3)' },
+  'Deal Document Review': { icon: FileText, color: '#7EB3F5', bg: 'rgba(61,90,153,0.15)', border: 'rgba(61,90,153,0.3)' },
+  'Financial': { icon: DollarSign, color: '#E8C96A', bg: 'rgba(146,112,12,0.15)', border: 'rgba(146,112,12,0.3)' },
+  'Firm Fund Documents': { icon: Shield, color: '#5FA873', bg: 'rgba(45,122,79,0.15)', border: 'rgba(45,122,79,0.3)' },
+  'Firm Funds Documents': { icon: Shield, color: '#5FA873', bg: 'rgba(45,122,79,0.15)', border: 'rgba(45,122,79,0.3)' },
 }
 
 // Fallback style for any category not in the map
-const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: '#666', bg: '#F5F5F5', border: '#DDD' }
+const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: '#999', bg: 'rgba(100,100,100,0.15)', border: 'rgba(100,100,100,0.3)' }
 
 // Category display order
 const CATEGORY_ORDER = ['Agent Verification', 'Deal Verification', 'Firm Fund Documents']
@@ -547,6 +547,7 @@ export default function DealDetailPage() {
   const [showDenialInput, setShowDenialInput] = useState(false)
   const [pendingBackward, setPendingBackward] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [underwritingExpanded, setUnderwritingExpanded] = useState(true)
   const [checklistExpanded, setChecklistExpanded] = useState(true)
   const [docsExpanded, setDocsExpanded] = useState(true)
   const [auditExpanded, setAuditExpanded] = useState(false)
@@ -1803,9 +1804,31 @@ export default function DealDetailPage() {
           </div>
         </div>
 
-        {/* UNDERWRITING SECTION - FULL WIDTH, 2-COLUMN (CHECKLIST LEFT, DOCS/VIEWER RIGHT) */}
-        <div className="mb-3">
-          <h2 className="text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: colors.gold }}>Underwriting</h2>
+        {/* UNDERWRITING — collapsible section */}
+        <div className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <div
+            className="flex items-center justify-between px-6 py-3 cursor-pointer"
+            style={{ background: colors.goldBg, borderBottom: underwritingExpanded ? `1px solid ${colors.gold}` : 'none' }}
+            onClick={() => setUnderwritingExpanded(!underwritingExpanded)}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+              <Shield className="w-4 h-4" />
+              Underwriting
+              {checklist.length > 0 && (
+                <span className="text-xs font-normal" style={{ color: colors.textMuted }}>
+                  ({checklist.filter(i => i.is_checked || i.is_na).length}/{checklist.length})
+                </span>
+              )}
+              {documents.length > 0 && (
+                <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>
+                  · {documents.length} doc{documents.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {underwritingExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+          </div>
+          {underwritingExpanded && (
+          <div className="p-4">
 
           {/* Document bar — compact horizontal list when viewer is open */}
           {viewingDoc && (
@@ -2334,6 +2357,9 @@ export default function DealDetailPage() {
             </div>
             )}
           </div>
+
+          </div>
+          )}
         </div>
 
         {/* MESSAGES — collapsible, audit-trail style */}
