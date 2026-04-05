@@ -1413,9 +1413,9 @@ export default function BrokeragesPage() {
                                 onClick={() => handleLoadUserProfiles(brokerage.id)}
                                 disabled={loadingUserProfiles === brokerage.id}
                                 className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                                style={{ color: showUserManagement === brokerage.id ? '#fff' : colors.textPrimary, background: showUserManagement === brokerage.id ? colors.gold : colors.cardBg, border: `1px solid ${showUserManagement === brokerage.id ? colors.gold : colors.border}`, opacity: loadingUserProfiles === brokerage.id ? 0.6 : 1 }}
-                                onMouseEnter={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = colors.cardHoverBg } }}
-                                onMouseLeave={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = colors.cardBg } }}
+                                style={{ color: showUserManagement === brokerage.id ? '#fff' : colors.gold, background: showUserManagement === brokerage.id ? colors.gold : 'transparent', border: `1px solid ${showUserManagement === brokerage.id ? colors.gold : colors.border}`, opacity: loadingUserProfiles === brokerage.id ? 0.6 : 1 }}
+                                onMouseEnter={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold } }}
+                                onMouseLeave={(e) => { if (showUserManagement !== brokerage.id) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.border } }}
                                 title="Manage brokerage admin logins"
                               >
                                 <KeyRound size={13} /> {loadingUserProfiles === brokerage.id ? 'Loading...' : 'Manage Logins'}
