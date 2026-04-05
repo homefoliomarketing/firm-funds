@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { formatCurrency } from '@/lib/formatting'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 
@@ -142,7 +143,7 @@ export default function AdminDashboard() {
 
   // Status badge styles imported from shared constants (getStatusBadgeStyle)
 
-  // formatCurrency imported from @/lib/formatting
+  // formatCurrency imported from @/lib/formatting (used in deal table)
 
   return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
