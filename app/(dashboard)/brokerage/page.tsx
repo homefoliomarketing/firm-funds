@@ -10,8 +10,11 @@ import {
   MessageSquare, Inbox, Settings,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
-import { getBrokerageInbox, getDealMessages, sendBrokerageMessage } from '@/lib/actions/notification-actions'
+import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage } from '@/lib/actions/notification-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import MessageThread from '@/components/messaging/MessageThread'
+import MessageInput from '@/components/messaging/MessageInput'
+import type { MessageData } from '@/components/messaging/MessageBubble'
 import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
@@ -1092,7 +1095,7 @@ export default function BrokerageDashboard() {
           {/* MESSAGES TAB                                                     */}
           {/* ================================================================ */}
           {activeTab === 'messages' && (
-            <div className="flex" style={{ height: '500px' }}>
+            <div className="flex" style={{ minHeight: '500px', height: '60vh' }}>
               {/* Deal list */}
               <div className="flex flex-col" style={{ width: '300px', minWidth: '250px', borderRight: `1px solid ${colors.border}` }}>
                 <div className="p-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
@@ -1115,7 +1118,6 @@ export default function BrokerageDashboard() {
                           onClick={async () => {
                             setSelectedMsgDealId(item.deal_id)
                             setMessagesLoading(true)
-                            setMsgText('')
                             const result = await getDealMessages(item.deal_id)
                             if (result.success && result.data) setDealMessages(result.data)
                             setMessagesLoading(false)
@@ -1167,106 +1169,43 @@ export default function BrokerageDashboard() {
                       </p>
                     </div>
 
-                    {/* Messages */}
-                    <div className="flex-1 overflow-y-auto px-4 py-3" style={{ scrollbarWidth: 'thin' }}>
-                      {messagesLoading ? (
-                        <div className="space-y-2">
-                          {[1,2,3].map(i => (
-                            <div key={i} className="h-10 rounded-lg animate-pulse" style={{ background: colors.skeletonHighlight }} />
-                          ))}
-                        </div>
-                      ) : dealMessages.length === 0 ? (
-                        <div className="flex items-center justify-center h-full">
-                          <div className="text-center">
-                            <MessageSquare size={28} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
-                            <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>No messages yet</p>
-                            <p className="text-[10px] mt-0.5" style={{ color: colors.textMuted }}>Send a message to the Firm Funds team below</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {dealMessages.map((msg: any) => (
-                            <div
-                              key={msg.id}
-                              className={`px-3 py-2.5 rounded-xl max-w-[85%] ${msg.sender_role === 'brokerage_admin' ? 'ml-auto' : ''}`}
-                              style={{
-                                background: msg.sender_role === 'admin' ? '#0F2A18'
-                                  : msg.sender_role === 'brokerage_admin' ? colors.tableHeaderBg
-                                  : '#1A2240',
-                                border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : msg.sender_role === 'brokerage_admin' ? colors.border : '#2D3A5C'}`,
-                              }}
-                            >
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className="text-[10px] font-semibold" style={{
-                                  color: msg.sender_role === 'admin' ? '#5FA873'
-                                    : msg.sender_role === 'brokerage_admin' ? colors.gold
-                                    : '#7B9FE0',
-                                }}>
-                                  {msg.sender_role === 'admin' ? 'Firm Funds' : msg.sender_role === 'brokerage_admin' ? 'You' : msg.sender_name || 'Agent'}
-                                </span>
-                                <span className="text-[9px]" style={{ color: colors.textFaint }}>
-                                  {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              </div>
-                              <p className="text-xs whitespace-pre-wrap leading-relaxed" style={{ color: colors.textPrimary }}>{msg.message}</p>
-                            </div>
-                          ))}
-                          <div ref={msgEndRef} />
-                        </div>
-                      )}
-                    </div>
+                    {/* Messages — using shared component */}
+                    <MessageThread
+                      messages={dealMessages as MessageData[]}
+                      viewerRole="brokerage_admin"
+                      loading={messagesLoading}
+                      emptyMessage="Send a message to the Firm Funds team below"
+                    />
 
-                    {/* Reply input */}
-                    <div className="px-4 py-2.5 flex gap-2" style={{ borderTop: `1px solid ${colors.border}`, background: colors.tableHeaderBg }}>
-                      <input
-                        type="text"
-                        value={msgText}
-                        onChange={(e) => setMsgText(e.target.value)}
-                        placeholder="Message Firm Funds..."
-                        className="flex-1 px-3 py-2 rounded-lg text-xs outline-none"
-                        style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                        onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                        onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-                        onKeyDown={async (e) => {
-                          if (e.key === 'Enter' && !e.shiftKey && msgText.trim() && selectedMsgDealId) {
-                            e.preventDefault()
-                            setMsgSending(true)
-                            const result = await sendBrokerageMessage({ dealId: selectedMsgDealId, message: msgText })
-                            if (result.success && result.data) {
-                              setDealMessages(prev => [...prev, result.data])
-                              setMsgText('')
-                              setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-                            } else {
-                              console.error('Send message failed:', result.error)
-                              alert(result.error || 'Failed to send message')
-                            }
-                            setMsgSending(false)
-                          }
-                        }}
-                      />
-                      <button
-                        onClick={async () => {
-                          if (!selectedMsgDealId || !msgText.trim()) return
-                          setMsgSending(true)
-                          const result = await sendBrokerageMessage({ dealId: selectedMsgDealId, message: msgText })
-                          if (result.success && result.data) {
-                            setDealMessages(prev => [...prev, result.data])
-                            setMsgText('')
-                            setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-                          } else {
-                            console.error('Send message failed:', result.error)
-                            alert(result.error || 'Failed to send message')
-                          }
-                          setMsgSending(false)
-                        }}
-                        disabled={msgSending || !msgText.trim()}
-                        className="px-3 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-40 flex items-center gap-1 transition-colors"
-                        style={{ background: '#5FA873' }}
-                      >
-                        <Send size={12} />
-                        {msgSending ? '...' : 'Send'}
-                      </button>
-                    </div>
+                    {/* Input — using shared component */}
+                    <MessageInput
+                      onSend={async (message, file) => {
+                        if (!selectedMsgDealId) return
+                        let filePath: string | null = null
+                        let fileName: string | null = null
+                        let fileSize: number | null = null
+                        let fileType: string | null = null
+                        if (file) {
+                          const fd = new FormData()
+                          fd.append('file', file)
+                          fd.append('dealId', selectedMsgDealId)
+                          fd.append('documentType', 'other')
+                          const uploadResult = await uploadDocument(fd)
+                          if (!uploadResult.success) throw new Error(uploadResult.error || 'Upload failed')
+                          filePath = uploadResult.data?.file_path || null
+                          fileName = file.name
+                          fileSize = file.size
+                          fileType = file.type
+                        }
+                        const result = await sendBrokerageMessage({ dealId: selectedMsgDealId, message, filePath, fileName, fileSize, fileType })
+                        if (result.success && result.data) {
+                          setDealMessages((prev: any) => [...prev, result.data])
+                        } else {
+                          throw new Error(result.error)
+                        }
+                      }}
+                      placeholder="Message Firm Funds..."
+                    />
                   </>
                 )}
               </div>
