@@ -49,17 +49,20 @@ export default function MessageInput({ onSend, placeholder, disabled, quickRepli
 
   const handleSend = async () => {
     if ((!text.trim() && !attachedFile) || sending) return
+    const msgText = text.trim()
+    const msgFile = attachedFile
+    // Clear input immediately for responsive feel
+    setText('')
+    setAttachedFile(null)
+    setFileError(null)
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setSending(true)
     try {
-      await onSend(text.trim(), attachedFile)
-      setText('')
-      setAttachedFile(null)
-      setFileError(null)
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
-      }
+      await onSend(msgText, msgFile)
     } catch {
-      // Error handled by caller
+      // If send failed, restore the text so user can retry
+      setText(msgText)
+      if (msgFile) setAttachedFile(msgFile)
     }
     setSending(false)
   }

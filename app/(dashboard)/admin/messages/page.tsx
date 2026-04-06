@@ -91,7 +91,11 @@ export default function AdminMessagesPage() {
       if (!lastMsg) return
       const result = await getNewMessages({ dealId: selectedDealId, afterTimestamp: lastMsg.created_at })
       if (result.success && result.data && result.data.length > 0) {
-        setMessages(prev => [...prev, ...result.data])
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id))
+          const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
+          return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
+        })
         // Check if any new message is from agent — update needs_reply
         const hasAgentMsg = result.data.some((m: any) => m.sender_role === 'agent')
         if (hasAgentMsg) {
@@ -126,16 +130,27 @@ export default function AdminMessagesPage() {
       fileType = file.type
     }
 
-    const result = await sendAdminMessage({ dealId: selectedDealId, message, filePath, fileName, fileSize, fileType })
-    if (result.success && result.data) {
-      setMessages(prev => [...prev, result.data])
-      setInbox(prev => prev.map(item =>
-        item.deal_id === selectedDealId
-          ? { ...item, latest_message: result.data.message, latest_message_at: result.data.created_at, latest_sender_role: 'admin', latest_sender_name: profile?.full_name || 'Firm Funds', needs_reply: false }
-          : item
-      ))
-    } else {
-      throw new Error(result.error)
+    try {
+      const result = await sendAdminMessage({ dealId: selectedDealId, message, filePath, fileName, fileSize, fileType })
+      if (result.success) {
+        const newMsg = result.data || {
+          id: crypto.randomUUID(),
+          sender_role: 'admin',
+          sender_name: profile?.full_name || 'Firm Funds',
+          message,
+          is_email_reply: false,
+          file_path: filePath, file_name: fileName, file_size: fileSize, file_type: fileType,
+          created_at: new Date().toISOString(),
+        }
+        setMessages(prev => [...prev, newMsg])
+        setInbox(prev => prev.map(item =>
+          item.deal_id === selectedDealId
+            ? { ...item, latest_message: message, latest_message_at: newMsg.created_at, latest_sender_role: 'admin', latest_sender_name: profile?.full_name || 'Firm Funds', needs_reply: false }
+            : item
+        ))
+      }
+    } catch (err) {
+      console.error('Send message error:', err)
     }
   }
 

@@ -125,7 +125,11 @@ export default function AgentMessagesPage() {
       if (!lastMsg) return
       const result = await getNewMessages({ dealId: selectedDealId, afterTimestamp: lastMsg.created_at })
       if (result.success && result.data && result.data.length > 0) {
-        setMessages(prev => [...prev, ...result.data])
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id))
+          const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
+          return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
+        })
         // Mark as read
         if (agent?.id) {
           markDealMessagesRead({ agentId: agent.id, dealId: selectedDealId })
@@ -149,40 +153,62 @@ export default function AgentMessagesPage() {
 
     // Upload file if attached
     if (file) {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('dealId', selectedDealId)
-      fd.append('documentType', 'other')
-      const uploadResult = await uploadDocument(fd)
-      if (!uploadResult.success) {
-        setStatusMessage({ type: 'error', text: uploadResult.error || 'File upload failed' })
-        throw new Error('Upload failed')
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('dealId', selectedDealId)
+        fd.append('documentType', 'other')
+        const uploadResult = await uploadDocument(fd)
+        if (!uploadResult.success) {
+          setStatusMessage({ type: 'error', text: uploadResult.error || 'File upload failed' })
+          return
+        }
+        filePath = uploadResult.data?.file_path || null
+        fileName = file.name
+        fileSize = file.size
+        fileType = file.type
+      } catch (err) {
+        setStatusMessage({ type: 'error', text: 'File upload failed' })
+        return
       }
-      filePath = uploadResult.data?.file_path || null
-      fileName = file.name
-      fileSize = file.size
-      fileType = file.type
     }
 
-    const result = await sendAgentReply({
-      dealId: selectedDealId,
-      message,
-      filePath,
-      fileName,
-      fileSize,
-      fileType,
-    })
+    try {
+      const result = await sendAgentReply({
+        dealId: selectedDealId,
+        message,
+        filePath,
+        fileName,
+        fileSize,
+        fileType,
+      })
 
-    if (result.success && result.data) {
-      setMessages(prev => [...prev, result.data])
-      setInbox(prev => prev.map(item =>
-        item.deal_id === selectedDealId
-          ? { ...item, latest_message: result.data.message, latest_message_at: result.data.created_at, latest_sender_role: 'agent', latest_sender_name: profile?.full_name || 'You' }
-          : item
-      ))
-    } else {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to send message' })
-      throw new Error(result.error)
+      if (result.success) {
+        // Add message to thread — create fallback if data is incomplete
+        const newMsg = result.data || {
+          id: crypto.randomUUID(),
+          sender_role: 'agent',
+          sender_name: profile?.full_name || 'You',
+          message,
+          is_email_reply: false,
+          file_path: filePath,
+          file_name: fileName,
+          file_size: fileSize,
+          file_type: fileType,
+          created_at: new Date().toISOString(),
+        }
+        setMessages(prev => [...prev, newMsg])
+        setInbox(prev => prev.map(item =>
+          item.deal_id === selectedDealId
+            ? { ...item, latest_message: message, latest_message_at: newMsg.created_at, latest_sender_role: 'agent', latest_sender_name: profile?.full_name || 'You' }
+            : item
+        ))
+      } else {
+        setStatusMessage({ type: 'error', text: result.error || 'Failed to send message' })
+      }
+    } catch (err) {
+      console.error('Send message error:', err)
+      setStatusMessage({ type: 'error', text: 'Failed to send message' })
     }
   }
 
