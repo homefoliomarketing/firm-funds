@@ -38,6 +38,8 @@ export async function createBrokerage(input: {
   notes?: string
   brokerOfRecordName?: string
   brokerOfRecordEmail?: string
+  logoUrl?: string
+  brandColor?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -62,6 +64,8 @@ export async function createBrokerage(input: {
         notes: v.notes || null,
         broker_of_record_name: v.brokerOfRecordName || null,
         broker_of_record_email: v.brokerOfRecordEmail || null,
+        logo_url: v.logoUrl || null,
+        brand_color: v.brandColor || null,
         status: 'active',
       })
       .select()
@@ -98,6 +102,8 @@ export async function updateBrokerage(input: {
   notes?: string
   brokerOfRecordName?: string
   brokerOfRecordEmail?: string
+  logoUrl?: string
+  brandColor?: string
   status: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
@@ -123,6 +129,8 @@ export async function updateBrokerage(input: {
         notes: v.notes || null,
         broker_of_record_name: v.brokerOfRecordName || null,
         broker_of_record_email: v.brokerOfRecordEmail || null,
+        logo_url: v.logoUrl || null,
+        brand_color: v.brandColor || null,
         status: v.status,
       })
       .eq('id', v.id)

@@ -7,7 +7,7 @@ import {
   User, Phone, MapPin, Building2, CreditCard, Upload, CheckCircle, AlertCircle, FileText, Loader2,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
-import { updateAgentProfile } from '@/lib/actions/profile-actions'
+import { updateAgentProfile, submitAgentBanking } from '@/lib/actions/profile-actions'
 import AgentHeader from '@/components/AgentHeader'
 
 export default function AgentProfilePage() {
@@ -18,6 +18,13 @@ export default function AgentProfilePage() {
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [bankingSaving, setBankingSaving] = useState(false)
+  const [bankingMessage, setBankingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Banking form state
+  const [bankTransit, setBankTransit] = useState('')
+  const [bankInstitution, setBankInstitution] = useState('')
+  const [bankAccount, setBankAccount] = useState('')
 
   // Form state
   const [phone, setPhone] = useState('')
@@ -57,6 +64,10 @@ export default function AgentProfilePage() {
         setAddressCity(agentData.address_city || '')
         setAddressProvince(agentData.address_province || 'Ontario')
         setAddressPostalCode(agentData.address_postal_code || '')
+        // Pre-populate banking form with submitted values (so they can edit and resubmit)
+        setBankTransit(agentData.banking_submitted_transit || '')
+        setBankInstitution(agentData.banking_submitted_institution || '')
+        setBankAccount(agentData.banking_submitted_account || '')
       }
 
       setLoading(false)
@@ -169,6 +180,35 @@ export default function AgentProfilePage() {
     e.target.value = ''
   }
 
+  const handleSubmitBanking = async () => {
+    if (!agent) return
+    setBankingSaving(true)
+    setBankingMessage(null)
+
+    const result = await submitAgentBanking({
+      agentId: agent.id,
+      transitNumber: bankTransit.trim(),
+      institutionNumber: bankInstitution.trim(),
+      accountNumber: bankAccount.trim(),
+    })
+
+    if (result.success) {
+      setBankingMessage({ type: 'success', text: 'Banking info submitted for review' })
+      setAgent((prev: any) => ({
+        ...prev,
+        banking_submitted_transit: bankTransit.trim(),
+        banking_submitted_institution: bankInstitution.trim(),
+        banking_submitted_account: bankAccount.trim(),
+        banking_approval_status: 'pending',
+        banking_rejection_reason: null,
+      }))
+    } else {
+      setBankingMessage({ type: 'error', text: result.error || 'Failed to submit' })
+    }
+    setBankingSaving(false)
+    setTimeout(() => setBankingMessage(null), 5000)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}>
@@ -184,6 +224,9 @@ export default function AgentProfilePage() {
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
+        brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageName={agent?.brokerages?.name}
+        brokerageBrandColor={agent?.brokerages?.brand_color}
       />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -330,8 +373,9 @@ export default function AgentProfilePage() {
             <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Banking Information</h3>
           </div>
 
+          {/* Status banner */}
           {bankingComplete ? (
-            <div className="rounded-lg p-4" style={{ background: `${colors.successText}10`, border: `1px solid ${colors.successText}30` }}>
+            <div className="rounded-lg p-4 mb-5" style={{ background: `${colors.successText}10`, border: `1px solid ${colors.successText}30` }}>
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle size={16} style={{ color: colors.successText }} />
                 <span className="text-sm font-semibold" style={{ color: colors.successText }}>Banking verified</span>
@@ -351,16 +395,124 @@ export default function AgentProfilePage() {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="rounded-lg p-4" style={{ background: `${colors.warningText}10`, border: `1px solid ${colors.warningText}30` }}>
-              <div className="flex items-center gap-2 mb-2">
-                <AlertCircle size={16} style={{ color: colors.warningText }} />
-                <span className="text-sm font-semibold" style={{ color: colors.warningText }}>Banking info pending</span>
+          ) : agent?.banking_approval_status === 'pending' ? (
+            <div className="rounded-lg p-4 mb-5" style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}>
+              <div className="flex items-center gap-2 mb-1">
+                <Loader2 size={16} style={{ color: '#7B9FE0' }} className="animate-spin" />
+                <span className="text-sm font-semibold" style={{ color: '#7B9FE0' }}>Pending approval</span>
               </div>
               <p className="text-xs" style={{ color: colors.textMuted }}>
-                Upload your pre-authorized debit form below. Our team will review it and enter your banking details. Banking info must be on file before deals can be approved.
+                Your banking info has been submitted and is being reviewed. You'll receive an email once it's approved.
               </p>
             </div>
+          ) : agent?.banking_approval_status === 'rejected' ? (
+            <div className="rounded-lg p-4 mb-5" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
+              <div className="flex items-center gap-2 mb-1">
+                <AlertCircle size={16} style={{ color: '#E07B7B' }} />
+                <span className="text-sm font-semibold" style={{ color: '#E07B7B' }}>Banking info not approved</span>
+              </div>
+              {agent.banking_rejection_reason && (
+                <p className="text-xs mt-1" style={{ color: '#E07B7B' }}>
+                  Reason: {agent.banking_rejection_reason}
+                </p>
+              )}
+              <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                Please update your information below and resubmit.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg p-4 mb-5" style={{ background: `${colors.warningText}10`, border: `1px solid ${colors.warningText}30` }}>
+              <div className="flex items-center gap-2 mb-1">
+                <AlertCircle size={16} style={{ color: colors.warningText }} />
+                <span className="text-sm font-semibold" style={{ color: colors.warningText }}>Banking info required</span>
+              </div>
+              <p className="text-xs" style={{ color: colors.textMuted }}>
+                Enter your banking details below. Banking info must be verified before deals can be approved.
+              </p>
+            </div>
+          )}
+
+          {/* Banking input form — shown when NOT verified, or when rejected (can resubmit) */}
+          {!bankingComplete && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
+                    Transit Number
+                  </label>
+                  <input
+                    type="text"
+                    value={bankTransit}
+                    onChange={(e) => setBankTransit(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                    placeholder="12345"
+                    maxLength={5}
+                    disabled={agent?.banking_approval_status === 'pending'}
+                    className="w-full rounded-lg px-3 py-2.5 text-sm font-mono outline-none transition-colors disabled:opacity-50"
+                    style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+                  />
+                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>5 digits</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
+                    Institution Number
+                  </label>
+                  <input
+                    type="text"
+                    value={bankInstitution}
+                    onChange={(e) => setBankInstitution(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    placeholder="001"
+                    maxLength={3}
+                    disabled={agent?.banking_approval_status === 'pending'}
+                    className="w-full rounded-lg px-3 py-2.5 text-sm font-mono outline-none transition-colors disabled:opacity-50"
+                    style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+                  />
+                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>3 digits</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
+                    Account Number
+                  </label>
+                  <input
+                    type="text"
+                    value={bankAccount}
+                    onChange={(e) => setBankAccount(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    placeholder="1234567"
+                    maxLength={12}
+                    disabled={agent?.banking_approval_status === 'pending'}
+                    className="w-full rounded-lg px-3 py-2.5 text-sm font-mono outline-none transition-colors disabled:opacity-50"
+                    style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+                  />
+                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>7-12 digits</p>
+                </div>
+              </div>
+
+              {agent?.banking_approval_status !== 'pending' && (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleSubmitBanking}
+                    disabled={bankingSaving || !bankTransit || !bankInstitution || !bankAccount}
+                    className="px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                    style={{ background: colors.gold }}
+                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.opacity = '0.85' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+                  >
+                    {bankingSaving ? 'Submitting...' : agent?.banking_approval_status === 'rejected' ? 'Resubmit Banking Info' : 'Submit Banking Info'}
+                  </button>
+                  {bankingMessage && (
+                    <span className="text-sm font-medium flex items-center gap-1" style={{ color: bankingMessage.type === 'success' ? colors.successText : colors.errorText }}>
+                      {bankingMessage.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                      {bankingMessage.text}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </section>
 

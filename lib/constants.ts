@@ -14,8 +14,11 @@ export const DEFAULT_BROKERAGE_REFERRAL_PCT = 0.20
 /** Maximum daily EFT transfer amount */
 export const MAX_DAILY_EFT = 25_000
 
-/** Minimum days until closing for a deal to be eligible */
-export const MIN_DAYS_UNTIL_CLOSING = 1
+/** Additional days after closing date for return fund processing (0 = none, adjustable later) */
+export const RETURN_PROCESSING_DAYS = 0
+
+/** Minimum days until closing for a deal to be eligible (must be ≥2: 1 day to receive funds + 1 chargeable day) */
+export const MIN_DAYS_UNTIL_CLOSING = 2
 
 /** Maximum days until closing for a deal to be eligible */
 export const MAX_DAYS_UNTIL_CLOSING = 120

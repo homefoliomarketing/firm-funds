@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle, Settings } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle, Settings, Briefcase } from 'lucide-react'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 import { useTheme } from '@/lib/theme'
@@ -12,6 +12,7 @@ import SignOutModal from '@/components/SignOutModal'
 interface DashboardStats {
   underReviewDeals: number
   pendingKycCount: number
+  pendingBankingCount: number
   unreadAgentMessages: number
   dealsWithUnreadMessages: string[]
 }
@@ -22,6 +23,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats>({
     underReviewDeals: 0,
     pendingKycCount: 0,
+    pendingBankingCount: 0,
     unreadAgentMessages: 0,
     dealsWithUnreadMessages: [],
   })
@@ -60,11 +62,13 @@ export default function AdminDashboard() {
       const [
         { data: deals },
         { count: pendingKycCount },
+        { count: pendingBankingCount },
         { data: allMsgs },
         { data: dismissals },
       ] = await Promise.all([
         supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }),
         supabase.from('agents').select('*', { count: 'exact', head: true }).eq('kyc_status', 'submitted'),
+        supabase.from('agents').select('*', { count: 'exact', head: true }).eq('banking_approval_status', 'pending'),
         supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
         supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
       ])
@@ -100,6 +104,7 @@ export default function AdminDashboard() {
       setStats({
         underReviewDeals: allDealsList.filter(d => d.status === 'under_review').length,
         pendingKycCount: pendingKycCount || 0,
+        pendingBankingCount: pendingBankingCount || 0,
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
       })
@@ -209,11 +214,21 @@ export default function AdminDashboard() {
           >
             <Building2 size={14} style={{ color: colors.gold }} />
             Brokerages
-            {stats.pendingKycCount > 0 && (
+            {(stats.pendingKycCount + stats.pendingBankingCount) > 0 && (
               <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
-                {stats.pendingKycCount}
+                {stats.pendingKycCount + stats.pendingBankingCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => router.push('/admin/portfolio')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
+          >
+            <Briefcase size={14} style={{ color: colors.gold }} />
+            Portfolio
           </button>
           <button
             onClick={() => router.push('/admin/reports')}

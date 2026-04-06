@@ -193,6 +193,9 @@ export default function AgentDashboard() {
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
+        brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageName={agent?.brokerages?.name}
+        brokerageBrandColor={agent?.brokerages?.brand_color}
       />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

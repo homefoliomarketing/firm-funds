@@ -1,6 +1,7 @@
 'use server'
 
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
+import { sendBankingSubmittedNotification, sendBankingApprovalNotification } from '@/lib/email'
 
 // ============================================================================
 // Agent Profile Actions
@@ -169,6 +170,254 @@ export async function updateAgentBanking(data: {
   } catch (preauthErr: any) {
     // Non-fatal — don't fail the banking verification
     console.error('Auto-attach preauth form error (non-fatal):', preauthErr?.message)
+  }
+
+  return { success: true }
+}
+
+// ============================================================================
+// Agent Self-Service Banking Submission
+// ============================================================================
+
+export async function submitAgentBanking(data: {
+  agentId: string
+  transitNumber: string
+  institutionNumber: string
+  accountNumber: string
+}) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  // Verify the user owns this agent profile
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('agent_id, role, email, full_name')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'agent' || profile.agent_id !== data.agentId) {
+    return { success: false, error: 'Not authorized' }
+  }
+
+  // Validate formats
+  if (!/^\d{5}$/.test(data.transitNumber)) {
+    return { success: false, error: 'Transit number must be exactly 5 digits' }
+  }
+  if (!/^\d{3}$/.test(data.institutionNumber)) {
+    return { success: false, error: 'Institution number must be exactly 3 digits' }
+  }
+  if (!/^\d{7,12}$/.test(data.accountNumber)) {
+    return { success: false, error: 'Account number must be 7-12 digits' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+  const now = new Date().toISOString()
+
+  const { error } = await serviceClient
+    .from('agents')
+    .update({
+      banking_submitted_transit: data.transitNumber,
+      banking_submitted_institution: data.institutionNumber,
+      banking_submitted_account: data.accountNumber,
+      banking_submitted_at: now,
+      banking_approval_status: 'pending',
+      banking_rejection_reason: null,
+    })
+    .eq('id', data.agentId)
+
+  if (error) {
+    console.error('Banking submission error:', error.message)
+    return { success: false, error: 'Failed to submit banking info' }
+  }
+
+  // Audit log
+  void serviceClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'agent.submit_banking',
+    entity_type: 'agent',
+    entity_id: data.agentId,
+    severity: 'info',
+    actor_email: user.email,
+    actor_role: 'agent',
+    metadata: {
+      transit: data.transitNumber,
+      institution: data.institutionNumber,
+      account_last4: data.accountNumber.slice(-4),
+    },
+  })
+
+  // Notify admin
+  try {
+    await sendBankingSubmittedNotification({
+      agentName: profile.full_name || profile.email || 'Unknown Agent',
+      agentEmail: profile.email || '',
+    })
+  } catch (emailErr: any) {
+    console.error('Banking notification email error (non-fatal):', emailErr?.message)
+  }
+
+  return { success: true }
+}
+
+// ============================================================================
+// Admin: Approve Agent Banking
+// ============================================================================
+
+export async function approveAgentBanking(data: { agentId: string }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  // Verify admin role
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return { success: false, error: 'Not authorized' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  // Get the agent's submitted banking info
+  const { data: agent, error: fetchErr } = await serviceClient
+    .from('agents')
+    .select('banking_submitted_transit, banking_submitted_institution, banking_submitted_account, banking_approval_status, email, first_name, last_name')
+    .eq('id', data.agentId)
+    .single()
+
+  if (fetchErr || !agent) return { success: false, error: 'Agent not found' }
+  if (agent.banking_approval_status !== 'pending') return { success: false, error: 'No pending banking submission to approve' }
+  if (!agent.banking_submitted_transit || !agent.banking_submitted_institution || !agent.banking_submitted_account) {
+    return { success: false, error: 'Incomplete banking submission' }
+  }
+
+  const now = new Date().toISOString()
+
+  // Copy submitted values to verified fields
+  const { error } = await serviceClient
+    .from('agents')
+    .update({
+      bank_transit_number: agent.banking_submitted_transit,
+      bank_institution_number: agent.banking_submitted_institution,
+      bank_account_number: agent.banking_submitted_account,
+      banking_verified: true,
+      banking_verified_at: now,
+      banking_verified_by: user.id,
+      banking_approval_status: 'approved',
+      banking_rejection_reason: null,
+    })
+    .eq('id', data.agentId)
+
+  if (error) {
+    console.error('Banking approval error:', error.message)
+    return { success: false, error: 'Failed to approve banking' }
+  }
+
+  // Audit log
+  void serviceClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'admin.approve_agent_banking',
+    entity_type: 'agent',
+    entity_id: data.agentId,
+    severity: 'info',
+    actor_email: user.email,
+    actor_role: profile.role,
+    metadata: {
+      transit: agent.banking_submitted_transit,
+      institution: agent.banking_submitted_institution,
+      account_last4: agent.banking_submitted_account.slice(-4),
+    },
+  })
+
+  // Notify agent
+  try {
+    const agentName = `${agent.first_name} ${agent.last_name}`.trim()
+    await sendBankingApprovalNotification({
+      agentEmail: agent.email,
+      agentName,
+      approved: true,
+    })
+  } catch (emailErr: any) {
+    console.error('Banking approval email error (non-fatal):', emailErr?.message)
+  }
+
+  return { success: true }
+}
+
+// ============================================================================
+// Admin: Reject Agent Banking
+// ============================================================================
+
+export async function rejectAgentBanking(data: { agentId: string; reason: string }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  // Verify admin role
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return { success: false, error: 'Not authorized' }
+  }
+
+  if (!data.reason?.trim()) return { success: false, error: 'Rejection reason is required' }
+
+  const serviceClient = createServiceRoleClient()
+
+  // Get agent info for email notification
+  const { data: agent, error: fetchErr } = await serviceClient
+    .from('agents')
+    .select('banking_approval_status, email, first_name, last_name')
+    .eq('id', data.agentId)
+    .single()
+
+  if (fetchErr || !agent) return { success: false, error: 'Agent not found' }
+  if (agent.banking_approval_status !== 'pending') return { success: false, error: 'No pending banking submission to reject' }
+
+  const { error } = await serviceClient
+    .from('agents')
+    .update({
+      banking_approval_status: 'rejected',
+      banking_rejection_reason: data.reason.trim(),
+    })
+    .eq('id', data.agentId)
+
+  if (error) {
+    console.error('Banking rejection error:', error.message)
+    return { success: false, error: 'Failed to reject banking' }
+  }
+
+  // Audit log
+  void serviceClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'admin.reject_agent_banking',
+    entity_type: 'agent',
+    entity_id: data.agentId,
+    severity: 'warning',
+    actor_email: user.email,
+    actor_role: profile.role,
+    metadata: { reason: data.reason.trim() },
+  })
+
+  // Notify agent
+  try {
+    const agentName = `${agent.first_name} ${agent.last_name}`.trim()
+    await sendBankingApprovalNotification({
+      agentEmail: agent.email,
+      agentName,
+      approved: false,
+      reason: data.reason.trim(),
+    })
+  } catch (emailErr: any) {
+    console.error('Banking rejection email error (non-fatal):', emailErr?.message)
   }
 
   return { success: true }

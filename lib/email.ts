@@ -1163,3 +1163,111 @@ export async function sendEmailChangeNotification(params: {
     console.error('[email] Failed to send email change notification:', err)
   }
 }
+
+// ============================================================================
+// Banking Submission Notification (to Admin)
+// ============================================================================
+
+export async function sendBankingSubmittedNotification(params: {
+  agentName: string
+  agentEmail: string
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `Banking Info Submitted — ${params.agentName}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E8E4DF; font-size:20px; font-weight:600;">
+          Banking Info Submitted
+        </h2>
+        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
+          <strong style="color:#E8E4DF;">${params.agentName}</strong> (${params.agentEmail}) has submitted their banking information for review and approval.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/admin" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                Review Banking Info
+              </a>
+            </td>
+          </tr>
+        </table>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send banking submitted notification:', err)
+  }
+}
+
+// ============================================================================
+// Banking Approval/Rejection Notification (to Agent)
+// ============================================================================
+
+export async function sendBankingApprovalNotification(params: {
+  agentEmail: string
+  agentName: string
+  approved: boolean
+  reason?: string
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    const subject = params.approved
+      ? 'Banking Info Approved'
+      : 'Banking Info — Action Required'
+
+    const body = params.approved
+      ? `
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:20px; font-weight:600;">
+          Banking Info Approved
+        </h2>
+        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
+          Hi ${params.agentName}, your banking information has been verified and approved. You're all set to receive commission advances!
+        </p>
+      `
+      : `
+        <h2 style="margin:0 0 16px; color:#EF4444; font-size:20px; font-weight:600;">
+          Banking Info Not Approved
+        </h2>
+        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
+          Hi ${params.agentName}, your banking information could not be approved at this time.
+        </p>
+        ${params.reason ? `
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:12px 16px; background:#2A1212; border:1px solid #4A2020; border-radius:8px;">
+              <p style="margin:0; color:#E07B7B; font-size:13px; font-weight:600;">Reason:</p>
+              <p style="margin:4px 0 0; color:#BCBBB8; font-size:14px;">${params.reason}</p>
+            </td>
+          </tr>
+        </table>
+        ` : ''}
+        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
+          Please update your banking information and resubmit.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/agent/profile" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                Update Banking Info
+              </a>
+            </td>
+          </tr>
+        </table>
+      `
+
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject,
+      html: wrap(body),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send banking approval notification:', err)
+  }
+}

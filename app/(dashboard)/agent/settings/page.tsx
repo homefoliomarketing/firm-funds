@@ -70,7 +70,7 @@ export default function AgentSettingsPage() {
       if (profileData.agent_id) {
         const { data: agentData } = await supabase
           .from('agents')
-          .select('*')
+          .select('*, brokerages(name, logo_url, brand_color)')
           .eq('id', profileData.agent_id)
           .single()
         setAgent(agentData)
@@ -183,6 +183,9 @@ export default function AgentSettingsPage() {
         backHref="/agent"
         title="Settings"
         subtitle="Manage your account"
+        brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageName={agent?.brokerages?.name}
+        brokerageBrandColor={agent?.brokerages?.brand_color}
       />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

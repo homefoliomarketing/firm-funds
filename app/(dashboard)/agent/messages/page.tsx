@@ -73,7 +73,7 @@ export default function AgentMessagesPage() {
         setProfile(profileData)
 
         if (profileData.agent_id) {
-          const { data: agentData } = await supabase.from('agents').select('*').eq('id', profileData.agent_id).single()
+          const { data: agentData } = await supabase.from('agents').select('*, brokerages(name, logo_url, brand_color)').eq('id', profileData.agent_id).single()
           setAgent(agentData)
           await loadInbox(profileData.agent_id)
         }
@@ -182,6 +182,9 @@ export default function AgentMessagesPage() {
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
+        brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageName={agent?.brokerages?.name}
+        brokerageBrandColor={agent?.brokerages?.brand_color}
       />
 
       <main className="flex-1 overflow-hidden max-w-5xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">

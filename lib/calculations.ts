@@ -11,6 +11,7 @@ import {
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
   LATE_CLOSING_GRACE_DAYS,
+  RETURN_PROCESSING_DAYS,
 } from './constants'
 
 export interface DealCalculation {
@@ -66,8 +67,10 @@ export function calculateDeal(input: DealCalculation): DealResult {
   const netCommission = input.grossCommission * (1 - input.brokerageSplitPct / 100)
 
   // Discount fee: net commission x ($0.75 / $1,000) x days
-  // +1 day to account for processing day (agent shouldn't pay before receiving funds)
-  const effectiveDays = input.daysUntilClosing + 1
+  // -1 because: agent receives funds day AFTER funding, and closing day is repayment (not charged)
+  // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS
+  // Example: Fund April 6, closing April 16 → 10 days until closing → 10-1 = 9 chargeable days
+  const effectiveDays = Math.max(1, input.daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
   const discountFee = netCommission * (rate / 1000) * effectiveDays
 
   // What the agent receives

@@ -75,6 +75,8 @@ export const CreateBrokerageSchema = z.object({
   notes: sanitizedString(2000).optional().nullable(),
   brokerOfRecordName: sanitizedString(200).optional().nullable(),
   brokerOfRecordEmail: emailSchema.optional().nullable(),
+  logoUrl: z.string().url().max(2000).optional().nullable(),
+  brandColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color').optional().nullable(),
 })
 
 export const UpdateBrokerageSchema = CreateBrokerageSchema.extend({

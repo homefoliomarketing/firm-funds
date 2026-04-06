@@ -17,6 +17,12 @@ interface AgentHeaderProps {
   subtitle?: string
   /** Right-side content (e.g., status badge) */
   rightContent?: React.ReactNode
+  /** White-label: brokerage logo URL */
+  brokerageLogo?: string | null
+  /** White-label: brokerage name (for alt text) */
+  brokerageName?: string | null
+  /** White-label: brokerage brand color (hex) */
+  brokerageBrandColor?: string | null
 }
 
 export default function AgentHeader({
@@ -26,6 +32,9 @@ export default function AgentHeader({
   title,
   subtitle,
   rightContent,
+  brokerageLogo,
+  brokerageName,
+  brokerageBrandColor,
 }: AgentHeaderProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [pendingReturns, setPendingReturns] = useState(0)
@@ -34,6 +43,7 @@ export default function AgentHeader({
   const { colors } = useTheme()
   const supabase = createClient()
 
+  const accentColor = brokerageBrandColor || colors.gold
   const totalNotifications = unreadCount + pendingReturns
   const prevTotalRef = useRef<number>(0)
   const notifPermissionAsked = useRef(false)
@@ -108,12 +118,29 @@ export default function AgentHeader({
         <div className="flex justify-between items-center py-5">
           {/* Left side */}
           <div className="flex items-center gap-4">
-            <img
-              src="/brand/white.png"
-              alt="Firm Funds"
-              className="h-16 sm:h-20 md:h-28 w-auto cursor-pointer"
-              onClick={() => router.push('/agent')}
-            />
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push('/agent')}>
+              {brokerageLogo ? (
+                <>
+                  <img
+                    src={brokerageLogo}
+                    alt={brokerageName || 'Brokerage'}
+                    className="h-12 sm:h-16 md:h-20 w-auto object-contain"
+                  />
+                  <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
+                  <img
+                    src="/brand/white.png"
+                    alt="Firm Funds"
+                    className="h-8 sm:h-10 w-auto opacity-60"
+                  />
+                </>
+              ) : (
+                <img
+                  src="/brand/white.png"
+                  alt="Firm Funds"
+                  className="h-16 sm:h-20 md:h-28 w-auto"
+                />
+              )}
+            </div>
             <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
 
             {backHref ? (
@@ -122,7 +149,7 @@ export default function AgentHeader({
                   onClick={() => router.push(backHref)}
                   className="transition-colors"
                   style={{ color: colors.textSecondary }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
+                  onMouseEnter={(e) => e.currentTarget.style.color = accentColor}
                   onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
                 >
                   <ArrowLeft size={20} />
@@ -250,7 +277,7 @@ export default function AgentHeader({
               </button>
             )}
 
-            <span className="text-sm hidden sm:inline" style={{ color: colors.gold }}>{agentName}</span>
+            <span className="text-sm hidden sm:inline" style={{ color: accentColor }}>{agentName}</span>
             <SignOutModal onConfirm={handleLogout} />
           </div>
         </div>

@@ -54,6 +54,9 @@ export interface Brokerage {
   reco_registration_number: string | null
   reco_verification_date: string | null
   reco_verification_notes: string | null
+  // White-label branding
+  logo_url: string | null
+  brand_color: string | null
   // Broker of Record (legal authority — signs BCA, receives IDP copies)
   broker_of_record_name: string | null
   broker_of_record_email: string | null
@@ -80,13 +83,20 @@ export interface Agent {
   kyc_document_path: string | null
   kyc_document_type: AgentKycDocumentType | null
   kyc_rejection_reason: string | null
-  // Banking fields (admin-entered)
+  // Banking fields (verified/approved by admin)
   bank_transit_number: string | null
   bank_institution_number: string | null
   bank_account_number: string | null
   banking_verified: boolean
   banking_verified_at: string | null
   banking_verified_by: string | null
+  // Banking self-service submission (agent-entered, pending admin approval)
+  banking_submitted_at: string | null
+  banking_submitted_transit: string | null
+  banking_submitted_institution: string | null
+  banking_submitted_account: string | null
+  banking_approval_status: 'none' | 'pending' | 'approved' | 'rejected'
+  banking_rejection_reason: string | null
   // Preauthorized debit form
   preauth_form_path: string | null
   preauth_form_uploaded_at: string | null

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
-import { updateAgentBanking } from '@/lib/actions/profile-actions'
+import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
 import { useTheme } from '@/lib/theme'
@@ -31,6 +31,13 @@ interface Agent {
   bank_institution_number: string | null
   bank_account_number: string | null
   banking_verified: boolean
+  // Banking self-service submission
+  banking_submitted_transit: string | null
+  banking_submitted_institution: string | null
+  banking_submitted_account: string | null
+  banking_submitted_at: string | null
+  banking_approval_status: 'none' | 'pending' | 'approved' | 'rejected'
+  banking_rejection_reason: string | null
   preauth_form_path: string | null
   preauth_form_uploaded_at: string | null
   created_at: string
@@ -58,6 +65,8 @@ interface Brokerage {
   notes: string | null
   broker_of_record_name: string | null
   broker_of_record_email: string | null
+  logo_url: string | null
+  brand_color: string | null
   created_at: string
   updated_at: string
 }
@@ -77,6 +86,8 @@ interface BrokerageFormData {
   notes: string
   brokerOfRecordName: string
   brokerOfRecordEmail: string
+  logoUrl: string
+  brandColor: string
   status?: 'active' | 'suspended' | 'inactive'
 }
 
@@ -107,10 +118,10 @@ export default function BrokeragesPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
-    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '',
+    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873',
   })
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' }>({
-    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', status: 'active',
+    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
@@ -141,6 +152,9 @@ export default function BrokeragesPage() {
   const [bankingEditingAgentId, setBankingEditingAgentId] = useState<string | null>(null)
   const [bankingSaving, setBankingSaving] = useState(false)
   const [bankingMessage, setBankingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [bankingApprovingId, setBankingApprovingId] = useState<string | null>(null)
+  const [bankingRejectingId, setBankingRejectingId] = useState<string | null>(null)
+  const [bankingRejectReason, setBankingRejectReason] = useState('')
   const [preauthViewingAgentId, setPreauthViewingAgentId] = useState<string | null>(null)
   // User management state (password reset, email change)
   const [resettingPasswordForUserId, setResettingPasswordForUserId] = useState<string | null>(null)
@@ -228,6 +242,7 @@ export default function BrokeragesPage() {
       referralFeePercentage: parseFloat(createFormData.referralFeePercentage) / 100,
       transactionSystem: createFormData.transactionSystem || undefined, notes: createFormData.notes || undefined,
       brokerOfRecordName: createFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: createFormData.brokerOfRecordEmail || undefined,
+      logoUrl: createFormData.logoUrl || undefined, brandColor: createFormData.brandColor || undefined,
     })
     if (result.success) {
       const newBrokerageId = result.data?.id
@@ -275,7 +290,7 @@ export default function BrokeragesPage() {
       }
 
       setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}` })
-      setCreateFormData({ name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '' })
+      setCreateFormData({ name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873' })
       setCreateRosterFile(null)
       setShowCreateForm(false)
       await loadBrokerages()
@@ -299,6 +314,7 @@ export default function BrokeragesPage() {
       referralFeePercentage: parseFloat(editFormData.referralFeePercentage) / 100,
       transactionSystem: editFormData.transactionSystem || undefined, notes: editFormData.notes || undefined,
       brokerOfRecordName: editFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: editFormData.brokerOfRecordEmail || undefined,
+      logoUrl: editFormData.logoUrl || undefined, brandColor: editFormData.brandColor || undefined,
       status: editFormData.status,
     })
     if (result.success) {
@@ -319,6 +335,7 @@ export default function BrokeragesPage() {
       referralFeePercentage: (brokerage.referral_fee_percentage * 100).toString(),
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
       brokerOfRecordName: brokerage.broker_of_record_name || '', brokerOfRecordEmail: brokerage.broker_of_record_email || '',
+      logoUrl: brokerage.logo_url || '', brandColor: brokerage.brand_color || '#5FA873',
       status: brokerage.status,
     })
     setEditingBrokerageId(brokerage.id)
@@ -911,6 +928,14 @@ export default function BrokeragesPage() {
                 {renderInput('Transaction System', createFormData.transactionSystem, (v) => setCreateFormData({ ...createFormData, transactionSystem: v }), { placeholder: 'e.g., Nexone' })}
                 {renderInput('Broker of Record', createFormData.brokerOfRecordName, (v) => setCreateFormData({ ...createFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
                 {renderInput('Broker of Record Email', createFormData.brokerOfRecordEmail, (v) => setCreateFormData({ ...createFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
+                {renderInput('Logo URL', createFormData.logoUrl, (v) => setCreateFormData({ ...createFormData, logoUrl: v }), { placeholder: 'https://... (public image URL)' })}
+                <div>
+                  <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Brand Color</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={createFormData.brandColor || '#5FA873'} onChange={(e) => setCreateFormData({ ...createFormData, brandColor: e.target.value })} className="w-10 h-10 rounded-lg cursor-pointer border-0" style={{ background: 'transparent' }} />
+                    <input type="text" value={createFormData.brandColor || '#5FA873'} onChange={(e) => setCreateFormData({ ...createFormData, brandColor: e.target.value })} placeholder="#5FA873" maxLength={7} className="flex-1 px-4 py-2 rounded-lg text-sm outline-none font-mono" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Notes</label>
@@ -1118,6 +1143,30 @@ export default function BrokeragesPage() {
                             {renderInput('Transaction System', editFormData.transactionSystem, (v) => setEditFormData({ ...editFormData, transactionSystem: v }))}
                             {renderInput('Broker of Record', editFormData.brokerOfRecordName, (v) => setEditFormData({ ...editFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
                             {renderInput('Broker of Record Email', editFormData.brokerOfRecordEmail, (v) => setEditFormData({ ...editFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
+                            {renderInput('Logo URL', editFormData.logoUrl, (v) => setEditFormData({ ...editFormData, logoUrl: v }), { placeholder: 'https://... (public image URL)' })}
+                            <div>
+                              <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Brand Color</label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={editFormData.brandColor || '#5FA873'}
+                                  onChange={(e) => setEditFormData({ ...editFormData, brandColor: e.target.value })}
+                                  className="w-10 h-10 rounded-lg cursor-pointer border-0"
+                                  style={{ background: 'transparent' }}
+                                />
+                                <input
+                                  type="text"
+                                  value={editFormData.brandColor || '#5FA873'}
+                                  onChange={(e) => setEditFormData({ ...editFormData, brandColor: e.target.value })}
+                                  placeholder="#5FA873"
+                                  maxLength={7}
+                                  className="flex-1 px-4 py-2 rounded-lg text-sm outline-none font-mono"
+                                  style={inputStyle}
+                                  onFocus={onFocus}
+                                  onBlur={onBlur}
+                                />
+                              </div>
+                            </div>
                           </div>
                           <div>
                             <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Notes</label>
@@ -2124,6 +2173,93 @@ export default function BrokeragesPage() {
                                                     )}
                                                   </div>
                                                 </div>
+                                                {/* Pending banking approval banner */}
+                                                {agent.banking_approval_status === 'pending' && agent.banking_submitted_transit && (
+                                                  <div className="mb-2 rounded-lg p-3" style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}>
+                                                    <div className="flex items-center justify-between mb-2">
+                                                      <div className="flex items-center gap-1.5">
+                                                        <AlertCircle size={13} style={{ color: '#7B9FE0' }} />
+                                                        <span className="text-xs font-semibold" style={{ color: '#7B9FE0' }}>Pending Approval</span>
+                                                        <span className="text-[10px]" style={{ color: colors.textMuted }}>
+                                                          Submitted {agent.banking_submitted_at ? new Date(agent.banking_submitted_at).toLocaleDateString('en-CA') : ''}
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-4 mb-2">
+                                                      <span className="text-xs font-mono" style={{ color: colors.textSecondary }}>
+                                                        Transit: {agent.banking_submitted_transit} · Inst: {agent.banking_submitted_institution} · Acct: {agent.banking_submitted_account}
+                                                      </span>
+                                                    </div>
+                                                    {bankingRejectingId === agent.id ? (
+                                                      <div className="flex items-center gap-2 flex-wrap">
+                                                        <input
+                                                          type="text"
+                                                          value={bankingRejectReason}
+                                                          onChange={(e) => setBankingRejectReason(e.target.value)}
+                                                          placeholder="Reason for rejection..."
+                                                          className="flex-1 min-w-[200px] rounded px-2 py-1.5 text-xs outline-none"
+                                                          style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                                                        />
+                                                        <button
+                                                          disabled={!bankingRejectReason.trim() || bankingApprovingId === agent.id}
+                                                          onClick={async () => {
+                                                            setBankingApprovingId(agent.id)
+                                                            const res = await rejectAgentBanking({ agentId: agent.id, reason: bankingRejectReason })
+                                                            if (res.success) {
+                                                              setBrokerages(prev => prev.map(b => ({
+                                                                ...b,
+                                                                agents: b.agents.map((a: Agent) => a.id === agent.id ? { ...a, banking_approval_status: 'rejected' as const, banking_rejection_reason: bankingRejectReason } : a),
+                                                              })))
+                                                              setBankingRejectingId(null)
+                                                              setBankingRejectReason('')
+                                                            }
+                                                            setBankingApprovingId(null)
+                                                          }}
+                                                          className="px-3 py-1.5 rounded text-xs font-semibold text-white disabled:opacity-40"
+                                                          style={{ background: '#993D3D' }}
+                                                        >
+                                                          Confirm Reject
+                                                        </button>
+                                                        <button onClick={() => { setBankingRejectingId(null); setBankingRejectReason('') }} className="text-xs" style={{ color: colors.textMuted }}>Cancel</button>
+                                                      </div>
+                                                    ) : (
+                                                      <div className="flex items-center gap-2">
+                                                        <button
+                                                          disabled={bankingApprovingId === agent.id}
+                                                          onClick={async () => {
+                                                            setBankingApprovingId(agent.id)
+                                                            const res = await approveAgentBanking({ agentId: agent.id })
+                                                            if (res.success) {
+                                                              setBrokerages(prev => prev.map(b => ({
+                                                                ...b,
+                                                                agents: b.agents.map((a: Agent) => a.id === agent.id ? {
+                                                                  ...a,
+                                                                  bank_transit_number: a.banking_submitted_transit,
+                                                                  bank_institution_number: a.banking_submitted_institution,
+                                                                  bank_account_number: a.banking_submitted_account,
+                                                                  banking_verified: true,
+                                                                  banking_approval_status: 'approved' as const,
+                                                                } : a),
+                                                              })))
+                                                            }
+                                                            setBankingApprovingId(null)
+                                                          }}
+                                                          className="px-3 py-1.5 rounded text-xs font-semibold text-white disabled:opacity-40"
+                                                          style={{ background: '#1A7A2E' }}
+                                                        >
+                                                          {bankingApprovingId === agent.id ? 'Approving...' : 'Approve'}
+                                                        </button>
+                                                        <button
+                                                          onClick={() => setBankingRejectingId(agent.id)}
+                                                          className="px-3 py-1.5 rounded text-xs font-semibold transition-colors"
+                                                          style={{ background: '#2A1212', color: '#E07B7B', border: '1px solid #4A2020' }}
+                                                        >
+                                                          Reject
+                                                        </button>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                )}
                                                 {agent.banking_verified && agent.bank_transit_number ? (
                                                   <div className="flex items-center gap-4">
                                                     <div className="flex items-center gap-1.5">

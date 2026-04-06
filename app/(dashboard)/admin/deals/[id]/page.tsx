@@ -32,7 +32,8 @@ import {
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeStyle, ADMIN_QUICK_REPLIES } from '@/lib/constants'
+import { getStatusBadgeStyle, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, RETURN_PROCESSING_DAYS } from '@/lib/constants'
+import { calculateDeal } from '@/lib/calculations'
 import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
@@ -548,6 +549,7 @@ export default function DealDetailPage() {
   const [denialReason, setDenialReason] = useState('')
   const [showDenialInput, setShowDenialInput] = useState(false)
   const [pendingBackward, setPendingBackward] = useState<string | null>(null)
+  const [showFundingConfirmation, setShowFundingConfirmation] = useState(false)
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   // E-Signature state
   const [esignEnvelopes, setEsignEnvelopes] = useState<EsignatureEnvelope[]>([])
@@ -811,6 +813,9 @@ export default function DealDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
+    // Show funding confirmation modal before funding
+    if (newStatus === 'funded' && !showFundingConfirmation) { setShowFundingConfirmation(true); return }
+    setShowFundingConfirmation(false)
     // Show confirmation for backward transitions
     if (isBackwardTransition(newStatus) && pendingBackward !== newStatus) {
       setPendingBackward(newStatus)
@@ -1377,6 +1382,115 @@ export default function DealDetailPage() {
               </div>
             </div>
           )}
+
+          {/* FUNDING CONFIRMATION MODAL */}
+          {showFundingConfirmation && deal && (() => {
+            const daysUntilClosing = Math.max(1, calcDaysUntilClosing(deal.closing_date))
+            const referralPct = brokerage?.referral_fee_percentage ?? 0.20
+            const calc = calculateDeal({
+              grossCommission: deal.gross_commission,
+              brokerageSplitPct: deal.brokerage_split_pct,
+              daysUntilClosing,
+              discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
+              brokerageReferralPct: referralPct,
+            })
+            const chargeDays = Math.max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
+            const today = new Date()
+            const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+            const closingDate = new Date(deal.closing_date + 'T00:00:00')
+            const fmtDate = (d: Date) => d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
+            return (
+              <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
+                <div className="p-4 rounded-lg" style={{ background: '#1F1535', border: '1px solid #352A50' }}>
+                  <h4 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#A385D0' }}>
+                    <Banknote className="w-4 h-4" />
+                    Confirm Funding
+                  </h4>
+                  <div className="rounded-lg p-3 mb-3" style={{ background: '#161616' }}>
+                    <table className="w-full text-xs">
+                      <tbody>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Funding Date</td>
+                          <td className="py-1.5 text-right font-medium" style={{ color: colors.textPrimary }}>{fmtDate(today)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Charges Start</td>
+                          <td className="py-1.5 text-right font-medium" style={{ color: colors.textPrimary }}>{fmtDate(tomorrow)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Closing Date</td>
+                          <td className="py-1.5 text-right font-medium" style={{ color: colors.textPrimary }}>{fmtDate(closingDate)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Days Charged</td>
+                          <td className="py-1.5 text-right font-mono font-bold" style={{ color: '#A385D0' }}>{chargeDays} days</td>
+                        </tr>
+                        <tr><td colSpan={2}><div className="my-1.5" style={{ borderTop: `1px solid ${colors.divider}` }} /></td></tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Gross Commission</td>
+                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Brokerage Split ({deal.brokerage_split_pct}%)</td>
+                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textMuted }}>-{formatCurrency(deal.gross_commission * deal.brokerage_split_pct / 100)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 font-semibold" style={{ color: colors.textPrimary }}>Net Commission</td>
+                          <td className="py-1.5 text-right font-mono font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(calc.netCommission)}</td>
+                        </tr>
+                        <tr><td colSpan={2}><div className="my-1.5" style={{ borderTop: `1px solid ${colors.divider}` }} /></td></tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Discount Fee ({chargeDays}d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-right font-mono" style={{ color: '#E07B7B' }}>-{formatCurrency(calc.discountFee)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 font-bold" style={{ color: '#5FA873' }}>Agent Receives</td>
+                          <td className="py-1.5 text-right font-mono font-bold" style={{ color: '#5FA873' }}>{formatCurrency(calc.advanceAmount)}</td>
+                        </tr>
+                        <tr><td colSpan={2}><div className="my-1.5" style={{ borderTop: `1px solid ${colors.divider}` }} /></td></tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Brokerage Referral ({(referralPct * 100).toFixed(0)}% of fee)</td>
+                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textMuted }}>{formatCurrency(calc.brokerageReferralFee)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 font-semibold" style={{ color: '#A385D0' }}>Firm Funds Profit</td>
+                          <td className="py-1.5 text-right font-mono font-semibold" style={{ color: '#A385D0' }}>{formatCurrency(calc.firmFundsProfit)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>Amount Due from Brokerage</td>
+                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textPrimary }}>{formatCurrency(calc.amountDueFromBrokerage)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5" style={{ color: colors.textMuted }}>EFT Transfer Days</td>
+                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textPrimary }}>{calc.eftTransferDays} day{calc.eftTransferDays !== 1 ? 's' : ''}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleStatusChange('funded')}
+                      disabled={updating}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors"
+                      style={{ background: '#5B3D99' }}
+                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#4B2D89' }}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#5B3D99'}
+                    >
+                      <Banknote className="w-4 h-4" />
+                      {updating ? 'Funding...' : 'Confirm Funding'}
+                    </button>
+                    <button
+                      onClick={() => setShowFundingConfirmation(false)}
+                      className="px-4 py-2 rounded-lg text-sm font-medium transition"
+                      style={{ background: colors.border, color: colors.textPrimary }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* DENIAL REASON TEXTAREA IN ACTION BAR */}
           {showDenialInput && (
