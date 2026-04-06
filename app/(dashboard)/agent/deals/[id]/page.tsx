@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import {
@@ -71,6 +71,7 @@ export default function AgentDealDetailPage() {
   const [replyText, setReplyText] = useState('')
   const [replySending, setReplySending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const initialMessageCountRef = useRef<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -99,6 +100,13 @@ export default function AgentDealDetailPage() {
 
   useEffect(() => { loadDealData() }, [dealId])
 
+  // Scroll message container to bottom (not the page)
+  const scrollMessagesToBottom = useCallback(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+    }
+  }, [])
+
   useEffect(() => {
     if (!loading && window.location.hash) {
       const hash = window.location.hash.substring(1)
@@ -107,23 +115,26 @@ export default function AgentDealDetailPage() {
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'start' })
           if (hash === 'messages') {
-            setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, 400)
+            setTimeout(scrollMessagesToBottom, 400)
           }
         }
       }, 200)
     }
-  }, [loading])
+  }, [loading, scrollMessagesToBottom])
 
   useEffect(() => {
     if (dealMessages.length > 0) {
       if (initialMessageCountRef.current === null) {
         initialMessageCountRef.current = dealMessages.length
+        // Scroll to bottom on initial load
+        requestAnimationFrame(scrollMessagesToBottom)
+        setTimeout(scrollMessagesToBottom, 200)
       } else if (dealMessages.length > initialMessageCountRef.current) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        scrollMessagesToBottom()
         initialMessageCountRef.current = dealMessages.length
       }
     }
-  }, [dealMessages.length])
+  }, [dealMessages.length, scrollMessagesToBottom])
 
   // Auto-mark messages as read when agent views this deal page
   useEffect(() => {
@@ -764,7 +775,7 @@ export default function AgentDealDetailPage() {
             <div id="messages" className="rounded-xl p-4 bg-muted/50 border border-border">
               <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-primary">Messages</h4>
               {dealMessages.length > 0 ? (
-                <div className="space-y-2 max-h-48 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
+                <div ref={messagesContainerRef} className="space-y-2 max-h-48 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
                   {dealMessages.map(msg => (
                     <div key={msg.id} className="px-3 py-2 rounded" style={{
                       background: msg.sender_role === 'admin' ? '#0F2A18' : 'hsl(var(--card))',
@@ -772,7 +783,7 @@ export default function AgentDealDetailPage() {
                     }}>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                          {msg.sender_name || 'Firm Funds'}
+                          {msg.sender_role === 'admin' ? 'Firm Funds Agent' : (msg.sender_name || 'Agent')}
                         </span>
                         <span className="text-xs text-muted-foreground/60">
                           {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}

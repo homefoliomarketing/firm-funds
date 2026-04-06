@@ -582,33 +582,41 @@ export default function DealDetailPage() {
     router.push('/login')
   }
 
-  // Auto-expand messages if URL has #messages hash or if there are unread messages
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hash === '#messages') {
-      setMessagesExpanded(true)
-      setTimeout(() => {
-        document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 500)
-    }
-  }, [])
+  // Track whether we arrived via #messages hash
+  const arrivedViaHash = useRef(
+    typeof window !== 'undefined' && window.location.hash === '#messages'
+  )
 
-  // Auto-expand when messages load if there are unread (last message from agent)
+  // Auto-expand when messages load if there are unread (last message from agent) or arrived via hash
   useEffect(() => {
-    if (messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin') {
-      setMessagesExpanded(true)
+    if (messages.length > 0) {
+      if (arrivedViaHash.current || messages[messages.length - 1].sender_role !== 'admin') {
+        setMessagesExpanded(true)
+      }
     }
   }, [messages.length])
 
   useEffect(() => { loadDealData() }, [dealId])
 
+  // Scroll message container to bottom when expanded, then scroll page to show messages section
   useEffect(() => {
     if (messages.length > 0 && messagesExpanded) {
+      const scrollContainer = adminMessagesContainerRef.current
       const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ block: 'end' })
+        if (scrollContainer) {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight
+        }
       }
       scrollToBottom()
       const raf = requestAnimationFrame(() => scrollToBottom())
-      const timer = setTimeout(scrollToBottom, 200)
+      const timer = setTimeout(() => {
+        scrollToBottom()
+        // If we arrived via #messages hash, scroll the page to show the messages section
+        if (arrivedViaHash.current) {
+          arrivedViaHash.current = false
+          document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 300)
       return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
     }
   }, [messages.length, messagesExpanded])
@@ -2335,7 +2343,7 @@ export default function DealDetailPage() {
                           }}>
                           <div className="flex items-center gap-2 mb-0.5">
                             <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                              {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
+                              {msg.sender_role === 'admin' ? 'Firm Funds Agent' : (msg.sender_name || 'Agent')}
                             </span>
                             {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
                             <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
