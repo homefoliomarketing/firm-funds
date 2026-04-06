@@ -565,8 +565,9 @@ export default function DealDetailPage() {
   // Collapsible sections
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [messagesExpanded, setMessagesExpanded] = useState(false)
-  // Unread messages: last message is from agent (not admin)
-  const hasUnreadMessages = messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin'
+  const [messagesDismissed, setMessagesDismissed] = useState(false)
+  // Unread = last message from agent AND not yet dismissed locally
+  const hasUnreadMessages = !messagesDismissed && messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin'
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
   // Drag-and-drop
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
@@ -615,6 +616,7 @@ export default function DealDetailPage() {
   // Auto-dismiss message notifications when admin expands the messages section
   useEffect(() => {
     if (messagesExpanded && dealId) {
+      setMessagesDismissed(true)
       void dismissDealMessages(dealId)
     }
   }, [messagesExpanded, dealId])
