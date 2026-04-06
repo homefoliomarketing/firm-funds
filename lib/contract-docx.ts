@@ -15,7 +15,6 @@ import {
   Tab,
   TabStopPosition,
   TabStopType,
-  SectionType,
 } from 'docx'
 
 // ============================================================================
@@ -67,20 +66,9 @@ function makeHeader(title: string): Header {
   })
 }
 
-function makeFooter(initialsLabel: string): Footer {
+function makeFooter(): Footer {
   return new Footer({
     children: [
-      // Initials line — right-aligned, sits above the page info line
-      new Paragraph({
-        alignment: AlignmentType.RIGHT,
-        spacing: { before: 200, after: 80 },
-        children: [
-          new TextRun({ text: `${initialsLabel}:  `, font: FONT, size: 20 }),
-          new TextRun({ text: '/ini1/', font: FONT, size: 20 }),
-          new TextRun({ text: '  __________', font: FONT, size: 20 }),
-        ],
-      }),
-      // Page number + confidential line
       new Paragraph({
         border: { top: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
         spacing: { before: 60 },
@@ -96,6 +84,22 @@ function makeFooter(initialsLabel: string): Footer {
           new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE }),
         ],
       }),
+    ],
+  })
+}
+
+/** Creates a right-aligned initials anchor paragraph to place at the end of body content.
+ *  DocuSign scans the body (not footers) for anchor strings. The /ini1/ text is rendered
+ *  in white so it's invisible in the final document, but DocuSign still finds it. */
+function initialsAnchor(label: string): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing: { before: 200, after: 0 },
+    children: [
+      new TextRun({ text: `${label}:  `, font: FONT, size: 20 }),
+      new TextRun({ text: '___________', font: FONT, size: 20 }),
+      // Invisible anchor — DocuSign finds this and places the initials tab here
+      new TextRun({ text: ' /ini1/', font: FONT, size: 4, color: 'FFFFFF' }),
     ],
   })
 }
@@ -163,7 +167,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Commission Purchase Agreement') },
-        footers: { default: makeFooter('Seller Initials') },
+        footers: { default: makeFooter() },
         children: [
           // Title
           new Paragraph({
@@ -294,6 +298,9 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
 
           heading2('ARTICLE 12 — GENERAL PROVISIONS'),
           body('Governed by the laws of Ontario. Electronic signatures valid under the Electronic Commerce Act, 2000 (Ontario). Each Party has been advised to obtain independent legal advice.'),
+
+          // Initials anchor — DocuSign finds /ini1/ in the body and places an initials tab
+          initialsAnchor('Seller Initials'),
         ],
       },
 
@@ -303,7 +310,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Commission Purchase Agreement — Schedule "A"') },
-        footers: { default: makeFooter('Seller Initials') },
+        footers: { default: makeFooter() },
         children: [
           new Paragraph({
             alignment: AlignmentType.CENTER,
@@ -326,6 +333,9 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['Brokerage Address', r('{{BROKERAGE_ADDRESS}}')],
             ['Broker of Record', r('{{BROKER_OF_RECORD}}')],
           ]),
+
+          // Initials anchor
+          initialsAnchor('Seller Initials'),
         ],
       },
 
@@ -396,7 +406,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Irrevocable Direction to Pay') },
-        footers: { default: makeFooter('Agent Initials') },
+        footers: { default: makeFooter() },
         children: [
           // Title
           new Paragraph({
@@ -493,6 +503,10 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           // E-Sig
           heading2('ELECTRONIC SIGNATURE'),
           body('This Direction may be executed by electronic signature in accordance with the Electronic Commerce Act, 2000 (Ontario).'),
+
+          // Initials anchor
+          initialsAnchor('Agent Initials'),
+
           emptyLine(),
           emptyLine(),
 

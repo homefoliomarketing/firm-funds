@@ -124,7 +124,7 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{BROKERAGE_ADDRESS}}': brokerage.address || 'On file',
       '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name || 'On file',
       '{{BROKERAGE_REFERRAL_FEE}}': formatCurrency(deal.brokerage_referral_fee),
-      '{{BROKERAGE_SPLIT}}': ((deal.brokerage_split_pct || 0) * 100).toFixed(1),
+      '{{BROKERAGE_SPLIT}}': (deal.brokerage_split_pct || 0).toFixed(1),
       '{{GROSS_COMMISSION_RATE}}': 'See Trade Record',
       '{{GROSS_COMMISSION_AMOUNT}}': formatCurrency(deal.gross_commission),
       '{{RECO_REGISTRATION_NUMBER}}': agent.reco_number || 'On file',
