@@ -775,23 +775,28 @@ export default function AgentDealDetailPage() {
             <div id="messages" className="rounded-xl p-4 bg-muted/50 border border-border">
               <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-primary">Messages</h4>
               {dealMessages.length > 0 ? (
-                <div ref={messagesContainerRef} className="space-y-2 max-h-48 overflow-y-auto mb-3" style={{ scrollbarWidth: 'thin' }}>
-                  {dealMessages.map(msg => (
-                    <div key={msg.id} className="px-3 py-2 rounded" style={{
-                      background: msg.sender_role === 'admin' ? '#0F2A18' : 'hsl(var(--card))',
-                      border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : 'hsl(var(--border))'}`,
-                    }}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                          {msg.sender_role === 'admin' ? 'Firm Funds Agent' : (msg.sender_name || 'Agent')}
-                        </span>
-                        <span className="text-xs text-muted-foreground/60">
-                          {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                <div ref={messagesContainerRef} className="space-y-2 max-h-56 overflow-y-auto mb-3 px-1" style={{ scrollbarWidth: 'thin' }}>
+                  {dealMessages.map(msg => {
+                    const isOwn = msg.sender_role === 'agent'
+                    return (
+                    <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                      <div className="max-w-[80%] rounded-xl px-3 py-2" style={{
+                        background: isOwn ? 'hsl(var(--card))' : '#0F2A18',
+                        border: `1px solid ${isOwn ? 'hsl(var(--border))' : '#1E4A2C'}`,
+                      }}>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-[10px] font-semibold" style={{ color: isOwn ? '#7B9FE0' : '#5FA873' }}>
+                            {isOwn ? 'You' : 'Firm Funds Agent'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/60">
+                            {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                       </div>
-                      <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                     </div>
-                  ))}
+                    )
+                  })}
                   <div ref={messagesEndRef} />
                 </div>
               ) : (
