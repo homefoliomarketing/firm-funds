@@ -496,12 +496,12 @@ export async function getAdminInbox(): Promise<ActionResult> {
       const latestMsg = msgs[0] // already sorted desc
       const agent = (deal as any).agents
 
-      // needs_reply = last message from agent AND not dismissed after that message
-      let needsReply = latestMsg.sender_role === 'agent'
+      // needs_reply = last message from agent or brokerage AND not dismissed after that message
+      let needsReply = latestMsg.sender_role === 'agent' || latestMsg.sender_role === 'brokerage_admin'
       if (needsReply && dismissMap.has(dealId)) {
         const dismissedAt = new Date(dismissMap.get(dealId)!)
         const latestMsgAt = new Date(latestMsg.created_at)
-        // If dismissed AFTER the latest agent message, it's been acknowledged
+        // If dismissed AFTER the latest message, it's been acknowledged
         if (dismissedAt >= latestMsgAt) {
           needsReply = false
         }
