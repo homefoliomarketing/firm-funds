@@ -4,8 +4,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================================
+   Firm Funds — Premium Dark Theme
+   Brand: Charcoal backgrounds, green (#5FA873) accent, silver text
+   ============================================================================ */
+
 :root {
-  /* Firm Funds Brand Colors */
+  /* Brand tokens (preserved for backward compat) */
   --ff-charcoal: #2D2D2D;
   --ff-charcoal-dark: #1E1E1E;
   --ff-charcoal-light: #3D3D3D;
@@ -16,43 +21,141 @@
   --ff-silver-light: #D0D0D0;
   --ff-cream: #F5F3EF;
   --ff-white: #FFFFFF;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ---- shadcn semantic tokens ---- */
+  /* Since dark mode is permanently locked, :root IS the dark theme */
+  --radius: 0.5rem;
+
+  --background: #0B0B0F;
+  --foreground: #EAEAEF;
+
+  --card: #141418;
+  --card-foreground: #EAEAEF;
+
+  --popover: #141418;
+  --popover-foreground: #EAEAEF;
+
+  --primary: #5FA873;
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #1E1E24;
+  --secondary-foreground: #EAEAEF;
+
+  --muted: #1E1E24;
+  --muted-foreground: #8A8A96;
+
+  --accent: #1E1E24;
+  --accent-foreground: #EAEAEF;
+
+  --destructive: #E5484D;
+  --destructive-foreground: #FFFFFF;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #5FA873;
+
+  /* Charts */
+  --chart-1: #5FA873;
+  --chart-2: #7BC48D;
+  --chart-3: #3D7A4F;
+  --chart-4: #8A8A96;
+  --chart-5: #555560;
+
+  /* Sidebar */
+  --sidebar: #0F0F13;
+  --sidebar-foreground: #EAEAEF;
+  --sidebar-primary: #5FA873;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1E1E24;
+  --sidebar-accent-foreground: #EAEAEF;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #5FA873;
+
+  /* Firm Funds extended tokens */
+  --success: #4ADE80;
+  --success-foreground: #0A1F12;
+  --warning: #F5A623;
+  --warning-foreground: #1A1408;
+  --info: #60A5FA;
+  --info-foreground: #0A1428;
+}
+
+/* Dark variant (same as root — app is always dark) */
+.dark {
+  --background: #0B0B0F;
+  --foreground: #EAEAEF;
+  --card: #141418;
+  --card-foreground: #EAEAEF;
+  --popover: #141418;
+  --popover-foreground: #EAEAEF;
+  --primary: #5FA873;
+  --primary-foreground: #FFFFFF;
+  --secondary: #1E1E24;
+  --secondary-foreground: #EAEAEF;
+  --muted: #1E1E24;
+  --muted-foreground: #8A8A96;
+  --accent: #1E1E24;
+  --accent-foreground: #EAEAEF;
+  --destructive: #E5484D;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #5FA873;
+  --chart-1: #5FA873;
+  --chart-2: #7BC48D;
+  --chart-3: #3D7A4F;
+  --chart-4: #8A8A96;
+  --chart-5: #555560;
+  --sidebar: #0F0F13;
+  --sidebar-foreground: #EAEAEF;
+  --sidebar-primary: #5FA873;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1E1E24;
+  --sidebar-accent-foreground: #EAEAEF;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #5FA873;
 }
 
 @theme inline {
+  /* Core semantic colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Charts */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Firm Funds brand tokens */
   --color-ff-charcoal: var(--ff-charcoal);
   --color-ff-charcoal-dark: var(--ff-charcoal-dark);
   --color-ff-charcoal-light: var(--ff-charcoal-light);
@@ -62,38 +165,16 @@
   --color-ff-silver: var(--ff-silver);
   --color-ff-silver-light: var(--ff-silver-light);
   --color-ff-cream: var(--ff-cream);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
+
+  /* Extended status colors */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* Radii */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -101,17 +182,32 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Fonts */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
 }
 
-body {
-  font-family: 'Inter', 'Geist Sans', Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* ---- Base styles ---- */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html {
+    @apply font-sans;
+  }
 }
 
-/* Firm Funds utility classes */
+/* ---- Firm Funds utility classes ---- */
 .ff-gradient-charcoal {
-  background: linear-gradient(135deg, #1E1E1E 0%, #2D2D2D 50%, #3D3D3D 100%);
+  background: linear-gradient(135deg, #0B0B0F 0%, #141418 50%, #1E1E24 100%);
 }
 
 .ff-gradient-sand {
@@ -119,51 +215,21 @@ body {
 }
 
 .ff-text-shadow {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* ---- Scrollbar styling (premium touch) ---- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }

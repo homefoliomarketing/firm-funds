@@ -34,9 +34,17 @@ import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/l
 import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeStyle, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, RETURN_PROCESSING_DAYS } from '@/lib/constants'
 import { calculateDeal } from '@/lib/calculations'
-import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Separator } from '@/components/ui/separator'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // ============================================================================
 // Drag-to-pan hook — click and drag to scroll a container when zoomed
@@ -50,7 +58,6 @@ function useDragToPan(scrollRef: React.RefObject<HTMLDivElement | null>, isZoome
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     if (!isZoomed || !scrollRef.current) return
-    // Only left-click
     if (e.button !== 0) return
     isDragging.current = true
     startX.current = e.clientX
@@ -82,16 +89,12 @@ function useDragToPan(scrollRef: React.RefObject<HTMLDivElement | null>, isZoome
 
 // ============================================================================
 // PDF Canvas Viewer — renders PDFs via pdf.js 3.x (CDN) to canvas
-// Uses the standard UMD build (not ESM) — loads reliably via script tag
 // ============================================================================
 const PDFJS_VERSION = '3.11.174'
 const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
 
 function loadPdfJs(): Promise<any> {
-  // Already loaded
   if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib)
-
-  // Already loading — wait for it
   if ((window as any)._pdfjsLoading) return (window as any)._pdfjsLoading
 
   const promise = new Promise<any>((resolve, reject) => {
@@ -112,7 +115,7 @@ function loadPdfJs(): Promise<any> {
 }
 
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2, 2.5, 3]
-const DEFAULT_ZOOM_INDEX = 1 // starts at 1x
+const DEFAULT_ZOOM_INDEX = 1
 
 function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -123,10 +126,8 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const isZoomed = zoomIndex > DEFAULT_ZOOM_INDEX
   const dragHandlers = useDragToPan(containerRef, isZoomed)
 
-  // Load the PDF document once
   useEffect(() => {
     let cancelled = false
-
     async function load() {
       try {
         const pdfjsLib = await loadPdfJs()
@@ -141,12 +142,10 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
         if (!cancelled) setStatus('error')
       }
     }
-
     load()
     return () => { cancelled = true }
   }, [pdfData])
 
-  // Render pages whenever zoom changes or PDF loads
   useEffect(() => {
     if (status !== 'done' || !pdfRef.current || !containerRef.current) return
     let cancelled = false
@@ -156,15 +155,11 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
       const container = containerRef.current
       if (!container) return
 
-      // Clear previous canvases (keep the zoom bar by only removing canvas/sep elements)
       const toRemove = container.querySelectorAll('canvas, .pdf-page-sep')
       toRemove.forEach((el: Element) => el.remove())
 
-      // Always render at 2x for crisp output, control visual size via CSS
       const renderScale = 2
       const visualZoom = ZOOM_LEVELS[zoomIndex]
-      // At 100% (index 1), the visual width = 100% of container.
-      // At other levels, scale proportionally (e.g. 75% = 75%, 150% = 150%).
       const widthPct = (visualZoom / ZOOM_LEVELS[DEFAULT_ZOOM_INDEX]) * 100
 
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -201,8 +196,6 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const zoomOut = () => setZoomIndex(i => Math.max(i - 1, 0))
   const zoomPct = Math.round(ZOOM_LEVELS[zoomIndex] * 100)
 
-  // Scroll-to-zoom: Ctrl+wheel or pinch-to-zoom
-  // Must use native listener with { passive: false } to actually prevent browser zoom
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -220,45 +213,31 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   if (status === 'error') {
     return (
       <div className="flex items-center justify-center h-full p-6">
-        <p style={{ color: '#E07B7B', fontSize: 14 }}>Failed to render PDF</p>
+        <p className="text-destructive text-sm">Failed to render PDF</p>
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="flex flex-col h-full">
       {/* Zoom toolbar */}
       {status === 'done' && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          padding: '6px 12px', borderBottom: '1px solid #333', background: '#1a1a1a', flexShrink: 0,
-        }}>
+        <div className="flex items-center justify-center gap-2 px-3 py-1.5 border-b border-border/50 bg-card flex-shrink-0">
           <button
             onClick={zoomOut}
             disabled={zoomIndex === 0}
-            style={{
-              width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
-              background: zoomIndex === 0 ? '#222' : '#2a2a2a', color: zoomIndex === 0 ? '#555' : '#ccc',
-              cursor: zoomIndex === 0 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
+            className="w-7 h-7 rounded-md border border-border/50 bg-muted flex items-center justify-center text-base font-bold disabled:opacity-30 disabled:cursor-not-allowed text-foreground hover:bg-muted/80 transition-colors"
           >−</button>
-          <span style={{ color: '#aaa', fontSize: 12, fontWeight: 600, minWidth: 40, textAlign: 'center' }}>
+          <span className="text-muted-foreground text-xs font-semibold min-w-[40px] text-center">
             {zoomPct}%
           </span>
           <button
             onClick={zoomIn}
             disabled={zoomIndex === ZOOM_LEVELS.length - 1}
-            style={{
-              width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
-              background: zoomIndex === ZOOM_LEVELS.length - 1 ? '#222' : '#2a2a2a',
-              color: zoomIndex === ZOOM_LEVELS.length - 1 ? '#555' : '#ccc',
-              cursor: zoomIndex === ZOOM_LEVELS.length - 1 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
+            className="w-7 h-7 rounded-md border border-border/50 bg-muted flex items-center justify-center text-base font-bold disabled:opacity-30 disabled:cursor-not-allowed text-foreground hover:bg-muted/80 transition-colors"
           >+</button>
           {numPages > 0 && (
-            <span style={{ color: '#666', fontSize: 11, marginLeft: 8 }}>
+            <span className="text-muted-foreground/60 text-[11px] ml-2">
               {numPages} page{numPages > 1 ? 's' : ''}
             </span>
           )}
@@ -268,14 +247,12 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
       <div
         ref={containerRef}
         {...dragHandlers}
-        style={{ flex: 1, overflow: 'auto', padding: 0, cursor: isZoomed ? 'grab' : 'default' }}
+        className="flex-1 overflow-auto p-0"
+        style={{ cursor: isZoomed ? 'grab' : 'default' }}
       >
         {status === 'loading' && (
           <div className="flex items-center justify-center p-8">
-            <div style={{
-              width: 32, height: 32, border: '3px solid #333', borderTopColor: '#5FA873',
-              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-            }} />
+            <div className="w-8 h-8 border-[3px] border-border border-t-primary rounded-full animate-spin" />
           </div>
         )}
       </div>
@@ -284,7 +261,7 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
 }
 
 // ============================================================================
-// Image Zoom Viewer — zoomable image viewer for the side panel
+// Image Zoom Viewer
 // ============================================================================
 function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   const [zoomIndex, setZoomIndex] = useState(0)
@@ -298,7 +275,6 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   const zoomPct = Math.round(imgZoomLevels[zoomIndex] * 100)
   const scale = imgZoomLevels[zoomIndex]
 
-  // Scroll-to-zoom: native listener with { passive: false } to prevent browser zoom
   useEffect(() => {
     const el = imgScrollRef.current
     if (!el) return
@@ -314,40 +290,27 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
   }, [src])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-        padding: '6px 12px', borderBottom: '1px solid #333', background: '#1a1a1a', flexShrink: 0,
-      }}>
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-center gap-2 px-3 py-1.5 border-b border-border/50 bg-card flex-shrink-0">
         <button
           onClick={zoomOut}
           disabled={zoomIndex === 0}
-          style={{
-            width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
-            background: zoomIndex === 0 ? '#222' : '#2a2a2a', color: zoomIndex === 0 ? '#555' : '#ccc',
-            cursor: zoomIndex === 0 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
+          className="w-7 h-7 rounded-md border border-border/50 bg-muted flex items-center justify-center text-base font-bold disabled:opacity-30 disabled:cursor-not-allowed text-foreground hover:bg-muted/80 transition-colors"
         >−</button>
-        <span style={{ color: '#aaa', fontSize: 12, fontWeight: 600, minWidth: 40, textAlign: 'center' }}>
+        <span className="text-muted-foreground text-xs font-semibold min-w-[40px] text-center">
           {zoomPct}%
         </span>
         <button
           onClick={zoomIn}
           disabled={zoomIndex === imgZoomLevels.length - 1}
-          style={{
-            width: 28, height: 28, borderRadius: 6, border: '1px solid #444',
-            background: zoomIndex === imgZoomLevels.length - 1 ? '#222' : '#2a2a2a',
-            color: zoomIndex === imgZoomLevels.length - 1 ? '#555' : '#ccc',
-            cursor: zoomIndex === imgZoomLevels.length - 1 ? 'not-allowed' : 'pointer', fontSize: 16, fontWeight: 700,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
+          className="w-7 h-7 rounded-md border border-border/50 bg-muted flex items-center justify-center text-base font-bold disabled:opacity-30 disabled:cursor-not-allowed text-foreground hover:bg-muted/80 transition-colors"
         >+</button>
       </div>
       <div
         ref={imgScrollRef}
         {...imgDragHandlers}
-        style={{ flex: 1, overflow: 'auto', padding: 8, cursor: isImgZoomed ? 'grab' : 'default' }}
+        className="flex-1 overflow-auto p-2"
+        style={{ cursor: isImgZoomed ? 'grab' : 'default' }}
       >
         <img
           src={src}
@@ -450,7 +413,6 @@ const STATUS_FLOW: Record<string, string[]> = {
   denied: ['under_review'], cancelled: ['under_review'], completed: ['funded'],
 }
 
-// Backward transitions that should trigger a warning
 const BACKWARD_STATUSES: Record<string, string[]> = {
   approved: ['under_review'],
   funded: ['approved'],
@@ -474,7 +436,6 @@ interface ChecklistCategory {
   matchingDocs: Map<string, DealDocument[]>
 }
 
-// Category display config — keyed by category name stored in DB (dark mode)
 const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; border: string }> = {
   'Agent Verification': { icon: User, color: '#C4A5F5', bg: 'rgba(91,61,153,0.15)', border: 'rgba(91,61,153,0.3)' },
   'Deal Verification': { icon: FileText, color: '#7EB3F5', bg: 'rgba(61,90,153,0.15)', border: 'rgba(61,90,153,0.3)' },
@@ -484,14 +445,11 @@ const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; bo
   'Firm Funds Documents': { icon: Shield, color: '#5FA873', bg: 'rgba(45,122,79,0.15)', border: 'rgba(45,122,79,0.3)' },
 }
 
-// Fallback style for any category not in the map
 const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: '#999', bg: 'rgba(100,100,100,0.15)', border: 'rgba(100,100,100,0.3)' }
 
-// Category display order
 const CATEGORY_ORDER = ['Agent Verification', 'Deal Verification', 'Firm Fund Documents']
 
 function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
-  // Group items by their DB category, preserving sort_order within each group
   const grouped = new Map<string, ChecklistItem[]>()
   for (const item of items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))) {
     const cat = item.category || 'Uncategorized'
@@ -499,7 +457,6 @@ function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
     grouped.get(cat)!.push(item)
   }
 
-  // Build categories in defined order, then append any extras
   const result: ChecklistCategory[] = []
   const orderedKeys = [...CATEGORY_ORDER, ...Array.from(grouped.keys()).filter(k => !CATEGORY_ORDER.includes(k))]
 
@@ -530,7 +487,6 @@ const ACTION_CONFIG: Record<string, { label: string; icon: any; bg: string; hove
   cancelled:    { label: 'Cancel Deal', icon: XCircle, bg: '#666666', hoverBg: '#555555' },
 }
 
-// Labels for backward-specific actions (override the forward label)
 const BACKWARD_LABELS: Record<string, string> = {
   under_review: 'Revert to Under Review',
   approved: 'Revert to Approved',
@@ -603,20 +559,19 @@ export default function DealDetailPage() {
   const [showLateInterest, setShowLateInterest] = useState(false)
   const [actualClosingDate, setActualClosingDate] = useState('')
   const [lateInterestSaving, setLateInterestSaving] = useState(false)
-  // Agent account balance (fetched alongside agent)
+  // Agent account balance
   const [agentBalance, setAgentBalance] = useState<number>(0)
   // Collapsible sections
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [messagesExpanded, setMessagesExpanded] = useState(false)
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
-  // Drag-and-drop: link documents to checklist items
+  // Drag-and-drop
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null)
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
   const supabase = createClient()
-  const { colors, isDark } = useTheme()
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -625,18 +580,13 @@ export default function DealDetailPage() {
 
   useEffect(() => { loadDealData() }, [dealId])
 
-  // Auto-scroll messages container to bottom when messages change or section expands
   useEffect(() => {
     if (messages.length > 0 && messagesExpanded) {
-      // Use multiple strategies for reliability
       const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ block: 'end' })
       }
-      // Immediate attempt
       scrollToBottom()
-      // Delayed attempt (after DOM paint)
       const raf = requestAnimationFrame(() => scrollToBottom())
-      // Extra safety net
       const timer = setTimeout(scrollToBottom, 200)
       return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
     }
@@ -667,31 +617,26 @@ export default function DealDetailPage() {
     setMessages(messagesData || [])
     const { data: returnsData } = await supabase.from('document_returns').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocReturns(returnsData || [])
-    // Load e-signature envelopes
     const esignResult = await getDealSignatureStatus(dealId)
     if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
     setLoading(false)
   }
 
   const handleChecklistToggle = async (item: ChecklistItem) => {
-    if (item.is_na) return // Can't check/uncheck N/A items — must remove N/A first
-    // Block if agent is flagged and this is the good standing item
+    if (item.is_na) return
     if (item.checklist_item === 'Agent in good standing with Brokerage (Not flagged)' && agent?.flagged_by_brokerage) {
       setStatusMessage({ type: 'error', text: 'Cannot check — agent is flagged by their brokerage' })
       return
     }
     const newChecked = !item.is_checked
-    // Optimistic update — instant UI feedback
     setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: newChecked, checked_at: newChecked ? new Date().toISOString() : null } : c))
     const result = await serverToggleChecklistItem({ itemId: item.id, isChecked: newChecked })
     if (!result.success) {
-      // Revert on failure
       setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: !newChecked, checked_at: !newChecked ? item.checked_at : null } : c))
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update' })
     }
   }
 
-  // === Message sending ===
   const handleSendMessage = async () => {
     if (!deal || !messageText.trim()) return
     setMessageSending(true)
@@ -707,7 +652,6 @@ export default function DealDetailPage() {
     setMessageSending(false)
   }
 
-  // === Document return ===
   const handleReturnDocument = async (docId: string) => {
     if (!deal || !returnReason.trim()) return
     setReturnSending(true)
@@ -723,7 +667,6 @@ export default function DealDetailPage() {
     setReturnSending(false)
   }
 
-  // === Late closing interest ===
   const handleChargeLateInterest = async () => {
     if (!deal || !actualClosingDate) return
     setLateInterestSaving(true)
@@ -743,17 +686,14 @@ export default function DealDetailPage() {
     e.stopPropagation()
     const newNA = !item.is_na
     const prevItem = { ...item }
-    // Optimistic update — instant UI feedback
     setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: newNA, is_checked: newNA ? false : c.is_checked } : c))
     const result = await serverToggleChecklistItemNA({ itemId: item.id, isNA: newNA })
     if (!result.success) {
-      // Revert on failure
       setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_na: prevItem.is_na, is_checked: prevItem.is_checked } : c))
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update' })
     }
   }
 
-  // ---- Drag-and-drop: link documents to checklist items ----
   const handleDocDragStart = (e: React.DragEvent, docId: string) => {
     e.dataTransfer.setData('text/plain', docId)
     e.dataTransfer.effectAllowed = 'link'
@@ -764,7 +704,6 @@ export default function DealDetailPage() {
     setDropTargetItemId(null)
   }
   const handleChecklistDragOver = (e: React.DragEvent, item: ChecklistItem) => {
-    // Don't allow drop on checked/NA items (locked) or items that already have a linked doc
     if (item.is_checked || item.is_na) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'link'
@@ -780,11 +719,9 @@ export default function DealDetailPage() {
     if (item.is_checked || item.is_na) return
     const docId = e.dataTransfer.getData('text/plain')
     if (!docId) return
-    // Optimistic update
     setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: docId } : c))
     const result = await linkDocumentToChecklist({ checklistItemId: item.id, documentId: docId })
     if (!result.success) {
-      // Revert
       setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: item.linked_document_id } : c))
       setStatusMessage({ type: 'error', text: result.error || 'Failed to link document' })
     }
@@ -796,7 +733,6 @@ export default function DealDetailPage() {
       return
     }
     const prevDocId = item.linked_document_id
-    // Optimistic
     setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: null } : c))
     const result = await linkDocumentToChecklist({ checklistItemId: item.id, documentId: null })
     if (!result.success) {
@@ -813,10 +749,8 @@ export default function DealDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
-    // Show funding confirmation modal before funding
     if (newStatus === 'funded' && !showFundingConfirmation) { setShowFundingConfirmation(true); return }
     setShowFundingConfirmation(false)
-    // Show confirmation for backward transitions
     if (isBackwardTransition(newStatus) && pendingBackward !== newStatus) {
       setPendingBackward(newStatus)
       return
@@ -838,7 +772,6 @@ export default function DealDetailPage() {
     setUpdating(false)
   }
 
-  // ── E-Signature Handlers ──
   const handleSendForSignature = async () => {
     if (!deal) return
     setSendingForSignature(true)
@@ -846,7 +779,6 @@ export default function DealDetailPage() {
     const result = await sendForSignature(deal.id)
     if (result.success) {
       setStatusMessage({ type: 'success', text: 'Contracts sent for e-signature via DocuSign!' })
-      // Refresh envelope status
       const esignResult = await getDealSignatureStatus(deal.id)
       if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
     } else {
@@ -870,8 +802,6 @@ export default function DealDetailPage() {
     setVoidingEnvelopes(false)
   }
 
-  // Generate signed URL client-side (direct to Supabase, no Netlify involved)
-  // Storage policies allow any authenticated user to read from deal-documents
   const getSignedUrl = async (filePath: string) => {
     const { data, error } = await supabase.storage
       .from('deal-documents')
@@ -888,7 +818,6 @@ export default function DealDetailPage() {
     if (!signedUrl) {
       setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
     }
-    // Audit: log document download (fire-and-forget, user context from auth session)
     if (deal) {
       supabase.auth.getUser().then(({ data: { user: authUser } }) => {
         void supabase.from('audit_log').insert({
@@ -905,14 +834,12 @@ export default function DealDetailPage() {
     window.open(signedUrl, '_blank')
   }
 
-  // Clean up blob URL when closing the viewer
   const closeDocViewer = () => {
     if (viewingDoc?.blobUrl) URL.revokeObjectURL(viewingDoc.blobUrl)
     setViewingDoc(null)
   }
 
   const handleDocumentView = async (doc: DealDocument) => {
-    // Determine if the file is viewable
     const ext = doc.file_name.toLowerCase().split('.').pop() || ''
     const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
     const isPdf = ext === 'pdf'
@@ -928,14 +855,11 @@ export default function DealDetailPage() {
       return
     }
     try {
-      // Fetch as blob to bypass iframe/img content-blocking headers
       const response = await fetch(signedUrl)
       const arrayBuffer = await response.arrayBuffer()
-      // Create blob with explicit MIME type so the browser knows how to render it
       const mimeType = isPdf ? 'application/pdf' : (response.headers.get('content-type') || 'image/png')
       const blob = new Blob([arrayBuffer], { type: mimeType })
       const blobUrl = URL.createObjectURL(blob)
-      // Revoke previous blob URL if any
       if (viewingDoc?.blobUrl) URL.revokeObjectURL(viewingDoc.blobUrl)
       setViewingDoc({
         blobUrl,
@@ -944,7 +868,6 @@ export default function DealDetailPage() {
         type: isImage ? 'image' : 'pdf',
         ...(isPdf ? { pdfData: arrayBuffer } : {}),
       })
-      // Audit: log document view (fire-and-forget, user context from auth session)
       if (deal) {
         supabase.auth.getUser().then(({ data: { user: authUser } }) => {
           void supabase.from('audit_log').insert({
@@ -960,7 +883,6 @@ export default function DealDetailPage() {
       }
     } catch (err) {
       console.error('Blob fetch failed:', err)
-      // Fallback: open in new tab if blob fetch fails
       window.open(signedUrl, '_blank')
     }
     setViewLoading(null)
@@ -1009,7 +931,6 @@ export default function DealDetailPage() {
     const result = await updateClosingDate({ dealId: deal.id, newClosingDate })
     if (result.success && result.data) {
       setClosingDateComparison({ old: result.data.old, new: result.data.new })
-      // Update deal state directly from server response
       const updated = result.data.new
       setDeal({
         ...deal,
@@ -1075,7 +996,6 @@ export default function DealDetailPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
   const getDocTypeLabel = (type: string) => DOCUMENT_TYPES.find(d => d.value === type)?.label || type
-  // formatCurrency, formatDate, formatDateTime imported from @/lib/formatting
 
   const statusBadge = getStatusBadgeStyle
 
@@ -1083,30 +1003,25 @@ export default function DealDetailPage() {
   const totalChecklist = checklist.length
   const checklistPct = totalChecklist > 0 ? Math.round((checkedCount / totalChecklist) * 100) : 0
   const allChecklistComplete = totalChecklist > 0 && checkedCount === totalChecklist
-  // For approval: only require Agent Verification + Deal Verification items (not Firm Fund Documents)
   const approvalItems = checklist.filter(c => c.category !== 'Firm Fund Documents')
   const approvalCheckedCount = approvalItems.filter(c => c.is_checked || c.is_na).length
   const allApprovalItemsComplete = approvalItems.length > 0 && approvalCheckedCount === approvalItems.length
 
   if (loading) return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
-      <header style={{ background: colors.headerBgGradient }}>
+    <div className="min-h-screen bg-background">
+      <header className="bg-card/80 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <div className="h-5 w-48 rounded animate-pulse mb-2" style={{ background: 'rgba(255,255,255,0.1)' }} />
-          <div className="h-3 w-32 rounded animate-pulse" style={{ background: 'rgba(255,255,255,0.05)' }} />
+          <Skeleton className="h-5 w-48 mb-2" />
+          <Skeleton className="h-3 w-32" />
         </div>
       </header>
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            {[1,2,3].map(i => (
-              <div key={i} className="rounded-xl p-6 h-40" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }} />
-            ))}
+            {[1,2,3].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}
           </div>
           <div className="space-y-6">
-            {[1,2].map(i => (
-              <div key={i} className="rounded-xl p-6 h-48" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }} />
-            ))}
+            {[1,2].map(i => <Skeleton key={i} className="h-48 rounded-xl" />)}
           </div>
         </div>
       </main>
@@ -1114,29 +1029,28 @@ export default function DealDetailPage() {
   )
 
   if (!deal || !agent || !brokerage) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}>
-      <div style={{ color: colors.textMuted }}>Deal not found</div>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-muted-foreground">Deal not found</div>
     </div>
   )
 
   const nextStatuses = STATUS_FLOW[deal.status] || []
   const categorizedChecklist = categorizeChecklist(checklist)
 
-  // docPanelWidth removed — viewer is now inline
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
-      {/* Main content area — shrinks when doc panel is open */}
+    <div className="min-h-screen bg-background">
       <div>
       {/* HEADER */}
-      <header style={{ background: colors.headerBgGradient }}>
+      <header className="bg-card/80 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
-              <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <button onClick={() => router.push('/admin')} className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors text-sm font-medium" style={{ color: 'white' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+              <div className="w-px h-8 bg-white/15" />
+              <button
+                onClick={() => router.push('/admin')}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors text-sm font-medium text-white hover:bg-white/10"
+              >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 Back
               </button>
@@ -1144,7 +1058,7 @@ export default function DealDetailPage() {
             <SignOutModal onConfirm={handleLogout} />
           </div>
           <div>
-            <h1 className="text-xl font-bold" style={{ color: 'white' }}>{deal.property_address}</h1>
+            <h1 className="text-xl font-bold text-white">{deal.property_address}</h1>
           </div>
         </div>
       </header>
@@ -1152,27 +1066,19 @@ export default function DealDetailPage() {
       {/* STATUS MESSAGE TOAST */}
       {statusMessage && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-          <div className="rounded-lg p-4 animate-fadeIn" style={{
-            background: statusMessage.type === 'success' ? colors.successBg : colors.errorBg,
-            border: `1px solid ${statusMessage.type === 'success' ? colors.successBorder : colors.errorBorder}`,
-            color: statusMessage.type === 'success' ? colors.successText : colors.errorText,
-          }}>
-            {statusMessage.text}
-          </div>
+          <Alert variant={statusMessage.type === 'error' ? 'destructive' : 'default'} className={statusMessage.type === 'success' ? 'border-primary/50 bg-primary/10 text-primary' : ''}>
+            <AlertDescription>{statusMessage.text}</AlertDescription>
+          </Alert>
         </div>
       )}
 
       {/* FLAGGED AGENT WARNING BANNER */}
       {agent?.flagged_by_brokerage && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-          <div className="rounded-md px-3 py-2 flex items-center gap-2" style={{
-            background: '#1a0a0a',
-            border: '2px solid #dc2626',
-            boxShadow: '0 0 15px rgba(220, 38, 38, 0.3)',
-          }}>
-            <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: '#ef4444' }} />
-            <p className="font-bold text-sm" style={{ color: '#ef4444' }}>
-              ⚠ AGENT FLAGGED BY BROKERAGE — {agent.first_name} {agent.last_name}. Review carefully.
+          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-[#1a0a0a] border-2 border-red-600 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-500" />
+            <p className="font-bold text-sm text-red-500">
+              AGENT FLAGGED BY BROKERAGE — {agent.first_name} {agent.last_name}. Review carefully.
             </p>
           </div>
         </div>
@@ -1181,13 +1087,9 @@ export default function DealDetailPage() {
       {/* OUTSTANDING RECOVERY WARNING BANNER */}
       {agent && agent.outstanding_recovery && agent.outstanding_recovery > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
-          <div className="rounded-md px-3 py-2 flex items-center gap-2" style={{
-            background: '#1a1400',
-            border: '2px solid #d97706',
-            boxShadow: '0 0 15px rgba(217, 119, 6, 0.2)',
-          }}>
-            <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: '#f59e0b' }} />
-            <p className="font-bold text-sm" style={{ color: '#f59e0b' }}>
+          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-[#1a1400] border-2 border-amber-600 shadow-[0_0_15px_rgba(217,119,6,0.2)]">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-500" />
+            <p className="font-bold text-sm text-amber-500">
               OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })} — {agent.first_name} {agent.last_name}
             </p>
           </div>
@@ -1198,20 +1100,16 @@ export default function DealDetailPage() {
         {/* DEAL PIPELINE */}
         <div className="mb-3">
           <div className="flex justify-between mb-1">
-            <span className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Pipeline</span>
-            <span className="text-xs" style={{ color: colors.textMuted }}>{checklistPct}%</span>
+            <span className="text-xs font-semibold text-primary">Pipeline</span>
+            <span className="text-xs text-muted-foreground">{checklistPct}%</span>
           </div>
-          <div className="w-full rounded-full h-1.5" style={{ background: colors.border }}>
-            <div className="h-1.5 rounded-full transition-all" style={{ width: `${checklistPct}%`, background: colors.gold }} />
+          <div className="w-full rounded-full h-1.5 bg-border">
+            <div className="h-1.5 rounded-full transition-all bg-primary" style={{ width: `${checklistPct}%` }} />
           </div>
         </div>
 
         {/* STICKY ACTION BAR */}
-        <div className="sticky top-0 z-20 mb-4 rounded-lg px-3 py-2" style={{
-          background: colors.cardBg,
-          border: `1px solid ${colors.border}`,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        }}>
+        <div className="sticky top-0 z-20 mb-4 rounded-lg px-3 py-2 bg-card border border-border/50 shadow-sm">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               {statusBadge(deal.status) && (
@@ -1230,10 +1128,7 @@ export default function DealDetailPage() {
                 const config = ACTION_CONFIG[status]
                 if (!config) return null
                 const Icon = config.icon
-                // Block approval/funding until all checklist items are complete
-                // Approval only needs Agent Verification + Deal Verification; Funding needs ALL items including signed docs
                 const needsChecklist = (status === 'approved' && !allApprovalItemsComplete) || (status === 'funded' && !allChecklistComplete)
-                // Block completed until brokerage payments match expected amount
                 const paymentTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
                 const paymentsMatch = Math.abs(paymentTotal - deal.amount_due_from_brokerage) < 0.01 && paymentTotal > 0
                 const needsPayments = status === 'completed' && !paymentsMatch
@@ -1252,8 +1147,7 @@ export default function DealDetailPage() {
                       {config.label}
                     </button>
                     {(needsChecklist || needsPayments) && (
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30"
-                        style={{ background: '#1A1A1A', color: '#E07B7B', border: '1px solid #333' }}>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 bg-card border border-border text-destructive">
                         {needsChecklist
                           ? (status === 'approved'
                             ? `Complete verification checklist first (${approvalCheckedCount}/${approvalItems.length})`
@@ -1270,11 +1164,11 @@ export default function DealDetailPage() {
                 const activeEnvelopes = esignEnvelopes.filter(e => ['sent', 'delivered'].includes(e.status))
                 const signedEnvelopes = esignEnvelopes.filter(e => e.status === 'signed')
                 const hasPending = activeEnvelopes.length > 0
-                const allSigned = signedEnvelopes.length >= 2 // CPA + IDP
+                const allSigned = signedEnvelopes.length >= 2
 
                 if (allSigned) {
                   return (
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium" style={{ background: '#1A3A1A', color: '#5FA873', border: '1px solid #2D5A2D' }}>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary/10 text-primary border border-primary/30">
                       <CheckCircle2 className="w-4 h-4" />
                       Contracts Signed
                     </div>
@@ -1283,17 +1177,14 @@ export default function DealDetailPage() {
                 if (hasPending) {
                   return (
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium" style={{ background: '#2A2000', color: '#FBBF24', border: '1px solid #5C4400' }}>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-950/30 text-amber-400 border border-amber-800/50">
                         <Clock className="w-4 h-4 animate-pulse" />
                         Awaiting Signature
                       </div>
                       <button
                         onClick={handleVoidEnvelopes}
                         disabled={voidingEnvelopes}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50"
-                        style={{ background: '#3A1A1A', color: '#E07B7B', border: '1px solid #5A2D2D' }}
-                        onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.background = '#4A2020'; e.currentTarget.style.borderColor = '#7A3D3D' } }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = '#3A1A1A'; e.currentTarget.style.borderColor = '#5A2D2D' }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-red-950/30 text-red-400 border border-red-800/50 hover:bg-red-950/50"
                       >
                         {voidingEnvelopes ? 'Cancelling...' : 'Cancel Signing'}
                       </button>
@@ -1304,10 +1195,7 @@ export default function DealDetailPage() {
                   <button
                     onClick={handleSendForSignature}
                     disabled={sendingForSignature}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
-                    style={{ background: '#1565C0' }}
-                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#0D47A1' }}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#1565C0'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50 bg-blue-700 hover:bg-blue-800"
                   >
                     <FileSignature className="w-4 h-4" />
                     {sendingForSignature ? 'Sending...' : 'Send for Signature'}
@@ -1315,9 +1203,9 @@ export default function DealDetailPage() {
                 )
               })()}
 
-              {/* Backward transitions — subtle style */}
+              {/* Backward transitions */}
               {nextStatuses.filter(s => isBackwardTransition(s)).length > 0 && (
-                <div className="w-px h-6 mx-1" style={{ background: colors.border }} />
+                <Separator orientation="vertical" className="h-6 mx-1" />
               )}
               {nextStatuses.filter(s => isBackwardTransition(s)).map(status => {
                 const config = ACTION_CONFIG[status]
@@ -1327,14 +1215,7 @@ export default function DealDetailPage() {
                     key={status}
                     onClick={() => handleStatusChange(status)}
                     disabled={updating}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-                    style={{
-                      background: 'transparent',
-                      color: colors.textMuted,
-                      border: `1px solid ${colors.border}`,
-                    }}
-                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) { e.currentTarget.style.borderColor = '#D97706'; e.currentTarget.style.color = '#D97706' } }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textMuted }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-transparent text-muted-foreground border border-border/50 hover:border-amber-600 hover:text-amber-600"
                   >
                     <Undo2 className="w-3.5 h-3.5" />
                     {BACKWARD_LABELS[status] || config.label}
@@ -1346,14 +1227,14 @@ export default function DealDetailPage() {
 
           {/* BACKWARD TRANSITION WARNING */}
           {pendingBackward && (
-            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
-              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: '#2A1F00', border: '1px solid #5C4400' }}>
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#D97706' }} />
+            <div className="mt-4 pt-4 border-t border-border/50">
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-950/30 border border-amber-800/50">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600" />
                 <div className="flex-1">
-                  <p className="text-sm font-semibold mb-1" style={{ color: '#FBBF24' }}>
+                  <p className="text-sm font-semibold mb-1 text-amber-400">
                     Are you sure you want to revert this deal?
                   </p>
-                  <p className="text-xs mb-3" style={{ color: '#D4A844' }}>
+                  <p className="text-xs mb-3 text-amber-600/80">
                     This will move the deal from <strong>{STATUS_LABELS[deal.status]}</strong> back to <strong>{STATUS_LABELS[pendingBackward]}</strong>.
                     {pendingBackward === 'under_review' && ' Any previous approval or denial will be cleared.'}
                     {pendingBackward === 'approved' && ' The funded date and recalculated financials will be preserved but the deal will need to be re-funded.'}
@@ -1363,17 +1244,13 @@ export default function DealDetailPage() {
                     <button
                       onClick={() => handleStatusChange(pendingBackward)}
                       disabled={updating}
-                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
-                      style={{ background: '#D97706' }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#B45309' }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#D97706'}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors"
                     >
                       {updating ? 'Reverting...' : 'Yes, Revert'}
                     </button>
                     <button
                       onClick={() => setPendingBackward(null)}
-                      className="px-4 py-1.5 rounded-lg text-sm font-medium transition"
-                      style={{ background: colors.border, color: colors.textPrimary }}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors"
                     >
                       Cancel
                     </button>
@@ -1383,7 +1260,7 @@ export default function DealDetailPage() {
             </div>
           )}
 
-          {/* FUNDING CONFIRMATION MODAL */}
+          {/* FUNDING CONFIRMATION */}
           {showFundingConfirmation && deal && (() => {
             const daysUntilClosing = Math.max(1, calcDaysUntilClosing(deal.closing_date))
             const referralPct = brokerage?.referral_fee_percentage ?? 0.20
@@ -1400,69 +1277,69 @@ export default function DealDetailPage() {
             const closingDate = new Date(deal.closing_date + 'T00:00:00')
             const fmtDate = (d: Date) => d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
             return (
-              <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
-                <div className="p-4 rounded-lg" style={{ background: '#1F1535', border: '1px solid #352A50' }}>
-                  <h4 className="text-sm font-bold mb-3 flex items-center gap-2" style={{ color: '#A385D0' }}>
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <div className="p-4 rounded-lg bg-purple-950/20 border border-purple-800/40">
+                  <h4 className="text-sm font-bold mb-3 flex items-center gap-2 text-purple-400">
                     <Banknote className="w-4 h-4" />
                     Confirm Funding
                   </h4>
-                  <div className="rounded-lg p-3 mb-3" style={{ background: '#161616' }}>
+                  <div className="rounded-lg p-3 mb-3 bg-card/50">
                     <table className="w-full text-xs">
                       <tbody>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Funding Date</td>
-                          <td className="py-1.5 text-right font-medium" style={{ color: colors.textPrimary }}>{fmtDate(today)}</td>
+                          <td className="py-1.5 text-muted-foreground">Funding Date</td>
+                          <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(today)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Charges Start</td>
-                          <td className="py-1.5 text-right font-medium" style={{ color: colors.textPrimary }}>{fmtDate(tomorrow)}</td>
+                          <td className="py-1.5 text-muted-foreground">Charges Start</td>
+                          <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(tomorrow)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Closing Date</td>
-                          <td className="py-1.5 text-right font-medium" style={{ color: colors.textPrimary }}>{fmtDate(closingDate)}</td>
+                          <td className="py-1.5 text-muted-foreground">Closing Date</td>
+                          <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(closingDate)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Days Charged</td>
-                          <td className="py-1.5 text-right font-mono font-bold" style={{ color: '#A385D0' }}>{chargeDays} days</td>
+                          <td className="py-1.5 text-muted-foreground">Days Charged</td>
+                          <td className="py-1.5 text-right font-mono font-bold text-purple-400">{chargeDays} days</td>
                         </tr>
-                        <tr><td colSpan={2}><div className="my-1.5" style={{ borderTop: `1px solid ${colors.divider}` }} /></td></tr>
+                        <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Gross Commission</td>
-                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
-                        </tr>
-                        <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Brokerage Split ({deal.brokerage_split_pct}%)</td>
-                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textMuted }}>-{formatCurrency(deal.gross_commission * deal.brokerage_split_pct / 100)}</td>
+                          <td className="py-1.5 text-muted-foreground">Gross Commission</td>
+                          <td className="py-1.5 text-right font-mono text-foreground">{formatCurrency(deal.gross_commission)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 font-semibold" style={{ color: colors.textPrimary }}>Net Commission</td>
-                          <td className="py-1.5 text-right font-mono font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(calc.netCommission)}</td>
-                        </tr>
-                        <tr><td colSpan={2}><div className="my-1.5" style={{ borderTop: `1px solid ${colors.divider}` }} /></td></tr>
-                        <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Discount Fee ({chargeDays}d x $0.75/$1k)</td>
-                          <td className="py-1.5 text-right font-mono" style={{ color: '#E07B7B' }}>-{formatCurrency(calc.discountFee)}</td>
+                          <td className="py-1.5 text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</td>
+                          <td className="py-1.5 text-right font-mono text-muted-foreground">-{formatCurrency(deal.gross_commission * deal.brokerage_split_pct / 100)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 font-bold" style={{ color: '#5FA873' }}>Agent Receives</td>
-                          <td className="py-1.5 text-right font-mono font-bold" style={{ color: '#5FA873' }}>{formatCurrency(calc.advanceAmount)}</td>
+                          <td className="py-1.5 font-semibold text-foreground">Net Commission</td>
+                          <td className="py-1.5 text-right font-mono font-semibold text-foreground">{formatCurrency(calc.netCommission)}</td>
                         </tr>
-                        <tr><td colSpan={2}><div className="my-1.5" style={{ borderTop: `1px solid ${colors.divider}` }} /></td></tr>
+                        <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Brokerage Referral ({(referralPct * 100).toFixed(0)}% of fee)</td>
-                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textMuted }}>{formatCurrency(calc.brokerageReferralFee)}</td>
-                        </tr>
-                        <tr>
-                          <td className="py-1.5 font-semibold" style={{ color: '#A385D0' }}>Firm Funds Profit</td>
-                          <td className="py-1.5 text-right font-mono font-semibold" style={{ color: '#A385D0' }}>{formatCurrency(calc.firmFundsProfit)}</td>
+                          <td className="py-1.5 text-muted-foreground">Discount Fee ({chargeDays}d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.discountFee)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>Amount Due from Brokerage</td>
-                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textPrimary }}>{formatCurrency(calc.amountDueFromBrokerage)}</td>
+                          <td className="py-1.5 font-bold text-primary">Agent Receives</td>
+                          <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount)}</td>
+                        </tr>
+                        <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
+                        <tr>
+                          <td className="py-1.5 text-muted-foreground">Brokerage Referral ({(referralPct * 100).toFixed(0)}% of fee)</td>
+                          <td className="py-1.5 text-right font-mono text-muted-foreground">{formatCurrency(calc.brokerageReferralFee)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5" style={{ color: colors.textMuted }}>EFT Transfer Days</td>
-                          <td className="py-1.5 text-right font-mono" style={{ color: colors.textPrimary }}>{calc.eftTransferDays} day{calc.eftTransferDays !== 1 ? 's' : ''}</td>
+                          <td className="py-1.5 font-semibold text-purple-400">Firm Funds Profit</td>
+                          <td className="py-1.5 text-right font-mono font-semibold text-purple-400">{formatCurrency(calc.firmFundsProfit)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 text-muted-foreground">Amount Due from Brokerage</td>
+                          <td className="py-1.5 text-right font-mono text-foreground">{formatCurrency(calc.amountDueFromBrokerage)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 text-muted-foreground">EFT Transfer Days</td>
+                          <td className="py-1.5 text-right font-mono text-foreground">{calc.eftTransferDays} day{calc.eftTransferDays !== 1 ? 's' : ''}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1471,18 +1348,14 @@ export default function DealDetailPage() {
                     <button
                       onClick={() => handleStatusChange('funded')}
                       disabled={updating}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors"
-                      style={{ background: '#5B3D99' }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#4B2D89' }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#5B3D99'}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-purple-700 hover:bg-purple-800"
                     >
                       <Banknote className="w-4 h-4" />
                       {updating ? 'Funding...' : 'Confirm Funding'}
                     </button>
                     <button
                       onClick={() => setShowFundingConfirmation(false)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium transition"
-                      style={{ background: colors.border, color: colors.textPrimary }}
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors"
                     >
                       Cancel
                     </button>
@@ -1492,104 +1365,65 @@ export default function DealDetailPage() {
             )
           })()}
 
-          {/* DENIAL REASON TEXTAREA IN ACTION BAR */}
+          {/* DENIAL REASON */}
           {showDenialInput && (
-            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${colors.border}` }}>
-              <label className="block text-sm font-medium mb-2" style={{ color: colors.textPrimary }}>Denial Reason</label>
-              <textarea
+            <div className="mt-4 pt-4 border-t border-border/50">
+              <Label className="block mb-2">Denial Reason</Label>
+              <Textarea
                 value={denialReason}
                 onChange={(e) => setDenialReason(e.target.value)}
                 placeholder="Explain why this deal is being denied..."
-                className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none"
-                style={{
-                  background: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                  color: colors.inputText,
-                  minHeight: '80px',
-                }}
+                className="min-h-[80px] mb-3"
               />
-              <div className="flex gap-2 mt-3">
+              <div className="flex gap-2">
                 <button
                   onClick={() => handleStatusChange('denied')}
                   disabled={updating || !denialReason.trim()}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
-                  style={{ background: '#993D3D' }}
-                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#892D2D' }}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#993D3D'}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-red-700 hover:bg-red-800 transition-colors"
                 >
                   Confirm Denial
                 </button>
                 <button
                   onClick={() => { setShowDenialInput(false); setDenialReason('') }}
-                  className="px-4 py-2 rounded-lg font-medium transition"
-                  style={{ background: colors.border, color: colors.textPrimary }}
+                  className="px-4 py-2 rounded-lg font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors"
                 >
                   Cancel
                 </button>
               </div>
             </div>
           )}
-
-          {/* REPAYMENT AMOUNT INPUT */}
-          {/* Old repayment input removed — replaced by Brokerage Payments section below */}
         </div>
 
-        {/* EFT SECTION - ONLY FOR FUNDED/REPAID */}
+        {/* EFT SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
-          <div className="mb-4 rounded-lg p-4" style={{
-            background: colors.cardBg,
-            border: `1px solid ${colors.border}`,
-          }}>
+          <div className="mb-4 rounded-lg p-4 bg-card border border-border/50">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <Banknote className="w-4 h-4" style={{ color: colors.gold }} />
+              <h2 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                <Banknote className="w-4 h-4 text-primary" />
                 EFT Transfers
               </h2>
               <button
                 onClick={() => setShowEftForm(!showEftForm)}
-                className="px-4 py-2 rounded-lg font-medium text-white transition"
-                style={{ background: colors.gold }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                className="px-4 py-2 rounded-lg font-medium text-white bg-primary hover:bg-primary/90 transition-opacity"
               >
                 {showEftForm ? 'Cancel' : 'Record Transfer'}
               </button>
             </div>
 
             {showEftForm && (
-              <div className="mb-6 p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+              <div className="mb-6 p-4 rounded-lg bg-muted/30 border border-border/30">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Amount (CAD)</label>
-                    <input
-                      type="number"
-                      value={eftAmount}
-                      onChange={(e) => setEftAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    />
+                    <Label className="mb-1 block">Amount (CAD)</Label>
+                    <Input type="number" value={eftAmount} onChange={(e) => setEftAmount(e.target.value)} placeholder="0.00" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Transfer Date</label>
-                    <input
-                      type="date"
-                      value={eftDate}
-                      onChange={(e) => setEftDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText, colorScheme: 'dark' }}
-                    />
+                    <Label className="mb-1 block">Transfer Date</Label>
+                    <Input type="date" value={eftDate} onChange={(e) => setEftDate(e.target.value)} className="[color-scheme:dark]" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Reference / Memo</label>
-                    <input
-                      type="text"
-                      value={eftReference}
-                      onChange={(e) => setEftReference(e.target.value)}
-                      placeholder="Bank ref #, confirmation..."
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    />
+                    <Label className="mb-1 block">Reference / Memo</Label>
+                    <Input type="text" value={eftReference} onChange={(e) => setEftReference(e.target.value)} placeholder="Bank ref #, confirmation..." />
                   </div>
                 </div>
                 <button
@@ -1614,10 +1448,7 @@ export default function DealDetailPage() {
                     setEftSaving(false)
                   }}
                   disabled={eftSaving || !eftAmount || !eftDate}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
-                  style={{ background: '#1A7A2E' }}
-                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#156A24' }}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#1A7A2E'}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-green-700 hover:bg-green-800 transition-colors"
                 >
                   Record Transfer
                 </button>
@@ -1632,15 +1463,16 @@ export default function DealDetailPage() {
               const isMatch = Math.abs(diff) < 0.01
               const isOver = eftTotal > expected + 0.01
               return (deal.eft_transfers && deal.eft_transfers.length > 0) ? (
-                <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm" style={{
-                  background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
-                  border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
-                }}>
+                <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm"
+                  style={{
+                    background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
+                    border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
+                  }}>
                   <div>
-                    <span style={{ color: colors.textMuted }}>EFT Total: </span>
-                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(eftTotal)}</span>
-                    <span style={{ color: colors.textMuted }}> / Expected: </span>
-                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(expected)}</span>
+                    <span className="text-muted-foreground">EFT Total: </span>
+                    <span className="font-bold text-foreground">{formatCurrency(eftTotal)}</span>
+                    <span className="text-muted-foreground"> / Expected: </span>
+                    <span className="font-bold text-foreground">{formatCurrency(expected)}</span>
                   </div>
                   <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
                     {isMatch ? 'Matched' : isOver ? `Over by ${formatCurrency(eftTotal - expected)}` : `Remaining: ${formatCurrency(diff)}`}
@@ -1652,16 +1484,16 @@ export default function DealDetailPage() {
             {deal.eft_transfers && deal.eft_transfers.length > 0 ? (
               <div className="space-y-3">
                 {deal.eft_transfers.map((eft, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/30">
                     <div>
-                      <p className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(eft.amount)}</p>
-                      <p className="text-sm" style={{ color: colors.textMuted }}>
-                        {formatDate(eft.date)}{eft.reference ? ` \u2022 Ref: ${eft.reference}` : ''}
+                      <p className="font-semibold text-foreground">{formatCurrency(eft.amount)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(eft.date)}{eft.reference ? ` • Ref: ${eft.reference}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       {eft.confirmed ? (
-                        <span className="px-3 py-1 rounded-full text-sm font-medium" style={{ background: colors.successBg, color: colors.successText }}>
+                        <span className="px-3 py-1 rounded-full text-sm font-medium bg-primary/10 text-primary">
                           Confirmed
                         </span>
                       ) : (
@@ -1672,8 +1504,7 @@ export default function DealDetailPage() {
                               setDeal(prev => prev ? { ...prev, ...result.data } : null)
                             }
                           }}
-                          className="px-3 py-1 rounded-full text-sm font-medium transition"
-                          style={{ background: colors.warningBg, color: colors.warningText }}
+                          className="px-3 py-1 rounded-full text-sm font-medium bg-amber-950/30 text-amber-400 border border-amber-800/40 hover:bg-amber-950/50 transition-colors"
                         >
                           Confirm
                         </button>
@@ -1685,10 +1516,7 @@ export default function DealDetailPage() {
                             setDeal(prev => prev ? { ...prev, ...result.data } : null)
                           }
                         }}
-                        className="p-2 rounded-lg transition-colors"
-                        style={{ color: colors.errorText }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = colors.errorBg}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        className="p-2 rounded-lg transition-colors text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1697,59 +1525,43 @@ export default function DealDetailPage() {
                 ))}
               </div>
             ) : (
-              <p style={{ color: colors.textMuted }}>No EFT transfers recorded yet</p>
+              <p className="text-muted-foreground">No EFT transfers recorded yet</p>
             )}
           </div>
         )}
 
-        {/* BROKERAGE PAYMENTS SECTION - ONLY FOR FUNDED/REPAID */}
+        {/* BROKERAGE PAYMENTS SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
-          <div className="mb-4 rounded-lg p-4" style={{
-            background: colors.cardBg,
-            border: `1px solid ${colors.border}`,
-          }}>
+          <div className="mb-4 rounded-lg p-4 bg-card border border-border/50">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold flex items-center gap-2" style={{ color: colors.textPrimary }}>
-                <DollarSign className="w-4 h-4" style={{ color: '#06B6D4' }} />
+              <h2 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                <DollarSign className="w-4 h-4 text-cyan-400" />
                 Brokerage Payments
               </h2>
               <button
                 onClick={() => setShowPaymentForm(!showPaymentForm)}
-                className="px-4 py-2 rounded-lg font-medium text-white transition"
-                style={{ background: '#06B6D4' }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                className="px-4 py-2 rounded-lg font-medium text-white bg-cyan-600 hover:bg-cyan-700 transition-colors"
               >
                 {showPaymentForm ? 'Cancel' : 'Record Payment'}
               </button>
             </div>
 
             {showPaymentForm && (
-              <div className="mb-6 p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+              <div className="mb-6 p-4 rounded-lg bg-muted/30 border border-border/30">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Amount (CAD)</label>
-                    <input
-                      type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)}
-                      placeholder="0.00" step="0.01"
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    />
+                    <Label className="mb-1 block">Amount (CAD)</Label>
+                    <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="0.00" step="0.01" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Date Received</label>
-                    <input
-                      type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText, colorScheme: 'dark' }}
-                    />
+                    <Label className="mb-1 block">Date Received</Label>
+                    <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="[color-scheme:dark]" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Method</label>
+                    <Label className="mb-1 block">Method</Label>
                     <select
                       value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                      className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select...</option>
                       <option value="eft">EFT</option>
@@ -1759,13 +1571,8 @@ export default function DealDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>Reference</label>
-                    <input
-                      type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)}
-                      placeholder="Cheque #, ref..."
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{ background: colors.cardBg, borderColor: colors.inputBorder, color: colors.inputText }}
-                    />
+                    <Label className="mb-1 block">Reference</Label>
+                    <Input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder="Cheque #, ref..." />
                   </div>
                 </div>
                 <button
@@ -1791,10 +1598,7 @@ export default function DealDetailPage() {
                     setPaymentSaving(false)
                   }}
                   disabled={paymentSaving || !paymentAmount || !paymentDate}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
-                  style={{ background: '#0D7A5F' }}
-                  onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#0A6A4F' }}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#0D7A5F'}
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-teal-700 hover:bg-teal-800 transition-colors"
                 >
                   Record Payment
                 </button>
@@ -1809,35 +1613,35 @@ export default function DealDetailPage() {
               const isMatch = Math.abs(diff) < 0.01 && payTotal > 0
               const isOver = payTotal > expected + 0.01
               return (deal.brokerage_payments && deal.brokerage_payments.length > 0) ? (
-                <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm" style={{
-                  background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
-                  border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
-                }}>
+                <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm"
+                  style={{
+                    background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
+                    border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
+                  }}>
                   <div>
-                    <span style={{ color: colors.textMuted }}>Received: </span>
-                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(payTotal)}</span>
-                    <span style={{ color: colors.textMuted }}> / Expected: </span>
-                    <span className="font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(expected)}</span>
+                    <span className="text-muted-foreground">Received: </span>
+                    <span className="font-bold text-foreground">{formatCurrency(payTotal)}</span>
+                    <span className="text-muted-foreground"> / Expected: </span>
+                    <span className="font-bold text-foreground">{formatCurrency(expected)}</span>
                   </div>
                   <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
                     {isMatch ? '✓ Ready to mark Complete' : isOver ? `Over by ${formatCurrency(payTotal - expected)}` : `Outstanding: ${formatCurrency(diff)}`}
                   </span>
                 </div>
               ) : (
-                <p className="mb-4 text-sm" style={{ color: colors.textMuted }}>
-                  Expected from brokerage: <strong style={{ color: colors.textPrimary }}>{formatCurrency(deal.amount_due_from_brokerage)}</strong> — no payments recorded yet
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Expected from brokerage: <strong className="text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</strong> — no payments recorded yet
                 </p>
               )
             })()}
 
-            {/* PAYMENT LIST */}
             {deal.brokerage_payments && deal.brokerage_payments.length > 0 && (
               <div className="space-y-3">
                 {deal.brokerage_payments.map((payment, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}` }}>
+                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/30">
                     <div>
-                      <p className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(payment.amount)}</p>
-                      <p className="text-sm" style={{ color: colors.textMuted }}>
+                      <p className="font-semibold text-foreground">{formatCurrency(payment.amount)}</p>
+                      <p className="text-sm text-muted-foreground">
                         {formatDate(payment.date)}
                         {payment.method ? ` • ${payment.method.charAt(0).toUpperCase() + payment.method.slice(1)}` : ''}
                         {payment.reference ? ` • Ref: ${payment.reference}` : ''}
@@ -1854,10 +1658,7 @@ export default function DealDetailPage() {
                           setStatusMessage({ type: 'error', text: result.error || 'Failed to remove payment' })
                         }
                       }}
-                      className="p-2 rounded-lg transition"
-                      style={{ color: colors.textMuted }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = '#E07B7B'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                      className="p-2 rounded-lg transition-colors text-muted-foreground hover:text-destructive"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1868,60 +1669,56 @@ export default function DealDetailPage() {
           </div>
         )}
 
-        {/* AGENT & BROKERAGE — compact inline bar */}
-        <div className="rounded-lg mb-3 flex flex-col sm:flex-row" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-          {/* Agent */}
-          <div className="flex-1 px-3 py-2.5 flex items-center gap-3" style={{ borderRight: `1px solid ${colors.border}` }}>
-            <User className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
+        {/* AGENT & BROKERAGE */}
+        <div className="rounded-lg mb-3 flex flex-col sm:flex-row bg-card border border-border/50">
+          <div className="flex-1 px-3 py-2.5 flex items-center gap-3 border-r border-border/50">
+            <User className="w-4 h-4 flex-shrink-0 text-primary" />
             <div className="flex items-center gap-3 flex-wrap text-xs min-w-0">
-              <span className="font-semibold" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</span>
-              <span style={{ color: colors.textMuted }}>{agent.email}</span>
-              {agent.phone && <span style={{ color: colors.textMuted }}>{agent.phone}</span>}
-              {agent.reco_number && <span style={{ color: colors.textFaint }}>RECO: {agent.reco_number}</span>}
+              <span className="font-semibold text-foreground">{agent.first_name} {agent.last_name}</span>
+              <span className="text-muted-foreground">{agent.email}</span>
+              {agent.phone && <span className="text-muted-foreground">{agent.phone}</span>}
+              {agent.reco_number && <span className="text-muted-foreground/60">RECO: {agent.reco_number}</span>}
               {agent.flagged_by_brokerage && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: colors.warningBg, color: colors.warningText }}>Flagged</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/30 text-amber-400">Flagged</span>
               )}
               {agent.outstanding_recovery != null && agent.outstanding_recovery > 0 && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: colors.errorBg, color: colors.errorText }}>Recovery: {formatCurrency(agent.outstanding_recovery)}</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-destructive/10 text-destructive">Recovery: {formatCurrency(agent.outstanding_recovery)}</span>
               )}
             </div>
           </div>
-          {/* Brokerage */}
           <div className="flex-1 px-3 py-2.5 flex items-center gap-3">
-            <Building2 className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
+            <Building2 className="w-4 h-4 flex-shrink-0 text-primary" />
             <div className="flex items-center gap-3 flex-wrap text-xs min-w-0">
-              <span className="font-semibold" style={{ color: colors.textPrimary }}>{brokerage.name}</span>
-              {brokerage.brand && <span style={{ color: colors.textMuted }}>{brokerage.brand}</span>}
-              {brokerage.email && <span style={{ color: colors.textMuted }}>{brokerage.email}</span>}
+              <span className="font-semibold text-foreground">{brokerage.name}</span>
+              {brokerage.brand && <span className="text-muted-foreground">{brokerage.brand}</span>}
+              {brokerage.email && <span className="text-muted-foreground">{brokerage.email}</span>}
               {brokerage.referral_fee_percentage !== null && (
-                <span style={{ color: colors.textFaint }}>Referral: {(brokerage.referral_fee_percentage * 100).toFixed(0)}%</span>
+                <span className="text-muted-foreground/60">Referral: {(brokerage.referral_fee_percentage * 100).toFixed(0)}%</span>
               )}
             </div>
           </div>
         </div>
 
-        {/* DEAL DETAILS + FINANCIAL — side by side */}
+        {/* DEAL DETAILS + FINANCIAL */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
           {/* DEAL DETAILS */}
-          <div className="rounded-lg px-3 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider" style={{ color: colors.gold }}>
+          <div className="rounded-lg px-3 py-3 bg-card border border-border/50">
+            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider text-primary">
               <FileText className="w-3.5 h-3.5" />
               Deal Details
             </h2>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               <div className="col-span-2 mb-1">
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Property Address</p>
-                <p className="text-sm font-medium flex items-center gap-1" style={{ color: colors.textPrimary }}>
-                  <MapPin className="w-3 h-3 flex-shrink-0" style={{ color: colors.gold }} />{deal.property_address}
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Property Address</p>
+                <p className="text-sm font-medium flex items-center gap-1 text-foreground">
+                  <MapPin className="w-3 h-3 flex-shrink-0 text-primary" />{deal.property_address}
                 </p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Closing Date
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Closing Date
                   {!editingClosingDate && (deal.status === 'under_review' || deal.status === 'approved' || deal.status === 'funded') && (
                     <button onClick={() => { setEditingClosingDate(true); setNewClosingDate(deal.closing_date); setClosingDateComparison(null) }}
-                      className="ml-1 p-0.5 rounded transition-colors inline" style={{ color: colors.textFaint }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textFaint}
+                      className="ml-1 p-0.5 rounded transition-colors inline text-muted-foreground/60 hover:text-primary"
                     ><Edit2 className="w-2.5 h-2.5 inline" /></button>
                   )}
                 </p>
@@ -1929,52 +1726,51 @@ export default function DealDetailPage() {
                   <div className="space-y-1.5 mt-1">
                     <input type="date" value={newClosingDate} onChange={(e) => setNewClosingDate(e.target.value)}
                       min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
-                      className="w-full rounded px-2 py-1 text-xs outline-none"
-                      style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText, colorScheme: 'dark' }}
+                      className="w-full rounded px-2 py-1 text-xs outline-none bg-muted border border-border/50 text-foreground [color-scheme:dark]"
                     />
                     <div className="flex gap-1">
                       <button onClick={handleUpdateClosingDate} disabled={closingDateSaving || newClosingDate === deal.closing_date}
-                        className="px-2 py-0.5 rounded text-[10px] font-medium text-white disabled:opacity-50" style={{ background: colors.gold }}>
+                        className="px-2 py-0.5 rounded text-[10px] font-medium text-white disabled:opacity-50 bg-primary hover:bg-primary/90 transition-colors">
                         {closingDateSaving ? 'Saving...' : 'Update & Recalc'}
                       </button>
                       <button onClick={() => { setEditingClosingDate(false); setClosingDateComparison(null) }}
-                        className="px-2 py-0.5 rounded text-[10px]" style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}>Cancel</button>
+                        className="px-2 py-0.5 rounded text-[10px] text-muted-foreground border border-border/50 hover:bg-muted transition-colors">Cancel</button>
                     </div>
                     {closingDateComparison && (
-                      <div className="rounded p-1.5 text-[10px] space-y-0.5" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
-                        <p style={{ color: colors.infoText }}>Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
-                        <p style={{ color: colors.infoText }}>Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
-                        <p style={{ color: colors.infoText }}>Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
+                      <div className="rounded p-1.5 text-[10px] space-y-0.5 bg-blue-950/20 border border-blue-800/30">
+                        <p className="text-blue-400">Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
+                        <p className="text-blue-400">Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
+                        <p className="text-blue-400">Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</p>
+                  <p className="text-xs font-medium text-foreground">{formatDate(deal.closing_date)}</p>
                 )}
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Days Until Closing</p>
-                <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing} days</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Days Until Closing</p>
+                <p className="text-xs font-medium text-foreground">{deal.days_until_closing} days</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Source</p>
-                <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{deal.source}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Source</p>
+                <p className="text-xs font-medium text-foreground">{deal.source}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: colors.textFaint }}>Created</p>
-                <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>{formatDateTime(deal.created_at)}</p>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Created</p>
+                <p className="text-xs font-medium text-foreground">{formatDateTime(deal.created_at)}</p>
               </div>
             </div>
             {deal.denial_reason && (
-              <div className="mt-2 p-1.5 rounded text-xs" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }}>
+              <div className="mt-2 p-1.5 rounded text-xs bg-destructive/10 border border-destructive/30 text-destructive">
                 <strong>Denial:</strong> {deal.denial_reason}
               </div>
             )}
           </div>
 
-          {/* FINANCIAL BREAKDOWN — compact table */}
-          <div className="rounded-lg px-3 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider" style={{ color: colors.gold }}>
+          {/* FINANCIAL BREAKDOWN */}
+          <div className="rounded-lg px-3 py-3 bg-card border border-border/50">
+            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider text-primary">
               <DollarSign className="w-3.5 h-3.5" />
               Financial Breakdown
             </h2>
@@ -1986,18 +1782,18 @@ export default function DealDetailPage() {
                 { label: 'Discount Fee', value: formatCurrency(deal.discount_fee) },
                 { label: 'Brokerage Referral Fee', value: formatCurrency(deal.brokerage_referral_fee) },
               ].map((row) => (
-                <div key={row.label} className="flex justify-between py-1 text-xs" style={{ borderBottom: `1px solid ${colors.divider}` }}>
-                  <span style={{ color: colors.textMuted }}>{row.label}</span>
-                  <span className="font-medium" style={{ color: colors.textPrimary }}>{row.value}</span>
+                <div key={row.label} className="flex justify-between py-1 text-xs border-b border-border/20">
+                  <span className="text-muted-foreground">{row.label}</span>
+                  <span className="font-medium text-foreground">{row.value}</span>
                 </div>
               ))}
-              <div className="flex justify-between py-1 text-xs" style={{ borderBottom: `1px solid ${colors.divider}` }}>
-                <span className="font-semibold" style={{ color: colors.gold }}>Advance Amount</span>
-                <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.advance_amount)}</span>
+              <div className="flex justify-between py-1 text-xs border-b border-border/20">
+                <span className="font-semibold text-primary">Advance Amount</span>
+                <span className="font-bold text-primary">{formatCurrency(deal.advance_amount)}</span>
               </div>
-              <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1" style={{ background: colors.goldBg }}>
-                <span className="font-semibold" style={{ color: colors.gold }}>Due from Brokerage</span>
-                <span className="font-bold" style={{ color: colors.gold }}>{formatCurrency(deal.amount_due_from_brokerage)}</span>
+              <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1 bg-primary/10">
+                <span className="font-semibold text-primary">Due from Brokerage</span>
+                <span className="font-bold text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>
               </div>
               {(() => {
                 const brokerageTotal = (deal.brokerage_payments || []).reduce((sum: number, p: any) => sum + p.amount, 0)
@@ -2006,9 +1802,8 @@ export default function DealDetailPage() {
                 const isOver = brokerageTotal > deal.amount_due_from_brokerage + 0.01
                 const statusColor = isFullyPaid ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'
                 return (
-                  <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1" style={{
-                    background: isFullyPaid ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.15)',
-                  }}>
+                  <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1"
+                    style={{ background: isFullyPaid ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.15)' }}>
                     <span className="font-semibold" style={{ color: statusColor }}>Brokerage Payments ({(deal.brokerage_payments || []).length})</span>
                     <span className="font-bold" style={{ color: statusColor }}>{formatCurrency(brokerageTotal)}</span>
                   </div>
@@ -2018,38 +1813,37 @@ export default function DealDetailPage() {
           </div>
         </div>
 
-        {/* UNDERWRITING — collapsible section */}
-        <div className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+        {/* UNDERWRITING — collapsible */}
+        <div className="rounded-lg overflow-hidden mb-3 bg-card border border-border/50">
           <div
-            className="flex items-center justify-between px-6 py-3 cursor-pointer"
-            style={{ background: colors.goldBg, borderBottom: underwritingExpanded ? `1px solid ${colors.gold}` : 'none' }}
+            className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
             onClick={() => setUnderwritingExpanded(!underwritingExpanded)}
           >
-            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <Shield className="w-4 h-4" />
               Underwriting
               {checklist.length > 0 && (
-                <span className="text-xs font-normal" style={{ color: colors.textMuted }}>
+                <span className="text-xs font-normal text-muted-foreground">
                   ({checklist.filter(i => i.is_checked || i.is_na).length}/{checklist.length})
                 </span>
               )}
               {documents.length > 0 && (
-                <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>
+                <span className="text-xs font-normal ml-1 text-muted-foreground">
                   · {documents.length} doc{documents.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
-            {underwritingExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+            {underwritingExpanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
           </div>
           {underwritingExpanded && (
           <div className="p-4">
 
           {/* Document bar — compact horizontal list when viewer is open */}
           {viewingDoc && (
-            <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-              <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto" style={{ borderBottom: documents.length > 0 ? `1px solid ${colors.divider}` : 'none' }}>
-                <Paperclip className="w-3.5 h-3.5 flex-shrink-0" style={{ color: colors.gold }} />
-                <span className="text-xs font-semibold flex-shrink-0" style={{ color: colors.gold }}>Documents ({documents.length})</span>
+            <div className="rounded-lg mb-3 overflow-hidden bg-card border border-border/50">
+              <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto border-b border-border/20">
+                <Paperclip className="w-3.5 h-3.5 flex-shrink-0 text-primary" />
+                <span className="text-xs font-semibold flex-shrink-0 text-primary">Documents ({documents.length})</span>
                 <div className="flex items-center gap-1.5 overflow-x-auto">
                   {documents.map(doc => {
                     const isActive = viewingDoc?.fileName === doc.file_name
@@ -2062,16 +1856,12 @@ export default function DealDetailPage() {
                         onDragStart={(e) => handleDocDragStart(e, doc.id)}
                         onDragEnd={handleDocDragEnd}
                         onClick={() => isViewable ? handleDocumentView(doc) : handleDocumentDownload(doc)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all flex-shrink-0"
-                        style={{
-                          background: isActive ? `${colors.gold}20` : colors.tableHeaderBg,
-                          color: isActive ? colors.gold : colors.textSecondary,
-                          border: `1px solid ${isActive ? colors.gold : colors.border}`,
-                          opacity: draggingDocId === doc.id ? 0.5 : 1,
-                          cursor: 'grab',
-                        }}
-                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.borderColor = colors.gold }}
-                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.borderColor = colors.border }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 border ${
+                          isActive
+                            ? 'bg-primary/10 text-primary border-primary'
+                            : 'bg-muted text-muted-foreground border-border/50 hover:border-primary'
+                        }`}
+                        style={{ opacity: draggingDocId === doc.id ? 0.5 : 1, cursor: 'grab' }}
                       >
                         <FileText className="w-3 h-3" />
                         {doc.file_name.length > 25 ? doc.file_name.slice(0, 22) + '...' : doc.file_name}
@@ -2081,10 +1871,7 @@ export default function DealDetailPage() {
                 </div>
                 <button
                   onClick={() => setShowDocRequest(!showDocRequest)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium flex-shrink-0 transition-colors"
-                  style={{ background: colors.gold, color: '#FFFFFF' }}
-                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium flex-shrink-0 bg-primary text-white hover:bg-primary/90 transition-opacity"
                 >
                   <Send className="w-3 h-3" />
                   Request
@@ -2097,10 +1884,7 @@ export default function DealDetailPage() {
             {/* LEFT: CHECKLIST */}
             <div className="space-y-2">
               {categorizedChecklist.map((category, catIdx) => (
-                <div key={catIdx} className="rounded-lg overflow-hidden" style={{
-                  background: colors.cardBg,
-                  border: `1px solid ${colors.border}`,
-                }}>
+                <div key={catIdx} className="rounded-lg overflow-hidden bg-card border border-border/50">
                   <button
                     onClick={() => setChecklistExpanded(!checklistExpanded)}
                     className="w-full px-4 py-2.5 flex items-center justify-between text-sm font-semibold transition"
@@ -2109,7 +1893,7 @@ export default function DealDetailPage() {
                     <div className="flex items-center gap-2">
                       <category.icon className="w-4 h-4" />
                       {category.label}
-                      <span className="ml-1 text-xs font-normal" style={{ opacity: 0.7 }}>({category.items.filter(i => i.is_checked || i.is_na).length}/{category.items.length})</span>
+                      <span className="ml-1 text-xs font-normal opacity-70">({category.items.filter(i => i.is_checked || i.is_na).length}/{category.items.length})</span>
                     </div>
                     {checklistExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
@@ -2129,56 +1913,53 @@ export default function DealDetailPage() {
                             onDragOver={(e) => handleChecklistDragOver(e, item)}
                             onDragLeave={handleChecklistDragLeave}
                             onDrop={(e) => handleChecklistDrop(e, item)}
-                            className="flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all duration-200 select-none"
+                            className="flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all duration-200 select-none border-b border-border/20"
                             style={{
-                              borderBottom: `1px solid ${colors.divider}`,
-                              background: isDropTarget ? `${colors.gold}1A` : na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent',
+                              background: isDropTarget ? 'rgba(95,168,115,0.1)' : na ? 'rgba(100,100,100,0.05)' : checked ? 'rgba(95,168,115,0.05)' : 'transparent',
                               opacity: na ? 0.6 : 1,
-                              outline: isDropTarget ? `2px dashed ${colors.gold}` : 'none',
+                              outline: isDropTarget ? '2px dashed #5FA873' : 'none',
                               outlineOffset: '-2px',
                             }}
-                            onMouseEnter={(e) => { if (!checked && !na && !isDropTarget) e.currentTarget.style.background = `${colors.gold}0D` }}
-                            onMouseLeave={(e) => { if (!isDropTarget) e.currentTarget.style.background = na ? `${colors.textMuted}08` : checked ? `${colors.gold}08` : 'transparent' }}
+                            onMouseEnter={(e) => { if (!checked && !na && !isDropTarget) e.currentTarget.style.background = 'rgba(95,168,115,0.08)' }}
+                            onMouseLeave={(e) => { if (!isDropTarget) e.currentTarget.style.background = na ? 'rgba(100,100,100,0.05)' : checked ? 'rgba(95,168,115,0.05)' : 'transparent' }}
                           >
                             <div className="flex-shrink-0 mt-0.5 transition-transform duration-200" style={{ transform: checked ? 'scale(1.1)' : 'scale(1)' }}>
                               {na ? (
-                                <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: colors.textMuted }}>
+                                <div className="w-5 h-5 rounded-full flex items-center justify-center bg-muted-foreground">
                                   <span className="text-white text-[9px] font-bold leading-none">N/A</span>
                                 </div>
                               ) : checked ? (
-                                <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: colors.gold }}>
+                                <div className="w-5 h-5 rounded-full flex items-center justify-center bg-primary">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                                 </div>
                               ) : (
-                                <div className="w-5 h-5 rounded-full border-2 transition-colors" style={{ borderColor: colors.textMuted }} />
+                                <div className="w-5 h-5 rounded-full border-2 transition-colors border-muted-foreground" />
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm transition-colors duration-200" style={{
-                                color: na ? colors.textFaint : checked ? colors.textMuted : colors.textPrimary,
-                                fontWeight: checked || na ? 400 : 500,
-                                textDecoration: na ? 'line-through' : 'none',
-                              }}>
+                              <p className="text-sm transition-colors duration-200"
+                                style={{
+                                  color: na ? 'hsl(var(--muted-foreground)/0.5)' : checked ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))',
+                                  fontWeight: checked || na ? 400 : 500,
+                                  textDecoration: na ? 'line-through' : 'none',
+                                }}>
                                 {item.checklist_item}
                               </p>
                               {item.checked_at && !na && (
-                                <p className="text-xs mt-0.5" style={{ color: colors.textFaint }}>
+                                <p className="text-xs mt-0.5 text-muted-foreground/60">
                                   Completed {formatDateTime(item.checked_at)}
                                 </p>
                               )}
-                              {/* Linked document badge */}
                               {linkedDoc && (
                                 <div className="mt-1 flex items-center gap-1.5">
                                   <span
                                     onClick={(e) => { e.stopPropagation(); handleDocumentDownload(linkedDoc) }}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity hover:opacity-80"
                                     style={{
-                                      background: checked ? `${colors.gold}20` : `${colors.gold}15`,
-                                      color: colors.gold,
-                                      border: `1px solid ${checked ? colors.gold : `${colors.gold}40`}`,
+                                      background: checked ? 'rgba(95,168,115,0.15)' : 'rgba(95,168,115,0.1)',
+                                      color: '#5FA873',
+                                      border: `1px solid ${checked ? '#5FA873' : 'rgba(95,168,115,0.25)'}`,
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
                                   >
                                     <Link2 className="w-3 h-3" />
                                     {linkedDoc.file_name.length > 30 ? linkedDoc.file_name.slice(0, 27) + '...' : linkedDoc.file_name}
@@ -2187,10 +1968,7 @@ export default function DealDetailPage() {
                                   {!checked && (
                                     <button
                                       onClick={(e) => handleUnlinkDocument(e, item)}
-                                      className="p-0.5 rounded transition-colors"
-                                      style={{ color: colors.textFaint }}
-                                      onMouseEnter={(e) => { e.currentTarget.style.color = colors.errorText }}
-                                      onMouseLeave={(e) => { e.currentTarget.style.color = colors.textFaint }}
+                                      className="p-0.5 rounded transition-colors text-muted-foreground/60 hover:text-destructive"
                                       title="Unlink document"
                                     >
                                       <Unlink className="w-3 h-3" />
@@ -2198,23 +1976,18 @@ export default function DealDetailPage() {
                                   )}
                                 </div>
                               )}
-                              {/* Drop hint when dragging */}
                               {draggingDocId && !linkedDoc && !checked && !na && !isDropTarget && (
-                                <p className="text-[10px] mt-1 italic" style={{ color: colors.textFaint }}>
+                                <p className="text-[10px] mt-1 italic text-muted-foreground/60">
                                   Drop document here
                                 </p>
                               )}
-                              {/* Legacy matching docs (auto-matched, no drag-drop) */}
                               {matchingDocs.length > 0 && !linkedDoc && (
                                 <div className="mt-1.5 space-y-0.5">
                                   {matchingDocs.map(doc => (
                                     <a
                                       key={doc.id}
                                       onClick={(e) => { e.stopPropagation(); handleDocumentDownload(doc) }}
-                                      className="text-xs flex items-center gap-1.5 cursor-pointer transition"
-                                      style={{ color: colors.gold }}
-                                      onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
-                                      onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                                      className="text-xs flex items-center gap-1.5 cursor-pointer transition text-primary hover:opacity-70"
                                     >
                                       <FileText className="w-3 h-3" />
                                       {doc.file_name}
@@ -2225,14 +1998,11 @@ export default function DealDetailPage() {
                             </div>
                             <button
                               onClick={(e) => handleChecklistNA(e, item)}
-                              className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-colors"
-                              style={{
-                                color: na ? colors.warningText : colors.textFaint,
-                                background: na ? `${colors.warningText}15` : 'transparent',
-                                border: `1px solid ${na ? colors.warningBorder : 'transparent'}`,
-                              }}
-                              onMouseEnter={(e) => { if (!na) { e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.border = `1px solid ${colors.border}` } }}
-                              onMouseLeave={(e) => { if (!na) { e.currentTarget.style.color = colors.textFaint; e.currentTarget.style.border = '1px solid transparent' } }}
+                              className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-colors border ${
+                                na
+                                  ? 'text-amber-400 bg-amber-950/20 border-amber-700/40'
+                                  : 'text-muted-foreground/60 bg-transparent border-transparent hover:text-muted-foreground hover:border-border/50'
+                              }`}
                             >
                               N/A
                             </button>
@@ -2245,49 +2015,34 @@ export default function DealDetailPage() {
               ))}
             </div>
 
-            {/* RIGHT: INLINE VIEWER (when viewing) or DOCUMENTS (when not) */}
+            {/* RIGHT: INLINE VIEWER or DOCUMENTS */}
             {viewingDoc ? (
-              <div className="rounded-lg overflow-hidden flex flex-col" style={{
-                background: colors.cardBg,
-                border: `2px solid ${colors.gold}`,
-                minHeight: 500,
-                maxHeight: 'calc(100vh - 120px)',
-                position: 'sticky',
-                top: 16,
-              }}>
+              <div className="rounded-lg overflow-hidden flex flex-col bg-card border-2 border-primary sticky top-4"
+                style={{ minHeight: 500, maxHeight: 'calc(100vh - 120px)' }}>
                 {/* Inline viewer header */}
-                <div className="flex items-center justify-between px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${colors.border}`, background: colors.goldBg }}>
+                <div className="flex items-center justify-between px-3 py-2 flex-shrink-0 border-b border-border/50 bg-primary/5">
                   <div className="flex items-center gap-2 min-w-0">
-                    <FileText size={13} style={{ color: colors.gold }} />
-                    <p className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{viewingDoc.fileName}</p>
+                    <FileText size={13} className="text-primary" />
+                    <p className="text-xs font-semibold truncate text-foreground">{viewingDoc.fileName}</p>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                      className="p-1 rounded transition"
-                      style={{ color: colors.textSecondary }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+                      className="p-1 rounded transition text-muted-foreground hover:text-primary"
                       title="Open in new tab"
                     >
                       <ExternalLink size={13} />
                     </button>
                     <button
                       onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                      className="p-1 rounded transition"
-                      style={{ color: colors.textSecondary }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                      onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+                      className="p-1 rounded transition text-muted-foreground hover:text-primary"
                       title="Download"
                     >
                       <Download size={13} />
                     </button>
                     <button
                       onClick={closeDocViewer}
-                      className="p-1 rounded transition"
-                      style={{ color: colors.textMuted }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = colors.errorBg; e.currentTarget.style.color = colors.errorText }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = colors.textMuted }}
+                      className="p-1 rounded transition text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                     >
                       <X size={14} />
                     </button>
@@ -2301,39 +2056,30 @@ export default function DealDetailPage() {
                     <PdfCanvasViewer pdfData={viewingDoc.pdfData} />
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
-                      <p style={{ color: colors.textSecondary }} className="text-sm text-center">Unable to render PDF.</p>
+                      <p className="text-sm text-center text-muted-foreground">Unable to render PDF.</p>
                       <button
                         onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
-                        className="px-4 py-2 rounded text-sm font-medium"
-                        style={{ backgroundColor: colors.gold, color: '#fff' }}
+                        className="px-4 py-2 rounded text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-colors"
                       >Open in New Tab</button>
                     </div>
                   )}
                 </div>
               </div>
             ) : (
-            <div className="rounded-lg overflow-hidden" style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}>
-              <div className="px-4 py-2.5 flex items-center justify-between"
-                style={{ background: colors.goldBg, borderBottom: `1px solid ${colors.gold}` }}>
+            <div className="rounded-lg overflow-hidden bg-card border border-border/50">
+              <div className="px-4 py-2.5 flex items-center justify-between bg-primary/5 border-b border-primary/20">
                 <button
                   onClick={() => setDocsExpanded(!docsExpanded)}
-                  className="flex items-center gap-2 text-sm font-semibold transition"
-                  style={{ color: colors.gold }}
+                  className="flex items-center gap-2 text-sm font-semibold transition text-primary"
                 >
                   <Paperclip className="w-4 h-4" />
                   Documents
-                  <span className="ml-1 text-xs font-normal" style={{ opacity: 0.7 }}>({documents.length})</span>
+                  <span className="ml-1 text-xs font-normal opacity-70">({documents.length})</span>
                   {docsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={() => setShowDocRequest(!showDocRequest)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                  style={{ background: colors.gold, color: '#FFFFFF' }}
-                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-opacity"
                 >
                   <Send className="w-3.5 h-3.5" />
                   Request Doc
@@ -2342,21 +2088,16 @@ export default function DealDetailPage() {
 
               {/* DOCUMENT REQUEST FORM */}
               {showDocRequest && (
-                <div className="px-6 py-4" style={{ borderBottom: `1px solid ${colors.border}`, background: colors.inputBg }}>
-                  <p className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>
+                <div className="px-6 py-4 border-b border-border/50 bg-muted/20">
+                  <p className="text-sm font-semibold mb-3 text-foreground">
                     Request a document from {agent?.first_name || 'agent'}
                   </p>
                   <div className="mb-3">
-                    <label className="block text-xs font-medium mb-1" style={{ color: colors.textMuted }}>Document Type</label>
+                    <Label className="text-xs mb-1 block">Document Type</Label>
                     <select
                       value={docRequestType}
                       onChange={(e) => setDocRequestType(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-                      style={{
-                        background: colors.cardBg,
-                        borderColor: colors.inputBorder,
-                        color: colors.inputText,
-                      }}
+                      className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select document type...</option>
                       {DOCUMENT_TYPES.map(dt => (
@@ -2365,36 +2106,26 @@ export default function DealDetailPage() {
                     </select>
                   </div>
                   <div className="mb-3">
-                    <label className="block text-xs font-medium mb-1" style={{ color: colors.textMuted }}>Message (optional)</label>
-                    <textarea
+                    <Label className="text-xs mb-1 block">Message (optional)</Label>
+                    <Textarea
                       value={docRequestMessage}
                       onChange={(e) => setDocRequestMessage(e.target.value)}
                       placeholder="Add any instructions or context for the agent..."
-                      className="w-full px-3 py-2 rounded-lg border text-sm resize-none focus:outline-none"
-                      style={{
-                        background: colors.cardBg,
-                        borderColor: colors.inputBorder,
-                        color: colors.inputText,
-                        minHeight: '60px',
-                      }}
+                      className="min-h-[60px]"
                     />
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={handleRequestDocument}
                       disabled={docRequestSending || !docRequestType}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 transition-colors"
-                      style={{ background: colors.gold }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.opacity = '0.9' }}
-                      onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-primary hover:bg-primary/90 transition-opacity"
                     >
                       <Send className="w-4 h-4" />
                       {docRequestSending ? 'Sending...' : 'Send Request'}
                     </button>
                     <button
                       onClick={() => { setShowDocRequest(false); setDocRequestType(''); setDocRequestMessage('') }}
-                      className="px-4 py-2 rounded-lg font-medium transition"
-                      style={{ background: colors.border, color: colors.textPrimary }}
+                      className="px-4 py-2 rounded-lg font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors"
                     >
                       Cancel
                     </button>
@@ -2404,29 +2135,23 @@ export default function DealDetailPage() {
 
               {/* PENDING DOCUMENT REQUESTS */}
               {docsExpanded && docRequests.some(r => r.status === 'pending') && (
-                <div className="px-6 py-4 border-l-4" style={{
-                  borderLeftColor: '#5FA873',
-                  background: isDark ? 'rgba(95, 168, 115, 0.08)' : 'rgba(95, 168, 115, 0.05)',
-                  borderBottom: `1px solid ${colors.border}`
-                }}>
-                  <p className="text-sm font-semibold mb-3" style={{ color: colors.textPrimary }}>
+                <div className="px-6 py-4 border-l-4 border-l-primary bg-primary/5 border-b border-border/50">
+                  <p className="text-sm font-semibold mb-3 text-foreground">
                     Pending Requests ({docRequests.filter(r => r.status === 'pending').length})
                   </p>
                   <div className="space-y-3">
                     {docRequests.filter(r => r.status === 'pending').map(request => (
-                      <div key={request.id} className="rounded-lg p-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+                      <div key={request.id} className="rounded-lg p-3 bg-card border border-border/50">
                         <div className="flex items-start gap-3 mb-2">
-                          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#5FA873' }} />
+                          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary" />
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm" style={{ color: colors.textPrimary }}>
+                            <p className="font-semibold text-sm text-foreground">
                               {getDocTypeLabel(request.document_type)}
                             </p>
                             {request.message && (
-                              <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
-                                {request.message}
-                              </p>
+                              <p className="text-xs mt-1 text-muted-foreground">{request.message}</p>
                             )}
-                            <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                            <p className="text-xs mt-1 text-muted-foreground">
                               Requested {formatDate(request.created_at)}
                             </p>
                           </div>
@@ -2434,20 +2159,14 @@ export default function DealDetailPage() {
                         <div className="flex gap-2 ml-7">
                           <button
                             onClick={() => handleFulfillRequest(request)}
-                            className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors"
-                            style={{ background: '#5FA873', color: '#FFFFFF' }}
-                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium bg-primary text-white hover:bg-primary/90 transition-opacity"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Mark Fulfilled
                           </button>
                           <button
                             onClick={() => handleCancelRequest(request)}
-                            className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition"
-                            style={{ background: colors.border, color: colors.textMuted }}
-                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium bg-muted text-muted-foreground hover:opacity-70 transition-opacity"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                             Cancel
@@ -2460,22 +2179,22 @@ export default function DealDetailPage() {
               )}
 
               {docsExpanded && (
-                <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: colors.border }}>
+                <div className="divide-y divide-border/20 max-h-96 overflow-y-auto">
                   {documents.length > 0 ? (
                     documents.map(doc => (
                       <div
                         key={doc.id}
-                        className="px-4 py-2 flex items-center gap-3"
                         draggable
                         onDragStart={(e) => handleDocDragStart(e, doc.id)}
                         onDragEnd={handleDocDragEnd}
+                        className="px-4 py-2 flex items-center gap-3"
                         style={{ opacity: draggingDocId === doc.id ? 0.5 : 1, cursor: 'grab' }}
                       >
-                        <GripVertical className="w-3.5 h-3.5 flex-shrink-0" style={{ color: colors.textFaint }} />
-                        <FileText className="w-4 h-4 flex-shrink-0" style={{ color: colors.gold }} />
+                        <GripVertical className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground/40" />
+                        <FileText className="w-4 h-4 flex-shrink-0 text-primary" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{doc.file_name}</p>
-                          <p className="text-xs" style={{ color: colors.textMuted }}>
+                          <p className="text-sm font-medium truncate text-foreground">{doc.file_name}</p>
+                          <p className="text-xs text-muted-foreground">
                             {getDocTypeLabel(doc.document_type)} • {formatFileSize(doc.file_size)} • {formatDate(doc.created_at)}
                           </p>
                         </div>
@@ -2487,10 +2206,8 @@ export default function DealDetailPage() {
                               <button
                                 onClick={() => handleDocumentView(doc)}
                                 disabled={viewLoading === doc.id}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
-                                style={{ background: colors.gold, color: '#fff', opacity: viewLoading === doc.id ? 0.6 : 1 }}
-                                onMouseEnter={(e) => { if (viewLoading !== doc.id) e.currentTarget.style.background = colors.goldDark }}
-                                onMouseLeave={(e) => e.currentTarget.style.background = colors.gold}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-primary text-white hover:bg-primary/90 transition-colors"
+                                style={{ opacity: viewLoading === doc.id ? 0.6 : 1 }}
                               >
                                 <Eye className="w-3 h-3" />
                                 {viewLoading === doc.id ? '...' : 'View'}
@@ -2499,71 +2216,60 @@ export default function DealDetailPage() {
                           })()}
                           <button
                             onClick={() => handleDocumentDownload(doc)}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
-                            style={{ background: colors.inputBg, color: colors.gold }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                            onMouseLeave={(e) => e.currentTarget.style.background = colors.inputBg}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-muted text-primary hover:bg-muted/70 transition-colors"
                           >
                             <Download className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => { setReturningDocId(returningDocId === doc.id ? null : doc.id); setReturnReason('') }}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
-                            style={{ background: '#2A1F0F', color: '#D4A04A', border: '1px solid #4A3820' }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-950/30 text-amber-500 border border-amber-800/30"
                             title="Return to agent"
                           >
                             <Undo2 className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => handleDocumentDelete(doc)}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
-                            style={{ background: colors.errorBg, color: colors.errorText }}
-                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
-                        {/* Document return form (inline) */}
+                        {/* Document return form */}
                         {returningDocId === doc.id && (
-                          <div className="mt-2 p-2 rounded" style={{ background: '#2A1F0F', border: '1px solid #4A3820' }}>
-                            <textarea
+                          <div className="mt-2 p-2 rounded bg-amber-950/20 border border-amber-800/30">
+                            <Textarea
                               value={returnReason}
                               onChange={(e) => setReturnReason(e.target.value)}
                               placeholder="Reason for returning this document..."
-                              className="w-full px-2 py-1.5 rounded border text-xs resize-none focus:outline-none mb-2"
-                              style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText, minHeight: '50px' }}
+                              className="text-xs min-h-[50px] mb-2"
                             />
                             <div className="flex gap-2">
                               <button
                                 onClick={() => handleReturnDocument(doc.id)}
                                 disabled={returnSending || !returnReason.trim()}
-                                className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50"
-                                style={{ background: '#D4A04A' }}
+                                className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors"
                               >
                                 {returnSending ? 'Returning...' : 'Return & Notify Agent'}
                               </button>
                               <button
                                 onClick={() => { setReturningDocId(null); setReturnReason('') }}
-                                className="px-2 py-1 rounded text-xs font-medium"
-                                style={{ color: colors.textMuted }}
+                                className="px-2 py-1 rounded text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
                               >
                                 Cancel
                               </button>
                             </div>
                           </div>
                         )}
-                        {/* Show if document was previously returned */}
                         {docReturns.some(r => r.document_id === doc.id && r.status === 'pending') && (
-                          <div className="mt-1 px-2 py-1 rounded text-xs" style={{ background: '#2A1212', border: '1px solid #4A2020', color: '#E07B7B' }}>
-                            ⚠ Returned — {docReturns.find(r => r.document_id === doc.id && r.status === 'pending')?.reason}
+                          <div className="mt-1 px-2 py-1 rounded text-xs bg-red-950/20 border border-red-800/30 text-destructive">
+                            Returned — {docReturns.find(r => r.document_id === doc.id && r.status === 'pending')?.reason}
                           </div>
                         )}
                       </div>
                     ))
                   ) : (
                     <div className="px-4 py-6 text-center">
-                      <p className="text-sm" style={{ color: colors.textMuted }}>No documents uploaded yet</p>
+                      <p className="text-sm text-muted-foreground">No documents uploaded yet</p>
                     </div>
                   )}
                 </div>
@@ -2576,56 +2282,52 @@ export default function DealDetailPage() {
           )}
         </div>
 
-        {/* MESSAGES — collapsible, audit-trail style */}
-        <div id="messages" className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+        {/* MESSAGES */}
+        <div id="messages" className="rounded-lg overflow-hidden mb-3 bg-card border border-border/50">
           <div
-            className="flex items-center justify-between px-6 py-3 cursor-pointer"
-            style={{ background: colors.goldBg, borderBottom: messagesExpanded ? `1px solid ${colors.gold}` : 'none' }}
+            className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
             onClick={() => setMessagesExpanded(!messagesExpanded)}
           >
-            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <Send className="w-4 h-4" />
               Messages
-              {messages.length > 0 && <span className="text-xs font-normal" style={{ color: colors.textMuted }}>({messages.length})</span>}
+              {messages.length > 0 && <span className="text-xs font-normal text-muted-foreground">({messages.length})</span>}
             </div>
-            {messagesExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+            {messagesExpanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
           </div>
           {messagesExpanded && (
             <div className="p-4">
               {messages.length > 0 && (
                 <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-48 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
                   {messages.map(msg => (
-                    <div key={msg.id} className="rounded px-2.5 py-1.5" style={{
-                      background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
-                      border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.divider}`,
-                    }}>
+                    <div key={msg.id} className="rounded px-2.5 py-1.5"
+                      style={{
+                        background: msg.sender_role === 'admin' ? '#0F2A18' : 'hsl(var(--muted)/0.5)',
+                        border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : 'hsl(var(--border)/0.5)'}`,
+                      }}>
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
                           {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
                         </span>
-                        {msg.is_email_reply && <span className="text-[10px] px-1 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>email</span>}
-                        <span className="text-[10px]" style={{ color: colors.textFaint }}>{formatDateTime(msg.created_at)}</span>
+                        {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
+                        <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
                       </div>
-                      <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{msg.message}</p>
+                      <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                     </div>
                   ))}
                   <div ref={messagesEndRef} />
                 </div>
               )}
               {messages.length === 0 && (
-                <p className="text-xs text-center py-1 mb-2" style={{ color: colors.textMuted }}>No messages yet</p>
+                <p className="text-xs text-center py-1 mb-2 text-muted-foreground">No messages yet</p>
               )}
-              {/* Quick-reply templates */}
               {showDealQuickReplies && (
                 <div className="flex flex-wrap gap-1 mb-1.5">
                   {ADMIN_QUICK_REPLIES.map((template, idx) => (
                     <button
                       key={idx}
                       onClick={() => { setMessageText(template.message); setShowDealQuickReplies(false) }}
-                      className="px-2 py-1 rounded text-[10px] font-medium transition-colors"
-                      style={{ background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.gold; e.currentTarget.style.color = colors.gold }}
-                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary }}
+                      className="px-2 py-1 rounded text-[10px] font-medium bg-card text-muted-foreground border border-border/50 hover:border-primary hover:text-primary transition-colors"
                     >
                       {template.label}
                     </button>
@@ -2635,24 +2337,18 @@ export default function DealDetailPage() {
               <div className="flex gap-1.5">
                 <button
                   onClick={() => setShowDealQuickReplies(!showDealQuickReplies)}
-                  className="p-1.5 rounded transition-colors flex-shrink-0"
-                  style={{
-                    color: showDealQuickReplies ? colors.gold : colors.textMuted,
-                    border: `1px solid ${showDealQuickReplies ? colors.gold : colors.border}`,
-                  }}
+                  className={`p-1.5 rounded transition-colors flex-shrink-0 border ${showDealQuickReplies ? 'text-primary border-primary' : 'text-muted-foreground border-border/50'}`}
                   title="Quick replies"
                 >
                   <Zap className="w-3 h-3" />
                 </button>
                 <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
                   placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
-                  className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
-                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                  className="flex-1 px-2.5 py-1.5 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground focus:border-primary"
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
                 />
                 <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
-                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
-                  style={{ background: '#5FA873' }}>
+                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1 bg-primary hover:bg-primary/90 transition-colors">
                   <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
                 </button>
               </div>
@@ -2660,19 +2356,18 @@ export default function DealDetailPage() {
           )}
         </div>
 
-        {/* LATE CLOSING INTEREST — only for funded/completed */}
+        {/* LATE CLOSING INTEREST */}
         {deal && ['funded', 'completed'].includes(deal.status) && (
-          <div className="rounded-lg mb-3 overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <div className="rounded-lg mb-3 overflow-hidden bg-card border border-border/50">
             <button
               onClick={() => setLateInterestExpanded(!lateInterestExpanded)}
-              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider"
-              style={{ color: '#D4A04A', background: colors.tableHeaderBg }}
+              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-muted/30"
             >
               <div className="flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Late Closing Interest
                 {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#2A1212', color: '#E07B7B' }}>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950/30 text-destructive">
                     ${deal.late_interest_charged.toFixed(2)} charged
                   </span>
                 )}
@@ -2682,43 +2377,42 @@ export default function DealDetailPage() {
             {lateInterestExpanded && (
               <div className="px-3 py-2">
                 {agentBalance > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1F0F', border: '1px solid #4A3820', color: '#D4A04A' }}>
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-amber-950/20 border border-amber-800/30 text-amber-500">
                     Agent balance: <strong>${agentBalance.toFixed(2)}</strong>
                   </div>
                 )}
                 {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs" style={{ background: '#2A1212', border: '1px solid #4A2020', color: '#E07B7B' }}>
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-red-950/20 border border-red-800/30 text-destructive">
                     Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
                     {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
                   </div>
                 )}
                 {!showLateInterest ? (
                   <div className="flex items-center justify-between">
-                    <p className="text-xs" style={{ color: colors.textMuted }}>
+                    <p className="text-xs text-muted-foreground">
                       {deal.late_interest_charged ? 'Interest has been applied.' : 'No late interest charged.'}
                     </p>
                     <button onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
-                      className="px-2 py-1 rounded text-xs font-medium text-white" style={{ background: '#D4A04A' }}>
+                      className="px-2 py-1 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 transition-colors">
                       Charge Interest
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <label className="text-xs font-medium flex-shrink-0" style={{ color: colors.textSecondary }}>Actual Close:</label>
+                      <label className="text-xs font-medium flex-shrink-0 text-muted-foreground">Actual Close:</label>
                       <input type="date" value={actualClosingDate} onChange={(e) => setActualClosingDate(e.target.value)}
-                        className="px-2 py-1 rounded border text-xs focus:outline-none"
-                        style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                        className="px-2 py-1 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground [color-scheme:dark]"
                       />
                     </div>
-                    <p className="text-[10px]" style={{ color: colors.textMuted }}>$0.75 per $1,000/day · 5-day grace after {deal.closing_date}</p>
+                    <p className="text-[10px] text-muted-foreground">$0.75 per $1,000/day · 5-day grace after {deal.closing_date}</p>
                     <div className="flex gap-1.5">
                       <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
-                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50" style={{ background: '#D4A04A' }}>
+                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors">
                         {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
                       </button>
                       <button onClick={() => setShowLateInterest(false)}
-                        className="px-2.5 py-1 rounded text-xs" style={{ color: colors.textMuted, background: colors.tableHeaderBg }}>Cancel</button>
+                        className="px-2.5 py-1 rounded text-xs text-muted-foreground bg-muted hover:bg-muted/70 transition-colors">Cancel</button>
                     </div>
                   </div>
                 )}
@@ -2727,51 +2421,48 @@ export default function DealDetailPage() {
           </div>
         )}
 
-        {/* ADMIN NOTES — collapsible, audit-trail style */}
-        <div className="rounded-lg overflow-hidden mb-3" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+        {/* ADMIN NOTES */}
+        <div className="rounded-lg overflow-hidden mb-3 bg-card border border-border/50">
           <div
-            className="flex items-center justify-between px-6 py-3 cursor-pointer"
-            style={{ background: colors.goldBg, borderBottom: notesExpanded ? `1px solid ${colors.gold}` : 'none' }}
+            className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
             onClick={() => setNotesExpanded(!notesExpanded)}
           >
-            <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <StickyNote className="w-4 h-4" />
               Admin Notes
-              {notesTimeline.length > 0 && <span className="text-xs font-normal" style={{ color: colors.textMuted }}>({notesTimeline.length})</span>}
+              {notesTimeline.length > 0 && <span className="text-xs font-normal text-muted-foreground">({notesTimeline.length})</span>}
             </div>
-            {notesExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+            {notesExpanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
           </div>
           {notesExpanded && (
             <div className="p-4">
               <div className="flex gap-1.5 mb-3">
                 <input type="text" value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)}
                   placeholder="Add a note... (Ctrl+Enter)"
-                  className="flex-1 px-2.5 py-1.5 rounded border text-xs focus:outline-none"
-                  style={{ background: colors.inputBg, borderColor: colors.inputBorder, color: colors.inputText }}
+                  className="flex-1 px-2.5 py-1.5 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground focus:border-primary"
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote() }}
                 />
                 <button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
-                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1"
-                  style={{ background: '#3D5A99' }}>
+                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1 bg-blue-700 hover:bg-blue-800 transition-colors">
                   <Plus className="w-3 h-3" />{addingNote ? '...' : 'Add'}
                 </button>
               </div>
               {notesTimeline.length > 0 ? (
                 <div className="space-y-1.5 max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
                   {[...notesTimeline].reverse().map((note) => (
-                    <div key={note.id} className="rounded px-2.5 py-1.5" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
-                      <p className="text-xs whitespace-pre-wrap" style={{ color: colors.textPrimary }}>{note.text}</p>
-                      <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>{note.author_name} · {formatDateTime(note.created_at)}</p>
+                    <div key={note.id} className="rounded px-2.5 py-1.5 bg-muted/30 border border-border/20">
+                      <p className="text-xs whitespace-pre-wrap text-foreground">{note.text}</p>
+                      <p className="text-[10px] mt-1 text-muted-foreground/60">{note.author_name} · {formatDateTime(note.created_at)}</p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-center py-1" style={{ color: colors.textMuted }}>No notes yet</p>
+                <p className="text-xs text-center py-1 text-muted-foreground">No notes yet</p>
               )}
               {adminNotes && (
-                <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${colors.divider}` }}>
-                  <p className="text-[10px] font-semibold mb-0.5" style={{ color: colors.textMuted }}>Legacy Notes</p>
-                  <p className="text-[10px] whitespace-pre-wrap" style={{ color: colors.textFaint }}>{adminNotes}</p>
+                <div className="mt-3 pt-3 border-t border-border/20">
+                  <p className="text-[10px] font-semibold mb-0.5 text-muted-foreground">Legacy Notes</p>
+                  <p className="text-[10px] whitespace-pre-wrap text-muted-foreground/60">{adminNotes}</p>
                 </div>
               )}
             </div>
@@ -2780,20 +2471,16 @@ export default function DealDetailPage() {
 
         {/* AUDIT TRAIL */}
         {deal && (
-          <div className="rounded-lg overflow-hidden" style={{
-            background: colors.cardBg,
-            border: `1px solid ${colors.border}`,
-          }}>
+          <div className="rounded-lg overflow-hidden bg-card border border-border/50">
             <div
-              className="flex items-center justify-between px-6 py-3 cursor-pointer"
-              style={{ background: colors.goldBg, borderBottom: auditExpanded ? `1px solid ${colors.gold}` : 'none' }}
+              className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
               onClick={() => setAuditExpanded(!auditExpanded)}
             >
-              <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: colors.gold }}>
+              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                 <Shield className="w-4 h-4" />
                 Audit Trail
               </div>
-              {auditExpanded ? <ChevronUp className="w-4 h-4" style={{ color: colors.gold }} /> : <ChevronDown className="w-4 h-4" style={{ color: colors.gold }} />}
+              {auditExpanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
             </div>
             {auditExpanded && (
               <div className="p-4 max-h-[500px] overflow-y-auto">
@@ -2803,13 +2490,13 @@ export default function DealDetailPage() {
           </div>
         )}
 
-        {/* DELETE DEAL (only for under_review, cancelled, or denied) */}
+        {/* DELETE DEAL */}
         {deal && ['under_review', 'cancelled', 'denied'].includes(deal.status) && (
-          <div className="mt-6 rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.errorBorder}` }}>
+          <div className="mt-6 rounded-lg p-4 bg-card border border-destructive/30">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-bold" style={{ color: colors.errorText }}>Delete This Deal</p>
-                <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Permanently removes this deal and all associated documents and checklist items. This cannot be undone.</p>
+                <p className="text-sm font-bold text-destructive">Delete This Deal</p>
+                <p className="text-xs mt-0.5 text-muted-foreground">Permanently removes this deal and all associated documents and checklist items. This cannot be undone.</p>
               </div>
               <button
                 onClick={async () => {
@@ -2822,10 +2509,7 @@ export default function DealDetailPage() {
                     setStatusMessage({ type: 'error', text: result.error || 'Failed to delete deal' })
                   }
                 }}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-1.5 shrink-0"
-                style={{ background: '#DC2626' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#B91C1C'}
-                onMouseLeave={(e) => e.currentTarget.style.background = '#DC2626'}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-white flex items-center gap-1.5 shrink-0 bg-destructive hover:bg-destructive/90 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" /> Delete Deal
               </button>
@@ -2834,9 +2518,7 @@ export default function DealDetailPage() {
         )}
 
       </main>
-      </div>{/* end of content area that shrinks */}
-
-      {/* Side panel removed — viewer is now inline next to checklist */}
+      </div>
     </div>
   )
 }

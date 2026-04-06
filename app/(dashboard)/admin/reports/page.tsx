@@ -7,10 +7,12 @@ import {
   BarChart3, TrendingUp, DollarSign, Clock, ArrowLeft, Download, FileText,
   Building2, Percent, Calendar, Activity, ChevronDown, ChevronUp, ChevronRight,
 } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
 import SignOutModal from '@/components/SignOutModal'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // ============================================================================
 // Types
@@ -26,14 +28,10 @@ const DATE_RANGE_LABELS: Record<Exclude<DateRange, 'custom'>, string> = {
   all: 'All Time',
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 import { formatCurrency as formatCurrencyFull, formatCurrencyWhole as formatCurrency } from '@/lib/formatting'
 
 // ============================================================================
-// Mini Bar Chart (SVG)
+// Mini Bar Chart (SVG) — uses literal dark-theme colors for SVG attrs
 // ============================================================================
 
 function BarChartSVG({ data, dataKey, color, height = 200 }: {
@@ -42,7 +40,6 @@ function BarChartSVG({ data, dataKey, color, height = 200 }: {
   color: string
   height?: number
 }) {
-  const { colors } = useTheme()
   if (data.length === 0) return null
 
   const values = data.map(d => Number(d[dataKey]) || 0)
@@ -54,7 +51,6 @@ function BarChartSVG({ data, dataKey, color, height = 200 }: {
   return (
     <div className="overflow-x-auto">
       <svg width={Math.max(chartWidth, 300)} height={height} viewBox={`0 0 ${Math.max(chartWidth, 300)} ${height}`}>
-        {/* Grid lines */}
         {[0.25, 0.5, 0.75, 1].map(pct => (
           <line
             key={pct}
@@ -62,11 +58,10 @@ function BarChartSVG({ data, dataKey, color, height = 200 }: {
             y1={chartHeight - chartHeight * pct}
             x2={Math.max(chartWidth, 300)}
             y2={chartHeight - chartHeight * pct}
-            stroke={colors.divider}
+            stroke="#2a2a2a"
             strokeDasharray="4 4"
           />
         ))}
-        {/* Bars */}
         {data.map((d, i) => {
           const val = Number(d[dataKey]) || 0
           const barH = (val / maxVal) * chartHeight
@@ -87,7 +82,7 @@ function BarChartSVG({ data, dataKey, color, height = 200 }: {
                 y={height - 4}
                 textAnchor="middle"
                 fontSize="9"
-                fill={colors.textMuted}
+                fill="#6b7280"
               >
                 {d.label.split(' ')[0]}
               </text>
@@ -109,7 +104,6 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
   color: string
   height?: number
 }) {
-  const { colors } = useTheme()
   if (data.length < 2) return null
 
   const values = data.map(d => Number(d[dataKey]) || 0)
@@ -124,7 +118,6 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
     return `${x},${y}`
   }).join(' ')
 
-  // Area under the line
   const firstX = padding
   const lastX = padding + ((data.length - 1) / (data.length - 1)) * (chartWidth - padding * 2)
   const areaPath = `M${firstX},${chartHeight} L${points.split(' ').map(p => p).join(' L')} L${lastX},${chartHeight} Z`
@@ -132,7 +125,6 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
   return (
     <div className="overflow-x-auto">
       <svg width={chartWidth} height={height} viewBox={`0 0 ${chartWidth} ${height}`}>
-        {/* Grid lines */}
         {[0.25, 0.5, 0.75, 1].map(pct => (
           <line
             key={pct}
@@ -140,13 +132,11 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
             y1={chartHeight - chartHeight * pct}
             x2={chartWidth}
             y2={chartHeight - chartHeight * pct}
-            stroke={colors.divider}
+            stroke="#2a2a2a"
             strokeDasharray="4 4"
           />
         ))}
-        {/* Area fill */}
         <path d={areaPath} fill={color} opacity="0.1" />
-        {/* Line */}
         <polyline
           points={points}
           fill="none"
@@ -155,7 +145,6 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {/* Dots + labels */}
         {data.map((d, i) => {
           const x = padding + (i / (data.length - 1)) * (chartWidth - padding * 2)
           const y = chartHeight - (values[i] / maxVal) * chartHeight
@@ -167,7 +156,7 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
                 y={height - 4}
                 textAnchor="middle"
                 fontSize="9"
-                fill={colors.textMuted}
+                fill="#6b7280"
               >
                 {d.label.split(' ')[0]}
               </text>
@@ -184,7 +173,6 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
 // ============================================================================
 
 function PipelineDonut({ pipeline }: { pipeline: ReportMetrics['pipeline'] }) {
-  const { colors } = useTheme()
   const segments = [
     { key: 'under_review', value: pipeline.under_review, color: '#3D5A99' },
     { key: 'approved', value: pipeline.approved, color: '#1A7A2E' },
@@ -198,7 +186,7 @@ function PipelineDonut({ pipeline }: { pipeline: ReportMetrics['pipeline'] }) {
   if (total === 0) {
     return (
       <div className="flex items-center justify-center py-8">
-        <p className="text-sm" style={{ color: colors.textMuted }}>No deals in pipeline</p>
+        <p className="text-sm text-muted-foreground">No deals in pipeline</p>
       </div>
     )
   }
@@ -244,15 +232,14 @@ function PipelineDonut({ pipeline }: { pipeline: ReportMetrics['pipeline'] }) {
 
           return <path key={seg.key} d={path} fill={seg.color} />
         })}
-        {/* Center text */}
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="22" fontWeight="bold" fill={colors.textPrimary}>{total}</text>
-        <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill={colors.textMuted}>DEALS</text>
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="22" fontWeight="bold" fill="#f9fafb">{total}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill="#6b7280">DEALS</text>
       </svg>
       <div className="flex flex-col gap-1.5">
         {segments.map(seg => (
           <div key={seg.key} className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: seg.color }} />
-            <span className="text-xs" style={{ color: colors.textSecondary }}>
+            <span className="text-xs text-foreground/80">
               {formatStatusLabel(seg.key)} ({seg.value})
             </span>
           </div>
@@ -276,12 +263,10 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null)
   const [brokerageExpanded, setBrokerageExpanded] = useState(true)
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
-  // Brokerage drill-down
   const [selectedBrokerage, setSelectedBrokerage] = useState<BrokerageDetail | null>(null)
   const [brokerageLoading, setBrokerageLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
-  const { colors, isDark } = useTheme()
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -314,7 +299,6 @@ export default function ReportsPage() {
   }
 
   useEffect(() => {
-    // Auth check
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
@@ -340,7 +324,6 @@ export default function ReportsPage() {
     loadMetrics('custom', customStart, customEnd)
   }
 
-  // CSV Export
   const handleExportCSV = () => {
     if (!metrics) return
     setExporting('csv')
@@ -379,12 +362,10 @@ export default function ReportsPage() {
     setExporting(null)
   }
 
-  // PDF Export
   const handleExportPDF = () => {
     if (!metrics) return
     setExporting('pdf')
 
-    // Build a printable HTML document and trigger print
     const printContent = buildPrintHTML(metrics, dateRange, customStart, customEnd)
     const printWindow = window.open('', '_blank')
     if (printWindow) {
@@ -397,35 +378,35 @@ export default function ReportsPage() {
     setExporting(null)
   }
 
-  // ============================================================================
-  // Loading State
-  // ============================================================================
-
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <header style={{ background: colors.headerBgGradient }}>
+      <div className="min-h-screen bg-background">
+        <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div className="h-6 w-36 rounded-md animate-pulse" style={{ background: 'rgba(255,255,255,0.1)' }} />
+            <Skeleton className="h-6 w-36 bg-white/10" />
           </div>
         </header>
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="h-8 w-64 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
-          <div className="h-4 w-48 rounded mb-8 animate-pulse" style={{ background: colors.skeletonHighlight }} />
+          <Skeleton className="h-8 w-64 rounded-lg mb-2" />
+          <Skeleton className="h-4 w-48 rounded mb-8" />
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                <div className="h-3 w-24 rounded animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-9 w-20 rounded-lg animate-pulse" style={{ background: colors.skeletonBase }} />
-              </div>
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <Skeleton className="h-3 w-24 mb-3" />
+                  <Skeleton className="h-9 w-20" />
+                </CardContent>
+              </Card>
             ))}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {[1, 2].map(i => (
-              <div key={i} className="rounded-xl p-6 h-72" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                <div className="h-4 w-40 rounded animate-pulse mb-4" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-48 rounded-lg animate-pulse" style={{ background: colors.skeletonBase }} />
-              </div>
+              <Card key={i}>
+                <CardContent className="p-6 h-72">
+                  <Skeleton className="h-4 w-40 mb-4" />
+                  <Skeleton className="h-48" />
+                </CardContent>
+              </Card>
             ))}
           </div>
         </main>
@@ -433,85 +414,65 @@ export default function ReportsPage() {
     )
   }
 
-  // ============================================================================
-  // Error State
-  // ============================================================================
-
   if (error || !metrics) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <header style={{ background: colors.headerBgGradient }}>
+      <div className="min-h-screen bg-background">
+        <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <button onClick={() => router.push('/admin')} className="flex items-center gap-2 text-sm" style={{ color: '#5FA873' }}>
+            <button onClick={() => router.push('/admin')} className="flex items-center gap-2 text-sm text-primary hover:opacity-80 transition-opacity">
               <ArrowLeft size={16} /> Back to Dashboard
             </button>
           </div>
         </header>
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
-          <FileText className="mx-auto mb-4" size={48} style={{ color: colors.textFaint }} />
-          <p className="text-lg font-semibold" style={{ color: colors.textPrimary }}>Something went wrong</p>
-          <p className="text-sm mt-2" style={{ color: colors.textMuted }}>{error || 'Failed to load report data'}</p>
-          <button
-            onClick={() => loadMetrics(dateRange)}
-            className="mt-4 px-4 py-2 rounded-lg text-sm font-semibold"
-            style={{ background: colors.gold, color: '#1E1E1E' }}
-          >
-            Try Again
-          </button>
+          <FileText className="mx-auto mb-4 text-muted-foreground/30" size={48} />
+          <p className="text-lg font-semibold text-foreground">Something went wrong</p>
+          <p className="text-sm mt-2 text-muted-foreground">{error || 'Failed to load report data'}</p>
+          <Button onClick={() => loadMetrics(dateRange)} className="mt-4">Try Again</Button>
         </main>
       </div>
     )
   }
 
-  // ============================================================================
-  // Main Render
-  // ============================================================================
-
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
+      <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <div className="w-px h-10 bg-white/15" />
               <button
                 onClick={() => router.push('/admin')}
-                className="flex items-center gap-2 text-lg font-medium tracking-wide transition-colors"
-                style={{ color: '#888', fontFamily: 'var(--font-geist-sans), sans-serif' }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#5FA873' }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = '#888' }}
+                className="flex items-center gap-2 text-lg font-medium tracking-wide text-white/60 hover:text-primary transition-colors"
               >
                 <ArrowLeft size={16} /> Dashboard
               </button>
-              <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Reports</p>
+              <div className="w-px h-10 bg-white/15" />
+              <p className="text-lg font-medium tracking-wide text-white">Reports</p>
             </div>
             <div className="flex items-center gap-3">
-              {/* Export buttons */}
-              <button
+              <Button
                 onClick={handleExportCSV}
                 disabled={exporting === 'csv'}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
-                style={{ color: colors.successText, border: `1px solid ${colors.successBorder}`, background: 'transparent' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = colors.successBg}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-green-400 border-green-800 hover:bg-green-950/30"
               >
                 <Download size={13} />
                 {exporting === 'csv' ? 'Exporting...' : 'CSV'}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleExportPDF}
                 disabled={exporting === 'pdf'}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
-                style={{ color: colors.infoText, border: `1px solid ${colors.infoBorder}`, background: 'transparent' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = colors.infoBg}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-blue-400 border-blue-800 hover:bg-blue-950/30"
               >
                 <FileText size={13} />
                 {exporting === 'pdf' ? 'Generating...' : 'PDF Report'}
-              </button>
+              </Button>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
@@ -522,96 +483,69 @@ export default function ReportsPage() {
         {/* Title + Date Range */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h2 className="text-2xl font-bold" style={{ color: colors.textPrimary }}>
-              Reporting Dashboard
-            </h2>
-            <p className="text-sm mt-1" style={{ color: colors.textMuted }}>
-              Financial performance and pipeline analytics
-            </p>
+            <h2 className="text-2xl font-bold text-foreground">Reporting Dashboard</h2>
+            <p className="text-sm mt-1 text-muted-foreground">Financial performance and pipeline analytics</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {(Object.entries(DATE_RANGE_LABELS) as [Exclude<DateRange, 'custom'>, string][]).map(([key, label]) => {
               const isActive = dateRange === key
               return (
-                <button
+                <Button
                   key={key}
                   onClick={() => handleDateChange(key)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                  style={isActive
-                    ? { background: colors.gold, color: '#1E1E1E' }
-                    : { background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }
-                  }
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = colors.cardHoverBg }}
-                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = isActive ? colors.gold : colors.cardBg }}
+                  variant={isActive ? 'default' : 'outline'}
+                  size="sm"
                 >
                   {label}
-                </button>
+                </Button>
               )
             })}
-            {/* Custom date toggle */}
-            {(() => {
-              const isCustom = dateRange === 'custom'
-              return (
-                <button
-                  onClick={() => setShowCustomPicker(!showCustomPicker)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
-                  style={isCustom
-                    ? { background: colors.gold, color: '#1E1E1E' }
-                    : { background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }
-                  }
-                  onMouseEnter={(e) => { if (!isCustom) e.currentTarget.style.background = colors.cardHoverBg }}
-                  onMouseLeave={(e) => { if (!isCustom) e.currentTarget.style.background = isCustom ? colors.gold : colors.cardBg }}
-                >
-                  <Calendar size={12} />
-                  {isCustom ? `${customStart} — ${customEnd}` : 'Custom'}
-                </button>
-              )
-            })()}
+            <Button
+              onClick={() => setShowCustomPicker(!showCustomPicker)}
+              variant={dateRange === 'custom' ? 'default' : 'outline'}
+              size="sm"
+              className="gap-1"
+            >
+              <Calendar size={12} />
+              {dateRange === 'custom' ? `${customStart} — ${customEnd}` : 'Custom'}
+            </Button>
           </div>
         </div>
 
         {/* Custom Date Picker */}
         {showCustomPicker && (
-          <div
-            className="rounded-xl p-4 mb-6 flex flex-wrap items-end gap-4"
-            style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
-          >
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Start Date</label>
-              <input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="px-3 py-2 rounded-lg text-sm outline-none"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>End Date</label>
-              <input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="px-3 py-2 rounded-lg text-sm outline-none"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
-            </div>
-            <button
-              onClick={handleCustomDateApply}
-              disabled={!customStart || !customEnd}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
-              style={{ background: colors.gold, color: '#1E1E1E' }}
-            >
-              Apply
-            </button>
-          </div>
+          <Card className="mb-6">
+            <CardContent className="p-4 flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Start Date</label>
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">End Date</label>
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark]"
+                />
+              </div>
+              <Button
+                onClick={handleCustomDateApply}
+                disabled={!customStart || !customEnd}
+                size="sm"
+              >
+                Apply
+              </Button>
+            </CardContent>
+          </Card>
         )}
 
-        {/* KPI Cards Row 1: Revenue Metrics */}
+        {/* KPI Cards Row 1 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
           {[
             { label: 'Total Revenue', value: formatCurrency(metrics.totalRevenue), icon: DollarSign, accent: '#5FA873', sub: 'Discount fees earned' },
@@ -619,26 +553,24 @@ export default function ReportsPage() {
             { label: 'Net Profit', value: formatCurrency(metrics.totalProfit), icon: DollarSign, accent: '#1A7A2E', sub: 'After referral fees' },
             { label: 'Referral Fees Paid', value: formatCurrency(metrics.totalReferralFeesPaid), icon: Building2, accent: '#5FA873', sub: 'To partner brokerages' },
           ].map((card) => (
-            <div
-              key={card.label}
-              className="rounded-xl p-6"
-              style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-2xl font-black mt-2" style={{ color: colors.textPrimary }}>{card.value}</p>
-                  <p className="text-xs mt-1" style={{ color: colors.textFaint }}>{card.sub}</p>
+            <Card key={card.label}>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{card.label}</p>
+                    <p className="text-2xl font-black mt-2 text-foreground">{card.value}</p>
+                    <p className="text-xs mt-1 text-muted-foreground/60">{card.sub}</p>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: `${card.accent}12` }}>
+                    <card.icon size={20} style={{ color: card.accent }} />
+                  </div>
                 </div>
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={20} style={{ color: card.accent }} />
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
 
-        {/* KPI Cards Row 2: Performance Metrics */}
+        {/* KPI Cards Row 2 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
             { label: 'Total Deals', value: metrics.totalDeals.toString(), icon: FileText, accent: '#5FA873' },
@@ -646,162 +578,148 @@ export default function ReportsPage() {
             { label: 'Avg Days to Close', value: `${Math.round(metrics.avgDaysToClose)} days`, icon: Clock, accent: '#5FA873' },
             { label: 'Conversion Rate', value: `${metrics.conversionRate.toFixed(1)}%`, icon: Percent, accent: '#5FA873' },
           ].map((card) => (
-            <div
-              key={card.label}
-              className="rounded-xl p-5"
-              style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
-                  <card.icon size={16} style={{ color: card.accent }} />
+            <Card key={card.label}>
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
+                    <card.icon size={16} style={{ color: card.accent }} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{card.label}</p>
+                    <p className="text-xl font-bold mt-0.5 text-foreground">{card.value}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                  <p className="text-xl font-bold mt-0.5" style={{ color: colors.textPrimary }}>{card.value}</p>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
 
-        {/* Charts Row */}
+        {/* Charts Row 1 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
-          {/* Revenue Chart */}
-          <div className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp size={16} style={{ color: colors.gold }} />
-              <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Monthly Revenue</h3>
-            </div>
-            {metrics.monthlyTrends.some(m => m.revenue > 0) ? (
-              <LineChartSVG
-                data={metrics.monthlyTrends}
-                dataKey="revenue"
-                color={colors.gold}
-                height={220}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-48">
-                <p className="text-sm" style={{ color: colors.textMuted }}>No revenue data yet</p>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp size={16} className="text-primary" />
+                <h3 className="text-sm font-bold text-foreground">Monthly Revenue</h3>
               </div>
-            )}
-          </div>
+              {metrics.monthlyTrends.some(m => m.revenue > 0) ? (
+                <LineChartSVG data={metrics.monthlyTrends} dataKey="revenue" color="#5FA873" height={220} />
+              ) : (
+                <div className="flex items-center justify-center h-48">
+                  <p className="text-sm text-muted-foreground">No revenue data yet</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-          {/* Deal Volume Chart */}
-          <div className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-            <div className="flex items-center gap-2 mb-4">
-              <BarChart3 size={16} style={{ color: '#5B3D99' }} />
-              <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Deal Volume by Month</h3>
-            </div>
-            {metrics.monthlyTrends.some(m => m.deals > 0) ? (
-              <BarChartSVG
-                data={metrics.monthlyTrends}
-                dataKey="deals"
-                color="#5B3D99"
-                height={220}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-48">
-                <p className="text-sm" style={{ color: colors.textMuted }}>No deal data yet</p>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 size={16} style={{ color: '#5B3D99' }} />
+                <h3 className="text-sm font-bold text-foreground">Deal Volume by Month</h3>
               </div>
-            )}
-          </div>
+              {metrics.monthlyTrends.some(m => m.deals > 0) ? (
+                <BarChartSVG data={metrics.monthlyTrends} dataKey="deals" color="#5B3D99" height={220} />
+              ) : (
+                <div className="flex items-center justify-center h-48">
+                  <p className="text-sm text-muted-foreground">No deal data yet</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Second Charts Row */}
+        {/* Charts Row 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
-          {/* Pipeline Donut */}
-          <div className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-            <div className="flex items-center gap-2 mb-4">
-              <Activity size={16} style={{ color: '#3D5A99' }} />
-              <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Pipeline Breakdown</h3>
-            </div>
-            <PipelineDonut pipeline={metrics.pipeline} />
-          </div>
-
-          {/* Profit Trend */}
-          <div className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-            <div className="flex items-center gap-2 mb-4">
-              <DollarSign size={16} style={{ color: '#1A7A2E' }} />
-              <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>Monthly Profit</h3>
-            </div>
-            {metrics.monthlyTrends.some(m => m.profit > 0) ? (
-              <BarChartSVG
-                data={metrics.monthlyTrends}
-                dataKey="profit"
-                color="#1A7A2E"
-                height={220}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-48">
-                <p className="text-sm" style={{ color: colors.textMuted }}>No profit data yet</p>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity size={16} style={{ color: '#3D5A99' }} />
+                <h3 className="text-sm font-bold text-foreground">Pipeline Breakdown</h3>
               </div>
-            )}
-          </div>
+              <PipelineDonut pipeline={metrics.pipeline} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <DollarSign size={16} style={{ color: '#1A7A2E' }} />
+                <h3 className="text-sm font-bold text-foreground">Monthly Profit</h3>
+              </div>
+              {metrics.monthlyTrends.some(m => m.profit > 0) ? (
+                <BarChartSVG data={metrics.monthlyTrends} dataKey="profit" color="#1A7A2E" height={220} />
+              ) : (
+                <div className="flex items-center justify-center h-48">
+                  <p className="text-sm text-muted-foreground">No profit data yet</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Brokerage Performance Table */}
-        <div className="rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+        <Card className="overflow-hidden">
           <div
-            className="px-6 py-5 flex items-center justify-between cursor-pointer"
-            style={{ borderBottom: `1px solid ${colors.border}` }}
+            className="px-6 py-5 flex items-center justify-between cursor-pointer hover:bg-muted/20 transition-colors border-b border-border/50"
             onClick={() => setBrokerageExpanded(!brokerageExpanded)}
           >
             <div className="flex items-center gap-2">
-              <Building2 size={16} style={{ color: colors.gold }} />
-              <h3 className="text-lg font-bold" style={{ color: colors.textPrimary }}>Brokerage Performance</h3>
-              <span className="text-xs font-medium" style={{ color: colors.textMuted }}>
+              <Building2 size={16} className="text-primary" />
+              <h3 className="text-lg font-bold text-foreground">Brokerage Performance</h3>
+              <span className="text-xs font-medium text-muted-foreground">
                 ({metrics.brokeragePerformance.length} brokerage{metrics.brokeragePerformance.length !== 1 ? 's' : ''})
               </span>
             </div>
-            {brokerageExpanded ? <ChevronUp size={18} style={{ color: colors.textMuted }} /> : <ChevronDown size={18} style={{ color: colors.textMuted }} />}
+            {brokerageExpanded
+              ? <ChevronUp size={18} className="text-muted-foreground" />
+              : <ChevronDown size={18} className="text-muted-foreground" />
+            }
           </div>
           {brokerageExpanded && (
             <>
               {metrics.brokeragePerformance.length === 0 ? (
                 <div className="px-6 py-12 text-center">
-                  <Building2 className="mx-auto mb-3" size={36} style={{ color: colors.textFaint }} />
-                  <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>No brokerage data yet</p>
-                  <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Deal activity will populate this table.</p>
+                  <Building2 className="mx-auto mb-3 text-muted-foreground/30" size={36} />
+                  <p className="text-sm font-medium text-muted-foreground">No brokerage data yet</p>
+                  <p className="text-xs mt-1 text-muted-foreground/70">Deal activity will populate this table.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr style={{ background: colors.tableHeaderBg }}>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>#</th>
-                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Brokerage</th>
-                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Total Deals</th>
-                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Funded</th>
-                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Total Advanced</th>
-                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Referral Fees</th>
-                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Avg Deal Size</th>
+                      <tr className="bg-muted/50 border-b border-border/50">
+                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">#</th>
+                        <th className="px-6 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Brokerage</th>
+                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Deals</th>
+                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Funded</th>
+                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Advanced</th>
+                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Referral Fees</th>
+                        <th className="px-6 py-3.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Avg Deal Size</th>
                       </tr>
                     </thead>
                     <tbody>
                       {metrics.brokeragePerformance.map((brok, i) => (
                         <tr
                           key={brok.id}
-                          className="cursor-pointer"
-                          style={{ borderBottom: i < metrics.brokeragePerformance.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                          className="cursor-pointer border-b border-border/30 hover:bg-muted/20 transition-colors last:border-0"
                           onClick={() => handleBrokerageClick(brok.id)}
-                          onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          <td className="px-6 py-4 text-sm font-bold" style={{ color: colors.textFaint }}>{i + 1}</td>
+                          <td className="px-6 py-4 text-sm font-bold text-muted-foreground/40">{i + 1}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
                               <div>
-                                <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{brok.name}</p>
-                                {brok.brand && <p className="text-xs" style={{ color: colors.textMuted }}>{brok.brand}</p>}
+                                <p className="text-sm font-semibold text-foreground">{brok.name}</p>
+                                {brok.brand && <p className="text-xs text-muted-foreground">{brok.brand}</p>}
                               </div>
-                              <ChevronRight size={14} style={{ color: colors.textFaint }} />
+                              <ChevronRight size={14} className="text-muted-foreground/40" />
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: colors.textPrimary }}>{brok.totalDeals}</td>
-                          <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: colors.successText }}>{brok.fundedDeals}</td>
-                          <td className="px-6 py-4 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(brok.totalAdvanced)}</td>
-                          <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: colors.infoText }}>{formatCurrency(brok.totalReferralFees)}</td>
-                          <td className="px-6 py-4 text-sm text-right" style={{ color: colors.textSecondary }}>{formatCurrency(brok.avgDealSize)}</td>
+                          <td className="px-6 py-4 text-sm text-right font-medium text-foreground">{brok.totalDeals}</td>
+                          <td className="px-6 py-4 text-sm text-right font-medium text-green-400">{brok.fundedDeals}</td>
+                          <td className="px-6 py-4 text-sm text-right font-bold text-foreground">{formatCurrency(brok.totalAdvanced)}</td>
+                          <td className="px-6 py-4 text-sm text-right font-medium text-blue-400">{formatCurrency(brok.totalReferralFees)}</td>
+                          <td className="px-6 py-4 text-sm text-right text-foreground/80">{formatCurrency(brok.avgDealSize)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -810,33 +728,31 @@ export default function ReportsPage() {
               )}
             </>
           )}
-        </div>
+        </Card>
       </main>
 
       {/* Brokerage Detail Modal */}
       {(selectedBrokerage || brokerageLoading) && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4"
-          style={{ background: colors.overlayBg }}
+          className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 bg-black/60"
           onClick={() => { if (!brokerageLoading) setSelectedBrokerage(null) }}
         >
           <div
-            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl"
-            style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}`, boxShadow: `0 25px 60px ${colors.shadowColor}` }}
+            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl bg-card border border-border/50 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {brokerageLoading ? (
               <div className="p-8 text-center">
-                <div className="h-6 w-48 rounded-lg mx-auto mb-4 animate-pulse" style={{ background: colors.skeletonBase }} />
-                <div className="h-4 w-32 rounded mx-auto animate-pulse" style={{ background: colors.skeletonHighlight }} />
+                <Skeleton className="h-6 w-48 mx-auto mb-4" />
+                <Skeleton className="h-4 w-32 mx-auto" />
               </div>
             ) : selectedBrokerage && (
               <>
                 {/* Modal Header */}
-                <div className="px-6 py-5 flex items-center justify-between" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                <div className="px-6 py-5 flex items-center justify-between border-b border-border/50">
                   <div>
                     <div className="flex items-center gap-3">
-                      <h3 className="text-xl font-bold" style={{ color: colors.textPrimary }}>{selectedBrokerage.name}</h3>
+                      <h3 className="text-xl font-bold text-foreground">{selectedBrokerage.name}</h3>
                       <span
                         className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
                         style={getStatusBadgeStyle(selectedBrokerage.status)}
@@ -844,17 +760,15 @@ export default function ReportsPage() {
                         {formatStatusLabel(selectedBrokerage.status)}
                       </span>
                     </div>
-                    {selectedBrokerage.brand && <p className="text-sm mt-0.5" style={{ color: colors.textMuted }}>{selectedBrokerage.brand}</p>}
+                    {selectedBrokerage.brand && <p className="text-sm mt-0.5 text-muted-foreground">{selectedBrokerage.brand}</p>}
                   </div>
-                  <button
+                  <Button
                     onClick={() => setSelectedBrokerage(null)}
-                    className="p-2 rounded-lg transition-colors text-sm"
-                    style={{ color: colors.textMuted, border: `1px solid ${colors.border}` }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    variant="outline"
+                    size="sm"
                   >
                     ✕
-                  </button>
+                  </Button>
                 </div>
 
                 {/* KPI Cards */}
@@ -866,8 +780,8 @@ export default function ReportsPage() {
                       { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: '#5FA873' },
                       { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: '#5FA873' },
                     ].map(card => (
-                      <div key={card.label} className="rounded-lg p-4" style={{ background: colors.pageBg, border: `1px solid ${colors.border}` }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
+                      <div key={card.label} className="rounded-lg p-4 bg-background border border-border/50">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{card.label}</p>
                         <p className="text-xl font-bold mt-1" style={{ color: card.accent }}>{card.value}</p>
                       </div>
                     ))}
@@ -880,17 +794,17 @@ export default function ReportsPage() {
                       { label: 'Avg Days to Close', value: `${Math.round(selectedBrokerage.avgDaysToClose)} days` },
                       { label: 'Referral Rate', value: `${(selectedBrokerage.referralFeePercentage * 100).toFixed(0)}%` },
                     ].map(card => (
-                      <div key={card.label} className="rounded-lg p-4" style={{ background: colors.pageBg, border: `1px solid ${colors.border}` }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted }}>{card.label}</p>
-                        <p className="text-lg font-bold mt-1" style={{ color: colors.textPrimary }}>{card.value}</p>
+                      <div key={card.label} className="rounded-lg p-4 bg-background border border-border/50">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{card.label}</p>
+                        <p className="text-lg font-bold mt-1 text-foreground">{card.value}</p>
                       </div>
                     ))}
                   </div>
 
-                  {/* Pipeline for this brokerage */}
+                  {/* Pipeline */}
                   {Object.keys(selectedBrokerage.pipeline).length > 0 && (
                     <div className="mb-6">
-                      <h4 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Pipeline</h4>
+                      <h4 className="text-sm font-bold mb-3 text-foreground">Pipeline</h4>
                       <div className="flex flex-wrap gap-2">
                         {Object.entries(selectedBrokerage.pipeline).map(([status, count]) => (
                           <span
@@ -908,24 +822,24 @@ export default function ReportsPage() {
                   {/* Agent Performance */}
                   {selectedBrokerage.agents.length > 0 && (
                     <div className="mb-6">
-                      <h4 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Agent Performance</h4>
-                      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+                      <h4 className="text-sm font-bold mb-3 text-foreground">Agent Performance</h4>
+                      <div className="rounded-lg overflow-hidden border border-border/50">
                         <table className="w-full">
                           <thead>
-                            <tr style={{ background: colors.tableHeaderBg }}>
-                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
-                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Deals</th>
-                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Funded</th>
-                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advanced</th>
+                            <tr className="bg-muted/50 border-b border-border/50">
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Deals</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Funded</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Advanced</th>
                             </tr>
                           </thead>
                           <tbody>
                             {selectedBrokerage.agents.map((agent, i) => (
-                              <tr key={agent.id} style={{ borderBottom: i < selectedBrokerage.agents.length - 1 ? `1px solid ${colors.divider}` : 'none' }}>
-                                <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{agent.name}</td>
-                                <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textSecondary }}>{agent.totalDeals}</td>
-                                <td className="px-4 py-3 text-sm text-right font-medium" style={{ color: colors.successText }}>{agent.fundedDeals}</td>
-                                <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(agent.totalAdvanced)}</td>
+                              <tr key={agent.id} className="border-b border-border/30 last:border-0">
+                                <td className="px-4 py-3 text-sm font-medium text-foreground">{agent.name}</td>
+                                <td className="px-4 py-3 text-sm text-right text-foreground/80">{agent.totalDeals}</td>
+                                <td className="px-4 py-3 text-sm text-right font-medium text-green-400">{agent.fundedDeals}</td>
+                                <td className="px-4 py-3 text-sm text-right font-bold text-foreground">{formatCurrency(agent.totalAdvanced)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -937,37 +851,38 @@ export default function ReportsPage() {
                   {/* Recent Deals */}
                   {selectedBrokerage.recentDeals.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-bold mb-3" style={{ color: colors.textPrimary }}>Recent Deals</h4>
-                      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.border}` }}>
+                      <h4 className="text-sm font-bold mb-3 text-foreground">Recent Deals</h4>
+                      <div className="rounded-lg overflow-hidden border border-border/50">
                         <table className="w-full">
                           <thead>
-                            <tr style={{ background: colors.tableHeaderBg }}>
-                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
-                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
-                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
-                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing</th>
+                            <tr className="bg-muted/50 border-b border-border/50">
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Property</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Advance</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Closing</th>
                             </tr>
                           </thead>
                           <tbody>
                             {selectedBrokerage.recentDeals.map((deal, i) => (
                               <tr
                                 key={deal.id}
-                                className="cursor-pointer"
-                                style={{ borderBottom: i < selectedBrokerage.recentDeals.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
+                                className="cursor-pointer border-b border-border/30 last:border-0 hover:bg-muted/20 transition-colors"
                                 onClick={() => { setSelectedBrokerage(null); router.push(`/admin/deals/${deal.id}`) }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                               >
-                                <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
+                                <td className="px-4 py-3 text-sm font-medium text-foreground">{deal.property_address}</td>
                                 <td className="px-4 py-3">
                                   <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
                                     {formatStatusLabel(deal.status)}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{deal.agent_name}</td>
-                                <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
-                                <td className="px-4 py-3 text-sm text-right" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                                <td className="px-4 py-3 text-sm text-foreground/80">{deal.agent_name}</td>
+                                <td className={`px-4 py-3 text-sm text-right font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-green-400'}`}>
+                                  {formatCurrency(deal.advance_amount)}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-right text-muted-foreground">
+                                  {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1047,19 +962,14 @@ function buildPrintHTML(metrics: ReportMetrics, dateRange: DateRange, customStar
     <div class="kpi"><div class="kpi-label">Conversion Rate</div><div class="kpi-value">${metrics.conversionRate.toFixed(1)}%</div></div>
   </div>
 
-  <h2>Pipeline Breakdown</h2>
-  <table>
-    <thead><tr><th>Status</th><th style="text-align:right;">Count</th></tr></thead>
-    <tbody>${pipelineRows || '<tr><td colspan="2" style="padding:12px;text-align:center;color:#888;">No deals in pipeline</td></tr>'}</tbody>
-  </table>
+  <h2>Pipeline</h2>
+  <table><thead><tr><th>Status</th><th style="text-align:right;">Count</th></tr></thead><tbody>${pipelineRows}</tbody></table>
 
   <h2>Brokerage Performance</h2>
   <table>
-    <thead><tr><th>#</th><th>Brokerage</th><th style="text-align:right;">Total Deals</th><th style="text-align:right;">Funded</th><th style="text-align:right;">Total Advanced</th><th style="text-align:right;">Referral Fees</th></tr></thead>
-    <tbody>${brokerageRows || '<tr><td colspan="6" style="padding:12px;text-align:center;color:#888;">No brokerage data</td></tr>'}</tbody>
+    <thead><tr><th>#</th><th>Brokerage</th><th style="text-align:right;">Deals</th><th style="text-align:right;">Funded</th><th style="text-align:right;">Advanced</th><th style="text-align:right;">Referral Fees</th></tr></thead>
+    <tbody>${brokerageRows}</tbody>
   </table>
-
-  <p style="margin-top:32px;font-size:10px;color:#aaa;">firmfunds.ca &bull; Confidential</p>
 </body>
 </html>`
 }

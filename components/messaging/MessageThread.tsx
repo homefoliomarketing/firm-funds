@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from 'react'
 import { MessageSquare } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import MessageBubble, { type MessageData } from './MessageBubble'
 
 interface MessageThreadProps {
@@ -13,7 +12,6 @@ interface MessageThreadProps {
 }
 
 export default function MessageThread({ messages, viewerRole, loading, emptyMessage }: MessageThreadProps) {
-  const { colors } = useTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const prevLengthRef = useRef(0)
 
@@ -38,7 +36,7 @@ export default function MessageThread({ messages, viewerRole, loading, emptyMess
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center" style={{ color: colors.textMuted }}>
+      <div className="flex-1 flex items-center justify-center text-muted-foreground">
         <div className="text-sm">Loading messages...</div>
       </div>
     )
@@ -47,11 +45,11 @@ export default function MessageThread({ messages, viewerRole, loading, emptyMess
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-4">
-        <MessageSquare size={36} style={{ color: colors.textFaint }} className="mb-3 opacity-40" />
-        <p className="text-sm font-medium" style={{ color: colors.textMuted }}>
+        <MessageSquare size={36} className="mb-3 opacity-20 text-muted-foreground" />
+        <p className="text-sm font-medium text-muted-foreground">
           {emptyMessage || 'No messages yet'}
         </p>
-        <p className="text-xs mt-1" style={{ color: colors.textFaint }}>
+        <p className="text-xs mt-1 text-muted-foreground/60">
           Start the conversation by sending a message below.
         </p>
       </div>

@@ -4,8 +4,13 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, FileSignature, ExternalLink } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   changePassword,
   updateDisplayName,
@@ -19,7 +24,6 @@ export default function AdminSettingsPage() {
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
-  // Password state
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -27,15 +31,12 @@ export default function AdminSettingsPage() {
   const [showNewPw, setShowNewPw] = useState(false)
   const [pwSaving, setPwSaving] = useState(false)
 
-  // Display name state
   const [displayName, setDisplayName] = useState('')
   const [nameSaving, setNameSaving] = useState(false)
 
-  // Email state
   const [email, setEmail] = useState('')
   const [emailSaving, setEmailSaving] = useState(false)
 
-  // Notification prefs state
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>({
     email_deal_updates: true,
     email_new_messages: true,
@@ -44,17 +45,14 @@ export default function AdminSettingsPage() {
   })
   const [notifSaving, setNotifSaving] = useState(false)
 
-  // DocuSign state
   const [docuSignConnected, setDocuSignConnected] = useState(false)
   const [docuSignConsentUrl, setDocuSignConsentUrl] = useState<string | null>(null)
   const [docuSignLoading, setDocuSignLoading] = useState(true)
 
-  // Messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const router = useRouter()
   const supabase = createClient()
-  const { colors } = useTheme()
 
   useEffect(() => {
     async function load() {
@@ -80,7 +78,6 @@ export default function AdminSettingsPage() {
         setNotifPrefs(prefsResult.data as Record<string, boolean>)
       }
 
-      // Load DocuSign status
       const dsStatus = await getDocuSignStatus()
       setDocuSignConnected(dsStatus.connected)
       setDocuSignConsentUrl(dsStatus.consentUrl || null)
@@ -146,210 +143,259 @@ export default function AdminSettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <header style={{ background: colors.headerBgGradient }}>
+      <div className="min-h-screen bg-background">
+        <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div className="h-6 w-36 rounded-md animate-pulse" style={{ background: 'rgba(255,255,255,0.1)' }} />
+            <Skeleton className="h-6 w-36 bg-white/10" />
           </div>
         </header>
-        <main className="max-w-3xl mx-auto px-4 py-8">
+        <main className="max-w-3xl mx-auto px-4 py-8 space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="rounded-lg p-6 mb-4 animate-pulse" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-              <div className="h-4 w-36 rounded mb-3" style={{ background: colors.skeletonHighlight }} />
-              <div className="h-10 w-full rounded" style={{ background: colors.skeletonBase }} />
-            </div>
+            <Card key={i}>
+              <CardContent className="p-6">
+                <Skeleton className="h-4 w-36 mb-3" />
+                <Skeleton className="h-10 w-full" />
+              </CardContent>
+            </Card>
           ))}
         </main>
       </div>
     )
   }
 
-  const inputStyle = {
-    background: colors.inputBg,
-    border: `1px solid ${colors.inputBorder}`,
-    color: colors.inputText,
-  }
-
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
+      <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
               <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
-              <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <div className="w-px h-8 bg-white/15" />
               <button
                 onClick={() => router.push('/admin')}
-                className="transition-colors"
-                style={{ color: 'rgba(255,255,255,0.6)' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.6)'}
+                className="text-white/60 hover:text-primary transition-colors"
               >
                 <ArrowLeft size={20} />
               </button>
               <p className="text-sm font-medium tracking-wide text-white">Admin Settings</p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+              <span className="text-xs text-primary">{profile?.full_name}</span>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
         {/* Status message */}
         {message && (
-          <div
-            className="flex items-center gap-2 px-4 py-3 rounded-lg mb-4 text-sm font-medium"
-            style={{
-              background: message.type === 'success' ? colors.successBg : colors.errorBg,
-              border: `1px solid ${message.type === 'success' ? colors.successBorder : colors.errorBorder}`,
-              color: message.type === 'success' ? colors.successText : colors.errorText,
-            }}
-          >
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border ${
+            message.type === 'success'
+              ? 'bg-green-950/50 border-green-800 text-green-400'
+              : 'bg-red-950/50 border-red-800 text-red-400'
+          }`}>
             {message.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
             {message.text}
           </div>
         )}
 
         {/* CHANGE PASSWORD */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Lock size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Change Password</h3>
-          </div>
-          <div className="space-y-3">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <Lock size={18} />
+              Change Password
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Current Password</label>
+              <Label className="text-xs font-semibold text-muted-foreground mb-1">Current Password</Label>
               <div className="relative">
-                <input type={showCurrentPw ? 'text' : 'password'} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="w-full rounded-lg px-3 py-2.5 text-sm pr-10" style={inputStyle} placeholder="Enter current password" />
-                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setShowCurrentPw(!showCurrentPw)} style={{ color: colors.textMuted }}>
+                <Input
+                  type={showCurrentPw ? 'text' : 'password'}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setShowCurrentPw(!showCurrentPw)}
+                >
                   {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>New Password</label>
+              <Label className="text-xs font-semibold text-muted-foreground mb-1">New Password</Label>
               <div className="relative">
-                <input type={showNewPw ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full rounded-lg px-3 py-2.5 text-sm pr-10" style={inputStyle} placeholder="At least 8 characters" />
-                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setShowNewPw(!showNewPw)} style={{ color: colors.textMuted }}>
+                <Input
+                  type={showNewPw ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setShowNewPw(!showNewPw)}
+                >
                   {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Confirm New Password</label>
-              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full rounded-lg px-3 py-2.5 text-sm" style={inputStyle} placeholder="Re-enter new password" />
+              <Label className="text-xs font-semibold text-muted-foreground mb-1">Confirm New Password</Label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password"
+              />
               {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                <p className="text-xs mt-1" style={{ color: colors.errorText }}>Passwords do not match</p>
+                <p className="text-xs mt-1 text-red-400">Passwords do not match</p>
               )}
             </div>
-            <button onClick={handlePasswordChange} disabled={pwSaving || !currentPassword || !newPassword || !confirmPassword} className="px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: colors.gold, color: '#fff', opacity: pwSaving || !currentPassword || !newPassword || !confirmPassword ? 0.5 : 1 }}>
+            <Button
+              onClick={handlePasswordChange}
+              disabled={pwSaving || !currentPassword || !newPassword || !confirmPassword}
+              size="sm"
+            >
               {pwSaving ? 'Updating...' : 'Update Password'}
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* DISPLAY NAME */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <User size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Display Name</h3>
-          </div>
-          <div className="flex gap-3">
-            <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="flex-1 rounded-lg px-3 py-2.5 text-sm" style={inputStyle} />
-            <button onClick={handleNameUpdate} disabled={nameSaving || !displayName.trim() || displayName === profile?.full_name} className="px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: colors.gold, color: '#fff', opacity: nameSaving || !displayName.trim() || displayName === profile?.full_name ? 0.5 : 1 }}>
-              {nameSaving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <User size={18} />
+              Display Name
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              <Input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleNameUpdate}
+                disabled={nameSaving || !displayName.trim() || displayName === profile?.full_name}
+                size="sm"
+              >
+                {nameSaving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* EMAIL ADDRESS */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Mail size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Email Address</h3>
-          </div>
-          <div className="flex gap-3">
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="flex-1 rounded-lg px-3 py-2.5 text-sm" style={inputStyle} />
-            <button onClick={handleEmailUpdate} disabled={emailSaving || !email.trim()} className="px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: colors.gold, color: '#fff', opacity: emailSaving || !email.trim() ? 0.5 : 1 }}>
-              {emailSaving ? 'Saving...' : 'Update'}
-            </button>
-          </div>
-          <p className="text-xs mt-2" style={{ color: colors.textFaint }}>
-            Changing your email will require verification. A confirmation link will be sent to the new address.
-          </p>
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <Mail size={18} />
+              Email Address
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleEmailUpdate}
+                disabled={emailSaving || !email.trim()}
+                size="sm"
+              >
+                {emailSaving ? 'Saving...' : 'Update'}
+              </Button>
+            </div>
+            <p className="text-xs mt-2 text-muted-foreground/70">
+              Changing your email will require verification. A confirmation link will be sent to the new address.
+            </p>
+          </CardContent>
+        </Card>
 
         {/* NOTIFICATION PREFERENCES */}
-        <div className="rounded-lg p-5" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Bell size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Email Notifications</h3>
-          </div>
-          <div className="space-y-3">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <Bell size={18} />
+              Email Notifications
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
             {[
               { key: 'email_deal_updates', label: 'Deal Updates', desc: 'New deal submissions, status changes, and funding events' },
               { key: 'email_new_messages', label: 'New Messages', desc: 'Messages from agents and brokerages' },
               { key: 'email_status_changes', label: 'Status Alerts', desc: 'Critical status changes requiring admin attention' },
               { key: 'email_document_requests', label: 'Document Uploads', desc: 'When agents upload new documents or respond to requests' },
             ].map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${colors.divider}` }}>
+              <div key={key} className="flex items-center justify-between py-2.5 border-b border-border/50 last:border-0">
                 <div>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{label}</p>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>{desc}</p>
+                  <p className="text-sm font-medium text-foreground">{label}</p>
+                  <p className="text-xs text-muted-foreground">{desc}</p>
                 </div>
-                <button
-                  onClick={() => togglePref(key)}
+                <Switch
+                  checked={notifPrefs[key] ?? false}
+                  onCheckedChange={() => togglePref(key)}
                   disabled={notifSaving}
-                  className="relative w-11 h-6 rounded-full transition-colors"
-                  style={{ background: notifPrefs[key] ? colors.gold : colors.inputBorder }}
-                >
-                  <span className="absolute top-0.5 w-5 h-5 rounded-full transition-transform" style={{ background: '#fff', left: notifPrefs[key] ? '22px' : '2px' }} />
-                </button>
+                />
               </div>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* DOCUSIGN INTEGRATION */}
-        <div className="rounded-lg p-5" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <FileSignature size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>E-Signature (DocuSign)</h3>
-          </div>
-          {docuSignLoading ? (
-            <div className="h-10 rounded animate-pulse" style={{ background: colors.skeletonBase }} />
-          ) : docuSignConnected ? (
-            <div className="flex items-center gap-3 py-3">
-              <CheckCircle size={20} style={{ color: '#5FA873' }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>DocuSign Connected</p>
-                <p className="text-xs" style={{ color: colors.textMuted }}>Commission Purchase Agreements and Irrevocable Directions to Pay will be sent through DocuSign for electronic signature.</p>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <FileSignature size={18} />
+              E-Signature (DocuSign)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {docuSignLoading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : docuSignConnected ? (
+              <div className="flex items-center gap-3 py-2">
+                <CheckCircle size={20} className="text-primary flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">DocuSign Connected</p>
+                  <p className="text-xs text-muted-foreground">Commission Purchase Agreements and Irrevocable Directions to Pay will be sent through DocuSign for electronic signature.</p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div>
-              <p className="text-sm mb-3" style={{ color: colors.textSecondary }}>
-                Connect your DocuSign account to enable electronic signatures on Commission Purchase Agreements and Irrevocable Directions to Pay.
-              </p>
-              {docuSignConsentUrl ? (
-                <a
-                  href={docuSignConsentUrl}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                  style={{ background: colors.gold, color: '#1E1E1E' }}
-                >
-                  <ExternalLink size={15} />
-                  Connect DocuSign
-                </a>
-              ) : (
-                <p className="text-xs" style={{ color: colors.textFaint }}>DocuSign configuration missing. Check environment variables.</p>
-              )}
-            </div>
-          )}
-        </div>
+            ) : (
+              <div>
+                <p className="text-sm mb-3 text-muted-foreground">
+                  Connect your DocuSign account to enable electronic signatures on Commission Purchase Agreements and Irrevocable Directions to Pay.
+                </p>
+                {docuSignConsentUrl ? (
+                  <a
+                    href={docuSignConsentUrl}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    <ExternalLink size={15} />
+                    Connect DocuSign
+                  </a>
+                ) : (
+                  <p className="text-xs text-muted-foreground/70">DocuSign configuration missing. Check environment variables.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   )

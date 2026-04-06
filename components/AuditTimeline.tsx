@@ -2,11 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Clock, Shield, AlertTriangle, Info, ChevronDown, ChevronUp,
+  Clock, AlertTriangle, Info, ChevronDown, ChevronUp,
   ArrowRight, User, FileText, CheckCircle2, XCircle, DollarSign,
   Upload, Trash2, Eye, LogIn, LogOut, Edit2, Send, Undo2
 } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import { getActionLabel } from '@/lib/audit-labels'
 import { getEntityAuditTimeline, type AuditLogRow } from '@/lib/actions/audit-actions'
 import { formatDateTime } from '@/lib/formatting'
@@ -45,26 +44,17 @@ function getActionIcon(action: string) {
 }
 
 // ============================================================================
-// Severity Badge
+// Severity Dot
 // ============================================================================
 
-function SeverityDot({ severity, colors }: { severity: string; colors: any }) {
-  const dotColors: Record<string, string> = {
-    critical: colors.errorText,
-    warning: colors.warningText,
-    info: colors.gold,
-  }
+function SeverityDot({ severity }: { severity: string }) {
+  const colorClass =
+    severity === 'critical' ? 'bg-destructive' :
+    severity === 'warning' ? 'bg-yellow-500' :
+    'bg-primary'
+
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        backgroundColor: dotColors[severity] || colors.textMuted,
-        flexShrink: 0,
-      }}
-    />
+    <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${colorClass}`} />
   )
 }
 
@@ -75,15 +65,12 @@ function SeverityDot({ severity, colors }: { severity: string; colors: any }) {
 function ValueDiff({
   oldValue,
   newValue,
-  colors,
 }: {
   oldValue: Record<string, any> | null
   newValue: Record<string, any> | null
-  colors: any
 }) {
   if (!oldValue && !newValue) return null
 
-  // Combine all keys from both objects
   const allKeys = new Set([
     ...Object.keys(oldValue || {}),
     ...Object.keys(newValue || {}),
@@ -92,37 +79,23 @@ function ValueDiff({
   if (allKeys.size === 0) return null
 
   return (
-    <div
-      style={{
-        marginTop: 8,
-        padding: '8px 12px',
-        borderRadius: 6,
-        backgroundColor: colors.inputBg,
-        border: `1px solid ${colors.borderLight}`,
-        fontSize: 12,
-      }}
-    >
+    <div className="mt-2 p-2 rounded-md bg-muted/30 border border-border/30 text-xs">
       {Array.from(allKeys).map(key => {
         const oldVal = oldValue?.[key]
         const newVal = newValue?.[key]
-        // Only show fields that changed
         if (String(oldVal ?? '') === String(newVal ?? '')) return null
         const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
         return (
-          <div key={key} style={{ marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-            <span style={{ color: colors.textMuted, minWidth: 80 }}>{label}:</span>
+          <div key={key} className="mb-1 flex flex-wrap gap-1 items-center">
+            <span className="text-muted-foreground min-w-[80px]">{label}:</span>
             {oldVal !== undefined && oldVal !== null && (
-              <span style={{ color: colors.errorText, textDecoration: 'line-through' }}>
-                {String(oldVal)}
-              </span>
+              <span className="text-destructive line-through">{String(oldVal)}</span>
             )}
             {oldVal !== undefined && newVal !== undefined && (
-              <ArrowRight size={12} style={{ color: colors.textMuted }} />
+              <ArrowRight size={12} className="text-muted-foreground" />
             )}
             {newVal !== undefined && newVal !== null && (
-              <span style={{ color: colors.successText, fontWeight: 500 }}>
-                {String(newVal)}
-              </span>
+              <span className="text-primary font-medium">{String(newVal)}</span>
             )}
           </div>
         )
@@ -135,20 +108,19 @@ function ValueDiff({
 // Metadata Summary
 // ============================================================================
 
-function MetadataSummary({ metadata, colors }: { metadata: Record<string, any>; colors: any }) {
+function MetadataSummary({ metadata }: { metadata: Record<string, any> }) {
   if (!metadata || Object.keys(metadata).length === 0) return null
 
-  // Filter out internal fields that are already shown elsewhere
   const skipKeys = ['deal_id', 'agent_id', 'brokerage_id']
   const displayEntries = Object.entries(metadata).filter(([k]) => !skipKeys.includes(k))
 
   if (displayEntries.length === 0) return null
 
   return (
-    <div style={{ marginTop: 4, fontSize: 12, color: colors.textMuted }}>
+    <div className="mt-1 text-xs text-muted-foreground">
       {displayEntries.map(([key, value]) => (
-        <span key={key} style={{ marginRight: 12 }}>
-          {key.replace(/_/g, ' ')}: <span style={{ color: colors.textSecondary }}>
+        <span key={key} className="mr-3">
+          {key.replace(/_/g, ' ')}: <span className="text-foreground/70">
             {typeof value === 'object' ? JSON.stringify(value) : String(value)}
           </span>
         </span>
@@ -162,7 +134,6 @@ function MetadataSummary({ metadata, colors }: { metadata: Record<string, any>; 
 // ============================================================================
 
 export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: AuditTimelineProps) {
-  const { colors } = useTheme()
   const [events, setEvents] = useState<AuditLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -199,7 +170,7 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
 
   if (loading) {
     return (
-      <div style={{ padding: 16, textAlign: 'center', color: colors.textMuted }}>
+      <div className="p-4 text-center text-sm text-muted-foreground">
         Loading audit trail...
       </div>
     )
@@ -207,7 +178,7 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
 
   if (error) {
     return (
-      <div style={{ padding: 16, color: colors.errorText, fontSize: 13 }}>
+      <div className="p-4 text-sm text-destructive">
         Failed to load audit trail: {error}
       </div>
     )
@@ -215,7 +186,7 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
 
   if (events.length === 0) {
     return (
-      <div style={{ padding: 16, textAlign: 'center', color: colors.textMuted, fontSize: 13 }}>
+      <div className="p-4 text-center text-sm text-muted-foreground">
         No audit events recorded yet.
       </div>
     )
@@ -224,18 +195,9 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
   return (
     <div>
       {/* Timeline */}
-      <div style={{ position: 'relative', paddingLeft: 24 }}>
+      <div className="relative pl-6">
         {/* Vertical line */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 11,
-            top: 0,
-            bottom: 0,
-            width: 2,
-            backgroundColor: colors.border,
-          }}
-        />
+        <div className="absolute left-[11px] top-0 bottom-0 w-0.5 bg-border/50" />
 
         {visibleEvents.map((event) => {
           const IconComponent = getActionIcon(event.action)
@@ -243,84 +205,55 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
           const hasDetails = event.old_value || event.new_value ||
             (event.metadata && Object.keys(event.metadata).length > 0)
 
+          const dotBorderColor =
+            event.severity === 'critical' ? 'border-destructive' :
+            event.severity === 'warning' ? 'border-yellow-500' :
+            'border-primary'
+
           return (
-            <div
-              key={event.id}
-              style={{
-                position: 'relative',
-                paddingBottom: 16,
-                paddingLeft: 20,
-              }}
-            >
+            <div key={event.id} className="relative pb-4 pl-5">
               {/* Timeline dot */}
-              <div
-                style={{
-                  position: 'absolute',
-                  left: -18,
-                  top: 2,
-                  width: 16,
-                  height: 16,
-                  borderRadius: '50%',
-                  backgroundColor: colors.cardBg,
-                  border: `2px solid ${
-                    event.severity === 'critical' ? colors.errorText :
-                    event.severity === 'warning' ? colors.warningText :
-                    colors.gold
-                  }`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 1,
-                }}
-              />
+              <div className={`absolute left-[-18px] top-0.5 w-4 h-4 rounded-full bg-card border-2 ${dotBorderColor} flex items-center justify-center z-10`} />
 
               {/* Event content */}
               <div
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  backgroundColor: colors.cardBg,
-                  border: `1px solid ${colors.borderLight}`,
-                  cursor: hasDetails ? 'pointer' : 'default',
-                }}
+                className={`p-2 px-3 rounded-lg bg-card border border-border/30 ${hasDetails ? 'cursor-pointer' : ''}`}
                 onClick={() => hasDetails && toggleExpanded(event.id)}
               >
                 {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <IconComponent size={14} style={{ color: colors.textSecondary, flexShrink: 0 }} />
-                  <SeverityDot severity={event.severity || 'info'} colors={colors} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: colors.textPrimary }}>
+                <div className="flex items-center gap-2">
+                  <IconComponent size={14} className="text-muted-foreground flex-shrink-0" />
+                  <SeverityDot severity={event.severity || 'info'} />
+                  <span className="text-[13px] font-medium text-foreground">
                     {getActionLabel(event.action)}
                   </span>
                   {hasDetails && (
                     isExpanded
-                      ? <ChevronUp size={12} style={{ color: colors.textMuted, marginLeft: 'auto' }} />
-                      : <ChevronDown size={12} style={{ color: colors.textMuted, marginLeft: 'auto' }} />
+                      ? <ChevronUp size={12} className="text-muted-foreground ml-auto" />
+                      : <ChevronDown size={12} className="text-muted-foreground ml-auto" />
                   )}
                 </div>
 
                 {/* Subtext: who + when */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 12 }}>
-                  <User size={11} style={{ color: colors.textMuted }} />
-                  <span style={{ color: colors.textMuted }}>
+                <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                  <User size={11} />
+                  <span>
                     {event.actor_email || 'System'}
                     {event.actor_role && (
-                      <span style={{ color: colors.textFaint }}> ({event.actor_role.replace(/_/g, ' ')})</span>
+                      <span className="text-muted-foreground/60"> ({event.actor_role.replace(/_/g, ' ')})</span>
                     )}
                   </span>
-                  <Clock size={11} style={{ color: colors.textMuted, marginLeft: 'auto' }} />
-                  <span style={{ color: colors.textMuted }}>
-                    {formatDateTime(event.created_at)}
-                  </span>
+                  <Clock size={11} className="ml-auto" />
+                  <span>{formatDateTime(event.created_at)}</span>
                 </div>
 
                 {/* Expanded details */}
                 {isExpanded && (
-                  <div style={{ marginTop: 8, borderTop: `1px solid ${colors.divider}`, paddingTop: 8 }}>
-                    <ValueDiff oldValue={event.old_value} newValue={event.new_value} colors={colors} />
-                    <MetadataSummary metadata={event.metadata} colors={colors} />
+                  <div className="mt-2 pt-2 border-t border-border/30">
+                    <ValueDiff oldValue={event.old_value} newValue={event.new_value} />
+                    <MetadataSummary metadata={event.metadata} />
                     {event.ip_address && (
-                      <div style={{ marginTop: 4, fontSize: 11, color: colors.textFaint }}>
+                      <div className="mt-1 text-[11px] text-muted-foreground/60">
                         IP: {event.ip_address}
                       </div>
                     )}
@@ -336,19 +269,9 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
       {events.length > INITIAL_SHOW && (
         <button
           onClick={() => setShowAll(!showAll)}
-          style={{
-            display: 'block',
-            margin: '8px auto',
-            padding: '6px 16px',
-            backgroundColor: 'transparent',
-            border: `1px solid ${colors.border}`,
-            borderRadius: 6,
-            color: colors.gold,
-            fontSize: 12,
-            cursor: 'pointer',
-          }}
+          className="block mx-auto mt-2 px-4 py-1.5 rounded-md border border-border/50 text-xs text-primary bg-transparent hover:bg-primary/10 transition-colors"
         >
-          {showAll ? `Show Less` : `Show All ${events.length} Events`}
+          {showAll ? 'Show Less' : `Show All ${events.length} Events`}
         </button>
       )}
     </div>

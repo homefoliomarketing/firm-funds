@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@/lib/theme'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('')
@@ -12,7 +15,6 @@ export default function ChangePasswordPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClient()
-  const { colors, isDark } = useTheme()
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -118,85 +120,76 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(145deg, #121212 0%, #181818 40%, #1E1E1E 100%)' : 'linear-gradient(145deg, #1E1E1E 0%, #2D2D2D 40%, #3D3D3D 100%)' }}>
-      <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(80px)' }} />
-      <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(60px)' }} />
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full bg-primary blur-[80px] pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full bg-primary blur-[60px] pointer-events-none" />
 
       <div className="relative max-w-md w-full mx-4">
         <div className="text-center mb-8">
           <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 md:h-48 w-auto mx-auto mb-5" />
-          <p className="text-sm font-medium tracking-wide" style={{ color: '#5FA873', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+          <p className="text-sm font-medium tracking-wide text-primary">
             Commission Advance Portal
           </p>
         </div>
 
-        <div className="rounded-2xl shadow-2xl p-5 sm:p-8" style={{ background: colors.cardBg, boxShadow: `0 25px 60px ${colors.shadowColor}` }}>
+        <div className="rounded-2xl shadow-2xl p-5 sm:p-8 bg-card border border-border/50">
           <div className="mb-6">
-            <h2 className="text-lg font-bold mb-1" style={{ color: colors.textPrimary }}>
+            <h2 className="text-lg font-bold mb-1 text-foreground">
               Set Your New Password
             </h2>
-            <p className="text-sm" style={{ color: colors.textSecondary }}>
+            <p className="text-sm text-muted-foreground">
               For security, please create a new password before continuing.
             </p>
           </div>
 
           <form onSubmit={handleChangePassword} className="space-y-5">
             {error && (
-              <div className="px-4 py-3 rounded-lg text-sm" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }}>
-                {error}
-              </div>
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
 
-            <div>
-              <label htmlFor="newPassword" className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textPrimary }}>
+            <div className="space-y-1.5">
+              <Label htmlFor="newPassword" className="text-xs font-semibold uppercase tracking-wider">
                 New Password
-              </label>
-              <input
+              </Label>
+              <Input
                 id="newPassword"
                 type="password"
                 required
                 value={newPassword}
                 onChange={(e) => { setNewPassword(e.target.value); setError(null) }}
-                className="block w-full px-4 py-3 rounded-lg text-sm transition-all duration-200 outline-none"
-                style={{ border: `1.5px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
-                onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
                 placeholder="Min. 12 chars, upper/lower/number/special"
+                className="focus-visible:ring-primary"
               />
             </div>
 
-            <div>
-              <label htmlFor="confirmPassword" className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textPrimary }}>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPassword" className="text-xs font-semibold uppercase tracking-wider">
                 Confirm Password
-              </label>
-              <input
+              </Label>
+              <Input
                 id="confirmPassword"
                 type="password"
                 required
                 value={confirmPassword}
                 onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
-                className="block w-full px-4 py-3 rounded-lg text-sm transition-all duration-200 outline-none"
-                style={{ border: `1.5px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
-                onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
                 placeholder="Re-enter your new password"
+                className="focus-visible:ring-primary"
               />
             </div>
 
-            <button
+            <Button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 px-4 rounded-lg text-sm font-bold uppercase tracking-wider text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: 'linear-gradient(135deg, #5FA873, #4A8F5D)', boxShadow: '0 4px 12px rgba(95, 168, 115, 0.3)' }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = 'linear-gradient(135deg, #6FBA83, #5FA873)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #5FA873, #4A8F5D)' }}
+              className="w-full py-3.5 text-sm font-bold uppercase tracking-wider bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {loading ? 'Updating...' : 'Set Password & Continue'}
-            </button>
+            </Button>
           </form>
         </div>
 
-        <p className="text-center text-xs mt-6" style={{ color: 'rgba(255,255,255,0.3)' }}>
+        <p className="text-center text-xs mt-6 text-white/30">
           &copy; {new Date().getFullYear()} Firm Funds Inc. All rights reserved.
         </p>
       </div>

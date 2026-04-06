@@ -6,9 +6,12 @@ import { useRouter } from 'next/navigation'
 import {
   User, Phone, MapPin, Building2, CreditCard, Upload, CheckCircle, AlertCircle, FileText, Loader2,
 } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import { updateAgentProfile, submitAgentBanking } from '@/lib/actions/profile-actions'
 import AgentHeader from '@/components/AgentHeader'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 
 export default function AgentProfilePage() {
   const [profile, setProfile] = useState<any>(null)
@@ -35,7 +38,6 @@ export default function AgentProfilePage() {
 
   const router = useRouter()
   const supabase = createClient()
-  const { colors } = useTheme()
 
   useEffect(() => {
     async function load() {
@@ -91,7 +93,6 @@ export default function AgentProfilePage() {
 
     if (result.success) {
       setSaveMessage({ type: 'success', text: 'Profile updated successfully' })
-      // Update local state
       setAgent((prev: any) => ({
         ...prev,
         phone: phone.trim() || null,
@@ -111,7 +112,6 @@ export default function AgentProfilePage() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Validate file type
     const allowed = ['application/pdf', 'image/jpeg', 'image/png']
     if (!allowed.includes(file.type)) {
       setUploadMessage({ type: 'error', text: 'Only PDF, JPEG, or PNG files are accepted' })
@@ -126,7 +126,6 @@ export default function AgentProfilePage() {
     setUploadMessage(null)
 
     try {
-      // Step 1: Get signed upload URL
       const urlRes = await fetch('/api/preauth-upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,7 +139,6 @@ export default function AgentProfilePage() {
         return
       }
 
-      // Step 2: Upload directly to Supabase storage via signed URL
       const uploadRes = await fetch(urlData.data.signedUrl, {
         method: 'PUT',
         headers: { 'Content-Type': file.type },
@@ -153,7 +151,6 @@ export default function AgentProfilePage() {
         return
       }
 
-      // Step 3: Finalize — update agent record
       const finalRes = await fetch('/api/preauth-upload', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -176,7 +173,6 @@ export default function AgentProfilePage() {
     }
 
     setUploading(false)
-    // Clear the input so they can re-upload
     e.target.value = ''
   }
 
@@ -211,8 +207,8 @@ export default function AgentProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: colors.pageBg }}>
-        <div style={{ color: colors.textMuted }} className="text-lg">Loading profile...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-lg text-muted-foreground">Loading profile...</div>
       </div>
     )
   }
@@ -220,7 +216,7 @@ export default function AgentProfilePage() {
   const bankingComplete = agent?.banking_verified && agent?.bank_transit_number && agent?.bank_institution_number && agent?.bank_account_number
 
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
+    <div className="min-h-screen bg-background">
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
@@ -229,350 +225,302 @@ export default function AgentProfilePage() {
       />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h2 className="text-2xl font-bold mb-1" style={{ color: colors.textPrimary }}>
-          My Profile
-        </h2>
-        <p className="text-sm mb-8" style={{ color: colors.textMuted }}>
-          Manage your personal information and banking details.
-        </p>
+        <h2 className="text-2xl font-bold mb-1 text-foreground">My Profile</h2>
+        <p className="text-sm mb-8 text-muted-foreground">Manage your personal information and banking details.</p>
 
         {/* Personal Information */}
-        <section className="rounded-xl p-6 mb-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-          <div className="flex items-center gap-2 mb-5">
-            <User size={18} style={{ color: colors.gold }} />
-            <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Personal Information</h3>
-          </div>
+        <Card className="mb-6">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <User size={18} className="text-primary" />
+              Personal Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Read-only fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full Name</Label>
+                <div className="rounded-lg px-3 py-2.5 text-sm bg-muted border border-border text-muted-foreground">
+                  {agent?.first_name} {agent?.last_name}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Email</Label>
+                <div className="rounded-lg px-3 py-2.5 text-sm bg-muted border border-border text-muted-foreground">
+                  {agent?.email}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Brokerage</Label>
+                <div className="rounded-lg px-3 py-2.5 text-sm bg-muted border border-border text-muted-foreground">
+                  {agent?.brokerages?.name || '—'}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">RECO Number</Label>
+                <div className="rounded-lg px-3 py-2.5 text-sm bg-muted border border-border text-muted-foreground">
+                  {agent?.reco_number || '—'}
+                </div>
+              </div>
+            </div>
 
-          {/* Read-only fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Full Name</label>
-              <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.textSecondary }}>
-                {agent?.first_name} {agent?.last_name}
+            {/* Editable fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <Phone size={12} />Phone
+                </Label>
+                <Input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(416) 555-1234"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                  <MapPin size={12} />Street Address
+                </Label>
+                <Input
+                  type="text"
+                  value={addressStreet}
+                  onChange={(e) => setAddressStreet(e.target.value)}
+                  placeholder="123 Main St, Unit 4"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City</Label>
+                <Input
+                  type="text"
+                  value={addressCity}
+                  onChange={(e) => setAddressCity(e.target.value)}
+                  placeholder="Toronto"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
+                <Input
+                  type="text"
+                  value={addressProvince}
+                  onChange={(e) => setAddressProvince(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code</Label>
+                <Input
+                  type="text"
+                  value={addressPostalCode}
+                  onChange={(e) => setAddressPostalCode(e.target.value)}
+                  placeholder="M5V 1A1"
+                  maxLength={7}
+                />
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Email</label>
-              <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.textSecondary }}>
-                {agent?.email}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Brokerage</label>
-              <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.textSecondary }}>
-                {agent?.brokerages?.name || '—'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>RECO Number</label>
-              <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.textSecondary }}>
-                {agent?.reco_number || '—'}
-              </div>
-            </div>
-          </div>
 
-          {/* Editable fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
-                <Phone size={12} className="inline mr-1" />Phone
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(416) 555-1234"
-                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
+            {/* Save button */}
+            <div className="flex items-center gap-3 pt-1">
+              <Button onClick={handleSaveProfile} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              {saveMessage && (
+                <span className={`text-sm font-medium flex items-center gap-1 ${saveMessage.type === 'success' ? 'text-primary' : 'text-destructive'}`}>
+                  {saveMessage.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                  {saveMessage.text}
+                </span>
+              )}
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
-                <MapPin size={12} className="inline mr-1" />Street Address
-              </label>
-              <input
-                type="text"
-                value={addressStreet}
-                onChange={(e) => setAddressStreet(e.target.value)}
-                placeholder="123 Main St, Unit 4"
-                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>City</label>
-              <input
-                type="text"
-                value={addressCity}
-                onChange={(e) => setAddressCity(e.target.value)}
-                placeholder="Toronto"
-                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Province</label>
-              <input
-                type="text"
-                value={addressProvince}
-                onChange={(e) => setAddressProvince(e.target.value)}
-                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>Postal Code</label>
-              <input
-                type="text"
-                value={addressPostalCode}
-                onChange={(e) => setAddressPostalCode(e.target.value)}
-                placeholder="M5V 1A1"
-                maxLength={7}
-                className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition-colors"
-                style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-              />
-            </div>
-          </div>
-
-          {/* Save button */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSaveProfile}
-              disabled={saving}
-              className="px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
-              style={{ background: colors.gold }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85' }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-            {saveMessage && (
-              <span className="text-sm font-medium flex items-center gap-1" style={{ color: saveMessage.type === 'success' ? colors.successText : colors.errorText }}>
-                {saveMessage.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
-                {saveMessage.text}
-              </span>
-            )}
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
         {/* Banking Information */}
-        <section className="rounded-xl p-6 mb-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-          <div className="flex items-center gap-2 mb-5">
-            <CreditCard size={18} style={{ color: colors.gold }} />
-            <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Banking Information</h3>
-          </div>
-
-          {/* Status banner */}
-          {bankingComplete ? (
-            <div className="rounded-lg p-4 mb-5" style={{ background: `${colors.successText}10`, border: `1px solid ${colors.successText}30` }}>
-              <div className="flex items-center gap-2 mb-3">
-                <CheckCircle size={16} style={{ color: colors.successText }} />
-                <span className="text-sm font-semibold" style={{ color: colors.successText }}>Banking verified</span>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Transit</p>
-                  <p className="text-sm font-mono font-medium" style={{ color: colors.textPrimary }}>{agent.bank_transit_number}</p>
+        <Card className="mb-6">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CreditCard size={18} className="text-primary" />
+              Banking Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Status banner */}
+            {bankingComplete ? (
+              <div className="rounded-lg p-4 bg-primary/10 border border-primary/30">
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle size={16} className="text-primary" />
+                  <span className="text-sm font-semibold text-primary">Banking verified</span>
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Institution</p>
-                  <p className="text-sm font-mono font-medium" style={{ color: colors.textPrimary }}>{agent.bank_institution_number}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: colors.textMuted }}>Account</p>
-                  <p className="text-sm font-mono font-medium" style={{ color: colors.textPrimary }}>{'•'.repeat(agent.bank_account_number.length - 4)}{agent.bank_account_number.slice(-4)}</p>
-                </div>
-              </div>
-            </div>
-          ) : agent?.banking_approval_status === 'pending' ? (
-            <div className="rounded-lg p-4 mb-5" style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}>
-              <div className="flex items-center gap-2 mb-1">
-                <Loader2 size={16} style={{ color: '#7B9FE0' }} className="animate-spin" />
-                <span className="text-sm font-semibold" style={{ color: '#7B9FE0' }}>Pending approval</span>
-              </div>
-              <p className="text-xs" style={{ color: colors.textMuted }}>
-                Your banking info has been submitted and is being reviewed. You'll receive an email once it's approved.
-              </p>
-            </div>
-          ) : agent?.banking_approval_status === 'rejected' ? (
-            <div className="rounded-lg p-4 mb-5" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
-              <div className="flex items-center gap-2 mb-1">
-                <AlertCircle size={16} style={{ color: '#E07B7B' }} />
-                <span className="text-sm font-semibold" style={{ color: '#E07B7B' }}>Banking info not approved</span>
-              </div>
-              {agent.banking_rejection_reason && (
-                <p className="text-xs mt-1" style={{ color: '#E07B7B' }}>
-                  Reason: {agent.banking_rejection_reason}
-                </p>
-              )}
-              <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
-                Please update your information below and resubmit.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg p-4 mb-5" style={{ background: `${colors.warningText}10`, border: `1px solid ${colors.warningText}30` }}>
-              <div className="flex items-center gap-2 mb-1">
-                <AlertCircle size={16} style={{ color: colors.warningText }} />
-                <span className="text-sm font-semibold" style={{ color: colors.warningText }}>Banking info required</span>
-              </div>
-              <p className="text-xs" style={{ color: colors.textMuted }}>
-                Enter your banking details below. Banking info must be verified before deals can be approved.
-              </p>
-            </div>
-          )}
-
-          {/* Banking input form — shown when NOT verified, or when rejected (can resubmit) */}
-          {!bankingComplete && (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
-                    Transit Number
-                  </label>
-                  <input
-                    type="text"
-                    value={bankTransit}
-                    onChange={(e) => setBankTransit(e.target.value.replace(/\D/g, '').slice(0, 5))}
-                    placeholder="12345"
-                    maxLength={5}
-                    disabled={agent?.banking_approval_status === 'pending'}
-                    className="w-full rounded-lg px-3 py-2.5 text-sm font-mono outline-none transition-colors disabled:opacity-50"
-                    style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-                  />
-                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>5 digits</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
-                    Institution Number
-                  </label>
-                  <input
-                    type="text"
-                    value={bankInstitution}
-                    onChange={(e) => setBankInstitution(e.target.value.replace(/\D/g, '').slice(0, 3))}
-                    placeholder="001"
-                    maxLength={3}
-                    disabled={agent?.banking_approval_status === 'pending'}
-                    className="w-full rounded-lg px-3 py-2.5 text-sm font-mono outline-none transition-colors disabled:opacity-50"
-                    style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-                  />
-                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>3 digits</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textMuted }}>
-                    Account Number
-                  </label>
-                  <input
-                    type="text"
-                    value={bankAccount}
-                    onChange={(e) => setBankAccount(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                    placeholder="1234567"
-                    maxLength={12}
-                    disabled={agent?.banking_approval_status === 'pending'}
-                    className="w-full rounded-lg px-3 py-2.5 text-sm font-mono outline-none transition-colors disabled:opacity-50"
-                    style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-                  />
-                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>7-12 digits</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Transit</p>
+                    <p className="text-sm font-mono font-medium text-foreground">{agent.bank_transit_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Institution</p>
+                    <p className="text-sm font-mono font-medium text-foreground">{agent.bank_institution_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Account</p>
+                    <p className="text-sm font-mono font-medium text-foreground">{'•'.repeat(agent.bank_account_number.length - 4)}{agent.bank_account_number.slice(-4)}</p>
+                  </div>
                 </div>
               </div>
-
-              {agent?.banking_approval_status !== 'pending' && (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleSubmitBanking}
-                    disabled={bankingSaving || !bankTransit || !bankInstitution || !bankAccount}
-                    className="px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                    style={{ background: colors.gold }}
-                    onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.opacity = '0.85' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-                  >
-                    {bankingSaving ? 'Submitting...' : agent?.banking_approval_status === 'rejected' ? 'Resubmit Banking Info' : 'Submit Banking Info'}
-                  </button>
-                  {bankingMessage && (
-                    <span className="text-sm font-medium flex items-center gap-1" style={{ color: bankingMessage.type === 'success' ? colors.successText : colors.errorText }}>
-                      {bankingMessage.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
-                      {bankingMessage.text}
-                    </span>
-                  )}
+            ) : agent?.banking_approval_status === 'pending' ? (
+              <div className="rounded-lg p-4 bg-[#1A2240] border border-[#2D3A5C]">
+                <div className="flex items-center gap-2 mb-1">
+                  <Loader2 size={16} className="text-[#7B9FE0] animate-spin" />
+                  <span className="text-sm font-semibold text-[#7B9FE0]">Pending approval</span>
                 </div>
-              )}
-            </>
-          )}
-        </section>
-
-        {/* Pre-Authorized Debit Form Upload */}
-        <section className="rounded-xl p-6" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-          <div className="flex items-center gap-2 mb-5">
-            <FileText size={18} style={{ color: colors.gold }} />
-            <h3 className="text-base font-bold" style={{ color: colors.textPrimary }}>Pre-Authorized Debit Form</h3>
-          </div>
-
-          {agent?.preauth_form_path ? (
-            <div className="mb-4 rounded-lg p-3 flex items-center gap-3" style={{ background: `${colors.successText}10`, border: `1px solid ${colors.successText}30` }}>
-              <CheckCircle size={16} style={{ color: colors.successText }} />
-              <div>
-                <p className="text-sm font-medium" style={{ color: colors.successText }}>Form uploaded</p>
-                <p className="text-xs" style={{ color: colors.textMuted }}>
-                  Uploaded {agent.preauth_form_uploaded_at ? new Date(agent.preauth_form_uploaded_at).toLocaleDateString('en-CA') : 'recently'}
+                <p className="text-xs text-muted-foreground">
+                  Your banking info has been submitted and is being reviewed. You'll receive an email once it's approved.
                 </p>
               </div>
-            </div>
-          ) : (
-            <p className="text-sm mb-4" style={{ color: colors.textMuted }}>
-              Please upload your signed pre-authorized debit form. Accepted formats: PDF, JPEG, or PNG (max 10MB).
-            </p>
-          )}
-
-          <label
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors"
-            style={{
-              background: uploading ? colors.cardBg : colors.gold,
-              color: uploading ? colors.textMuted : '#FFFFFF',
-              opacity: uploading ? 0.6 : 1,
-            }}
-          >
-            {uploading ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Uploading...
-              </>
+            ) : agent?.banking_approval_status === 'rejected' ? (
+              <div className="rounded-lg p-4 bg-destructive/10 border border-destructive/30">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle size={16} className="text-destructive" />
+                  <span className="text-sm font-semibold text-destructive">Banking info not approved</span>
+                </div>
+                {agent.banking_rejection_reason && (
+                  <p className="text-xs mt-1 text-destructive">Reason: {agent.banking_rejection_reason}</p>
+                )}
+                <p className="text-xs mt-1 text-muted-foreground">Please update your information below and resubmit.</p>
+              </div>
             ) : (
+              <div className="rounded-lg p-4 bg-yellow-500/10 border border-yellow-500/30">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle size={16} className="text-yellow-500" />
+                  <span className="text-sm font-semibold text-yellow-500">Banking info required</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Enter your banking details below. Banking info must be verified before deals can be approved.
+                </p>
+              </div>
+            )}
+
+            {/* Banking input form — shown when NOT verified, or when rejected (can resubmit) */}
+            {!bankingComplete && (
               <>
-                <Upload size={16} />
-                {agent?.preauth_form_path ? 'Upload New Form' : 'Upload Form'}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Transit Number</Label>
+                    <Input
+                      type="text"
+                      value={bankTransit}
+                      onChange={(e) => setBankTransit(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                      placeholder="12345"
+                      maxLength={5}
+                      disabled={agent?.banking_approval_status === 'pending'}
+                      className="font-mono"
+                    />
+                    <p className="text-[10px] text-muted-foreground">5 digits</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Institution Number</Label>
+                    <Input
+                      type="text"
+                      value={bankInstitution}
+                      onChange={(e) => setBankInstitution(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                      placeholder="001"
+                      maxLength={3}
+                      disabled={agent?.banking_approval_status === 'pending'}
+                      className="font-mono"
+                    />
+                    <p className="text-[10px] text-muted-foreground">3 digits</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Account Number</Label>
+                    <Input
+                      type="text"
+                      value={bankAccount}
+                      onChange={(e) => setBankAccount(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      placeholder="1234567"
+                      maxLength={12}
+                      disabled={agent?.banking_approval_status === 'pending'}
+                      className="font-mono"
+                    />
+                    <p className="text-[10px] text-muted-foreground">7-12 digits</p>
+                  </div>
+                </div>
+
+                {agent?.banking_approval_status !== 'pending' && (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={handleSubmitBanking}
+                      disabled={bankingSaving || !bankTransit || !bankInstitution || !bankAccount}
+                    >
+                      {bankingSaving ? 'Submitting...' : agent?.banking_approval_status === 'rejected' ? 'Resubmit Banking Info' : 'Submit Banking Info'}
+                    </Button>
+                    {bankingMessage && (
+                      <span className={`text-sm font-medium flex items-center gap-1 ${bankingMessage.type === 'success' ? 'text-primary' : 'text-destructive'}`}>
+                        {bankingMessage.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                        {bankingMessage.text}
+                      </span>
+                    )}
+                  </div>
+                )}
               </>
             )}
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              onChange={handlePreauthUpload}
-              disabled={uploading}
-              className="hidden"
-            />
-          </label>
+          </CardContent>
+        </Card>
 
-          {uploadMessage && (
-            <div className="mt-3 flex items-center gap-1.5">
-              {uploadMessage.type === 'success' ? <CheckCircle size={14} style={{ color: colors.successText }} /> : <AlertCircle size={14} style={{ color: colors.errorText }} />}
-              <span className="text-sm" style={{ color: uploadMessage.type === 'success' ? colors.successText : colors.errorText }}>{uploadMessage.text}</span>
-            </div>
-          )}
-        </section>
+        {/* Pre-Authorized Debit Form Upload */}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText size={18} className="text-primary" />
+              Pre-Authorized Debit Form
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {agent?.preauth_form_path ? (
+              <div className="rounded-lg p-3 flex items-center gap-3 bg-primary/10 border border-primary/30">
+                <CheckCircle size={16} className="text-primary" />
+                <div>
+                  <p className="text-sm font-medium text-primary">Form uploaded</p>
+                  <p className="text-xs text-muted-foreground">
+                    Uploaded {agent.preauth_form_uploaded_at ? new Date(agent.preauth_form_uploaded_at).toLocaleDateString('en-CA') : 'recently'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Please upload your signed pre-authorized debit form. Accepted formats: PDF, JPEG, or PNG (max 10MB).
+              </p>
+            )}
+
+            <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${uploading ? 'opacity-60 bg-muted text-muted-foreground' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}>
+              {uploading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload size={16} />
+                  {agent?.preauth_form_path ? 'Upload New Form' : 'Upload Form'}
+                </>
+              )}
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={handlePreauthUpload}
+                disabled={uploading}
+                className="hidden"
+              />
+            </label>
+
+            {uploadMessage && (
+              <div className="flex items-center gap-1.5">
+                {uploadMessage.type === 'success'
+                  ? <CheckCircle size={14} className="text-primary" />
+                  : <AlertCircle size={14} className="text-destructive" />}
+                <span className={`text-sm ${uploadMessage.type === 'success' ? 'text-primary' : 'text-destructive'}`}>
+                  {uploadMessage.text}
+                </span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   )

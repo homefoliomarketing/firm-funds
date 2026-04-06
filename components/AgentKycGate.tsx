@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Upload, CheckCircle, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
+import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
 import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
 import { createClient } from '@/lib/supabase/client'
-import { useTheme } from '@/lib/theme'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeStyle } from '@/lib/constants'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
 
 interface AgentKycGateProps {
   agent: {
@@ -19,7 +21,6 @@ interface AgentKycGateProps {
 }
 
 export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProps) {
-  const { colors, isDark } = useTheme()
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [documentType, setDocumentType] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -84,8 +85,6 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
       currentDelayRef.current = 5000
     }
   }, [mobileLinkSent, agent.id, agent.kyc_status, onKycSubmitted])
-
-  const inputStyle = { background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }
 
   const handleFileSelect = (file: File) => {
     setError(null)
@@ -178,26 +177,23 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   // ---- Status: Submitted (awaiting review) ----
   if (agent.kyc_status === 'submitted') {
     return (
-      <div style={{ maxWidth: 560, margin: '60px auto', padding: '0 20px' }}>
-        <div style={{
-          background: colors.cardBg, border: `1px solid ${colors.cardBorder}`,
-          borderRadius: 12, padding: 40, textAlign: 'center',
-        }}>
-          <Clock size={48} style={{ color: '#7B9FE0', marginBottom: 16 }} />
-          <h2 style={{ color: colors.textPrimary, fontSize: 22, fontWeight: 600, margin: '0 0 12px' }}>
+      <div className="max-w-[560px] mx-auto my-15 px-5">
+        <Card className="p-10 text-center border-border/50">
+          <Clock size={48} className="text-blue-400 mx-auto mb-4" />
+          <h2 className="text-[22px] font-semibold text-foreground mb-3">
             Identity Verification In Progress
           </h2>
-          <p style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 1.6, margin: '0 0 20px' }}>
+          <p className="text-[15px] leading-relaxed text-muted-foreground mb-5">
             Your government-issued photo ID has been submitted and is under review.
             You&apos;ll be able to submit deals once your identity is verified.
           </p>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px',
-            borderRadius: 8, ...getKycBadgeStyle('submitted'), fontSize: 14, fontWeight: 500,
-          }}>
+          <div
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+            style={getKycBadgeStyle('submitted')}
+          >
             <Clock size={14} /> Submitted — Awaiting Review
           </div>
-        </div>
+        </Card>
       </div>
     )
   }
@@ -206,18 +202,15 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const isRejected = agent.kyc_status === 'rejected'
 
   return (
-    <div style={{ maxWidth: 560, margin: '40px auto', padding: '0 20px' }}>
-      <div style={{
-        background: colors.cardBg, border: `1px solid ${colors.cardBorder}`,
-        borderRadius: 12, padding: 32,
-      }}>
+    <div className="max-w-[560px] mx-auto my-10 px-5">
+      <Card className="p-8 border-border/50">
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Shield size={44} style={{ color: '#5FA873', marginBottom: 12 }} />
-          <h2 style={{ color: colors.textPrimary, fontSize: 22, fontWeight: 600, margin: '0 0 8px' }}>
+        <div className="text-center mb-6">
+          <Shield size={44} className="text-primary mx-auto mb-3" />
+          <h2 className="text-[22px] font-semibold text-foreground mb-2">
             {isRejected ? 'Identity Verification Required' : 'Welcome to Firm Funds'}
           </h2>
-          <p style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Before you can submit deals, we need to verify your identity per FINTRAC requirements.
             Please upload a clear copy of a valid government-issued photo ID.
           </p>
@@ -225,16 +218,13 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
 
         {/* Rejection notice */}
         {isRejected && agent.kyc_rejection_reason && (
-          <div style={{
-            background: '#2A1212', border: '1px solid #4A2020', borderRadius: 8,
-            padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'flex-start',
-          }}>
-            <XCircle size={18} style={{ color: '#E07B7B', flexShrink: 0, marginTop: 2 }} />
+          <div className="flex gap-2.5 items-start p-3 px-4 mb-5 rounded-lg bg-red-950/40 border border-red-800/50">
+            <XCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
             <div>
-              <div style={{ color: '#E07B7B', fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+              <div className="text-red-400 font-semibold text-[13px] mb-1">
                 Previous submission was rejected
               </div>
-              <div style={{ color: '#D49999', fontSize: 13, lineHeight: 1.5 }}>
+              <div className="text-red-400/80 text-[13px] leading-relaxed">
                 {agent.kyc_rejection_reason}
               </div>
             </div>
@@ -242,17 +232,14 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
         )}
 
         {/* Document type selection */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', color: colors.textSecondary, fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+        <div className="mb-4">
+          <label className="block text-muted-foreground text-[13px] font-medium mb-1.5">
             Type of ID
           </label>
           <select
             value={documentType}
             onChange={e => setDocumentType(e.target.value)}
-            style={{
-              ...inputStyle, width: '100%', padding: '10px 12px', borderRadius: 8,
-              fontSize: 14, cursor: 'pointer', appearance: 'auto',
-            }}
+            className="w-full px-3 py-2.5 rounded-lg text-sm bg-input border border-border text-foreground cursor-pointer appearance-auto focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">Select ID type...</option>
             {KYC_DOCUMENT_TYPES.map(t => (
@@ -263,23 +250,22 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
 
         {/* Selected files list */}
         {selectedFiles.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
+          <div className="mb-3">
             {selectedFiles.map((file, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                background: colors.pageBg, borderRadius: 8, marginBottom: 6,
-                border: `1px solid ${colors.border}`,
-              }}>
-                <FileText size={16} style={{ color: '#5FA873', flexShrink: 0 }} />
-                <span style={{ color: colors.textPrimary, fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div
+                key={i}
+                className="flex items-center gap-2.5 px-3 py-2 bg-background rounded-lg mb-1.5 border border-border/50"
+              >
+                <FileText size={16} className="text-primary shrink-0" />
+                <span className="text-foreground text-[13px] flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                   {file.name}
                 </span>
-                <span style={{ color: colors.textMuted, fontSize: 11, flexShrink: 0 }}>
+                <span className="text-muted-foreground text-[11px] shrink-0">
                   {(file.size / 1024 / 1024).toFixed(1)} MB
                 </span>
                 <button
                   onClick={() => removeFile(i)}
-                  style={{ color: '#E07B7B', background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0 }}
+                  className="text-red-400 hover:text-red-300 shrink-0 p-0.5 transition-colors"
                   title="Remove"
                 >
                   <XCircle size={14} />
@@ -294,19 +280,18 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          style={{
-            border: `2px dashed ${dragOver ? '#5FA873' : colors.inputBorder}`,
-            borderRadius: 8, padding: selectedFiles.length > 0 ? 16 : 24, textAlign: 'center', cursor: 'pointer',
-            background: dragOver ? 'rgba(95,168,115,0.08)' : 'transparent',
-            transition: 'all 0.15s ease', marginBottom: 16,
-          }}
           onClick={() => document.getElementById('kyc-file-input')?.click()}
+          className={`border-2 border-dashed rounded-lg text-center cursor-pointer transition-all mb-4 ${
+            dragOver
+              ? 'border-primary bg-primary/8'
+              : 'border-border hover:border-border/80'
+          } ${selectedFiles.length > 0 ? 'p-4' : 'p-6'}`}
         >
           <input
             id="kyc-file-input"
             type="file"
             accept=".jpg,.jpeg,.png,.pdf"
-            style={{ display: 'none' }}
+            className="hidden"
             onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
           />
           {/* Camera capture input for mobile */}
@@ -315,33 +300,28 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             type="file"
             accept="image/*"
             capture="environment"
-            style={{ display: 'none' }}
+            className="hidden"
             onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
           />
           {selectedFiles.length > 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Upload size={16} style={{ color: '#5FA873' }} />
-              <span style={{ color: '#5FA873', fontSize: 13, fontWeight: 500 }}>
+            <div className="flex items-center justify-center gap-2">
+              <Upload size={16} className="text-primary" />
+              <span className="text-primary text-[13px] font-medium">
                 Tap to add another photo (e.g. back of ID)
               </span>
             </div>
           ) : (
             <>
-              <Upload size={28} style={{ color: colors.textMuted, marginBottom: 8 }} />
-              <p style={{ color: colors.textSecondary, fontSize: 14, margin: '0 0 4px' }}>
+              <Upload size={28} className="text-muted-foreground mx-auto mb-2" />
+              <p className="text-muted-foreground text-sm mb-1">
                 Drop your ID here or tap to browse files
               </p>
-              <p style={{ color: colors.textMuted, fontSize: 12, margin: 0 }}>
+              <p className="text-muted-foreground/70 text-xs">
                 JPEG, PNG, or PDF — max 10MB per file. Upload front &amp; back if needed.
               </p>
               <div
                 onClick={(e) => { e.stopPropagation(); document.getElementById('kyc-camera-input')?.click() }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  marginTop: 12, padding: '8px 16px', borderRadius: 8,
-                  background: 'rgba(95,168,115,0.1)', border: '1px solid rgba(95,168,115,0.3)',
-                  color: '#5FA873', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                }}
+                className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[13px] font-semibold cursor-pointer hover:bg-primary/15 transition-colors"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                 Take Photo
@@ -352,57 +332,44 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
 
         {/* Error message */}
         {error && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-            background: '#2A1212', border: '1px solid #4A2020', borderRadius: 8,
-            marginBottom: 16,
-          }}>
-            <AlertCircle size={16} style={{ color: '#E07B7B', flexShrink: 0 }} />
-            <span style={{ color: '#E07B7B', fontSize: 13 }}>{error}</span>
+          <div className="flex items-center gap-2 px-3.5 py-2.5 mb-4 rounded-lg bg-red-950/40 border border-red-800/50">
+            <AlertCircle size={16} className="text-red-400 shrink-0" />
+            <span className="text-red-400 text-[13px]">{error}</span>
           </div>
         )}
 
         {/* Submit button */}
-        <button
+        <Button
           onClick={handleSubmit}
           disabled={selectedFiles.length === 0 || !documentType || submitting}
-          style={{
-            width: '100%', padding: '12px 20px', borderRadius: 8,
-            background: (selectedFiles.length === 0 || !documentType || submitting) ? '#333' : '#5FA873',
-            color: (selectedFiles.length === 0 || !documentType || submitting) ? '#666' : '#fff',
-            border: 'none', fontSize: 15, fontWeight: 600, cursor: (selectedFiles.length === 0 || !documentType || submitting) ? 'not-allowed' : 'pointer',
-            transition: 'background 0.15s ease',
-          }}
+          className="w-full"
         >
           {submitting ? 'Uploading...' : 'Submit for Verification'}
-        </button>
+        </Button>
 
         {/* Divider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
-          <div style={{ flex: 1, height: 1, background: colors.border }} />
-          <span style={{ color: colors.textMuted, fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>or</span>
-          <div style={{ flex: 1, height: 1, background: colors.border }} />
+        <div className="flex items-center gap-3 my-5">
+          <Separator className="flex-1" />
+          <span className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">or</span>
+          <Separator className="flex-1" />
         </div>
 
         {/* Send to phone option */}
         {mobileLinkSent ? (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
-            background: 'rgba(95,168,115,0.08)', border: '1px solid rgba(95,168,115,0.25)',
-            borderRadius: 8,
-          }}>
-            <Mail size={18} style={{ color: '#5FA873', flexShrink: 0 }} />
+          <div className="flex items-center gap-2.5 px-4 py-3.5 bg-primary/8 border border-primary/25 rounded-lg">
+            <Mail size={18} className="text-primary shrink-0" />
             <div>
-              <div style={{ color: '#5FA873', fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+              <div className="text-primary font-semibold text-[13px] mb-0.5">
                 Link sent!
               </div>
-              <div style={{ color: colors.textSecondary, fontSize: 13 }}>
+              <div className="text-muted-foreground text-[13px]">
                 Check your email{mobileLinkEmail ? ` at ${mobileLinkEmail}` : ''} and open the link on your phone to take a photo of your ID.
               </div>
             </div>
           </div>
         ) : (
-          <button
+          <Button
+            variant="outline"
             onClick={async () => {
               setSendingMobileLink(true)
               setError(null)
@@ -416,30 +383,20 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
               setSendingMobileLink(false)
             }}
             disabled={sendingMobileLink}
-            style={{
-              width: '100%', padding: '12px 20px', borderRadius: 8,
-              background: 'transparent', border: `1px solid ${colors.border}`,
-              color: colors.textSecondary, fontSize: 14, fontWeight: 500,
-              cursor: sendingMobileLink ? 'wait' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all 0.15s ease',
-            }}
+            className="w-full flex items-center justify-center gap-2"
           >
             <Smartphone size={16} />
             {sendingMobileLink ? 'Sending...' : 'Need to use your phone? Send a link to your email'}
-          </button>
+          </Button>
         )}
 
         {/* Accepted IDs note */}
-        <div style={{
-          marginTop: 20, padding: '12px 16px', background: colors.pageBg,
-          borderRadius: 8, fontSize: 12, color: colors.textMuted, lineHeight: 1.6,
-        }}>
-          <strong style={{ color: colors.textSecondary }}>Accepted IDs:</strong> Ontario Driver&apos;s Licence,
+        <div className="mt-5 px-4 py-3 bg-background rounded-lg text-xs text-muted-foreground leading-relaxed border border-border/30">
+          <strong className="text-muted-foreground/80">Accepted IDs:</strong> Ontario Driver&apos;s Licence,
           Canadian Passport, Ontario Photo Card, Permanent Resident Card, or Canadian Citizenship Card.
           Your ID must be valid (not expired) and the name must match your registered name.
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

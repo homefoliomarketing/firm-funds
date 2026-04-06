@@ -4,8 +4,8 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ADMIN_INACTIVITY_TIMEOUT_MS, AGENT_INACTIVITY_TIMEOUT_MS, ADMIN_ROLES } from '@/lib/constants'
-import { useTheme } from '@/lib/theme'
 import { Clock, ShieldAlert } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 interface SessionTimeoutProps {
   userRole: string
@@ -32,7 +32,6 @@ const SERVER_PING_THROTTLE_MS = 60_000
  */
 export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps) {
   const router = useRouter()
-  const { colors } = useTheme()
   const [showWarning, setShowWarning] = useState(false)
   const [countdown, setCountdown] = useState(120) // seconds remaining
   const [loggingOut, setLoggingOut] = useState(false)
@@ -178,145 +177,48 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
   if (!showWarning) return null
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: colors.overlayBg,
-        zIndex: 99999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1rem',
-      }}
-    >
-      <div
-        style={{
-          background: colors.cardBg,
-          border: `1px solid ${colors.warningBorder}`,
-          borderRadius: '16px',
-          padding: '2rem',
-          maxWidth: '420px',
-          width: '100%',
-          textAlign: 'center',
-          boxShadow: `0 25px 50px -12px ${colors.shadowColor}`,
-        }}
-      >
+    <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4">
+      <div className="bg-card border border-yellow-600/40 rounded-2xl p-8 max-w-[420px] w-full text-center shadow-2xl">
         {/* Icon */}
-        <div
-          style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '50%',
-            background: colors.warningBg,
-            border: `1px solid ${colors.warningBorder}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 1.25rem',
-          }}
-        >
-          <ShieldAlert size={28} style={{ color: colors.warningText }} />
+        <div className="w-14 h-14 rounded-full bg-yellow-500/10 border border-yellow-600/30 flex items-center justify-center mx-auto mb-5">
+          <ShieldAlert size={28} className="text-yellow-500" />
         </div>
 
         {/* Title */}
-        <h2
-          style={{
-            color: colors.textPrimary,
-            fontSize: '1.125rem',
-            fontWeight: 700,
-            marginBottom: '0.5rem',
-          }}
-        >
+        <h2 className="text-foreground text-lg font-bold mb-2">
           Session Expiring
         </h2>
 
         {/* Description */}
-        <p
-          style={{
-            color: colors.textSecondary,
-            fontSize: '0.875rem',
-            lineHeight: '1.5',
-            marginBottom: '1.25rem',
-          }}
-        >
+        <p className="text-muted-foreground text-sm leading-relaxed mb-5">
           Your session will expire due to inactivity. Click below to stay logged in.
         </p>
 
         {/* Countdown */}
-        <div
-          style={{
-            background: colors.warningBg,
-            border: `1px solid ${colors.warningBorder}`,
-            borderRadius: '12px',
-            padding: '0.75rem 1rem',
-            marginBottom: '1.5rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          <Clock size={18} style={{ color: colors.warningText }} />
-          <span
-            style={{
-              color: colors.warningText,
-              fontWeight: 700,
-              fontSize: '1.25rem',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
+        <div className="bg-yellow-500/10 border border-yellow-600/30 rounded-xl px-4 py-3 mb-6 flex items-center justify-center gap-2">
+          <Clock size={18} className="text-yellow-500" />
+          <span className="text-yellow-500 font-bold text-xl tabular-nums">
             {formatTime(countdown)}
           </span>
         </div>
 
         {/* Buttons */}
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
             onClick={() => handleLogout('manual')}
             disabled={loggingOut}
-            style={{
-              flex: 1,
-              padding: '0.75rem 1rem',
-              borderRadius: '10px',
-              border: `1px solid ${colors.border}`,
-              background: 'transparent',
-              color: colors.textSecondary,
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              cursor: loggingOut ? 'not-allowed' : 'pointer',
-              opacity: loggingOut ? 0.5 : 1,
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => { if (!loggingOut) e.currentTarget.style.background = colors.cardHoverBg }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            className="flex-1"
           >
             Log Out
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleStayLoggedIn}
             disabled={loggingOut}
-            style={{
-              flex: 2,
-              padding: '0.75rem 1rem',
-              borderRadius: '10px',
-              border: 'none',
-              background: colors.gold,
-              color: '#FFFFFF',
-              fontSize: '0.875rem',
-              fontWeight: 700,
-              cursor: loggingOut ? 'not-allowed' : 'pointer',
-              opacity: loggingOut ? 0.5 : 1,
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => { if (!loggingOut) e.currentTarget.style.background = colors.goldDark }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.gold }}
+            className="flex-[2] bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
           >
             Stay Logged In
-          </button>
+          </Button>
         </div>
       </div>
     </div>

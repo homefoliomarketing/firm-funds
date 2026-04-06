@@ -1,10 +1,9 @@
 'use client'
 
-import { useTheme } from '@/lib/theme'
 import { formatDateTime } from '@/lib/formatting'
 import FilePreview from './FilePreview'
 
-// Role-based styling
+// Role-based styling (kept as-is — hardcoded dark palette for chat bubbles)
 const ROLE_STYLES: Record<string, { bg: string; border: string; nameColor: string; label: string }> = {
   admin: { bg: '#0F2A18', border: '#1E4A2C', nameColor: '#5FA873', label: 'Firm Funds' },
   agent: { bg: '#1A2240', border: '#2D3A5C', nameColor: '#7B9FE0', label: 'Agent' },
@@ -32,7 +31,6 @@ interface MessageBubbleProps {
 }
 
 export default function MessageBubble({ msg, viewerRole }: MessageBubbleProps) {
-  const { colors } = useTheme()
   const isOwn = msg.sender_role === viewerRole || (viewerRole === 'admin' && msg.sender_role === 'admin')
   const style = ROLE_STYLES[msg.sender_role] || ROLE_STYLES.agent
 
@@ -48,7 +46,7 @@ export default function MessageBubble({ msg, viewerRole }: MessageBubbleProps) {
             {msg.sender_name || style.label}
           </span>
           {msg.is_email_reply && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#2D3A5C', color: '#7B9FE0' }}>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2D3A5C] text-[#7B9FE0]">
               via email
             </span>
           )}
@@ -56,7 +54,7 @@ export default function MessageBubble({ msg, viewerRole }: MessageBubbleProps) {
 
         {/* Message text */}
         {msg.message && (
-          <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: colors.textPrimary }}>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed text-foreground">
             {msg.message}
           </p>
         )}
@@ -75,7 +73,7 @@ export default function MessageBubble({ msg, viewerRole }: MessageBubbleProps) {
         )}
 
         {/* Timestamp */}
-        <p className="text-[10px] mt-1.5" style={{ color: colors.textFaint }}>
+        <p className="text-[10px] mt-1.5 text-muted-foreground/60">
           {formatDateTime(msg.created_at)}
         </p>
       </div>

@@ -3,12 +3,27 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle, Settings, Briefcase, CreditCard, Eye } from 'lucide-react'
+import {
+  FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
+  ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
+  CreditCard, Eye, EyeOff, Loader2
+} from 'lucide-react'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
-import { useTheme } from '@/lib/theme'
 import SignOutModal from '@/components/SignOutModal'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import { Separator } from '@/components/ui/separator'
 
 interface DashboardStats {
   underReviewDeals: number
@@ -43,15 +58,11 @@ export default function AdminDashboard() {
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
-  const { colors, isDark } = useTheme()
 
   useEffect(() => {
     async function loadDashboard() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/login')
-        return
-      }
+      if (!user) { router.push('/login'); return }
       setUser(user)
 
       const { data: profile } = await supabase
@@ -66,7 +77,6 @@ export default function AdminDashboard() {
         return
       }
 
-      // Fetch all deals once and compute stats client-side (replaces 6 separate count queries)
       const [
         { data: deals },
         { data: bankingAgents },
@@ -83,31 +93,22 @@ export default function AdminDashboard() {
 
       setPendingBankingAgents(bankingAgents || [])
       setPendingKycAgents(kycAgents || [])
-
       const allDealsList = deals || []
 
-      // Build dismissal map: deal_id -> dismissed_at
       const dismissMap = new Map<string, string>()
       if (dismissals) {
-        for (const d of dismissals) {
-          dismissMap.set(d.deal_id, d.dismissed_at)
-        }
+        for (const d of dismissals) dismissMap.set(d.deal_id, d.dismissed_at)
       }
 
-      // Find deals with unanswered messages (latest message is from agent or brokerage, not dismissed)
       const msgsByDeal = new Map<string, { sender_role: string; created_at: string }>()
       for (const msg of (allMsgs || [])) {
-        if (!msgsByDeal.has(msg.deal_id)) {
-          msgsByDeal.set(msg.deal_id, msg) // first = most recent (sorted desc)
-        }
+        if (!msgsByDeal.has(msg.deal_id)) msgsByDeal.set(msg.deal_id, msg)
       }
       const dealsWithUnread: string[] = []
       msgsByDeal.forEach((latestMsg, dealId) => {
         if (latestMsg.sender_role === 'agent' || latestMsg.sender_role === 'brokerage_admin') {
           const dismissedAt = dismissMap.get(dealId)
-          if (dismissedAt && new Date(dismissedAt) >= new Date(latestMsg.created_at)) {
-            return // dismissed — skip
-          }
+          if (dismissedAt && new Date(dismissedAt) >= new Date(latestMsg.created_at)) return
           dealsWithUnread.push(dealId)
         }
       })
@@ -119,9 +120,7 @@ export default function AdminDashboard() {
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
       })
-
       setAllDeals(allDealsList)
-
       setLoading(false)
     }
     loadDashboard()
@@ -134,217 +133,200 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <header style={{ background: colors.headerBgGradient }}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div className="h-6 w-36 rounded-md animate-pulse" style={{ background: 'rgba(255,255,255,0.1)' }} />
+      <div className="min-h-screen bg-background">
+        <header className="border-b border-border/50 bg-card">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <Skeleton className="h-8 w-40" />
           </div>
         </header>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
-          <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="rounded-lg p-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-            {[1,2,3,4,5].map(i => (
-              <div key={i} className="flex gap-4 mb-4">
-                <div className="h-4 flex-1 rounded animate-pulse" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-4 w-20 rounded animate-pulse" style={{ background: colors.skeletonHighlight }} />
-                <div className="h-4 w-24 rounded animate-pulse" style={{ background: colors.skeletonHighlight }} />
-              </div>
-            ))}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Skeleton className="h-8 w-64 mb-2" />
+          <Skeleton className="h-4 w-48 mb-6" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            {[1,2,3,4].map(i => <Skeleton key={i} className="h-24 rounded-lg" />)}
           </div>
+          <Skeleton className="h-96 rounded-lg" />
         </main>
       </div>
     )
   }
 
-  // Status badge styles imported from shared constants (getStatusBadgeStyle)
+  // Status filter + sorting logic
+  const statusPriority: Record<string, number> = {
+    under_review: 0, approved: 1, funded: 2, completed: 3, denied: 4, cancelled: 5,
+  }
 
-  // formatCurrency imported from @/lib/formatting (used in deal table)
+  let filtered = allDeals
+  if (statusFilter) filtered = filtered.filter(d => d.status === statusFilter)
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase()
+    filtered = filtered.filter(d => {
+      const agentName = d.agents ? `${d.agents.first_name || ''} ${d.agents.last_name || ''}`.toLowerCase() : ''
+      return d.property_address?.toLowerCase().includes(q) || agentName.includes(q)
+    })
+  }
+  filtered = [...filtered].sort((a, b) => {
+    const pa = statusPriority[a.status] ?? 99
+    const pb = statusPriority[b.status] ?? 99
+    if (pa !== pb) return pa - pb
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / DEALS_PER_PAGE))
+  const page = Math.min(currentPage, totalPages)
+  const paged = filtered.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
+
+  // Overdue/attention alerts
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  const todayMs = new Date(todayStr + 'T00:00:00').getTime()
+  const threeDaysAgo = todayMs - (3 * 24 * 60 * 60 * 1000)
+  const overdueClosings = allDeals.filter(d => d.status === 'funded' && new Date(d.closing_date + 'T00:00:00').getTime() < todayMs)
+  const staleReviews = allDeals.filter(d => d.status === 'under_review' && new Date(d.created_at).getTime() < threeDaysAgo)
+  const approvedNoFunding = allDeals.filter(d => {
+    if (d.status !== 'approved') return false
+    return (todayMs - new Date(d.created_at).getTime()) / (24 * 60 * 60 * 1000) > 5
+  })
+  const totalAlerts = overdueClosings.length + staleReviews.length + approvedNoFunding.length
 
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
+      <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-3">
+          <div className="flex justify-between items-center h-14">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
-              <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <p className="text-sm font-medium tracking-wide text-white">Admin Dashboard</p>
+              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-9 w-auto" />
+              <Separator orientation="vertical" className="h-6 bg-border/30" />
+              <span className="text-sm font-medium text-muted-foreground">Admin</span>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
-              <button
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-primary hidden sm:block">{profile?.full_name}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-primary"
                 onClick={() => router.push('/admin/settings')}
-                className="p-1.5 rounded-lg transition-colors"
-                style={{ color: 'rgba(255,255,255,0.5)' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#5FA873'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
-                title="Settings"
               >
                 <Settings size={16} />
-              </button>
+              </Button>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Welcome */}
-        <div className="mb-4">
-          <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-foreground">
             Welcome back, {profile?.full_name?.split(' ')[0]}
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Here is what is happening with Firm Funds.</p>
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Here&apos;s what&apos;s happening with Firm Funds.</p>
         </div>
 
         {/* Quick Links */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <button
-            onClick={() => router.push('/admin/messages')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors relative"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <MessageSquare size={14} style={{ color: colors.gold }} />
-            Messages
-            {stats.unreadAgentMessages > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
-                {stats.unreadAgentMessages}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => router.push('/admin/brokerages')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors relative"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <Building2 size={14} style={{ color: colors.gold }} />
-            Brokerages
-            {(stats.pendingKycCount + stats.pendingBankingCount) > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
-                {stats.pendingKycCount + stats.pendingBankingCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => router.push('/admin/reports')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <BarChart3 size={14} style={{ color: colors.gold }} />
-            Reports
-          </button>
-          <button
-            onClick={() => router.push('/admin/payments')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <DollarSign size={14} style={{ color: colors.gold }} />
-            Payments
-          </button>
-          <button
-            onClick={() => router.push('/admin/audit')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <Shield size={14} style={{ color: colors.gold }} />
-            Audit Trail
-          </button>
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            { label: 'Messages', icon: MessageSquare, path: '/admin/messages', badge: stats.unreadAgentMessages },
+            { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
+            { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
+            { label: 'Payments', icon: DollarSign, path: '/admin/payments' },
+            { label: 'Audit Trail', icon: Shield, path: '/admin/audit' },
+          ].map(link => (
+            <Button
+              key={link.label}
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-border/50 hover:border-primary/50 hover:text-primary"
+              onClick={() => router.push(link.path)}
+            >
+              <link.icon size={14} className="text-primary" />
+              {link.label}
+              {link.badge ? (
+                <Badge variant="destructive" className="ml-1 h-4 min-w-[16px] px-1 text-[10px] animate-pulse">
+                  {link.badge}
+                </Badge>
+              ) : null}
+            </Button>
+          ))}
         </div>
 
-        {/* PENDING ACTIONS — Banking approvals, KYC reviews */}
+        {/* PENDING ACTIONS */}
         {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
-          <div className="mb-4 rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid #D97706` }}>
-            <div className="px-4 py-3 flex items-center gap-2" style={{ background: '#2A1F00', borderBottom: `1px solid #5C4400` }}>
-              <AlertTriangle size={16} style={{ color: '#FBBF24' }} />
-              <h3 className="text-sm font-bold" style={{ color: '#FBBF24' }}>
+          <Card className="mb-6 border-amber-500/40">
+            <CardHeader className="py-3 px-4 bg-amber-500/5 border-b border-amber-500/20">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-400">
+                <AlertTriangle size={16} />
                 Pending Actions ({pendingBankingAgents.length + pendingKycAgents.length})
-              </h3>
-            </div>
-            <div className="divide-y" style={{ borderColor: colors.divider }}>
-              {/* Pending Banking Approvals */}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 divide-y divide-border/50">
               {pendingBankingAgents.map(agent => (
                 <div key={agent.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="flex-1 min-w-[250px]">
                       <div className="flex items-center gap-2 mb-1">
-                        <CreditCard size={14} style={{ color: '#7B9FE0' }} />
-                        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#7B9FE0' }}>Banking Approval</span>
+                        <CreditCard size={14} className="text-blue-400" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Banking Approval</span>
                       </div>
-                      <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+                      <p className="text-sm font-medium text-foreground">
                         {agent.first_name} {agent.last_name}
-                        <span className="text-xs font-normal ml-2" style={{ color: colors.textMuted }}>
+                        <span className="text-xs font-normal ml-2 text-muted-foreground">
                           {agent.brokerages?.name || ''} · {agent.email}
                         </span>
                       </p>
                       <div className="flex items-center gap-2 mt-1">
-                        {revealedBankingIds.has(agent.id) ? (
-                          <p className="text-xs font-mono" style={{ color: colors.textSecondary }}>
-                            Transit: {agent.banking_submitted_transit} · Institution: {agent.banking_submitted_institution} · Account: {agent.banking_submitted_account}
-                          </p>
-                        ) : (
-                          <p className="text-xs font-mono" style={{ color: colors.textMuted }}>
-                            Transit: ••••• · Institution: ••• · Account: •••••••
-                          </p>
-                        )}
-                        <button
+                        <p className="text-xs font-mono text-muted-foreground">
+                          {revealedBankingIds.has(agent.id)
+                            ? `Transit: ${agent.banking_submitted_transit} · Inst: ${agent.banking_submitted_institution} · Acct: ${agent.banking_submitted_account}`
+                            : 'Transit: ••••• · Inst: ••• · Acct: •••••••'
+                          }
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
                           onClick={() => setRevealedBankingIds(prev => {
                             const next = new Set(prev)
                             if (next.has(agent.id)) next.delete(agent.id); else next.add(agent.id)
                             return next
                           })}
-                          className="p-1 rounded transition-colors"
-                          style={{ color: colors.textMuted }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = colors.textPrimary}
-                          onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
-                          title={revealedBankingIds.has(agent.id) ? 'Hide banking info' : 'Show banking info'}
                         >
-                          {revealedBankingIds.has(agent.id) ? <X size={18} /> : <Eye size={18} />}
-                        </button>
+                          {revealedBankingIds.has(agent.id) ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </Button>
                       </div>
                       {agent.banking_submitted_at && (
-                        <p className="text-[10px] mt-0.5" style={{ color: colors.textFaint }}>
+                        <p className="text-[10px] mt-0.5 text-muted-foreground/60">
                           Submitted {new Date(agent.banking_submitted_at).toLocaleDateString('en-CA')}
                         </p>
                       )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {agent.preauth_form_path && (
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 text-xs"
                           onClick={async () => {
                             const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path, 300)
                             if (data?.signedUrl) setPreauthViewUrl(data.signedUrl)
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                          style={{ background: colors.inputBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
                         >
                           <Eye size={12} />
                           Pre-Auth Form
-                        </button>
+                        </Button>
                       )}
                       {rejectingAgentId === agent.id ? (
                         <div className="flex items-center gap-2">
-                          <input
-                            type="text"
+                          <Input
                             value={rejectReason}
                             onChange={(e) => setRejectReason(e.target.value)}
                             placeholder="Reason..."
-                            className="w-48 rounded-lg px-2.5 py-1.5 text-xs outline-none"
-                            style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                            className="w-48 h-8 text-xs"
                             autoFocus
                           />
-                          <button
+                          <Button
+                            size="sm"
+                            variant="destructive"
                             disabled={!rejectReason.trim() || actionLoading === agent.id}
                             onClick={async () => {
                               setActionLoading(agent.id)
@@ -357,17 +339,18 @@ export default function AdminDashboard() {
                               }
                               setActionLoading(null)
                             }}
-                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40"
-                            style={{ background: '#993D3D' }}
+                            className="text-xs"
                           >
                             Confirm
-                          </button>
-                          <button onClick={() => { setRejectingAgentId(null); setRejectReason('') }}
-                            className="text-xs" style={{ color: colors.textMuted }}>Cancel</button>
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setRejectingAgentId(null); setRejectReason('') }}>
+                            Cancel
+                          </Button>
                         </div>
                       ) : (
                         <>
-                          <button
+                          <Button
+                            size="sm"
                             disabled={actionLoading === agent.id}
                             onClick={async () => {
                               setActionLoading(agent.id)
@@ -378,20 +361,18 @@ export default function AdminDashboard() {
                               }
                               setActionLoading(null)
                             }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition-colors"
-                            style={{ background: '#1A7A2E' }}
-                            onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#156A24' }}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#1A7A2E'}
+                            className="text-xs bg-emerald-600 hover:bg-emerald-700"
                           >
-                            {actionLoading === agent.id ? 'Approving...' : 'Approve'}
-                          </button>
-                          <button
+                            {actionLoading === agent.id ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Approving...</> : 'Approve'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => setRejectingAgentId(agent.id)}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                            style={{ background: '#2A1212', color: '#E07B7B', border: '1px solid #4A2020' }}
+                            className="text-xs text-red-400 border-red-400/30 hover:bg-red-400/10"
                           >
                             Reject
-                          </button>
+                          </Button>
                         </>
                       )}
                     </div>
@@ -399,148 +380,114 @@ export default function AdminDashboard() {
                 </div>
               ))}
 
-              {/* Pending KYC Reviews */}
               {pendingKycAgents.map(agent => (
                 <div key={agent.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="flex-1 min-w-[250px]">
                       <div className="flex items-center gap-2 mb-1">
-                        <Shield size={14} style={{ color: '#C4A5F5' }} />
-                        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#C4A5F5' }}>KYC Review</span>
+                        <Shield size={14} className="text-purple-400" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-purple-400">KYC Review</span>
                       </div>
-                      <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+                      <p className="text-sm font-medium text-foreground">
                         {agent.first_name} {agent.last_name}
-                        <span className="text-xs font-normal ml-2" style={{ color: colors.textMuted }}>
+                        <span className="text-xs font-normal ml-2 text-muted-foreground">
                           {agent.brokerages?.name || ''} · {agent.email}
                         </span>
                       </p>
                       {agent.kyc_submitted_at && (
-                        <p className="text-[10px] mt-0.5" style={{ color: colors.textFaint }}>
+                        <p className="text-[10px] mt-0.5 text-muted-foreground/60">
                           Submitted {new Date(agent.kyc_submitted_at).toLocaleDateString('en-CA')}
                         </p>
                       )}
                     </div>
-                    <button
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => router.push('/admin/brokerages')}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                      style={{ background: '#1F1535', color: '#C4A5F5', border: '1px solid #352A50' }}
+                      className="text-xs text-purple-400 border-purple-400/30 hover:bg-purple-400/10"
                     >
                       Review in Brokerages
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
-        {/* Pre-auth form inline viewer */}
-        {preauthViewUrl && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
-            onClick={() => setPreauthViewUrl(null)}>
-            <div className="relative w-full max-w-3xl mx-4" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setPreauthViewUrl(null)}
-                className="absolute -top-10 right-0 flex items-center gap-1 text-sm font-medium" style={{ color: '#E8E4DF' }}>
-                <X size={16} /> Close
-              </button>
-              <iframe src={preauthViewUrl} className="w-full h-full rounded-xl" style={{ background: '#FFF', border: `2px solid ${colors.border}` }} />
-            </div>
-          </div>
+        {/* Pre-auth form viewer */}
+        <Dialog open={!!preauthViewUrl} onOpenChange={() => setPreauthViewUrl(null)}>
+          <DialogContent className="max-w-3xl h-[80vh] p-0">
+            <DialogHeader className="px-4 py-3 border-b border-border/50">
+              <DialogTitle>Pre-Authorization Form</DialogTitle>
+            </DialogHeader>
+            {preauthViewUrl && (
+              <iframe src={preauthViewUrl} className="w-full flex-1 rounded-b-lg" style={{ height: 'calc(80vh - 60px)' }} />
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Attention Alerts */}
+        {totalAlerts > 0 && (
+          <Card className="mb-6 border-red-500/30 bg-red-500/5">
+            <CardHeader className="py-2.5 px-4 border-b border-red-500/20">
+              <CardTitle className="text-xs font-semibold flex items-center gap-2 text-red-400">
+                <AlertTriangle size={14} />
+                {totalAlerts} deal{totalAlerts !== 1 ? 's' : ''} need{totalAlerts === 1 ? 's' : ''} attention
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 space-y-1">
+              {overdueClosings.map(deal => (
+                <button
+                  key={`overdue-${deal.id}`}
+                  className="flex items-center justify-between gap-2 w-full py-2 px-3 rounded-md bg-red-500/5 hover:bg-red-500/10 transition-colors text-left"
+                  onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                >
+                  <span className="flex items-center gap-2 min-w-0 flex-1">
+                    <Clock size={11} className="text-red-400 shrink-0" />
+                    <span className="text-xs text-red-300 truncate">
+                      <strong>Overdue:</strong> {deal.property_address} — closing was {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </span>
+                  <ChevronRight size={12} className="text-red-400 shrink-0" />
+                </button>
+              ))}
+              {staleReviews.map(deal => (
+                <button
+                  key={`stale-${deal.id}`}
+                  className="flex items-center justify-between gap-2 w-full py-2 px-3 rounded-md bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left"
+                  onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                >
+                  <span className="flex items-center gap-2 min-w-0 flex-1">
+                    <Clock size={11} className="text-amber-400 shrink-0" />
+                    <span className="text-xs text-amber-300 truncate">
+                      <strong>Stale review:</strong> {deal.property_address} — {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days
+                    </span>
+                  </span>
+                  <ChevronRight size={12} className="text-amber-400 shrink-0" />
+                </button>
+              ))}
+              {approvedNoFunding.map(deal => (
+                <button
+                  key={`nofund-${deal.id}`}
+                  className="flex items-center justify-between gap-2 w-full py-2 px-3 rounded-md bg-blue-500/5 hover:bg-blue-500/10 transition-colors text-left"
+                  onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                >
+                  <span className="flex items-center gap-2 min-w-0 flex-1">
+                    <Clock size={11} className="text-blue-400 shrink-0" />
+                    <span className="text-xs text-blue-300 truncate">
+                      <strong>Pending funding:</strong> {deal.property_address} — approved {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
+                    </span>
+                  </span>
+                  <ChevronRight size={12} className="text-blue-400 shrink-0" />
+                </button>
+              ))}
+            </CardContent>
+          </Card>
         )}
-
-        {/* Overdue / Needs Attention Alerts */}
-        {(() => {
-          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-          const todayMs = new Date(todayStr + 'T00:00:00').getTime()
-          const threeDaysAgo = todayMs - (3 * 24 * 60 * 60 * 1000)
-
-          const overdueClosings = allDeals.filter(d =>
-            d.status === 'funded' &&
-            new Date(d.closing_date + 'T00:00:00').getTime() < todayMs
-          )
-          const staleReviews = allDeals.filter(d =>
-            d.status === 'under_review' &&
-            new Date(d.created_at).getTime() < threeDaysAgo
-          )
-          const approvedNoFunding = allDeals.filter(d => {
-            if (d.status !== 'approved') return false
-            const approvedDays = (todayMs - new Date(d.created_at).getTime()) / (24 * 60 * 60 * 1000)
-            return approvedDays > 5
-          })
-
-          const totalAlerts = overdueClosings.length + staleReviews.length + approvedNoFunding.length
-          if (totalAlerts === 0) return null
-
-          return (
-            <div className="mb-4 rounded-lg overflow-hidden" style={{ background: '#2A1212', border: '1px solid #4A2020' }}>
-              <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: totalAlerts > 0 ? '1px solid #4A2020' : 'none' }}>
-                <AlertTriangle size={14} style={{ color: '#F87171' }} />
-                <span className="text-xs font-bold" style={{ color: '#F87171' }}>
-                  {totalAlerts} deal{totalAlerts !== 1 ? 's' : ''} need{totalAlerts === 1 ? 's' : ''} attention
-                </span>
-              </div>
-              <div className="px-4 py-2 space-y-1.5">
-                {overdueClosings.map(deal => (
-                  <div
-                    key={`overdue-${deal.id}`}
-                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded cursor-pointer transition-colors"
-                    style={{ background: '#3A1818' }}
-                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#4A2020'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#3A1818'}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Clock size={11} style={{ color: '#F87171' }} />
-                      <span className="text-xs truncate" style={{ color: '#FCA5A5' }}>
-                        <strong>Overdue:</strong> {deal.property_address} — closing was {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}, still funded
-                      </span>
-                    </div>
-                    <ChevronRight size={12} style={{ color: '#F87171' }} />
-                  </div>
-                ))}
-                {staleReviews.map(deal => (
-                  <div
-                    key={`stale-${deal.id}`}
-                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded cursor-pointer transition-colors"
-                    style={{ background: '#2A2210' }}
-                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#3A3218'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#2A2210'}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Clock size={11} style={{ color: '#D4A04A' }} />
-                      <span className="text-xs truncate" style={{ color: '#E8C060' }}>
-                        <strong>Stale review:</strong> {deal.property_address} — under review for {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days
-                      </span>
-                    </div>
-                    <ChevronRight size={12} style={{ color: '#D4A04A' }} />
-                  </div>
-                ))}
-                {approvedNoFunding.map(deal => (
-                  <div
-                    key={`nofund-${deal.id}`}
-                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded cursor-pointer transition-colors"
-                    style={{ background: '#1A2240' }}
-                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#2A3250'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#1A2240'}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Clock size={11} style={{ color: '#7B9FE0' }} />
-                      <span className="text-xs truncate" style={{ color: '#9BB8F0' }}>
-                        <strong>Pending funding:</strong> {deal.property_address} — approved {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
-                      </span>
-                    </div>
-                    <ChevronRight size={12} style={{ color: '#7B9FE0' }} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        })()}
 
         {/* Status Filter Tabs */}
-        <div className="flex flex-wrap gap-1.5 mb-3">
+        <div className="flex flex-wrap gap-1.5 mb-4">
           {[
             { label: 'All', value: null },
             { label: 'Under Review', value: 'under_review' },
@@ -552,290 +499,220 @@ export default function AdminDashboard() {
           ].map((tab) => {
             const isActive = statusFilter === tab.value
             const count = tab.value ? allDeals.filter(d => d.status === tab.value).length : allDeals.length
-            // Count unread messages for deals in this status
             const unreadInStatus = tab.value
               ? allDeals.filter(d => d.status === tab.value && stats.dealsWithUnreadMessages.includes(d.id)).length
               : stats.unreadAgentMessages
-            const showNotificationBadge = (tab.value === 'under_review' && count > 0) || unreadInStatus > 0
-            const badgeNumber = unreadInStatus > 0 ? unreadInStatus : count
+            const showBadge = (tab.value === 'under_review' && count > 0) || unreadInStatus > 0
             return (
-              <button
+              <Button
                 key={tab.label}
+                variant={isActive ? 'default' : 'outline'}
+                size="sm"
+                className={`gap-1.5 text-xs ${!isActive ? 'border-border/50 text-muted-foreground hover:text-foreground' : ''}`}
                 onClick={() => { setStatusFilter(tab.value); setCurrentPage(1) }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                style={isActive
-                  ? { background: colors.textPrimary, color: colors.pageBg }
-                  : { background: colors.cardBg, color: colors.textSecondary, border: `1px solid ${colors.border}` }
-                }
-                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = colors.cardHoverBg }}
-                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = colors.cardBg }}
               >
                 {tab.label}
-                {showNotificationBadge ? (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
-                    {badgeNumber}
-                  </span>
+                {showBadge ? (
+                  <Badge variant="destructive" className="h-4 min-w-[16px] px-1 text-[10px] animate-pulse">
+                    {unreadInStatus > 0 ? unreadInStatus : count}
+                  </Badge>
                 ) : (
-                  <span className="text-xs opacity-60">({count})</span>
+                  <span className="text-xs opacity-50">({count})</span>
                 )}
-              </button>
+              </Button>
             )
           })}
         </div>
 
-        {/* Deals Table with Search, Filter & Pagination */}
-        {(() => {
-          // Status priority for sorting (lower = show first)
-          const statusPriority: Record<string, number> = {
-            under_review: 0, approved: 1, funded: 2,
-            completed: 3, denied: 4, cancelled: 5,
-          }
-
-          // Filter, search, and sort by priority
-          let filtered = allDeals
-          if (statusFilter) filtered = filtered.filter(d => d.status === statusFilter)
-          if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase()
-            filtered = filtered.filter(d => {
-              const agentName = d.agents ? `${d.agents.first_name || ''} ${d.agents.last_name || ''}`.toLowerCase() : ''
-              return d.property_address?.toLowerCase().includes(q) || agentName.includes(q)
-            })
-          }
-          // Sort: active statuses first, then by created_at desc within each group
-          filtered = [...filtered].sort((a, b) => {
-            const pa = statusPriority[a.status] ?? 99
-            const pb = statusPriority[b.status] ?? 99
-            if (pa !== pb) return pa - pb
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          })
-          const totalPages = Math.max(1, Math.ceil(filtered.length / DEALS_PER_PAGE))
-          const page = Math.min(currentPage, totalPages)
-          const paged = filtered.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
-
-          return (
-            <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-              <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold" style={{ color: colors.textPrimary }}>
-                    {statusFilter ? `${statusFilter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} Deals` : 'All Deals'}
-                  </h3>
-                  {statusFilter && (
-                    <button
-                      onClick={() => { setStatusFilter(null); setCurrentPage(1) }}
-                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors"
-                      style={{ background: isDark ? '#1A1A1A' : '#F2F2F0', color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                      onMouseLeave={(e) => e.currentTarget.style.background = isDark ? '#1A1A1A' : '#F2F2F0'}
-                    >
-                      <X size={12} /> Clear filter
-                    </button>
-                  )}
-                  <span className="text-xs font-medium" style={{ color: colors.textMuted }}>{filtered.length} deal{filtered.length !== 1 ? 's' : ''}</span>
-                </div>
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: colors.textFaint }} />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-                    placeholder="Search by address or agent name..."
-                    className="pl-9 pr-4 py-2 rounded-lg text-sm outline-none w-full sm:w-72"
-                    style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = '#5FA873'; e.currentTarget.style.boxShadow = `0 0 0 2px rgba(95,168,115,${isDark ? '0.25' : '0.15'})` }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder; e.currentTarget.style.boxShadow = 'none' }}
-                  />
-                </div>
+        {/* Deals Table */}
+        <Card className="border-border/50">
+          <CardHeader className="py-3 px-4 border-b border-border/50">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm">
+                  {statusFilter ? `${statusFilter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} Deals` : 'All Deals'}
+                </CardTitle>
+                {statusFilter && (
+                  <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs text-muted-foreground" onClick={() => { setStatusFilter(null); setCurrentPage(1) }}>
+                    <X size={12} /> Clear
+                  </Button>
+                )}
+                <span className="text-xs text-muted-foreground">{filtered.length} deal{filtered.length !== 1 ? 's' : ''}</span>
               </div>
-              {paged.length === 0 ? (
-                <div className="px-6 py-16 text-center">
-                  <FileText className="mx-auto mb-4" size={40} style={{ color: colors.textFaint }} />
-                  <p className="text-base font-semibold" style={{ color: colors.textSecondary }}>
-                    {searchQuery || statusFilter ? 'No deals match your search' : 'No deals yet'}
-                  </p>
-                  <p className="text-sm mt-1" style={{ color: colors.textMuted }}>
-                    {searchQuery || statusFilter ? 'Try adjusting your search or clearing the filter.' : 'Deals will appear here once agents start submitting advance requests.'}
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* Desktop Table - hidden on mobile */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr style={{ background: colors.tableHeaderBg }}>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Commission</th>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Advance</th>
-                          <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing</th>
-                          <th className="px-4 py-2 w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paged.map((deal, i) => (
-                          <tr
-                            key={deal.id}
-                            className="cursor-pointer transition-colors"
-                            style={{ borderBottom: i < paged.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
-                            onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                            onMouseEnter={(e) => e.currentTarget.style.background = colors.tableRowHoverBg}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                          >
-                            <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>
-                              <span className="flex items-center gap-1.5">
-                                {deal.property_address}
-                                {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: '#DC262615', color: '#DC2626', flexShrink: 0 }}>
-                                    <MessageSquare size={11} />
-                                    New
-                                  </span>
-                                )}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-sm" style={{ color: colors.textSecondary }}>
-                              {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span
-                                className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
-                                style={getStatusBadgeStyle(deal.status)}
-                              >
-                                {formatStatusLabel(deal.status)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</td>
-                            <td className="px-4 py-2.5 text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>{formatCurrency(deal.advance_amount)}</td>
-                            <td className="px-4 py-2.5 text-sm" style={{ color: colors.textMuted }}>{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
-                            <td className="px-4 py-2.5"><ChevronRight size={14} style={{ color: colors.textFaint }} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+                  placeholder="Search by address or agent..."
+                  className="pl-9 h-9 w-full sm:w-72 bg-secondary/50 border-border/50"
+                />
+              </div>
+            </div>
+          </CardHeader>
 
-                  {/* Mobile Card Layout - visible only on mobile */}
-                  <div className="md:hidden space-y-2 px-4 py-3">
+          {paged.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <FileText className="mx-auto mb-4 text-muted-foreground/30" size={40} />
+              <p className="text-sm font-medium text-muted-foreground">
+                {searchQuery || statusFilter ? 'No deals match your search' : 'No deals yet'}
+              </p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                {searchQuery || statusFilter ? 'Try adjusting your search or clearing the filter.' : 'Deals will appear here once agents submit advance requests.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Desktop Table */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent border-border/50">
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Property</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Agent</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Status</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Commission</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Advance</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Closing</TableHead>
+                      <TableHead className="w-8"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {paged.map((deal) => (
-                      <div
+                      <TableRow
                         key={deal.id}
-                        className="cursor-pointer transition-colors rounded-lg p-3.5"
-                        style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}
+                        className="cursor-pointer border-border/30 hover:bg-secondary/50 transition-colors"
                         onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                        onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                        onMouseLeave={(e) => e.currentTarget.style.background = colors.cardBg}
                       >
-                        {/* Property Address + New Badge */}
-                        <div className="flex items-start gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold truncate" style={{ color: colors.textPrimary }}>
-                              {deal.property_address}
-                            </p>
-                          </div>
-                          {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" style={{ background: '#DC262615', color: '#DC2626', flexShrink: 0 }}>
-                              <MessageSquare size={11} />
-                              New
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Agent Name + Status Badge */}
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <p className="text-sm truncate" style={{ color: colors.textSecondary }}>
-                            {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
-                          </p>
-                          <span
-                            className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap"
-                            style={getStatusBadgeStyle(deal.status)}
-                          >
+                        <TableCell className="text-sm font-medium">
+                          <span className="flex items-center gap-1.5">
+                            {deal.property_address}
+                            {stats.dealsWithUnreadMessages.includes(deal.id) && (
+                              <Badge variant="destructive" className="gap-0.5 px-1.5 py-0 text-[10px] font-bold h-5">
+                                <MessageSquare size={10} /> New
+                              </Badge>
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
                             {formatStatusLabel(deal.status)}
                           </span>
-                        </div>
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">{formatCurrency(deal.gross_commission)}</TableCell>
+                        <TableCell className={`text-sm font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {formatCurrency(deal.advance_amount)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </TableCell>
+                        <TableCell><ChevronRight size={14} className="text-muted-foreground/40" /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
-                        {/* Commission and Advance */}
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <div>
-                            <p className="text-xs" style={{ color: colors.textMuted }}>Commission</p>
-                            <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>
-                              {formatCurrency(deal.gross_commission)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs" style={{ color: colors.textMuted }}>Advance</p>
-                            <p className="text-sm font-bold" style={{ color: ['denied', 'cancelled'].includes(deal.status) ? colors.errorText : colors.successText }}>
-                              {formatCurrency(deal.advance_amount)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Closing Date */}
+              {/* Mobile Cards */}
+              <div className="md:hidden space-y-2 p-3">
+                {paged.map((deal) => (
+                  <Card
+                    key={deal.id}
+                    className="cursor-pointer border-border/30 hover:bg-secondary/50 transition-colors"
+                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                  >
+                    <CardContent className="p-3.5">
+                      <div className="flex items-start gap-2 mb-2">
+                        <p className="text-sm font-bold text-foreground truncate flex-1">{deal.property_address}</p>
+                        {stats.dealsWithUnreadMessages.includes(deal.id) && (
+                          <Badge variant="destructive" className="gap-0.5 px-1.5 py-0 text-[10px] font-bold shrink-0">
+                            <MessageSquare size={10} /> New
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <p className="text-sm text-muted-foreground truncate">
+                          {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
+                        </p>
+                        <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap" style={getStatusBadgeStyle(deal.status)}>
+                          {formatStatusLabel(deal.status)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
                         <div>
-                          <p className="text-xs" style={{ color: colors.textMuted }}>Closing</p>
-                          <p className="text-sm" style={{ color: colors.textSecondary }}>
-                            {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          <p className="text-xs text-muted-foreground">Commission</p>
+                          <p className="text-sm font-medium">{formatCurrency(deal.gross_commission)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Advance</p>
+                          <p className={`text-sm font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {formatCurrency(deal.advance_amount)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Closing</p>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
                           </p>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="px-6 py-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}` }}>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>
-                    Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, filtered.length)} of {filtered.length}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="p-2 rounded-lg transition-colors disabled:opacity-30"
-                      style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = colors.cardHoverBg }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="px-4 py-3 flex items-center justify-between border-t border-border/50">
+              <p className="text-xs text-muted-foreground">
+                {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, filtered.length)} of {filtered.length}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-border/50"
+                  disabled={page === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft size={14} />
+                </Button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum: number
+                  if (totalPages <= 5) pageNum = i + 1
+                  else if (page <= 3) pageNum = i + 1
+                  else if (page >= totalPages - 2) pageNum = totalPages - 4 + i
+                  else pageNum = page - 2 + i
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={pageNum === page ? 'default' : 'outline'}
+                      size="icon"
+                      className={`h-8 w-8 text-xs ${pageNum !== page ? 'border-border/50' : ''}`}
+                      onClick={() => setCurrentPage(pageNum)}
                     >
-                      <ChevronLeft size={14} />
-                    </button>
-                    {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                      let pageNum: number
-                      if (totalPages <= 5) { pageNum = i + 1 }
-                      else if (page <= 3) { pageNum = i + 1 }
-                      else if (page >= totalPages - 2) { pageNum = totalPages - 4 + i }
-                      else { pageNum = page - 2 + i }
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className="w-8 h-8 rounded-lg text-xs font-semibold transition-colors"
-                          style={pageNum === page
-                            ? { background: '#1E1E1E', color: '#FFFFFF' }
-                            : { color: colors.textSecondary, border: `1px solid ${colors.border}` }
-                          }
-                          onMouseEnter={(e) => { if (pageNum !== page) e.currentTarget.style.background = colors.cardHoverBg }}
-                          onMouseLeave={(e) => { if (pageNum !== page) e.currentTarget.style.background = 'transparent' }}
-                        >
-                          {pageNum}
-                        </button>
-                      )
-                    })}
-                    <button
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="p-2 rounded-lg transition-colors disabled:opacity-30"
-                      style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
-                      onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = colors.cardHoverBg }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
-                </div>
-              )}
+                      {pageNum}
+                    </Button>
+                  )
+                })}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-border/50"
+                  disabled={page === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                >
+                  <ChevronRight size={14} />
+                </Button>
+              </div>
             </div>
-          )
-        })()}
+          )}
+        </Card>
       </main>
     </div>
   )

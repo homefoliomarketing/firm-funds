@@ -15,9 +15,11 @@ import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
-import { useTheme } from '@/lib/theme'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface Deal {
   id: string
@@ -73,18 +75,13 @@ export default function BrokerageDashboard() {
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [downloadingCsv, setDownloadingCsv] = useState(false)
   const [showMonthlyChart, setShowMonthlyChart] = useState(true)
-  // Messaging state
   const [brokerageInbox, setBrokerageInbox] = useState<any[]>([])
   const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
   const [dealMessages, setDealMessages] = useState<any[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
-  const [msgText, setMsgText] = useState('')
-  const [msgSending, setMsgSending] = useState(false)
-  const msgEndRef = useRef<HTMLDivElement>(null)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
-  const { colors, isDark } = useTheme()
 
   useEffect(() => {
     async function loadBrokerage() {
@@ -98,7 +95,6 @@ export default function BrokerageDashboard() {
         setBrokerage(brokerageData)
         const { data: dealData } = await supabase.from('deals').select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage)').eq('brokerage_id', profileData.brokerage_id).order('created_at', { ascending: false })
         setDeals(dealData || [])
-        // Check which deals have trade records uploaded
         if (dealData && dealData.length > 0) {
           const dealIds = dealData.map((d: any) => d.id)
           const { data: tradeRecDocs } = await supabase
@@ -112,7 +108,6 @@ export default function BrokerageDashboard() {
         }
         const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profileData.brokerage_id).order('last_name', { ascending: true })
         setAgents(agentData || [])
-        // Pre-load inbox for message notification badge
         getBrokerageInbox(profileData.brokerage_id).then(r => {
           if (r.success && r.data) setBrokerageInbox(r.data.inbox)
         })
@@ -218,21 +213,19 @@ export default function BrokerageDashboard() {
   // Computed values
   // =========================================================================
 
-  // Sort deals by workflow priority
   const sortedDeals = useMemo(() => {
     const getPriority = (deal: Deal) => {
-      if (deal.status === 'under_review' && !dealTradeRecords.has(deal.id)) return 0 // Needs trade record — most urgent
-      if (deal.status === 'under_review') return 1 // Under review, has trade record
+      if (deal.status === 'under_review' && !dealTradeRecords.has(deal.id)) return 0
+      if (deal.status === 'under_review') return 1
       if (deal.status === 'approved') return 2
       if (deal.status === 'funded') return 3
-      return 4 // completed, denied, cancelled
+      return 4
     }
     const sorted = [...deals]
     sorted.sort((a, b) => {
       const pa = getPriority(a)
       const pb = getPriority(b)
       if (pa !== pb) return pa - pb
-      // Same priority — newest first
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
     return sorted
@@ -243,7 +236,6 @@ export default function BrokerageDashboard() {
   const pendingDeals = useMemo(() =>
     deals.filter(d => ['under_review', 'approved'].includes(d.status)), [deals])
 
-  // Notification counts for tabs
   const dealsMissingTradeRecord = useMemo(() =>
     deals.filter(d => !['denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
     [deals, dealTradeRecords])
@@ -255,34 +247,27 @@ export default function BrokerageDashboard() {
   const pendingReferralFees = useMemo(() =>
     pendingDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [pendingDeals])
 
-  // Available months for filter (from deal closing dates)
   const availableMonths = useMemo(() => {
     const months = new Set<string>()
     deals.forEach(d => {
       if (['funded', 'completed', 'under_review', 'approved'].includes(d.status) && d.closing_date) {
-        months.add(d.closing_date.slice(0, 7)) // YYYY-MM
+        months.add(d.closing_date.slice(0, 7))
       }
     })
     return Array.from(months).sort().reverse()
   }, [deals])
 
-  // Filtered referral deals by month and earned/pending status
   const filteredReferralDeals = useMemo(() => {
     let allReferral = [...earnedDeals, ...pendingDeals]
-
-    // Apply earned/pending filter
     if (referralFilter === 'earned') {
       allReferral = allReferral.filter(d => ['funded', 'completed'].includes(d.status))
     } else if (referralFilter === 'pending') {
       allReferral = allReferral.filter(d => ['under_review', 'approved'].includes(d.status))
     }
-
-    // Apply month filter
     if (referralMonth === 'all') return allReferral
     return allReferral.filter(d => d.closing_date?.startsWith(referralMonth))
   }, [earnedDeals, pendingDeals, referralMonth, referralFilter])
 
-  // Monthly summary for accounting breakdown
   const monthlySummary = useMemo(() => {
     const map = new Map<string, { earned: number; pending: number; dealCount: number; pendingCount: number }>()
     earnedDeals.forEach(d => {
@@ -304,61 +289,48 @@ export default function BrokerageDashboard() {
       .map(([month, data]) => ({ month, ...data }))
   }, [earnedDeals, pendingDeals])
 
-  // Average referral fee per deal
   const avgFeePerDeal = earnedDeals.length > 0 ? totalReferralFees / earnedDeals.length : 0
 
-  // =========================================================================
-  // Format helpers
-  // =========================================================================
-
-  // formatCurrency, formatDate imported from @/lib/formatting
   const formatMonthLabel = (ym: string) => {
     const [year, month] = ym.split('-').map(Number)
     return new Date(year, month - 1, 1).toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })
   }
 
-  // =========================================================================
-  // Loading state
-  // =========================================================================
-
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <header style={{ background: colors.headerBgGradient }}>
+      <div className="min-h-screen bg-background">
+        <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div className="h-6 w-36 rounded-md animate-pulse" style={{ background: 'rgba(255,255,255,0.1)' }} />
+            <Skeleton className="h-6 w-36 bg-white/10" />
           </div>
         </header>
         <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="h-6 w-48 rounded-lg mb-2 animate-pulse" style={{ background: colors.skeletonBase }} />
-          <div className="h-3 w-36 rounded mb-4 animate-pulse" style={{ background: colors.skeletonHighlight }} />
-          <div className="h-3 w-48 rounded animate-pulse mb-4" style={{ background: colors.skeletonHighlight }} />
+          <Skeleton className="h-6 w-48 rounded-lg mb-2" />
+          <Skeleton className="h-3 w-36 rounded mb-4" />
+          <Skeleton className="h-3 w-48 rounded mb-4" />
         </main>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
+      <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
               <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
-              <div className="w-px h-8 hidden sm:block" style={{ background: 'rgba(255,255,255,0.15)' }} />
+              <div className="w-px h-8 hidden sm:block bg-white/15" />
               <p className="text-xs sm:text-sm font-medium tracking-wide text-white hidden sm:block">
                 Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs hidden sm:inline" style={{ color: '#5FA873' }}>{profile?.full_name}</span>
+              <span className="text-xs hidden sm:inline text-primary">{profile?.full_name}</span>
               <button
                 onClick={() => router.push('/brokerage/settings')}
-                className="p-1.5 rounded-lg transition-colors"
-                style={{ color: 'rgba(255,255,255,0.5)' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#5FA873'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+                className="p-1.5 rounded-lg transition-colors text-white/50 hover:text-primary"
                 title="Settings"
               >
                 <Settings size={16} />
@@ -372,15 +344,15 @@ export default function BrokerageDashboard() {
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Welcome */}
         <div className="mb-4">
-          <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+          <h2 className="text-lg font-bold text-foreground">
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h2>
-          <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>Manage your brokerage&apos;s commission advance activity.</p>
+          <p className="text-xs mt-0.5 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
         </div>
 
         {/* Tabbed Content */}
-        <div className="rounded-lg overflow-hidden" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex overflow-x-auto" style={{ borderBottom: `1px solid ${colors.border}` }}>
+        <Card className="overflow-hidden">
+          <div className="flex overflow-x-auto border-b border-border/50">
             {(['deals', 'agents', 'referrals', 'payments', 'messages'] as const).map((tab) => (
               <button
                 key={tab}
@@ -392,22 +364,20 @@ export default function BrokerageDashboard() {
                     })
                   }
                 }}
-                className="px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5"
-                style={activeTab === tab
-                  ? { color: colors.gold, borderBottom: `2px solid ${colors.gold}`, marginBottom: '-1px' }
-                  : { color: colors.textMuted }
-                }
-                onMouseEnter={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textSecondary }}
-                onMouseLeave={(e) => { if (activeTab !== tab) e.currentTarget.style.color = colors.textMuted }}
+                className={`px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 border-b-2 -mb-px ${
+                  activeTab === tab
+                    ? 'text-primary border-primary'
+                    : 'text-muted-foreground border-transparent hover:text-foreground/80'
+                }`}
               >
                 {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : tab === 'payments' ? 'Payment Status' : 'Messages'}
                 {tab === 'deals' && dealsMissingTradeRecord > 0 && (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse bg-red-600 text-white">
                     {dealsMissingTradeRecord}
                   </span>
                 )}
                 {tab === 'messages' && unansweredMessageCount > 0 && (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse" style={{ background: '#DC2626', color: '#FFF' }}>
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse bg-red-600 text-white">
                     {unansweredMessageCount}
                   </span>
                 )}
@@ -417,13 +387,11 @@ export default function BrokerageDashboard() {
 
           {/* Upload Status Message */}
           {uploadMessage && (
-            <div
-              className="mx-4 sm:mx-6 mt-4 p-3 rounded-lg text-sm font-medium"
-              style={uploadMessage.type === 'success'
-                ? { background: colors.successBg, border: `1px solid ${colors.successBorder}`, color: colors.successText }
-                : { background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }
-              }
-            >
+            <div className={`mx-4 sm:mx-6 mt-4 p-3 rounded-lg text-sm font-medium border ${
+              uploadMessage.type === 'success'
+                ? 'bg-green-950/50 border-green-800 text-green-400'
+                : 'bg-red-950/50 border-red-800 text-red-400'
+            }`}>
               {uploadMessage.text}
             </div>
           )}
@@ -435,9 +403,9 @@ export default function BrokerageDashboard() {
             <>
               {deals.length === 0 ? (
                 <div className="px-6 py-16 text-center">
-                  <FileText className="mx-auto mb-4" size={40} style={{ color: colors.textFaint }} />
-                  <p className="text-base font-semibold" style={{ color: colors.textSecondary }}>No deals yet</p>
-                  <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Deals will appear here when your agents request commission advances.</p>
+                  <FileText className="mx-auto mb-4 text-muted-foreground/30" size={40} />
+                  <p className="text-base font-semibold text-muted-foreground">No deals yet</p>
+                  <p className="text-sm mt-1 text-muted-foreground/70">Deals will appear here when your agents request commission advances.</p>
                 </div>
               ) : (
                 <div>
@@ -449,24 +417,18 @@ export default function BrokerageDashboard() {
                   })().map((deal, i) => (
                     <div key={deal.id}>
                       <div
-                        className="px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                        style={{ borderBottom: i < sortedDeals.length - 1 && expandedDeal !== deal.id ? `1px solid ${colors.divider}` : 'none' }}
+                        className="px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-colors hover:bg-muted/30 border-b border-border/30"
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
-                        onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
-                          <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
+                          <p className="text-sm font-medium truncate text-foreground">{deal.property_address}</p>
+                          <p className="text-xs mt-1 text-muted-foreground">
                             Agent: {deal.agent?.first_name} {deal.agent?.last_name} | Submitted {formatDate(deal.created_at)}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                           {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
-                            <span
-                              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md"
-                              style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}
-                            >
+                            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-yellow-950/50 text-yellow-400 border border-yellow-800">
                               <AlertTriangle size={11} />
                               Trade Record Needed
                             </span>
@@ -477,54 +439,47 @@ export default function BrokerageDashboard() {
                           >
                             {formatStatusLabel(deal.status)}
                           </span>
-                          <p className="text-sm font-bold w-24 sm:w-28 text-right" style={{ color: colors.successText }}>{formatCurrency(deal.advance_amount)}</p>
+                          <p className="text-sm font-bold w-24 sm:w-28 text-right text-green-400">{formatCurrency(deal.advance_amount)}</p>
                           {expandedDeal === deal.id
-                            ? <ChevronUp size={16} style={{ color: colors.textFaint }} />
-                            : <ChevronDown size={16} style={{ color: colors.textFaint }} />
+                            ? <ChevronUp size={16} className="text-muted-foreground/40" />
+                            : <ChevronDown size={16} className="text-muted-foreground/40" />
                           }
                         </div>
                       </div>
 
                       {expandedDeal === deal.id && (
-                        <div className="px-4 pb-4" style={{ background: colors.tableHeaderBg, borderBottom: `1px solid ${colors.divider}` }}>
+                        <div className="px-4 pb-4 bg-muted/20 border-b border-border/30">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">
                             <div>
-                              <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Deal Details</h4>
+                              <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Deal Details</h4>
                               <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Property</span><span className="font-medium text-right" style={{ color: colors.textPrimary }}>{deal.property_address}</span></div>
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Closing Date</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatDate(deal.closing_date)}</span></div>
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Days Until Closing</span><span className="font-medium" style={{ color: colors.textPrimary }}>{deal.days_until_closing}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Property</span><span className="font-medium text-right text-foreground">{deal.property_address}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Closing Date</span><span className="font-medium text-foreground">{formatDate(deal.closing_date)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Days Until Closing</span><span className="font-medium text-foreground">{deal.days_until_closing}</span></div>
                               </div>
                             </div>
                             <div>
-                              <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Financial Summary</h4>
+                              <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Financial Summary</h4>
                               <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Gross Commission</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.gross_commission)}</span></div>
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Brokerage Split</span><span className="font-medium" style={{ color: colors.textPrimary }}>{deal.brokerage_split_pct}%</span></div>
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Agent Advance</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.advance_amount)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Gross Commission</span><span className="font-medium text-foreground">{formatCurrency(deal.gross_commission)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split</span><span className="font-medium text-foreground">{deal.brokerage_split_pct}%</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Agent Advance</span><span className="font-medium text-foreground">{formatCurrency(deal.advance_amount)}</span></div>
                               </div>
                             </div>
                             <div>
-                              <h4 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: colors.gold }}>Brokerage Info</h4>
+                              <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Brokerage Info</h4>
                               <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Referral Fee</span><span className="font-bold" style={{ color: colors.successText }}>{formatCurrency(deal.brokerage_referral_fee)}</span></div>
-                                <div className="flex justify-between"><span style={{ color: colors.textMuted }}>Due to Firm Funds</span><span className="font-medium" style={{ color: colors.textPrimary }}>{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Referral Fee</span><span className="font-bold text-green-400">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Due to Firm Funds</span><span className="font-medium text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
                               </div>
-                              {/* Denial Reason (if denied) */}
                               {deal.status === 'denied' && deal.denial_reason && (
-                                <div className="mt-3 rounded-lg p-3" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}` }}>
-                                  <p className="text-xs font-bold" style={{ color: colors.errorText }}>Denial Reason</p>
-                                  <p className="text-xs mt-1" style={{ color: colors.errorText, opacity: 0.9 }}>{deal.denial_reason}</p>
+                                <div className="mt-3 rounded-lg p-3 bg-red-950/50 border border-red-800">
+                                  <p className="text-xs font-bold text-red-400">Denial Reason</p>
+                                  <p className="text-xs mt-1 text-red-400/90">{deal.denial_reason}</p>
                                 </div>
                               )}
-                              {/* Trade Record Upload */}
-                              <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${colors.border}` }}>
-                                <label
-                                  className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                                  style={{ background: colors.infoBg, color: colors.infoText, border: `1px solid ${colors.infoBorder}` }}
-                                  onMouseEnter={(e) => e.currentTarget.style.background = isDark ? '#0F1A3D' : '#E0EAFF'}
-                                  onMouseLeave={(e) => e.currentTarget.style.background = colors.infoBg}
-                                >
+                              <div className="mt-4 pt-3 border-t border-border/50">
+                                <label className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors bg-blue-950/40 text-blue-400 border border-blue-800 hover:bg-blue-950/60">
                                   {uploadingDeal === deal.id ? (
                                     <span>Uploading...</span>
                                   ) : (
@@ -545,7 +500,7 @@ export default function BrokerageDashboard() {
                                     }}
                                   />
                                 </label>
-                                <p className="text-xs mt-1.5" style={{ color: colors.textFaint }}>Upload a trade record / deal sheet for this deal</p>
+                                <p className="text-xs mt-1.5 text-muted-foreground/50">Upload a trade record / deal sheet for this deal</p>
                               </div>
                             </div>
                           </div>
@@ -558,28 +513,30 @@ export default function BrokerageDashboard() {
                     const totalPages = Math.ceil(sortedDeals.length / DEALS_PER_PAGE)
                     const page = Math.min(dealsPage, totalPages)
                     return (
-                      <div className="px-4 sm:px-6 py-4 flex items-center justify-between" style={{ borderTop: `1px solid ${colors.border}` }}>
-                        <p className="text-xs" style={{ color: colors.textMuted }}>
+                      <div className="px-4 sm:px-6 py-4 flex items-center justify-between border-t border-border/50">
+                        <p className="text-xs text-muted-foreground">
                           Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, sortedDeals.length)} of {sortedDeals.length}
                         </p>
                         <div className="flex items-center gap-1">
-                          <button
+                          <Button
                             onClick={() => setDealsPage(p => Math.max(1, p - 1))}
                             disabled={page === 1}
-                            className="p-2 rounded-lg transition-colors disabled:opacity-30"
-                            style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                            variant="outline"
+                            size="sm"
+                            className="p-2 h-8 w-8"
                           >
                             <ChevronLeft size={14} />
-                          </button>
-                          <span className="text-xs font-semibold px-3" style={{ color: colors.textSecondary }}>{page} / {totalPages}</span>
-                          <button
+                          </Button>
+                          <span className="text-xs font-semibold px-3 text-foreground/80">{page} / {totalPages}</span>
+                          <Button
                             onClick={() => setDealsPage(p => Math.min(totalPages, p + 1))}
                             disabled={page === totalPages}
-                            className="p-2 rounded-lg transition-colors disabled:opacity-30"
-                            style={{ color: colors.textSecondary, border: `1px solid ${colors.border}` }}
+                            variant="outline"
+                            size="sm"
+                            className="p-2 h-8 w-8"
                           >
                             <ChevronRight size={14} />
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )
@@ -596,50 +553,40 @@ export default function BrokerageDashboard() {
             <>
               {agents.length === 0 ? (
                 <div className="px-6 py-16 text-center">
-                  <Users className="mx-auto mb-4" size={40} style={{ color: colors.textFaint }} />
-                  <p className="text-base font-semibold" style={{ color: colors.textSecondary }}>No agents registered</p>
-                  <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Agents will appear here once they are added to the system.</p>
+                  <Users className="mx-auto mb-4 text-muted-foreground/30" size={40} />
+                  <p className="text-base font-semibold text-muted-foreground">No agents registered</p>
+                  <p className="text-sm mt-1 text-muted-foreground/70">Agents will appear here once they are added to the system.</p>
                 </div>
               ) : (
                 <div>
                   {agents.map((agent, i) => (
                     <div
                       key={agent.id}
-                      className="px-4 sm:px-6 py-4 flex items-center justify-between transition-colors"
-                      style={{ borderBottom: i < agents.length - 1 ? `1px solid ${colors.divider}` : 'none' }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = colors.cardHoverBg}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      className="px-4 sm:px-6 py-4 flex items-center justify-between transition-colors hover:bg-muted/20 border-b border-border/30 last:border-0"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>{agent.first_name} {agent.last_name}</p>
+                        <p className="text-sm font-medium truncate text-foreground">{agent.first_name} {agent.last_name}</p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className="text-xs truncate" style={{ color: colors.textMuted }}>{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
-                          {/* KYC Status Badge */}
+                          <span className="text-xs truncate text-muted-foreground">{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
                           {agent.kyc_status === 'verified' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                              style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
                               <Shield size={9} /> KYC
                             </span>
                           ) : agent.kyc_status === 'submitted' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                              style={{ background: colors.warningBg, color: colors.warningText, border: `1px solid ${colors.warningBorder}` }}>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-yellow-950/50 text-yellow-400 border border-yellow-800">
                               <Clock size={9} /> KYC Pending
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                              style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-red-950/50 text-red-400 border border-red-800">
                               <XCircle size={9} /> No KYC
                             </span>
                           )}
-                          {/* Banking Status Badge */}
                           {agent.banking_verified ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                              style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
                               <CreditCard size={9} /> Banking
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                              style={{ background: '#1A2240', color: '#6B8AC0', border: '1px solid #2D3A5C' }}>
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-950/30 text-blue-400/70 border border-blue-900/50">
                               <CreditCard size={9} /> No Banking
                             </span>
                           )}
@@ -647,34 +594,24 @@ export default function BrokerageDashboard() {
                       </div>
                       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                         {agent.flagged_by_brokerage ? (
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md"
-                            style={{ background: colors.errorBg, color: colors.errorText, border: `1px solid ${colors.errorBorder}` }}
-                          >
+                          <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-red-950/50 text-red-400 border border-red-800">
                             <AlertTriangle size={12} />
                             <span className="hidden sm:inline">Flagged</span>
                           </span>
                         ) : (
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md"
-                            style={{ background: colors.successBg, color: colors.successText, border: `1px solid ${colors.successBorder}` }}
-                          >
+                          <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-green-950/50 text-green-400 border border-green-800">
                             <CheckCircle size={12} />
                             <span className="hidden sm:inline">Good Standing</span>
                           </span>
                         )}
-                        <button
+                        <Button
                           onClick={() => handleToggleFlag(agent.id, agent.flagged_by_brokerage)}
-                          className="text-xs px-2 sm:px-3 py-1.5 rounded-lg font-medium transition-colors"
-                          style={agent.flagged_by_brokerage
-                            ? { color: colors.successText, border: `1px solid ${colors.successBorder}` }
-                            : { color: colors.errorText, border: `1px solid ${colors.errorBorder}` }
-                          }
-                          onMouseEnter={(e) => e.currentTarget.style.background = agent.flagged_by_brokerage ? colors.successBg : colors.errorBg}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          variant="outline"
+                          size="sm"
+                          className={`text-xs ${agent.flagged_by_brokerage ? 'text-green-400 border-green-800 hover:bg-green-950/30' : 'text-red-400 border-red-800 hover:bg-red-950/30'}`}
                         >
                           {agent.flagged_by_brokerage ? 'Remove Flag' : 'Flag'}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -688,73 +625,70 @@ export default function BrokerageDashboard() {
           {/* ================================================================ */}
           {activeTab === 'referrals' && (
             <div className="p-4">
-              {/* Summary Cards - Clickable */}
+              {/* Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                 <div
-                  className="rounded-lg px-4 py-3 cursor-pointer transition-opacity hover:opacity-80"
-                  style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}
+                  className="rounded-lg px-4 py-3 cursor-pointer hover:opacity-80 transition-opacity bg-green-950/40 border border-green-800"
                   onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText, opacity: 0.7 }}>Total Earned</p>
-                  <p className="text-xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalReferralFees)}</p>
-                  <p className="text-xs" style={{ color: colors.successText, opacity: 0.6 }}>{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
-                  {referralFilter === 'earned' && <p className="text-xs mt-1 font-semibold" style={{ color: colors.successText }}>Show All</p>}
+                  <p className="text-xs font-semibold uppercase tracking-wider text-green-400/70">Total Earned</p>
+                  <p className="text-xl font-black mt-1 text-green-400">{formatCurrency(totalReferralFees)}</p>
+                  <p className="text-xs text-green-400/60">{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
+                  {referralFilter === 'earned' && <p className="text-xs mt-1 font-semibold text-green-400">Show All</p>}
                 </div>
                 <div
-                  className="rounded-lg px-4 py-3 cursor-pointer transition-opacity hover:opacity-80"
-                  style={{ background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}
+                  className="rounded-lg px-4 py-3 cursor-pointer hover:opacity-80 transition-opacity bg-yellow-950/40 border border-yellow-800"
                   onClick={() => setReferralFilter(referralFilter === 'pending' ? 'all' : 'pending')}
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.warningText, opacity: 0.7 }}>Pending</p>
-                  <p className="text-xl font-black mt-1" style={{ color: colors.warningText }}>{formatCurrency(pendingReferralFees)}</p>
-                  <p className="text-xs" style={{ color: colors.warningText, opacity: 0.6 }}>{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
-                  {referralFilter === 'pending' && <p className="text-xs mt-1 font-semibold" style={{ color: colors.warningText }}>Show All</p>}
+                  <p className="text-xs font-semibold uppercase tracking-wider text-yellow-400/70">Pending</p>
+                  <p className="text-xl font-black mt-1 text-yellow-400">{formatCurrency(pendingReferralFees)}</p>
+                  <p className="text-xs text-yellow-400/60">{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
+                  {referralFilter === 'pending' && <p className="text-xs mt-1 font-semibold text-yellow-400">Show All</p>}
                 </div>
-                <div className="rounded-lg px-4 py-3" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.infoText, opacity: 0.7 }}>Avg Fee / Deal</p>
-                  <p className="text-xl font-black mt-1" style={{ color: colors.infoText }}>{formatCurrency(avgFeePerDeal)}</p>
-                  <p className="text-xs" style={{ color: colors.infoText, opacity: 0.6 }}>across funded deals</p>
+                <div className="rounded-lg px-4 py-3 bg-blue-950/40 border border-blue-800">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-blue-400/70">Avg Fee / Deal</p>
+                  <p className="text-xl font-black mt-1 text-blue-400">{formatCurrency(avgFeePerDeal)}</p>
+                  <p className="text-xs text-blue-400/60">across funded deals</p>
                 </div>
-                <div className="rounded-lg px-4 py-3" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.textMuted, opacity: 0.7 }}>Combined Total</p>
-                  <p className="text-xl font-black mt-1" style={{ color: colors.gold }}>{formatCurrency(totalReferralFees + pendingReferralFees)}</p>
-                  <p className="text-xs" style={{ color: colors.textMuted, opacity: 0.6 }}>earned + pending</p>
+                <div className="rounded-lg px-4 py-3 bg-card border border-border/50">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Combined Total</p>
+                  <p className="text-xl font-black mt-1 text-primary">{formatCurrency(totalReferralFees + pendingReferralFees)}</p>
+                  <p className="text-xs text-muted-foreground/60">earned + pending</p>
                 </div>
               </div>
 
               {/* Monthly Trend Chart */}
               {monthlySummary.length > 1 && (
-                <div className="rounded-lg p-4 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
+                <div className="rounded-lg p-4 mb-4 bg-card border border-border/50">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <BarChart3 size={16} style={{ color: colors.gold }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Monthly Trend</h4>
+                      <BarChart3 size={16} className="text-primary" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Monthly Trend</h4>
                     </div>
-                    <button
-                      className="text-xs px-2 py-1 rounded-md"
-                      style={{ color: colors.textMuted, background: colors.inputBg }}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7"
                       onClick={() => setShowMonthlyChart(!showMonthlyChart)}
                     >
                       {showMonthlyChart ? 'Hide' : 'Show'}
-                    </button>
+                    </Button>
                   </div>
                   {showMonthlyChart && (() => {
-                    const chartData = [...monthlySummary].reverse().slice(-12) // last 12 months, chronological
+                    const chartData = [...monthlySummary].reverse().slice(-12)
                     const maxVal = Math.max(...chartData.map(m => m.earned + m.pending), 1)
                     return (
                       <div>
-                        {/* Legend */}
                         <div className="flex items-center gap-4 mb-3">
                           <div className="flex items-center gap-1.5">
-                            <div className="w-3 h-3 rounded-sm" style={{ background: colors.successText }} />
-                            <span className="text-xs" style={{ color: colors.textMuted }}>Earned</span>
+                            <div className="w-3 h-3 rounded-sm bg-green-400" />
+                            <span className="text-xs text-muted-foreground">Earned</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <div className="w-3 h-3 rounded-sm" style={{ background: colors.warningText }} />
-                            <span className="text-xs" style={{ color: colors.textMuted }}>Pending</span>
+                            <div className="w-3 h-3 rounded-sm bg-yellow-400" />
+                            <span className="text-xs text-muted-foreground">Pending</span>
                           </div>
                         </div>
-                        {/* Bar chart */}
                         <div className="flex items-end gap-2" style={{ height: '160px' }}>
                           {chartData.map((m) => {
                             const earnedH = maxVal > 0 ? (m.earned / maxVal) * 140 : 0
@@ -765,13 +699,13 @@ export default function BrokerageDashboard() {
                               <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5" title={`${formatMonthLabel(m.month)}: Earned ${formatCurrency(m.earned)}, Pending ${formatCurrency(m.pending)}`}>
                                 <div className="w-full flex flex-col items-center justify-end" style={{ height: '140px' }}>
                                   {pendingH > 0 && (
-                                    <div className="w-full max-w-[32px] rounded-t-sm" style={{ height: `${pendingH}px`, background: colors.warningText, opacity: 0.7 }} />
+                                    <div className="w-full max-w-[32px] rounded-t-sm opacity-70" style={{ height: `${pendingH}px`, background: '#facc15' }} />
                                   )}
                                   {earnedH > 0 && (
-                                    <div className="w-full max-w-[32px]" style={{ height: `${earnedH}px`, background: colors.successText, borderRadius: pendingH > 0 ? '0' : '4px 4px 0 0' }} />
+                                    <div className="w-full max-w-[32px]" style={{ height: `${earnedH}px`, background: '#4ade80', borderRadius: pendingH > 0 ? '0' : '4px 4px 0 0' }} />
                                   )}
                                 </div>
-                                <span className="text-[10px] font-medium" style={{ color: colors.textMuted }}>{monthLabel}</span>
+                                <span className="text-[10px] font-medium text-muted-foreground">{monthLabel}</span>
                               </div>
                             )
                           })}
@@ -782,30 +716,23 @@ export default function BrokerageDashboard() {
                 </div>
               )}
 
-              {/* Fee Breakdown with Filter + PDF Download */}
+              {/* Fee Breakdown */}
               {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
                 <div className="text-center py-8">
-                  <DollarSign className="mx-auto mb-3" size={32} style={{ color: colors.textFaint }} />
-                  <p className="text-sm" style={{ color: colors.textMuted }}>No referral fees yet. Fees are earned when deals are funded.</p>
+                  <DollarSign className="mx-auto mb-3 text-muted-foreground/30" size={32} />
+                  <p className="text-sm text-muted-foreground">No referral fees yet. Fees are earned when deals are funded.</p>
                 </div>
               ) : (
                 <div>
-                  {/* Filter bar + Download */}
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
-                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Fee Breakdown by Deal</h4>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Fee Breakdown by Deal</h4>
                     <div className="flex items-center gap-3 flex-wrap">
-                      {/* Month filter */}
                       <div className="flex items-center gap-2">
-                        <Calendar size={14} style={{ color: colors.textMuted }} />
+                        <Calendar size={14} className="text-muted-foreground" />
                         <select
                           value={referralMonth}
                           onChange={(e) => setReferralMonth(e.target.value)}
-                          className="text-xs rounded-lg px-3 py-1.5 font-medium"
-                          style={{
-                            background: colors.inputBg,
-                            border: `1px solid ${colors.inputBorder}`,
-                            color: colors.inputText,
-                          }}
+                          className="text-xs rounded-lg px-3 py-1.5 font-medium bg-input border border-border text-foreground"
                         >
                           <option value="all">All Time</option>
                           {availableMonths.map(m => (
@@ -813,56 +740,43 @@ export default function BrokerageDashboard() {
                           ))}
                         </select>
                       </div>
-                      {/* CSV Export */}
-                      <button
+                      <Button
                         onClick={handleDownloadCsv}
                         disabled={downloadingCsv || filteredReferralDeals.length === 0}
-                        className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                        style={{
-                          background: colors.cardBg,
-                          color: colors.textSecondary,
-                          border: `1px solid ${colors.border}`,
-                          opacity: downloadingCsv || filteredReferralDeals.length === 0 ? 0.5 : 1,
-                        }}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-xs"
                       >
                         <Download size={13} />
                         {downloadingCsv ? 'Exporting...' : 'Export CSV'}
-                      </button>
-                      {/* PDF Download */}
-                      <button
+                      </Button>
+                      <Button
                         onClick={handleDownloadPdf}
                         disabled={downloadingPdf}
-                        className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                        style={{
-                          background: colors.gold,
-                          color: '#fff',
-                          opacity: downloadingPdf ? 0.6 : 1,
-                        }}
-                        onMouseEnter={(e) => { if (!downloadingPdf) e.currentTarget.style.background = colors.goldDark }}
-                        onMouseLeave={(e) => e.currentTarget.style.background = colors.gold}
+                        size="sm"
+                        className="gap-2 text-xs"
                       >
                         <Download size={13} />
                         {downloadingPdf ? 'Generating...' : 'Download PDF'}
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
-                  {/* Table */}
-                  <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+                  <div className="rounded-lg overflow-x-auto border border-border/50">
                     <table className="w-full min-w-[600px]">
                       <thead>
-                        <tr style={{ background: colors.tableHeaderBg }}>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Property</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Agent</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Closing Date</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Status</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Referral Fee</th>
+                        <tr className="bg-muted/50 border-b border-border/50">
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Property</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Closing Date</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Referral Fee</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredReferralDeals.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-4 py-8 text-center text-sm" style={{ color: colors.textMuted }}>
+                            <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
                               No deals found for the selected period.
                             </td>
                           </tr>
@@ -871,28 +785,27 @@ export default function BrokerageDashboard() {
                             {filteredReferralDeals.map((deal) => {
                               const isEarned = ['funded', 'completed'].includes(deal.status)
                               return (
-                                <tr key={deal.id} style={{ borderBottom: `1px solid ${colors.divider}` }}>
-                                  <td className="px-4 py-3 text-sm font-medium" style={{ color: colors.textPrimary }}>{deal.property_address}</td>
-                                  <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{deal.agent?.first_name} {deal.agent?.last_name}</td>
-                                  <td className="px-4 py-3 text-sm" style={{ color: colors.textSecondary }}>{formatDate(deal.closing_date)}</td>
+                                <tr key={deal.id} className="border-b border-border/30 last:border-0">
+                                  <td className="px-4 py-3 text-sm font-medium text-foreground">{deal.property_address}</td>
+                                  <td className="px-4 py-3 text-sm text-foreground/80">{deal.agent?.first_name} {deal.agent?.last_name}</td>
+                                  <td className="px-4 py-3 text-sm text-foreground/80">{formatDate(deal.closing_date)}</td>
                                   <td className="px-4 py-3">
                                     <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
                                       {formatStatusLabel(deal.status)}
                                     </span>
                                   </td>
-                                  <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: isEarned ? colors.successText : colors.warningText }}>
+                                  <td className={`px-4 py-3 text-sm text-right font-bold ${isEarned ? 'text-green-400' : 'text-yellow-400'}`}>
                                     {formatCurrency(deal.brokerage_referral_fee)}
-                                    {!isEarned && <span className="text-xs font-normal ml-1" style={{ color: colors.textMuted }}>(pending)</span>}
+                                    {!isEarned && <span className="text-xs font-normal ml-1 text-muted-foreground">(pending)</span>}
                                   </td>
                                 </tr>
                               )
                             })}
-                            {/* Totals row */}
-                            <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
-                              <td colSpan={4} className="px-4 py-3 text-sm font-bold" style={{ color: colors.textPrimary }}>
+                            <tr className="bg-muted/50 border-t-2 border-border/50">
+                              <td colSpan={4} className="px-4 py-3 text-sm font-bold text-foreground">
                                 Total ({filteredReferralDeals.length} deal{filteredReferralDeals.length !== 1 ? 's' : ''})
                               </td>
-                              <td className="px-4 py-3 text-sm text-right font-bold" style={{ color: colors.successText }}>
+                              <td className="px-4 py-3 text-sm text-right font-bold text-green-400">
                                 {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.brokerage_referral_fee, 0))}
                               </td>
                             </tr>
@@ -905,41 +818,40 @@ export default function BrokerageDashboard() {
                   {/* Monthly Summary Table */}
                   {monthlySummary.length > 0 && (
                     <div className="mt-4">
-                      <h4 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: colors.gold }}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-primary">
                         <TrendingUp size={13} className="inline mr-1" style={{ verticalAlign: 'text-bottom' }} />
                         Monthly Summary
                       </h4>
-                      <div className="rounded-lg overflow-x-auto" style={{ border: `1px solid ${colors.border}` }}>
+                      <div className="rounded-lg overflow-x-auto border border-border/50">
                         <table className="w-full">
                           <thead>
-                            <tr style={{ background: colors.tableHeaderBg }}>
-                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Month</th>
-                              <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Deals</th>
-                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.successText }}>Earned</th>
-                              <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Pending</th>
-                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.warningText }}>Pending $</th>
-                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider" style={{ color: colors.textMuted }}>Total</th>
+                            <tr className="bg-muted/50 border-b border-border/50">
+                              <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Month</th>
+                              <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-muted-foreground">Deals</th>
+                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider text-green-400">Earned</th>
+                              <th className="px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-muted-foreground">Pending</th>
+                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider text-yellow-400">Pending $</th>
+                              <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Total</th>
                             </tr>
                           </thead>
                           <tbody>
                             {monthlySummary.map((m) => (
-                              <tr key={m.month} style={{ borderBottom: `1px solid ${colors.divider}` }}>
-                                <td className="px-4 py-2 text-sm font-medium" style={{ color: colors.textPrimary }}>{formatMonthLabel(m.month)}</td>
-                                <td className="px-4 py-2 text-sm text-center" style={{ color: colors.textSecondary }}>{m.dealCount}</td>
-                                <td className="px-4 py-2 text-sm text-right font-semibold" style={{ color: colors.successText }}>{formatCurrency(m.earned)}</td>
-                                <td className="px-4 py-2 text-sm text-center" style={{ color: colors.textSecondary }}>{m.pendingCount}</td>
-                                <td className="px-4 py-2 text-sm text-right font-semibold" style={{ color: colors.warningText }}>{formatCurrency(m.pending)}</td>
-                                <td className="px-4 py-2 text-sm text-right font-bold" style={{ color: colors.textPrimary }}>{formatCurrency(m.earned + m.pending)}</td>
+                              <tr key={m.month} className="border-b border-border/30 last:border-0">
+                                <td className="px-4 py-2 text-sm font-medium text-foreground">{formatMonthLabel(m.month)}</td>
+                                <td className="px-4 py-2 text-sm text-center text-foreground/80">{m.dealCount}</td>
+                                <td className="px-4 py-2 text-sm text-right font-semibold text-green-400">{formatCurrency(m.earned)}</td>
+                                <td className="px-4 py-2 text-sm text-center text-foreground/80">{m.pendingCount}</td>
+                                <td className="px-4 py-2 text-sm text-right font-semibold text-yellow-400">{formatCurrency(m.pending)}</td>
+                                <td className="px-4 py-2 text-sm text-right font-bold text-foreground">{formatCurrency(m.earned + m.pending)}</td>
                               </tr>
                             ))}
-                            {/* Summary totals */}
-                            <tr style={{ background: colors.tableHeaderBg, borderTop: `2px solid ${colors.border}` }}>
-                              <td className="px-4 py-2 text-sm font-bold" style={{ color: colors.textPrimary }}>Total</td>
-                              <td className="px-4 py-2 text-sm text-center font-bold" style={{ color: colors.textPrimary }}>{monthlySummary.reduce((s, m) => s + m.dealCount, 0)}</td>
-                              <td className="px-4 py-2 text-sm text-right font-bold" style={{ color: colors.successText }}>{formatCurrency(monthlySummary.reduce((s, m) => s + m.earned, 0))}</td>
-                              <td className="px-4 py-2 text-sm text-center font-bold" style={{ color: colors.textPrimary }}>{monthlySummary.reduce((s, m) => s + m.pendingCount, 0)}</td>
-                              <td className="px-4 py-2 text-sm text-right font-bold" style={{ color: colors.warningText }}>{formatCurrency(monthlySummary.reduce((s, m) => s + m.pending, 0))}</td>
-                              <td className="px-4 py-2 text-sm text-right font-black" style={{ color: colors.gold }}>{formatCurrency(monthlySummary.reduce((s, m) => s + m.earned + m.pending, 0))}</td>
+                            <tr className="bg-muted/50 border-t-2 border-border/50">
+                              <td className="px-4 py-2 text-sm font-bold text-foreground">Total</td>
+                              <td className="px-4 py-2 text-sm text-center font-bold text-foreground">{monthlySummary.reduce((s, m) => s + m.dealCount, 0)}</td>
+                              <td className="px-4 py-2 text-sm text-right font-bold text-green-400">{formatCurrency(monthlySummary.reduce((s, m) => s + m.earned, 0))}</td>
+                              <td className="px-4 py-2 text-sm text-center font-bold text-foreground">{monthlySummary.reduce((s, m) => s + m.pendingCount, 0)}</td>
+                              <td className="px-4 py-2 text-sm text-right font-bold text-yellow-400">{formatCurrency(monthlySummary.reduce((s, m) => s + m.pending, 0))}</td>
+                              <td className="px-4 py-2 text-sm text-right font-black text-primary">{formatCurrency(monthlySummary.reduce((s, m) => s + m.earned + m.pending, 0))}</td>
                             </tr>
                           </tbody>
                         </table>
@@ -947,8 +859,7 @@ export default function BrokerageDashboard() {
                     </div>
                   )}
 
-                  {/* Accounting note */}
-                  <p className="text-xs mt-3" style={{ color: colors.textFaint }}>
+                  <p className="text-xs mt-3 text-muted-foreground/50">
                     Referral fees are earned when deals reach &quot;Funded&quot; status. Export CSV for spreadsheet use or download the PDF report for accounting records.
                   </p>
                 </div>
@@ -966,9 +877,9 @@ export default function BrokerageDashboard() {
                 if (fundedDeals.length === 0) {
                   return (
                     <div className="py-12 text-center">
-                      <DollarSign className="mx-auto mb-4" size={40} style={{ color: colors.textFaint }} />
-                      <p className="text-base font-semibold" style={{ color: colors.textSecondary }}>No payments to track</p>
-                      <p className="text-sm mt-1" style={{ color: colors.textMuted }}>Payment tracking appears when your agents have funded deals.</p>
+                      <DollarSign className="mx-auto mb-4 text-muted-foreground/30" size={40} />
+                      <p className="text-base font-semibold text-muted-foreground">No payments to track</p>
+                      <p className="text-sm mt-1 text-muted-foreground/70">Payment tracking appears when your agents have funded deals.</p>
                     </div>
                   )
                 }
@@ -983,40 +894,37 @@ export default function BrokerageDashboard() {
 
                 return (
                   <>
-                    {/* Payment Summary Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                      <div className="rounded-lg p-4" style={{ background: colors.infoBg, border: `1px solid ${colors.infoBorder}` }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.infoText }}>Total Owed</p>
-                        <p className="text-xl font-black mt-1" style={{ color: colors.infoText }}>{formatCurrency(totalOwed)}</p>
+                      <div className="rounded-lg p-4 bg-blue-950/40 border border-blue-800">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">Total Owed</p>
+                        <p className="text-xl font-black mt-1 text-blue-400">{formatCurrency(totalOwed)}</p>
                       </div>
-                      <div className="rounded-lg p-4" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}` }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.successText }}>Paid</p>
-                        <p className="text-xl font-black mt-1" style={{ color: colors.successText }}>{formatCurrency(totalPaid)}</p>
+                      <div className="rounded-lg p-4 bg-green-950/40 border border-green-800">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-green-400">Paid</p>
+                        <p className="text-xl font-black mt-1 text-green-400">{formatCurrency(totalPaid)}</p>
                       </div>
-                      <div className="rounded-lg p-4" style={{
-                        background: outstanding > 0.01 ? colors.warningBg : colors.successBg,
-                        border: `1px solid ${outstanding > 0.01 ? colors.warningBorder : colors.successBorder}`,
-                      }}>
-                        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: outstanding > 0.01 ? colors.warningText : colors.successText }}>Outstanding</p>
-                        <p className="text-xl font-black mt-1" style={{ color: outstanding > 0.01 ? colors.warningText : colors.successText }}>{formatCurrency(Math.max(outstanding, 0))}</p>
+                      <div className={`rounded-lg p-4 ${outstanding > 0.01 ? 'bg-yellow-950/40 border border-yellow-800' : 'bg-green-950/40 border border-green-800'}`}>
+                        <p className={`text-xs font-semibold uppercase tracking-wider ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>Outstanding</p>
+                        <p className={`text-xl font-black mt-1 ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>{formatCurrency(Math.max(outstanding, 0))}</p>
                       </div>
                     </div>
 
-                    {/* Progress Bar */}
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold" style={{ color: colors.textMuted }}>Payment Progress</span>
-                        <span className="text-xs font-semibold" style={{ color: colors.textMuted }}>{paidPct.toFixed(0)}%</span>
+                        <span className="text-xs font-semibold text-muted-foreground">Payment Progress</span>
+                        <span className="text-xs font-semibold text-muted-foreground">{paidPct.toFixed(0)}%</span>
                       </div>
-                      <div className="h-3 rounded-full overflow-hidden" style={{ background: colors.inputBg }}>
-                        <div className="h-full rounded-full transition-all duration-500" style={{
-                          width: `${paidPct}%`,
-                          background: paidPct >= 99.9 ? colors.successText : colors.gold,
-                        }} />
+                      <div className="h-3 rounded-full overflow-hidden bg-muted">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${paidPct}%`,
+                            background: paidPct >= 99.9 ? '#4ade80' : '#5FA873',
+                          }}
+                        />
                       </div>
                     </div>
 
-                    {/* Per-Deal Payment Status */}
                     <div className="space-y-3">
                       {fundedDeals.map(deal => {
                         const owed = deal.amount_due_from_brokerage || 0
@@ -1027,52 +935,50 @@ export default function BrokerageDashboard() {
                         const isPartial = paid > 0 && !isPaid
 
                         return (
-                          <div key={deal.id} className="rounded-lg p-4" style={{ background: colors.tableHeaderBg, border: `1px solid ${colors.divider}` }}>
+                          <div key={deal.id} className="rounded-lg p-4 bg-muted/30 border border-border/30">
                             <div className="flex items-start justify-between mb-2">
                               <div>
-                                <p className="font-medium text-sm" style={{ color: colors.textPrimary }}>{deal.property_address}</p>
-                                <p className="text-xs mt-0.5" style={{ color: colors.textMuted }}>
+                                <p className="font-medium text-sm text-foreground">{deal.property_address}</p>
+                                <p className="text-xs mt-0.5 text-muted-foreground">
                                   {deal.agent ? `${deal.agent.first_name} ${deal.agent.last_name}` : ''} &middot; {formatStatusLabel(deal.status)}
                                 </p>
                               </div>
-                              <span
-                                className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
-                                style={{
-                                  background: isPaid ? colors.successBg : isPartial ? colors.warningBg : colors.inputBg,
-                                  color: isPaid ? colors.successText : isPartial ? colors.warningText : colors.textMuted,
-                                  border: `1px solid ${isPaid ? colors.successBorder : isPartial ? colors.warningBorder : colors.border}`,
-                                }}
-                              >
+                              <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md border ${
+                                isPaid
+                                  ? 'bg-green-950/50 text-green-400 border-green-800'
+                                  : isPartial
+                                  ? 'bg-yellow-950/50 text-yellow-400 border-yellow-800'
+                                  : 'bg-muted text-muted-foreground border-border'
+                              }`}>
                                 {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Pending'}
                               </span>
                             </div>
                             <div className="grid grid-cols-3 gap-3 text-sm">
                               <div>
-                                <span style={{ color: colors.textMuted }}>Owed: </span>
-                                <span className="font-semibold" style={{ color: colors.textPrimary }}>{formatCurrency(owed)}</span>
+                                <span className="text-muted-foreground">Owed: </span>
+                                <span className="font-semibold text-foreground">{formatCurrency(owed)}</span>
                               </div>
                               <div>
-                                <span style={{ color: colors.textMuted }}>Paid: </span>
-                                <span className="font-semibold" style={{ color: paid > 0 ? colors.successText : colors.textMuted }}>{formatCurrency(paid)}</span>
+                                <span className="text-muted-foreground">Paid: </span>
+                                <span className={`font-semibold ${paid > 0 ? 'text-green-400' : 'text-muted-foreground'}`}>{formatCurrency(paid)}</span>
                               </div>
                               <div>
-                                <span style={{ color: colors.textMuted }}>Remaining: </span>
-                                <span className="font-semibold" style={{ color: remaining > 0.01 ? colors.warningText : colors.successText }}>
+                                <span className="text-muted-foreground">Remaining: </span>
+                                <span className={`font-semibold ${remaining > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>
                                   {formatCurrency(Math.max(remaining, 0))}
                                 </span>
                               </div>
                             </div>
-                            {/* Payment history */}
                             {payments.length > 0 && (
-                              <div className="mt-3 pt-2" style={{ borderTop: `1px solid ${colors.divider}` }}>
+                              <div className="mt-3 pt-2 border-t border-border/30">
                                 {payments.map((p: any, idx: number) => (
                                   <div key={idx} className="flex justify-between items-center text-xs py-1">
                                     <div className="flex items-center gap-2">
-                                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: colors.successText }} />
-                                      <span style={{ color: colors.textSecondary }}>{formatDate(p.date)}</span>
-                                      {p.reference && <span style={{ color: colors.textMuted }}>Ref: {p.reference}</span>}
+                                      <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                                      <span className="text-foreground/80">{formatDate(p.date)}</span>
+                                      {p.reference && <span className="text-muted-foreground">Ref: {p.reference}</span>}
                                     </div>
-                                    <span className="font-semibold" style={{ color: colors.successText }}>{formatCurrency(p.amount)}</span>
+                                    <span className="font-semibold text-green-400">{formatCurrency(p.amount)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -1082,7 +988,7 @@ export default function BrokerageDashboard() {
                       })}
                     </div>
 
-                    <p className="text-xs mt-4" style={{ color: colors.textFaint }}>
+                    <p className="text-xs mt-4 text-muted-foreground/50">
                       Payments shown are recorded by Firm Funds. Contact your account manager if you believe there is a discrepancy.
                     </p>
                   </>
@@ -1097,17 +1003,17 @@ export default function BrokerageDashboard() {
           {activeTab === 'messages' && (
             <div className="flex" style={{ minHeight: '500px', height: '60vh' }}>
               {/* Deal list */}
-              <div className="flex flex-col" style={{ width: '300px', minWidth: '250px', borderRight: `1px solid ${colors.border}` }}>
-                <div className="p-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <p className="text-xs font-bold" style={{ color: colors.textMuted }}>
+              <div className="flex flex-col border-r border-border/50" style={{ width: '300px', minWidth: '250px' }}>
+                <div className="p-3 border-b border-border/50">
+                  <p className="text-xs font-bold text-muted-foreground">
                     Select a deal to message Firm Funds
                   </p>
                 </div>
-                <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                <div className="flex-1 overflow-y-auto">
                   {brokerageInbox.length === 0 ? (
                     <div className="p-6 text-center">
-                      <Inbox size={32} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
-                      <p className="text-xs" style={{ color: colors.textMuted }}>No active deals</p>
+                      <Inbox size={32} className="text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-xs text-muted-foreground">No active deals</p>
                     </div>
                   ) : (
                     brokerageInbox.map((item: any) => {
@@ -1122,24 +1028,21 @@ export default function BrokerageDashboard() {
                             if (result.success && result.data) setDealMessages(result.data)
                             setMessagesLoading(false)
                           }}
-                          className="w-full text-left px-3 py-3 transition-colors"
-                          style={{
-                            background: isSelected ? colors.tableHeaderBg : 'transparent',
-                            borderBottom: `1px solid ${colors.divider}`,
-                            borderLeft: isSelected ? `3px solid ${colors.gold}` : '3px solid transparent',
-                          }}
-                          onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = colors.cardHoverBg }}
-                          onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                          className={`w-full text-left px-3 py-3 transition-colors border-b border-border/30 border-l-[3px] ${
+                            isSelected
+                              ? 'bg-muted border-l-primary'
+                              : 'border-l-transparent hover:bg-muted/30'
+                          }`}
                         >
-                          <p className="text-xs font-semibold truncate" style={{ color: colors.textPrimary }}>{item.property_address}</p>
+                          <p className="text-xs font-semibold truncate text-foreground">{item.property_address}</p>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px]" style={{ color: colors.textMuted }}>{item.agent_name}</span>
+                            <span className="text-[10px] text-muted-foreground">{item.agent_name}</span>
                             <span className="inline-flex px-1.5 py-0.5 text-[9px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
                               {formatStatusLabel(item.deal_status)}
                             </span>
                           </div>
                           {item.total_message_count > 0 && (
-                            <p className="text-[10px] mt-1 truncate" style={{ color: colors.textFaint }}>
+                            <p className="text-[10px] mt-1 truncate text-muted-foreground/50">
                               {item.total_message_count} message{item.total_message_count !== 1 ? 's' : ''}
                             </p>
                           )}
@@ -1155,21 +1058,19 @@ export default function BrokerageDashboard() {
                 {!selectedMsgDealId ? (
                   <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
-                      <MessageSquare size={36} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
-                      <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>Select a deal to view messages</p>
-                      <p className="text-xs mt-1" style={{ color: colors.textMuted }}>You can message the Firm Funds team about any active deal</p>
+                      <MessageSquare size={36} className="text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-sm font-medium text-muted-foreground">Select a deal to view messages</p>
+                      <p className="text-xs mt-1 text-muted-foreground/70">You can message the Firm Funds team about any active deal</p>
                     </div>
                   </div>
                 ) : (
                   <>
-                    {/* Thread header */}
-                    <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                      <p className="text-xs font-bold truncate" style={{ color: colors.textPrimary }}>
+                    <div className="px-4 py-2.5 flex items-center gap-2 border-b border-border/50">
+                      <p className="text-xs font-bold truncate text-foreground">
                         {brokerageInbox.find((d: any) => d.deal_id === selectedMsgDealId)?.property_address}
                       </p>
                     </div>
 
-                    {/* Messages — using shared component */}
                     <MessageThread
                       messages={dealMessages as MessageData[]}
                       viewerRole="brokerage_admin"
@@ -1177,7 +1078,6 @@ export default function BrokerageDashboard() {
                       emptyMessage="Send a message to the Firm Funds team below"
                     />
 
-                    {/* Input — using shared component */}
                     <MessageInput
                       onSend={async (message, file) => {
                         if (!selectedMsgDealId) return
@@ -1211,7 +1111,7 @@ export default function BrokerageDashboard() {
               </div>
             </div>
           )}
-        </div>
+        </Card>
       </main>
     </div>
   )

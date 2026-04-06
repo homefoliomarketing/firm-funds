@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Smile, X } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
+import { X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 const EMOJI_CATEGORIES = [
   {
@@ -35,7 +35,6 @@ interface EmojiPickerProps {
 export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   const [activeCategory, setActiveCategory] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
-  const { colors } = useTheme()
 
   // Close on click outside
   useEffect(() => {
@@ -56,8 +55,7 @@ export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
   return (
     <div
       ref={ref}
-      className="absolute bottom-full left-0 mb-2 rounded-xl shadow-2xl overflow-hidden z-50"
-      style={{ background: colors.cardBg, border: `1px solid ${colors.border}`, width: '320px' }}
+      className="absolute bottom-full left-0 mb-2 rounded-xl shadow-2xl overflow-hidden z-50 w-80 bg-card border border-border/50"
     >
       {/* Category tabs */}
       <div className="flex items-center justify-between px-2 pt-2 pb-1">
@@ -66,23 +64,23 @@ export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
             <button
               key={cat.label}
               onClick={() => setActiveCategory(i)}
-              className="px-2 py-1 rounded-md text-[10px] font-semibold transition-colors"
-              style={{
-                background: activeCategory === i ? `${colors.gold}20` : 'transparent',
-                color: activeCategory === i ? colors.gold : colors.textMuted,
-              }}
+              className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+                activeCategory === i
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
             >
               {cat.label}
             </button>
           ))}
         </div>
-        <button onClick={onClose} className="p-1 rounded" style={{ color: colors.textMuted }}>
+        <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
           <X size={14} />
         </button>
       </div>
 
       {/* Emoji grid */}
-      <div className="px-2 pb-2 grid grid-cols-10 gap-0.5" style={{ maxHeight: '160px', overflowY: 'auto' }}>
+      <div className="px-2 pb-2 grid grid-cols-10 gap-0.5 max-h-40 overflow-y-auto">
         {EMOJI_CATEGORIES[activeCategory].emojis.map((emoji, i) => (
           <button
             key={i}

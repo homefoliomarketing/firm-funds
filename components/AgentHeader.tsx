@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Bell, MessageSquare, Home, ArrowLeft, User, Settings } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
@@ -40,10 +39,14 @@ export default function AgentHeader({
   const [pendingReturns, setPendingReturns] = useState(0)
   const router = useRouter()
   const pathname = usePathname()
-  const { colors } = useTheme()
   const supabase = createClient()
 
-  const accentColor = brokerageBrandColor || colors.gold
+  // Fall back to primary CSS var if no brand color override
+  const accentStyle = brokerageBrandColor
+    ? { color: brokerageBrandColor }
+    : undefined
+  const accentClass = brokerageBrandColor ? '' : 'text-primary'
+
   const totalNotifications = unreadCount + pendingReturns
   const prevTotalRef = useRef<number>(0)
   const notifPermissionAsked = useRef(false)
@@ -112,8 +115,21 @@ export default function AgentHeader({
   const isProfilePage = pathname === '/agent/profile'
   const isSettingsPage = pathname === '/agent/settings'
 
+  const navBtnClass = (active: boolean) =>
+    `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+      active
+        ? 'text-white bg-white/10'
+        : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+    }`
+
+  const NotificationBadge = ({ count }: { count: number }) => (
+    <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+
   return (
-    <header style={{ background: colors.headerBgGradient }}>
+    <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-5">
           {/* Left side */}
@@ -126,7 +142,7 @@ export default function AgentHeader({
                     alt={brokerageName || 'Brokerage'}
                     className="h-12 sm:h-16 md:h-20 w-auto object-contain"
                   />
-                  <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
+                  <div className="w-px h-8 bg-white/15" />
                   <img
                     src="/brand/white.png"
                     alt="Firm Funds"
@@ -141,22 +157,19 @@ export default function AgentHeader({
                 />
               )}
             </div>
-            <div className="w-px h-10" style={{ background: 'rgba(255,255,255,0.15)' }} />
+            <div className="w-px h-10 bg-white/15" />
 
             {backHref ? (
               <>
                 <button
                   onClick={() => router.push(backHref)}
-                  className="transition-colors"
-                  style={{ color: colors.textSecondary }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = accentColor}
-                  onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+                  className="text-white/60 hover:text-primary transition-colors"
                 >
                   <ArrowLeft size={20} />
                 </button>
                 <div>
                   {title && <h1 className="text-lg font-bold text-white">{title}</h1>}
-                  {subtitle && <p className="text-xs" style={{ color: colors.textMuted }}>{subtitle}</p>}
+                  {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
                 </div>
               </>
             ) : (
@@ -166,63 +179,24 @@ export default function AgentHeader({
                 </p>
                 {/* Nav links */}
                 <nav className="hidden sm:flex items-center gap-1">
-                  <button
-                    onClick={() => router.push('/agent')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      color: isDashboard ? '#FFFFFF' : 'rgba(255,255,255,0.5)',
-                      background: isDashboard ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => { if (!isDashboard) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                    onMouseLeave={(e) => { if (!isDashboard) e.currentTarget.style.background = 'transparent' }}
-                  >
+                  <button onClick={() => router.push('/agent')} className={navBtnClass(isDashboard)}>
                     <Home size={14} />
                     Dashboard
                   </button>
-                  <button
-                    onClick={() => router.push('/agent/messages')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors relative"
-                    style={{
-                      color: isMessagesPage ? '#FFFFFF' : 'rgba(255,255,255,0.5)',
-                      background: isMessagesPage ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => { if (!isMessagesPage) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                    onMouseLeave={(e) => { if (!isMessagesPage) e.currentTarget.style.background = 'transparent' }}
-                  >
+                  <button onClick={() => router.push('/agent/messages')} className={`${navBtnClass(isMessagesPage)} relative`}>
                     <MessageSquare size={14} />
                     Messages
                     {totalNotifications > 0 && (
-                      <span
-                        className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold"
-                        style={{ background: '#EF4444', color: '#FFFFFF' }}
-                      >
-                        {totalNotifications > 99 ? '99+' : totalNotifications}
+                      <span className="ml-1">
+                        <NotificationBadge count={totalNotifications} />
                       </span>
                     )}
                   </button>
-                  <button
-                    onClick={() => router.push('/agent/profile')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      color: isProfilePage ? '#FFFFFF' : 'rgba(255,255,255,0.5)',
-                      background: isProfilePage ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => { if (!isProfilePage) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                    onMouseLeave={(e) => { if (!isProfilePage) e.currentTarget.style.background = 'transparent' }}
-                  >
+                  <button onClick={() => router.push('/agent/profile')} className={navBtnClass(isProfilePage)}>
                     <User size={14} />
                     Profile
                   </button>
-                  <button
-                    onClick={() => router.push('/agent/settings')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                    style={{
-                      color: isSettingsPage ? '#FFFFFF' : 'rgba(255,255,255,0.5)',
-                      background: isSettingsPage ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => { if (!isSettingsPage) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                    onMouseLeave={(e) => { if (!isSettingsPage) e.currentTarget.style.background = 'transparent' }}
-                  >
+                  <button onClick={() => router.push('/agent/settings')} className={navBtnClass(isSettingsPage)}>
                     <Settings size={14} />
                     Settings
                   </button>
@@ -238,19 +212,13 @@ export default function AgentHeader({
             {/* Mobile notification bell (always visible) */}
             <button
               onClick={() => router.push('/agent/messages')}
-              className="relative p-2 rounded-lg transition-colors sm:hidden"
-              style={{ color: 'rgba(255,255,255,0.6)' }}
-              onMouseEnter={(e) => e.currentTarget.style.color = '#FFFFFF'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.6)'}
+              className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden"
               title="Messages & Notifications"
             >
               <Bell size={18} />
               {totalNotifications > 0 && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold"
-                  style={{ background: '#EF4444', color: '#FFFFFF' }}
-                >
-                  {totalNotifications > 99 ? '99+' : totalNotifications}
+                <span className="absolute -top-0.5 -right-0.5">
+                  <NotificationBadge count={totalNotifications} />
                 </span>
               )}
             </button>
@@ -259,25 +227,24 @@ export default function AgentHeader({
             {backHref && (
               <button
                 onClick={() => router.push('/agent/messages')}
-                className="relative p-2 rounded-lg transition-colors hidden sm:block"
-                style={{ color: 'rgba(255,255,255,0.6)' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#FFFFFF'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.6)'}
+                className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white hidden sm:block"
                 title="Messages & Notifications"
               >
                 <Bell size={18} />
                 {totalNotifications > 0 && (
-                  <span
-                    className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold"
-                    style={{ background: '#EF4444', color: '#FFFFFF' }}
-                  >
-                    {totalNotifications > 99 ? '99+' : totalNotifications}
+                  <span className="absolute -top-0.5 -right-0.5">
+                    <NotificationBadge count={totalNotifications} />
                   </span>
                 )}
               </button>
             )}
 
-            <span className="text-sm hidden sm:inline" style={{ color: accentColor }}>{agentName}</span>
+            <span
+              className={`text-sm hidden sm:inline ${accentClass}`}
+              style={accentStyle}
+            >
+              {agentName}
+            </span>
             <SignOutModal onConfirm={handleLogout} />
           </div>
         </div>

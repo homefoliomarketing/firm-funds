@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, Settings } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import AgentHeader from '@/components/AgentHeader'
 import {
   changePassword,
@@ -13,6 +12,11 @@ import {
   getNotificationPreferences,
   updateNotificationPreferences,
 } from '@/lib/actions/settings-actions'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 
 export default function AgentSettingsPage() {
   const [profile, setProfile] = useState<any>(null)
@@ -49,7 +53,6 @@ export default function AgentSettingsPage() {
 
   const router = useRouter()
   const supabase = createClient()
-  const { colors } = useTheme()
 
   useEffect(() => {
     async function load() {
@@ -76,7 +79,6 @@ export default function AgentSettingsPage() {
         setAgent(agentData)
       }
 
-      // Load notification preferences
       const prefsResult = await getNotificationPreferences()
       if (prefsResult.success && prefsResult.data) {
         setNotifPrefs(prefsResult.data as Record<string, boolean>)
@@ -92,7 +94,6 @@ export default function AgentSettingsPage() {
     setTimeout(() => setMessage(null), 4000)
   }
 
-  // Password change handler
   const handlePasswordChange = async () => {
     if (!currentPassword) { showMsg('error', 'Enter your current password'); return }
     if (!newPassword) { showMsg('error', 'Enter a new password'); return }
@@ -112,7 +113,6 @@ export default function AgentSettingsPage() {
     setPwSaving(false)
   }
 
-  // Display name handler
   const handleNameUpdate = async () => {
     if (!displayName.trim()) { showMsg('error', 'Name cannot be empty'); return }
     setNameSaving(true)
@@ -125,7 +125,6 @@ export default function AgentSettingsPage() {
     setNameSaving(false)
   }
 
-  // Email handler
   const handleEmailUpdate = async () => {
     if (!email.trim()) { showMsg('error', 'Email cannot be empty'); return }
     setEmailSaving(true)
@@ -138,14 +137,12 @@ export default function AgentSettingsPage() {
     setEmailSaving(false)
   }
 
-  // Notification pref toggle
   const togglePref = async (key: string) => {
     const updated = { ...notifPrefs, [key]: !notifPrefs[key] }
     setNotifPrefs(updated)
     setNotifSaving(true)
     const result = await updateNotificationPreferences(updated)
     if (!result.success) {
-      // Revert
       setNotifPrefs(notifPrefs)
       showMsg('error', 'Failed to save notification preference')
     }
@@ -154,14 +151,14 @@ export default function AgentSettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
+      <div className="min-h-screen bg-background">
         <div className="max-w-3xl mx-auto px-4 py-12">
-          <div className="h-6 w-48 rounded-lg mb-4 animate-pulse" style={{ background: colors.skeletonBase }} />
-          <div className="h-4 w-32 rounded mb-8 animate-pulse" style={{ background: colors.skeletonHighlight }} />
+          <div className="h-6 w-48 rounded-lg mb-4 animate-pulse bg-muted" />
+          <div className="h-4 w-32 rounded mb-8 animate-pulse bg-muted" />
           {[1, 2, 3].map(i => (
-            <div key={i} className="rounded-lg p-6 mb-4 animate-pulse" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-              <div className="h-4 w-36 rounded mb-3" style={{ background: colors.skeletonHighlight }} />
-              <div className="h-10 w-full rounded" style={{ background: colors.skeletonBase }} />
+            <div key={i} className="rounded-lg p-6 mb-4 animate-pulse bg-card border border-border">
+              <div className="h-4 w-36 rounded mb-3 bg-muted" />
+              <div className="h-10 w-full rounded bg-muted" />
             </div>
           ))}
         </div>
@@ -169,14 +166,8 @@ export default function AgentSettingsPage() {
     )
   }
 
-  const inputStyle = {
-    background: colors.inputBg,
-    border: `1px solid ${colors.inputBorder}`,
-    color: colors.inputText,
-  }
-
   return (
-    <div className="min-h-screen" style={{ background: colors.pageBg }}>
+    <div className="min-h-screen bg-background">
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={profile?.agent_id || ''}
@@ -190,222 +181,192 @@ export default function AgentSettingsPage() {
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Status message */}
         {message && (
-          <div
-            className="flex items-center gap-2 px-4 py-3 rounded-lg mb-4 text-sm font-medium"
-            style={{
-              background: message.type === 'success' ? colors.successBg : colors.errorBg,
-              border: `1px solid ${message.type === 'success' ? colors.successBorder : colors.errorBorder}`,
-              color: message.type === 'success' ? colors.successText : colors.errorText,
-            }}
-          >
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg mb-4 text-sm font-medium border ${
+            message.type === 'success'
+              ? 'bg-primary/10 border-primary/30 text-primary'
+              : 'bg-destructive/10 border-destructive/30 text-destructive'
+          }`}>
             {message.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
             {message.text}
           </div>
         )}
 
-        {/* ================================================================ */}
-        {/* CHANGE PASSWORD                                                  */}
-        {/* ================================================================ */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Lock size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Change Password</h3>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Current Password</label>
+        {/* CHANGE PASSWORD */}
+        <Card className="mb-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+              <Lock size={18} />Change Password
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Current Password</Label>
               <div className="relative">
-                <input
+                <Input
                   type={showCurrentPw ? 'text' : 'password'}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full rounded-lg px-3 py-2.5 text-sm pr-10"
-                  style={inputStyle}
                   placeholder="Enter current password"
+                  className="pr-10"
                 />
                 <button
                   type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowCurrentPw(!showCurrentPw)}
-                  style={{ color: colors.textMuted }}
                 >
                   {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>New Password</label>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">New Password</Label>
               <div className="relative">
-                <input
+                <Input
                   type={showNewPw ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full rounded-lg px-3 py-2.5 text-sm pr-10"
-                  style={inputStyle}
                   placeholder="At least 8 characters"
+                  className="pr-10"
                 />
                 <button
                   type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowNewPw(!showNewPw)}
-                  style={{ color: colors.textMuted }}
                 >
                   {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1" style={{ color: colors.textMuted }}>Confirm New Password</label>
-              <input
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Confirm New Password</Label>
+              <Input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full rounded-lg px-3 py-2.5 text-sm"
-                style={inputStyle}
                 placeholder="Re-enter new password"
               />
               {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                <p className="text-xs mt-1" style={{ color: colors.errorText }}>Passwords do not match</p>
+                <p className="text-xs text-destructive">Passwords do not match</p>
               )}
             </div>
-            <button
+            <Button
               onClick={handlePasswordChange}
               disabled={pwSaving || !currentPassword || !newPassword || !confirmPassword}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              style={{
-                background: colors.gold,
-                color: '#fff',
-                opacity: pwSaving || !currentPassword || !newPassword || !confirmPassword ? 0.5 : 1,
-              }}
             >
               {pwSaving ? 'Updating...' : 'Update Password'}
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardContent>
+        </Card>
 
-        {/* ================================================================ */}
-        {/* DISPLAY NAME                                                     */}
-        {/* ================================================================ */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <User size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Display Name</h3>
-          </div>
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="flex-1 rounded-lg px-3 py-2.5 text-sm"
-              style={inputStyle}
-            />
-            <button
-              onClick={handleNameUpdate}
-              disabled={nameSaving || !displayName.trim() || displayName === profile?.full_name}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              style={{
-                background: colors.gold,
-                color: '#fff',
-                opacity: nameSaving || !displayName.trim() || displayName === profile?.full_name ? 0.5 : 1,
-              }}
-            >
-              {nameSaving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
+        {/* DISPLAY NAME */}
+        <Card className="mb-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+              <User size={18} />Display Name
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3">
+              <Input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleNameUpdate}
+                disabled={nameSaving || !displayName.trim() || displayName === profile?.full_name}
+              >
+                {nameSaving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* ================================================================ */}
-        {/* EMAIL ADDRESS                                                    */}
-        {/* ================================================================ */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Mail size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Email Address</h3>
-          </div>
-          <div className="flex gap-3">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 rounded-lg px-3 py-2.5 text-sm"
-              style={inputStyle}
-            />
-            <button
-              onClick={handleEmailUpdate}
-              disabled={emailSaving || !email.trim()}
-              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-              style={{
-                background: colors.gold,
-                color: '#fff',
-                opacity: emailSaving || !email.trim() ? 0.5 : 1,
-              }}
-            >
-              {emailSaving ? 'Saving...' : 'Update'}
-            </button>
-          </div>
-          <p className="text-xs mt-2" style={{ color: colors.textFaint }}>
-            Changing your email will require verification. A confirmation link will be sent to the new address.
-          </p>
-        </div>
+        {/* EMAIL ADDRESS */}
+        <Card className="mb-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+              <Mail size={18} />Email Address
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex gap-3">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleEmailUpdate}
+                disabled={emailSaving || !email.trim()}
+              >
+                {emailSaving ? 'Saving...' : 'Update'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Changing your email will require verification. A confirmation link will be sent to the new address.
+            </p>
+          </CardContent>
+        </Card>
 
-        {/* ================================================================ */}
-        {/* NOTIFICATION PREFERENCES                                         */}
-        {/* ================================================================ */}
-        <div className="rounded-lg p-5 mb-4" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-4">
-            <Bell size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Email Notifications</h3>
-          </div>
-          <div className="space-y-3">
-            {[
-              { key: 'email_deal_updates', label: 'Deal Updates', desc: 'Status changes on your deals (approved, funded, etc.)' },
-              { key: 'email_new_messages', label: 'New Messages', desc: 'When an admin or brokerage sends you a message' },
-              { key: 'email_status_changes', label: 'Status Alerts', desc: 'Important status changes requiring your attention' },
-              { key: 'email_document_requests', label: 'Document Requests', desc: 'When documents are requested or returned' },
-            ].map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${colors.divider}` }}>
-                <div>
-                  <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{label}</p>
-                  <p className="text-xs" style={{ color: colors.textMuted }}>{desc}</p>
+        {/* NOTIFICATION PREFERENCES */}
+        <Card className="mb-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+              <Bell size={18} />Email Notifications
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-0">
+              {[
+                { key: 'email_deal_updates', label: 'Deal Updates', desc: 'Status changes on your deals (approved, funded, etc.)' },
+                { key: 'email_new_messages', label: 'New Messages', desc: 'When an admin or brokerage sends you a message' },
+                { key: 'email_status_changes', label: 'Status Alerts', desc: 'Important status changes requiring your attention' },
+                { key: 'email_document_requests', label: 'Document Requests', desc: 'When documents are requested or returned' },
+              ].map(({ key, label, desc }, idx, arr) => (
+                <div key={key}>
+                  <div className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <button
+                      onClick={() => togglePref(key)}
+                      disabled={notifSaving}
+                      className="relative w-11 h-6 rounded-full transition-colors disabled:opacity-50"
+                      style={{ background: notifPrefs[key] ? 'hsl(var(--primary))' : 'hsl(var(--border))' }}
+                    >
+                      <span
+                        className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform"
+                        style={{ left: notifPrefs[key] ? '22px' : '2px' }}
+                      />
+                    </button>
+                  </div>
+                  {idx < arr.length - 1 && <Separator />}
                 </div>
-                <button
-                  onClick={() => togglePref(key)}
-                  disabled={notifSaving}
-                  className="relative w-11 h-6 rounded-full transition-colors"
-                  style={{
-                    background: notifPrefs[key] ? colors.gold : colors.inputBorder,
-                  }}
-                >
-                  <span
-                    className="absolute top-0.5 w-5 h-5 rounded-full transition-transform"
-                    style={{
-                      background: '#fff',
-                      left: notifPrefs[key] ? '22px' : '2px',
-                    }}
-                  />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Link to Profile */}
-        <div className="rounded-lg p-5" style={{ background: colors.cardBg, border: `1px solid ${colors.cardBorder}` }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Settings size={18} style={{ color: colors.gold }} />
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: colors.gold }}>Profile & Banking</h3>
-          </div>
-          <p className="text-sm mb-3" style={{ color: colors.textSecondary }}>
-            Update your phone number, address, and banking information on your profile page.
-          </p>
-          <button
-            onClick={() => router.push('/agent/profile')}
-            className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-            style={{ background: colors.gold, color: '#fff' }}
-          >
-            Go to Profile →
-          </button>
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+              <Settings size={18} />Profile &amp; Banking
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Update your phone number, address, and banking information on your profile page.
+            </p>
+            <Button onClick={() => router.push('/agent/profile')}>
+              Go to Profile →
+            </Button>
+          </CardContent>
+        </Card>
       </main>
     </div>
   )

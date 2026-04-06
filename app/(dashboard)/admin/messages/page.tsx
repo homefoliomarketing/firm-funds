@@ -7,13 +7,15 @@ import {
   MessageSquare, ExternalLink, Inbox, Search, ArrowLeft,
   AlertCircle, CheckCircle,
 } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeStyle, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   getAdminInbox,
   getAdminDealMessages,
@@ -36,9 +38,7 @@ export default function AdminMessagesPage() {
   const [isMobile, setIsMobile] = useState(false)
   const router = useRouter()
   const supabase = createClient()
-  const { colors } = useTheme()
 
-  // Mobile detection
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
     check()
@@ -83,7 +83,6 @@ export default function AdminMessagesPage() {
     setMessagesLoading(false)
   }, [])
 
-  // Poll for new messages every 5 seconds
   useEffect(() => {
     if (!selectedDealId || messages.length === 0) return
     const interval = setInterval(async () => {
@@ -96,7 +95,6 @@ export default function AdminMessagesPage() {
           const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
           return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
         })
-        // Check if any new message is from agent — update needs_reply
         const hasAgentMsg = result.data.some((m: any) => m.sender_role === 'agent')
         if (hasAgentMsg) {
           setInbox(prev => prev.map(item =>
@@ -108,7 +106,6 @@ export default function AdminMessagesPage() {
     return () => clearInterval(interval)
   }, [selectedDealId, messages])
 
-  // Send message with optional file
   const handleSend = async (message: string, file?: File | null) => {
     if (!selectedDealId) return
 
@@ -181,18 +178,17 @@ export default function AdminMessagesPage() {
   const showList = !isMobile || !selectedDealId
   const showThread = !isMobile || !!selectedDealId
 
-  // Map ADMIN_QUICK_REPLIES to MessageInput format
   const quickReplies = ADMIN_QUICK_REPLIES.map((t: any) => ({ label: t.label, message: t.message }))
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <div style={{ background: colors.headerBgGradient }} className="h-20" />
+      <div className="min-h-screen bg-background">
+        <div className="bg-card/80 backdrop-blur-sm h-20" />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="rounded-xl p-8" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <div className="h-4 w-32 rounded animate-pulse mb-4" style={{ background: colors.skeletonBase }} />
-            {[1,2,3].map(i => (
-              <div key={i} className="h-16 rounded-lg animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />
+          <div className="rounded-xl p-8 bg-card border border-border/50">
+            <Skeleton className="h-4 w-32 mb-4" />
+            {[1, 2, 3].map(i => (
+              <Skeleton key={i} className="h-16 rounded-lg mb-3" />
             ))}
           </div>
         </main>
@@ -201,30 +197,30 @@ export default function AdminMessagesPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: colors.pageBg }}>
+    <div className="h-screen flex flex-col overflow-hidden bg-background">
       {/* Header */}
-      <header style={{ background: colors.headerBgGradient }}>
+      <header className="bg-card/80 backdrop-blur-sm border-b border-border/50 flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
               <img src="/brand/white.png" alt="Firm Funds" className="h-14 sm:h-18 md:h-24 w-auto cursor-pointer" onClick={() => router.push('/admin')} />
-              <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.15)' }} />
-              <button onClick={() => router.push('/admin')} className="transition-colors" style={{ color: colors.textSecondary }}
-                onMouseEnter={(e) => e.currentTarget.style.color = colors.gold}
-                onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+              <div className="w-px h-8 bg-white/15" />
+              <button
+                onClick={() => router.push('/admin')}
+                className="text-white/70 hover:text-primary transition-colors"
               >
                 <ArrowLeft size={20} />
               </button>
               <div>
                 <h1 className="text-lg font-bold text-white">Messages</h1>
-                <p className="text-xs" style={{ color: colors.textMuted }}>
+                <p className="text-xs text-muted-foreground">
                   {inbox.length} conversation{inbox.length !== 1 ? 's' : ''}
-                  {needsReplyCount > 0 && <span style={{ color: '#5FA873' }}> · {needsReplyCount} awaiting reply</span>}
+                  {needsReplyCount > 0 && <span className="text-primary"> · {needsReplyCount} awaiting reply</span>}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-sm hidden sm:inline" style={{ color: colors.gold }}>{profile?.full_name}</span>
+              <span className="text-sm hidden sm:inline text-primary">{profile?.full_name}</span>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
@@ -233,66 +229,90 @@ export default function AdminMessagesPage() {
 
       <main className="flex-1 overflow-hidden max-w-7xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
         {inbox.length === 0 ? (
-          <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <Inbox className="mx-auto mb-4" size={48} style={{ color: colors.textFaint }} />
-            <p className="text-lg font-semibold" style={{ color: colors.textSecondary }}>No messages yet</p>
-            <p className="text-sm mt-2" style={{ color: colors.textMuted }}>Messages sent on deal pages will appear here.</p>
+          <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full bg-card border border-border/50">
+            <Inbox className="mx-auto mb-4 text-muted-foreground/40" size={48} />
+            <p className="text-lg font-semibold text-muted-foreground">No messages yet</p>
+            <p className="text-sm mt-2 text-muted-foreground/70">Messages sent on deal pages will appear here.</p>
           </div>
         ) : (
-          <div className="rounded-xl overflow-hidden flex h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <div className="rounded-xl overflow-hidden flex h-full bg-card border border-border/50">
 
             {/* LEFT PANEL */}
             {showList && (
-              <div className="flex flex-col" style={{ width: isMobile ? '100%' : '380px', minWidth: isMobile ? '100%' : '300px', borderRight: isMobile ? 'none' : `1px solid ${colors.border}` }}>
-                <div className="p-3 space-y-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <div
+                className="flex flex-col border-r border-border/50"
+                style={{ width: isMobile ? '100%' : '380px', minWidth: isMobile ? '100%' : '300px' }}
+              >
+                <div className="p-3 space-y-2 border-b border-border/50">
                   <div className="relative">
-                    <Search size={14} style={{ color: colors.textMuted, position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                    <input type="text" placeholder="Search by address or agent..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full rounded-lg pl-8 pr-3 py-2 text-sm outline-none"
-                      style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+                    <Search size={14} className="text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <Input
+                      type="text"
+                      placeholder="Search by address or agent..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-8"
                     />
                   </div>
                   <div className="flex gap-1.5">
-                    <button onClick={() => setFilterMode('all')} className="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
-                      style={{ background: filterMode === 'all' ? colors.gold : 'transparent', color: filterMode === 'all' ? '#FFF' : colors.textMuted, border: `1px solid ${filterMode === 'all' ? colors.gold : colors.border}` }}>
+                    <button
+                      onClick={() => setFilterMode('all')}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors border ${
+                        filterMode === 'all'
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'text-muted-foreground border-border/50 hover:text-foreground'
+                      }`}
+                    >
                       All ({inbox.length})
                     </button>
-                    <button onClick={() => setFilterMode('needs_reply')} className="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
-                      style={{ background: filterMode === 'needs_reply' ? '#DC2626' : 'transparent', color: filterMode === 'needs_reply' ? '#FFF' : colors.textMuted, border: `1px solid ${filterMode === 'needs_reply' ? '#DC2626' : colors.border}` }}>
+                    <button
+                      onClick={() => setFilterMode('needs_reply')}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors border ${
+                        filterMode === 'needs_reply'
+                          ? 'bg-red-600 text-white border-red-600'
+                          : 'text-muted-foreground border-border/50 hover:text-foreground'
+                      }`}
+                    >
                       Needs Reply ({needsReplyCount})
                     </button>
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                <div className="flex-1 overflow-y-auto">
                   {filteredInbox.map((item) => {
                     const isSelected = item.deal_id === selectedDealId
                     return (
-                      <button key={item.deal_id} onClick={() => selectDeal(item.deal_id)} className="w-full text-left px-4 py-3 transition-colors"
-                        style={{ background: isSelected ? colors.tableHeaderBg : 'transparent', borderBottom: `1px solid ${colors.divider}`, borderLeft: isSelected ? `3px solid ${colors.gold}` : '3px solid transparent' }}
-                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = colors.cardHoverBg }}
-                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                      <button
+                        key={item.deal_id}
+                        onClick={() => selectDeal(item.deal_id)}
+                        className={`w-full text-left px-4 py-3 transition-colors border-b border-border/30 border-l-[3px] ${
+                          isSelected
+                            ? 'bg-muted border-l-primary'
+                            : 'border-l-transparent hover:bg-muted/50'
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${item.needs_reply ? 'font-bold' : 'font-medium'}`} style={{ color: colors.textPrimary }}>{item.property_address}</p>
+                            <p className={`text-sm truncate ${item.needs_reply ? 'font-bold' : 'font-medium'} text-foreground`}>
+                              {item.property_address}
+                            </p>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs" style={{ color: colors.gold }}>{item.agent_name}</span>
-                              <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>{formatStatusLabel(item.deal_status)}</span>
+                              <span className="text-xs text-primary">{item.agent_name}</span>
+                              <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                                {formatStatusLabel(item.deal_status)}
+                              </span>
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            <span className="text-[10px]" style={{ color: colors.textFaint }}>{formatRelativeTime(item.latest_message_at)}</span>
+                            <span className="text-[10px] text-muted-foreground/60">{formatRelativeTime(item.latest_message_at)}</span>
                             {item.needs_reply && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse" style={{ background: '#DC262620', color: '#DC2626', border: '1px solid #DC262640' }}>
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse bg-red-500/10 text-red-400 border border-red-500/25">
                                 <AlertCircle size={9} />Reply
                               </span>
                             )}
                           </div>
                         </div>
-                        <p className={`text-xs mt-1 truncate ${item.needs_reply ? 'font-medium' : ''}`} style={{ color: item.needs_reply ? colors.textSecondary : colors.textMuted }}>
+                        <p className={`text-xs mt-1 truncate ${item.needs_reply ? 'font-medium text-foreground/80' : 'text-muted-foreground'}`}>
                           {item.latest_sender_role === 'agent' ? `${item.agent_name.split(' ')[0]}: ` : 'You: '}{item.latest_message}
                         </p>
                       </button>
@@ -300,7 +320,9 @@ export default function AdminMessagesPage() {
                   })}
                   {filteredInbox.length === 0 && (
                     <div className="px-4 py-8 text-center">
-                      <p className="text-xs" style={{ color: colors.textMuted }}>{searchQuery.trim() ? 'No matching conversations' : 'No conversations need a reply'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {searchQuery.trim() ? 'No matching conversations' : 'No conversations need a reply'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -313,54 +335,56 @@ export default function AdminMessagesPage() {
                 {!selectedDealId ? (
                   <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
-                      <MessageSquare size={40} style={{ color: colors.textFaint }} className="mx-auto mb-3" />
-                      <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>Select a conversation</p>
-                      <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Choose from the list on the left</p>
+                      <MessageSquare size={40} className="text-muted-foreground/30 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">Select a conversation</p>
+                      <p className="text-xs mt-1 text-muted-foreground/70">Choose from the list on the left</p>
                     </div>
                   </div>
                 ) : (
                   <>
                     {/* Thread header */}
-                    <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2 border-b border-border/50">
                       {isMobile && (
-                        <button onClick={handleBack} className="p-1 mr-1" style={{ color: colors.textMuted }}>
+                        <button onClick={handleBack} className="p-1 mr-1 text-muted-foreground hover:text-foreground transition-colors">
                           <ArrowLeft size={20} />
                         </button>
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold truncate" style={{ color: colors.textPrimary }}>{selectedDeal?.property_address}</p>
+                        <p className="text-sm font-bold truncate text-foreground">{selectedDeal?.property_address}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs" style={{ color: colors.gold }}>{selectedDeal?.agent_name}</span>
-                          {selectedDeal && <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(selectedDeal.deal_status)}>{formatStatusLabel(selectedDeal.deal_status)}</span>}
-                          <span className="text-[10px]" style={{ color: colors.textFaint }}>{selectedDeal?.total_message_count || 0} messages</span>
+                          <span className="text-xs text-primary">{selectedDeal?.agent_name}</span>
+                          {selectedDeal && (
+                            <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(selectedDeal.deal_status)}>
+                              {formatStatusLabel(selectedDeal.deal_status)}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground/50">{selectedDeal?.total_message_count || 0} messages</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {selectedDeal?.needs_reply && (
-                          <button onClick={() => handleDismiss(selectedDealId!)}
-                            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                            style={{ color: colors.textPrimary, background: colors.cardBg, border: `1px solid ${colors.border}` }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg }}
+                          <Button
+                            onClick={() => handleDismiss(selectedDealId!)}
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs h-8"
                           >
                             <CheckCircle size={12} /><span className="hidden sm:inline">Dismiss</span>
-                          </button>
+                          </Button>
                         )}
-                        <button onClick={() => router.push(`/admin/deals/${selectedDealId}`)}
-                          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                          style={{ color: colors.gold, border: `1px solid ${colors.border}` }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.border }}
+                        <Button
+                          onClick={() => router.push(`/admin/deals/${selectedDealId}`)}
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs text-primary border-border/50 h-8 hover:border-primary"
                         >
                           <ExternalLink size={12} /><span className="hidden sm:inline">View Deal</span>
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
-                    {/* Messages */}
                     <MessageThread messages={messages} viewerRole="admin" loading={messagesLoading} emptyMessage="No messages yet" />
 
-                    {/* Input with quick replies */}
                     <MessageInput
                       onSend={handleSend}
                       placeholder="Reply to agent... (sends email notification)"

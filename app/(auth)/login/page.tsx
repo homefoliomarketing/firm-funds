@@ -3,8 +3,13 @@
 import { useState, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Eye, EyeOff } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
+import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Separator } from '@/components/ui/separator'
 
 export default function LoginPage() {
   return (
@@ -26,7 +31,6 @@ function LoginPageInner() {
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirect')
   const supabase = createClient()
-  const { colors, isDark } = useTheme()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,7 +61,6 @@ function LoginPageInner() {
     })
 
     if (error) {
-      // Log failed login attempt (fire-and-forget, will fail if no session — that's ok)
       void supabase.from('audit_log').insert({
         action: 'auth.login_failed',
         entity_type: 'auth',
@@ -78,7 +81,6 @@ function LoginPageInner() {
         .eq('id', user.id)
         .single()
 
-      // Log successful login
       void supabase.from('audit_log').insert({
         user_id: user.id,
         action: 'auth.login',
@@ -90,7 +92,6 @@ function LoginPageInner() {
       })
 
       if (profile) {
-        // If there's a redirect URL from before login, use it (but verify it matches the user's role)
         if (redirectTo) {
           const roleRoutes: Record<string, string> = {
             agent: '/agent',
@@ -99,7 +100,6 @@ function LoginPageInner() {
             super_admin: '/admin',
           }
           const allowedPrefix = roleRoutes[profile.role] || '/agent'
-          // Only redirect to the saved URL if it starts with the user's allowed route
           if (redirectTo.startsWith(allowedPrefix)) {
             router.push(redirectTo)
             return
@@ -132,7 +132,6 @@ function LoginPageInner() {
     setResetting(true)
     setError(null)
 
-    // Rate limit check
     try {
       const rlRes = await fetch('/api/rate-limit', {
         method: 'POST',
@@ -161,132 +160,124 @@ function LoginPageInner() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(145deg, #121212 0%, #181818 40%, #1E1E1E 100%)' : 'linear-gradient(145deg, #1E1E1E 0%, #2D2D2D 40%, #3D3D3D 100%)' }}>
-      {/* Subtle decorative elements */}
-      <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(80px)' }} />
-      <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full" style={{ background: 'radial-gradient(circle, #5FA873, transparent)', filter: 'blur(60px)' }} />
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-background">
+      {/* Premium ambient glow effects */}
+      <div className="absolute top-[-200px] right-[-100px] w-[500px] h-[500px] rounded-full opacity-[0.03]"
+        style={{ background: 'radial-gradient(circle, #5FA873, transparent 70%)', filter: 'blur(80px)' }} />
+      <div className="absolute bottom-[-150px] left-[-80px] w-[400px] h-[400px] rounded-full opacity-[0.03]"
+        style={{ background: 'radial-gradient(circle, #5FA873, transparent 70%)', filter: 'blur(60px)' }} />
 
-
-      <div className="relative max-w-md w-full mx-4">
-        {/* Logo / Brand Area */}
-        <div className="text-center mb-8">
-          <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 md:h-48 w-auto mx-auto mb-5" />
-          <p className="text-sm font-medium tracking-wide" style={{ color: '#5FA873', fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+      <div className="relative max-w-[420px] w-full mx-4">
+        {/* Logo / Brand */}
+        <div className="text-center mb-10">
+          <img
+            src="/brand/white.png"
+            alt="Firm Funds"
+            className="h-28 sm:h-36 md:h-44 w-auto mx-auto mb-4"
+          />
+          <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary">
             Commission Advance Portal
           </p>
         </div>
 
         {/* Login Card */}
-        <div className="rounded-2xl shadow-2xl p-5 sm:p-8" style={{ background: colors.cardBg, boxShadow: `0 25px 60px ${colors.shadowColor}` }}>
-          <form onSubmit={handleLogin} className="space-y-5">
-            {error && (
-              <div className="px-4 py-3 rounded-lg text-sm" style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }}>
-                {error}
-              </div>
-            )}
-            {resetSent && (
-              <div className="px-4 py-3 rounded-lg text-sm" style={{ background: colors.successBg, border: `1px solid ${colors.successBorder}`, color: colors.successText }}>
-                Password reset email sent! Check your inbox.
-              </div>
-            )}
+        <Card className="border-border/50 shadow-2xl shadow-black/40">
+          <CardContent className="p-6 sm:p-8">
+            <form onSubmit={handleLogin} className="space-y-5">
+              {error && (
+                <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-sm">{error}</AlertDescription>
+                </Alert>
+              )}
+              {resetSent && (
+                <Alert className="bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  <AlertDescription className="text-sm text-emerald-400">
+                    Password reset email sent! Check your inbox.
+                  </AlertDescription>
+                </Alert>
+              )}
 
-            <div>
-              <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textPrimary }}>
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(null) }}
-                className="block w-full px-4 py-3 rounded-lg text-sm transition-all duration-200 outline-none"
-                style={{
-                  border: `1.5px solid ${colors.inputBorder}`,
-                  color: colors.inputText,
-                  background: colors.inputBg,
-                }}
-                onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
-                onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: colors.textPrimary }}>
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Email Address
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
                   required
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError(null) }}
-                  className="block w-full px-4 py-3 pr-11 rounded-lg text-sm transition-all duration-200 outline-none"
-                  style={{
-                    border: `1.5px solid ${colors.inputBorder}`,
-                    color: colors.inputText,
-                    background: colors.inputBg,
-                  }}
-                  onFocus={(e) => { e.target.style.borderColor = '#5FA873'; e.target.style.boxShadow = isDark ? '0 0 0 3px rgba(95, 168, 115, 0.25)' : '0 0 0 3px rgba(95, 168, 115, 0.15)' }}
-                  onBlur={(e) => { e.target.style.borderColor = colors.inputBorder; e.target.style.boxShadow = 'none' }}
-                  placeholder="Enter your password"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(null) }}
+                  placeholder="you@example.com"
+                  className="h-11 bg-secondary/50 border-border/50 text-foreground placeholder:text-muted-foreground/50 focus-visible:ring-primary/30 focus-visible:border-primary/50 transition-all"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Password
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setError(null) }}
+                    placeholder="Enter your password"
+                    className="h-11 pr-10 bg-secondary/50 border-border/50 text-foreground placeholder:text-muted-foreground/50 focus-visible:ring-primary/30 focus-visible:border-primary/50 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
-                  style={{ color: colors.textMuted }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = '#5FA873'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
-                  tabIndex={-1}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={handleForgotPassword}
+                  disabled={resetting}
+                  className="text-xs font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {resetting ? 'Sending...' : 'Forgot password?'}
                 </button>
               </div>
-            </div>
 
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleForgotPassword}
-                disabled={resetting}
-                className="text-xs font-medium transition-colors"
-                style={{ color: '#5FA873' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#3D7A4F'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#5FA873'}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full h-11 text-sm font-semibold uppercase tracking-wider"
+                size="lg"
               >
-                {resetting ? 'Sending...' : 'Forgot password?'}
-              </button>
-            </div>
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  'Sign In'
+                )}
+              </Button>
+            </form>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 px-4 rounded-lg text-sm font-bold uppercase tracking-wider text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'linear-gradient(135deg, #2D2D2D, #1E1E1E)',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-              }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = 'linear-gradient(135deg, #3D3D3D, #2D2D2D)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #2D2D2D, #1E1E1E)' }}
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+            <Separator className="my-6 bg-border/50" />
 
-          {/* Divider */}
-          <div className="mt-6 pt-5" style={{ borderTop: `1px solid ${colors.border}` }}>
-            <p className="text-center text-xs" style={{ color: colors.textMuted }}>
+            <p className="text-center text-xs text-muted-foreground">
               Don&apos;t have an account? Contact your brokerage administrator.
             </p>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Footer */}
-        <p className="text-center text-xs mt-6" style={{ color: 'rgba(255,255,255,0.3)' }}>
+        <p className="text-center text-xs mt-8 text-muted-foreground/40">
           &copy; {new Date().getFullYear()} Firm Funds Inc. All rights reserved.
         </p>
       </div>

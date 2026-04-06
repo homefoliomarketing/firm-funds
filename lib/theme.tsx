@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 
 // =============================================================================
 // Theme Color Definitions
+// Updated to match CSS variable theme in globals.css
 // =============================================================================
 
 export interface ThemeColors {
@@ -46,9 +47,6 @@ export interface ThemeColors {
   // Skeleton loading
   skeletonBase: string
   skeletonHighlight: string
-
-  // Status colors (same in both themes — they're designed to be readable)
-  // These come from constants.ts STATUS_BADGE_STYLES
 
   // Functional colors
   successText: string
@@ -119,38 +117,39 @@ export const lightColors: ThemeColors = {
   shadowColor: 'rgba(0,0,0,0.06)',
 }
 
+// Dark colors — synced with CSS variables in globals.css
 export const darkColors: ThemeColors = {
-  pageBg: '#121212',
-  cardBg: '#1C1C1C',
-  cardBorder: '#2E2E2E',
-  cardHoverBg: '#242424',
+  pageBg: '#0B0B0F',
+  cardBg: '#141418',
+  cardBorder: 'rgba(255, 255, 255, 0.08)',
+  cardHoverBg: '#1E1E24',
 
-  headerBg: '#121212',
-  headerBgGradient: 'linear-gradient(135deg, #121212, #1C1C1C)',
+  headerBg: '#0B0B0F',
+  headerBgGradient: 'linear-gradient(135deg, #0B0B0F, #141418)',
 
-  textPrimary: '#E8E4DF',
-  textSecondary: '#999999',
-  textMuted: '#666666',
-  textFaint: '#444444',
+  textPrimary: '#EAEAEF',
+  textSecondary: '#A0A0AB',
+  textMuted: '#6B6B78',
+  textFaint: '#3A3A44',
 
   gold: '#5FA873',
   goldDark: '#7BC48D',
   goldBg: '#0E2016',
 
-  border: '#2E2E2E',
-  borderLight: '#282828',
-  divider: '#262626',
+  border: 'rgba(255, 255, 255, 0.08)',
+  borderLight: 'rgba(255, 255, 255, 0.05)',
+  divider: 'rgba(255, 255, 255, 0.06)',
 
-  inputBg: '#222222',
-  inputBorder: '#383838',
-  inputText: '#E8E4DF',
+  inputBg: '#1E1E24',
+  inputBorder: 'rgba(255, 255, 255, 0.1)',
+  inputText: '#EAEAEF',
 
-  tableHeaderBg: '#191919',
-  tableRowHoverBg: '#222222',
-  tableRowBorder: '#262626',
+  tableHeaderBg: '#0F0F13',
+  tableRowHoverBg: '#1E1E24',
+  tableRowBorder: 'rgba(255, 255, 255, 0.06)',
 
-  skeletonBase: '#262626',
-  skeletonHighlight: '#2E2E2E',
+  skeletonBase: '#1E1E24',
+  skeletonHighlight: '#28282F',
 
   successText: '#4ADE80',
   successBg: '#0F2416',
@@ -158,15 +157,15 @@ export const darkColors: ThemeColors = {
   errorText: '#F87171',
   errorBg: '#241010',
   errorBorder: '#422020',
-  warningText: '#D4A844',
+  warningText: '#F5A623',
   warningBg: '#201C0E',
   warningBorder: '#423618',
-  infoText: '#7BA3E0',
+  infoText: '#60A5FA',
   infoBg: '#101524',
   infoBorder: '#203050',
 
   overlayBg: 'rgba(0,0,0,0.75)',
-  shadowColor: 'rgba(0,0,0,0.4)',
+  shadowColor: 'rgba(0,0,0,0.5)',
 }
 
 // =============================================================================
@@ -190,39 +189,20 @@ const ThemeContext = createContext<ThemeContextType>({
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>('dark')
+  const [mode] = useState<ThemeMode>('dark')
 
-  // Load from localStorage on mount
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('ff-theme')
-      if (stored === 'dark' || stored === 'light') {
-        setMode(stored)
-      }
-    } catch {
-      // localStorage not available
-    }
+    document.documentElement.classList.add('dark')
   }, [])
-
-  // Persist to localStorage on change
-  useEffect(() => {
-    try {
-      localStorage.setItem('ff-theme', mode)
-    } catch {
-      // localStorage not available
-    }
-    // Also set a class on <html> for potential CSS usage
-    document.documentElement.classList.toggle('dark', mode === 'dark')
-  }, [mode])
 
   // Light mode disabled — always dark
   const toggle = () => {}
 
   const value: ThemeContextType = {
     mode,
-    colors: mode === 'dark' ? darkColors : lightColors,
+    colors: darkColors,
     toggle,
-    isDark: mode === 'dark',
+    isDark: true,
   }
 
   return (

@@ -7,7 +7,6 @@ import {
   MessageSquare, AlertTriangle, ExternalLink, Inbox, Search, Upload,
   CheckCircle2, ChevronDown, ChevronUp, ArrowLeft,
 } from 'lucide-react'
-import { useTheme } from '@/lib/theme'
 import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
@@ -23,6 +22,9 @@ import {
   type InboxDeal,
 } from '@/lib/actions/notification-actions'
 import { uploadDocument } from '@/lib/actions/deal-actions'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface DocumentReturnItem {
   id: string
@@ -53,7 +55,6 @@ export default function AgentMessagesPage() {
   const [isMobile, setIsMobile] = useState(false)
   const router = useRouter()
   const supabase = createClient()
-  const { colors } = useTheme()
 
   // Mobile detection
   useEffect(() => {
@@ -95,7 +96,6 @@ export default function AgentMessagesPage() {
     }
   }, [])
 
-  // Load messages for a selected deal
   const selectDeal = useCallback(async (dealId: string) => {
     setSelectedDealId(dealId)
     setMessagesLoading(true)
@@ -108,7 +108,6 @@ export default function AgentMessagesPage() {
     }
     setMessagesLoading(false)
 
-    // Mark as read
     if (agent?.id) {
       await markDealMessagesRead({ agentId: agent.id, dealId })
       setInbox(prev => prev.map(item =>
@@ -130,7 +129,6 @@ export default function AgentMessagesPage() {
           const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
           return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
         })
-        // Mark as read
         if (agent?.id) {
           markDealMessagesRead({ agentId: agent.id, dealId: selectedDealId })
           setInbox(prev => prev.map(item =>
@@ -142,7 +140,6 @@ export default function AgentMessagesPage() {
     return () => clearInterval(interval)
   }, [selectedDealId, messages, agent?.id])
 
-  // Send message with optional file
   const handleSend = async (message: string, file?: File | null) => {
     if (!selectedDealId) return
 
@@ -151,7 +148,6 @@ export default function AgentMessagesPage() {
     let fileSize: number | null = null
     let fileType: string | null = null
 
-    // Upload file if attached
     if (file) {
       try {
         const fd = new FormData()
@@ -184,7 +180,6 @@ export default function AgentMessagesPage() {
       })
 
       if (result.success) {
-        // Add message to thread — create fallback if data is incomplete
         const newMsg = result.data || {
           id: crypto.randomUUID(),
           sender_role: 'agent',
@@ -212,7 +207,6 @@ export default function AgentMessagesPage() {
     }
   }
 
-  // Back to inbox (mobile)
   const handleBack = () => {
     setSelectedDealId(null)
     setMessages([])
@@ -225,19 +219,18 @@ export default function AgentMessagesPage() {
   const selectedDeal = inbox.find(d => d.deal_id === selectedDealId)
   const selectedDealReturns = pendingReturns.filter(r => r.deal_id === selectedDealId)
 
-  // Mobile: show either list or thread
   const showList = !isMobile || !selectedDealId
   const showThread = !isMobile || !!selectedDealId
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: colors.pageBg }}>
-        <div style={{ background: colors.headerBgGradient }} className="h-24" />
+      <div className="min-h-screen bg-background">
+        <div className="h-24 bg-card border-b border-border" />
         <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="rounded-xl p-8" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <div className="h-4 w-32 rounded animate-pulse mb-4" style={{ background: colors.skeletonBase }} />
+          <div className="rounded-xl p-8 bg-card border border-border">
+            <Skeleton className="h-4 w-32 mb-4" />
             {[1,2,3].map(i => (
-              <div key={i} className="h-16 rounded-lg animate-pulse mb-3" style={{ background: colors.skeletonHighlight }} />
+              <Skeleton key={i} className="h-16 rounded-lg mb-3" />
             ))}
           </div>
         </main>
@@ -246,7 +239,7 @@ export default function AgentMessagesPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ background: colors.pageBg }}>
+    <div className="h-screen flex flex-col overflow-hidden bg-background">
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
@@ -258,11 +251,11 @@ export default function AgentMessagesPage() {
         {/* Status message */}
         {statusMessage && (
           <div
-            className="mb-3 p-3 rounded-xl text-sm font-medium"
-            style={statusMessage.type === 'success'
-              ? { background: colors.successBg, border: `1px solid ${colors.successBorder}`, color: colors.successText }
-              : { background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }
-            }
+            className={`mb-3 p-3 rounded-xl text-sm font-medium cursor-pointer border ${
+              statusMessage.type === 'success'
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-destructive/10 border-destructive/30 text-destructive'
+            }`}
             onClick={() => setStatusMessage(null)}
           >
             {statusMessage.text}
@@ -270,31 +263,31 @@ export default function AgentMessagesPage() {
         )}
 
         {inbox.length === 0 ? (
-          <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
-            <Inbox className="mx-auto mb-4" size={48} style={{ color: colors.textFaint }} />
-            <p className="text-lg font-semibold" style={{ color: colors.textSecondary }}>No active deals</p>
-            <p className="text-sm mt-2" style={{ color: colors.textMuted }}>
+          <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full bg-card border border-border">
+            <Inbox className="mx-auto mb-4 text-muted-foreground/50" size={48} />
+            <p className="text-lg font-semibold text-muted-foreground">No active deals</p>
+            <p className="text-sm mt-2 text-muted-foreground">
               Submit an advance request to get started.
             </p>
           </div>
         ) : (
-          <div className="rounded-xl overflow-hidden flex h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+          <div className="rounded-xl overflow-hidden flex h-full bg-card border border-border">
 
             {/* LEFT PANEL — Deal list */}
             {showList && (
-              <div className="flex flex-col" style={{ width: isMobile ? '100%' : '340px', minWidth: isMobile ? '100%' : '280px', borderRight: isMobile ? 'none' : `1px solid ${colors.border}` }}>
-                <div className="p-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+              <div
+                className="flex flex-col border-r border-border"
+                style={{ width: isMobile ? '100%' : '340px', minWidth: isMobile ? '100%' : '280px', borderRight: isMobile ? 'none' : undefined }}
+              >
+                <div className="p-3 border-b border-border">
                   <div className="relative">
-                    <Search size={14} style={{ color: colors.textMuted, position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                    <input
+                    <Search size={14} className="text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <Input
                       type="text"
                       placeholder="Search deals..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full rounded-lg pl-8 pr-3 py-2 text-sm outline-none"
-                      style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
+                      className="pl-8"
                     />
                   </div>
                 </div>
@@ -309,18 +302,15 @@ export default function AgentMessagesPage() {
                       <button
                         key={item.deal_id}
                         onClick={() => selectDeal(item.deal_id)}
-                        className="w-full text-left px-4 py-3.5 transition-colors"
-                        style={{
-                          background: isSelected ? colors.tableHeaderBg : 'transparent',
-                          borderBottom: `1px solid ${colors.divider}`,
-                          borderLeft: isSelected ? `3px solid ${colors.gold}` : '3px solid transparent',
-                        }}
-                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = colors.cardHoverBg }}
-                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                        className={`w-full text-left px-4 py-3.5 transition-colors border-b border-border/50 ${
+                          isSelected
+                            ? 'bg-muted border-l-[3px] border-l-primary'
+                            : 'border-l-[3px] border-l-transparent hover:bg-muted/50'
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-medium'}`} style={{ color: colors.textPrimary }}>
+                            <p className={`text-sm truncate ${hasUnread ? 'font-bold text-foreground' : 'font-medium text-foreground'}`}>
                               {item.property_address}
                             </p>
                             <div className="flex items-center gap-2 mt-1">
@@ -331,23 +321,23 @@ export default function AgentMessagesPage() {
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
                             {item.latest_message_at && (
-                              <span className="text-[10px]" style={{ color: colors.textFaint }}>
+                              <span className="text-[10px] text-muted-foreground/60">
                                 {formatRelativeTime(item.latest_message_at)}
                               </span>
                             )}
                             <div className="flex items-center gap-1">
                               {hasUnread && (
-                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold" style={{ background: colors.gold, color: '#FFFFFF' }}>
+                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-primary text-primary-foreground">
                                   {item.unread_message_count}
                                 </span>
                               )}
                               {hasReturns && (
-                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold" style={{ background: '#EF4444', color: '#FFFFFF' }} title="Returned documents need attention">!</span>
+                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-destructive text-destructive-foreground" title="Returned documents need attention">!</span>
                               )}
                             </div>
                           </div>
                         </div>
-                        <p className={`text-xs mt-1.5 truncate ${hasUnread ? 'font-medium' : ''}`} style={{ color: hasUnread ? colors.textSecondary : colors.textMuted }}>
+                        <p className={`text-xs mt-1.5 truncate ${hasUnread ? 'font-medium text-muted-foreground' : 'text-muted-foreground/70'}`}>
                           {item.total_message_count === 0 && item.pending_return_count === 0
                             ? 'No messages yet — tap to start a conversation'
                             : <>
@@ -361,7 +351,7 @@ export default function AgentMessagesPage() {
                   })}
                   {filteredInbox.length === 0 && searchQuery.trim() && (
                     <div className="px-4 py-8 text-center">
-                      <p className="text-xs" style={{ color: colors.textMuted }}>No matching deals</p>
+                      <p className="text-xs text-muted-foreground">No matching deals</p>
                     </div>
                   )}
                 </div>
@@ -374,22 +364,22 @@ export default function AgentMessagesPage() {
                 {!selectedDealId ? (
                   <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
-                      <MessageSquare size={40} style={{ color: colors.textFaint }} className="mx-auto mb-3" />
-                      <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>Select a deal to view messages</p>
-                      <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Choose from the list on the left</p>
+                      <MessageSquare size={40} className="text-muted-foreground/40 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">Select a deal to view messages</p>
+                      <p className="text-xs mt-1 text-muted-foreground/70">Choose from the list on the left</p>
                     </div>
                   </div>
                 ) : (
                   <>
                     {/* Thread header */}
-                    <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2 border-b border-border">
                       {isMobile && (
-                        <button onClick={handleBack} className="p-1 mr-1" style={{ color: colors.textMuted }}>
+                        <button onClick={handleBack} className="p-1 mr-1 text-muted-foreground hover:text-foreground transition-colors">
                           <ArrowLeft size={20} />
                         </button>
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold truncate" style={{ color: colors.textPrimary }}>
+                        <p className="text-sm font-bold truncate text-foreground">
                           {selectedDeal?.property_address}
                         </p>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -398,17 +388,14 @@ export default function AgentMessagesPage() {
                               {formatStatusLabel(selectedDeal.deal_status)}
                             </span>
                           )}
-                          <span className="text-[10px]" style={{ color: colors.textFaint }}>
+                          <span className="text-[10px] text-muted-foreground/60">
                             {selectedDeal?.total_message_count || 0} messages
                           </span>
                         </div>
                       </div>
                       <button
                         onClick={() => router.push(`/agent/deals/${selectedDealId}`)}
-                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
-                        style={{ color: colors.gold, border: `1px solid ${colors.border}` }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.border }}
+                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 text-primary border border-border hover:bg-muted hover:border-primary"
                       >
                         <ExternalLink size={12} />
                         <span className="hidden sm:inline">View Deal</span>
@@ -417,37 +404,37 @@ export default function AgentMessagesPage() {
 
                     {/* Returned docs alert */}
                     {selectedDealReturns.length > 0 && (
-                      <div style={{ background: '#2A1212', borderBottom: '1px solid #4A2020' }}>
+                      <div className="bg-[#2A1212] border-b border-[#4A2020]">
                         <button onClick={() => setReturnsExpanded(!returnsExpanded)} className="w-full px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <AlertTriangle size={14} style={{ color: '#F87171', flexShrink: 0 }} />
-                            <span className="text-xs font-bold truncate" style={{ color: '#F87171' }}>
+                            <AlertTriangle size={14} className="text-[#F87171] flex-shrink-0" />
+                            <span className="text-xs font-bold truncate text-[#F87171]">
                               {selectedDealReturns.filter(r => !uploadedReturnIds.has(r.id)).length === 0
                                 ? 'All returned documents re-uploaded!'
                                 : `${selectedDealReturns.length} document${selectedDealReturns.length > 1 ? 's' : ''} returned for revision`}
                             </span>
                           </div>
-                          {returnsExpanded ? <ChevronUp size={14} style={{ color: '#F87171' }} /> : <ChevronDown size={14} style={{ color: '#F87171' }} />}
+                          {returnsExpanded
+                            ? <ChevronUp size={14} className="text-[#F87171]" />
+                            : <ChevronDown size={14} className="text-[#F87171]" />}
                         </button>
                         {returnsExpanded && (
                           <div className="px-4 sm:px-5 pb-3 space-y-2">
                             {selectedDealReturns.map(ret => (
-                              <div key={ret.id} className="rounded-lg px-3 py-2.5" style={{ background: '#3A1818', border: '1px solid #4A2020' }}>
+                              <div key={ret.id} className="rounded-lg px-3 py-2.5 bg-[#3A1818] border border-[#4A2020]">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold truncate" style={{ color: '#FCA5A5' }}>{ret.deal_documents?.file_name || 'Document'}</p>
-                                    <p className="text-[10px] mt-0.5" style={{ color: '#F87171' }}>Reason: {ret.reason}</p>
+                                    <p className="text-xs font-semibold truncate text-[#FCA5A5]">{ret.deal_documents?.file_name || 'Document'}</p>
+                                    <p className="text-[10px] mt-0.5 text-[#F87171]">Reason: {ret.reason}</p>
                                   </div>
                                   {uploadedReturnIds.has(ret.id) ? (
                                     <div className="flex items-center gap-1 flex-shrink-0">
-                                      <CheckCircle2 size={12} style={{ color: '#5FA873' }} />
-                                      <span className="text-[10px] font-semibold" style={{ color: '#5FA873' }}>Uploaded</span>
+                                      <CheckCircle2 size={12} className="text-primary" />
+                                      <span className="text-[10px] font-semibold text-primary">Uploaded</span>
                                     </div>
                                   ) : (
-                                    <label className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md cursor-pointer transition-colors"
-                                      style={{ background: '#4A2020', color: '#FCA5A5' }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = '#5A2525'}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = '#4A2020'}
+                                    <label
+                                      className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md cursor-pointer transition-colors bg-[#4A2020] text-[#FCA5A5] hover:bg-[#5A2525]"
                                     >
                                       <Upload size={10} />
                                       {uploadingReturnId === ret.id ? 'Uploading...' : 'Re-upload'}
