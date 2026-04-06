@@ -372,12 +372,12 @@ export default function BrokerageDashboard() {
               >
                 {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : tab === 'payments' ? 'Payment Status' : 'Messages'}
                 {tab === 'deals' && dealsMissingTradeRecord > 0 && (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse bg-red-600 text-white">
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
                     {dealsMissingTradeRecord}
                   </span>
                 )}
                 {tab === 'messages' && unansweredMessageCount > 0 && (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse bg-red-600 text-white">
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
                     {unansweredMessageCount}
                   </span>
                 )}

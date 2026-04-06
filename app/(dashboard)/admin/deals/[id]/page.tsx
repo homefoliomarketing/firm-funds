@@ -1207,7 +1207,7 @@ export default function DealDetailPage() {
                   return (
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-950/30 text-amber-400 border border-amber-800/50">
-                        <Clock className="w-4 h-4 animate-pulse" />
+                        <Clock className="w-4 h-4" />
                         Awaiting Signature
                       </div>
                       <button
@@ -2316,7 +2316,7 @@ export default function DealDetailPage() {
                   <Send className="w-4 h-4" />
                   Messages
                   {hasUnreadMessages && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white animate-pulse">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
                       New
                     </span>
                   )}

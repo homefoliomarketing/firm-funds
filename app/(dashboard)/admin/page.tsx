@@ -126,6 +126,43 @@ export default function AdminDashboard() {
     loadDashboard()
   }, [])
 
+  // Poll for new messages every 30 seconds
+  useEffect(() => {
+    if (loading) return
+    const interval = setInterval(async () => {
+      try {
+        const [{ data: allMsgs }, { data: dismissals }] = await Promise.all([
+          supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
+          supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
+        ])
+        const dismissMap = new Map<string, string>()
+        if (dismissals) {
+          for (const d of dismissals) dismissMap.set(d.deal_id, d.dismissed_at)
+        }
+        const msgsByDeal = new Map<string, { sender_role: string; created_at: string }>()
+        for (const msg of (allMsgs || [])) {
+          if (!msgsByDeal.has(msg.deal_id)) msgsByDeal.set(msg.deal_id, msg)
+        }
+        const dealsWithUnread: string[] = []
+        msgsByDeal.forEach((latestMsg, dealId) => {
+          if (latestMsg.sender_role === 'agent' || latestMsg.sender_role === 'brokerage_admin') {
+            const dismissedAt = dismissMap.get(dealId)
+            if (dismissedAt && new Date(dismissedAt) >= new Date(latestMsg.created_at)) return
+            dealsWithUnread.push(dealId)
+          }
+        })
+        setStats(prev => ({
+          ...prev,
+          unreadAgentMessages: dealsWithUnread.length,
+          dealsWithUnreadMessages: dealsWithUnread,
+        }))
+      } catch {
+        // Silently fail — don't break the dashboard
+      }
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [loading])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
@@ -243,7 +280,7 @@ export default function AdminDashboard() {
                 <link.icon size={14} className="text-primary" />
                 {link.label}
                 {link.badge ? (
-                  <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold animate-pulse bg-red-600 text-white border-red-600">
+                  <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
                     {link.badge}
                   </Badge>
                 ) : null}
@@ -259,7 +296,7 @@ export default function AdminDashboard() {
             <MessageSquare size={14} className="text-primary" />
             Messages
             {stats.unreadAgentMessages > 0 && (
-              <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold animate-pulse bg-red-600 text-white border-red-600">
+              <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
                 {stats.unreadAgentMessages}
               </Badge>
             )}
@@ -529,7 +566,7 @@ export default function AdminDashboard() {
               >
                 {tab.label}
                 {showBadge ? (
-                  <Badge className="h-4 min-w-[16px] px-1 text-[10px] font-bold animate-pulse bg-red-600 text-white border-red-600">
+                  <Badge className="h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
                     {unreadInStatus > 0 ? unreadInStatus : count}
                   </Badge>
                 ) : (

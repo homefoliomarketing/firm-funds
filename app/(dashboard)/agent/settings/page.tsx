@@ -153,10 +153,10 @@ export default function AgentSettingsPage() {
     return (
       <div className="min-h-screen bg-background">
         <div className="max-w-3xl mx-auto px-4 py-12">
-          <div className="h-6 w-48 rounded-lg mb-4 animate-pulse bg-muted" />
-          <div className="h-4 w-32 rounded mb-8 animate-pulse bg-muted" />
+          <div className="h-6 w-48 rounded-lg mb-4 bg-muted" />
+          <div className="h-4 w-32 rounded mb-8 bg-muted" />
           {[1, 2, 3].map(i => (
-            <div key={i} className="rounded-lg p-6 mb-4 animate-pulse bg-card border border-border">
+            <div key={i} className="rounded-lg p-6 mb-4 bg-card border border-border">
               <div className="h-4 w-36 rounded mb-3 bg-muted" />
               <div className="h-10 w-full rounded bg-muted" />
             </div>
