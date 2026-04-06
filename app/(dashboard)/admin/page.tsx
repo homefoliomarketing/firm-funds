@@ -254,31 +254,30 @@ export default function AdminDashboard() {
       </header>
 
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Welcome back, {profile?.full_name?.split(' ')[0]}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1.5">Here&apos;s what&apos;s happening with Firm Funds.</p>
-        </div>
-
-        {/* Quick Links */}
-        <nav aria-label="Admin quick links" className="flex items-center gap-2 mb-8">
-          <div className="flex flex-wrap gap-2 flex-1">
+        {/* Welcome + Quick Links */}
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Welcome back, {profile?.full_name?.split(' ')[0]}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">Here&apos;s what&apos;s happening with Firm Funds.</p>
+          </div>
+          <nav aria-label="Admin quick links" className="flex items-center gap-2 flex-wrap">
             {[
               { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
               { label: 'Payments', icon: DollarSign, path: '/admin/payments' },
               { label: 'Audit Trail', icon: Shield, path: '/admin/audit' },
+              { label: 'Messages', icon: MessageSquare, path: '/admin/messages', badge: stats.unreadAgentMessages },
             ].map(link => (
               <Button
                 key={link.label}
                 variant="outline"
                 size="sm"
-                className="gap-1.5 border-border/50 hover:border-primary/50 hover:text-primary"
+                className="gap-1.5 border-border/50 hover:border-primary/40 hover:text-primary transition-colors"
                 onClick={() => router.push(link.path)}
               >
-                <link.icon size={14} className="text-primary" />
+                <link.icon size={14} className="text-primary/80" />
                 {link.label}
                 {link.badge ? (
                   <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
@@ -287,22 +286,28 @@ export default function AdminDashboard() {
                 ) : null}
               </Button>
             ))}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="relative gap-1.5 border-border/50 hover:border-primary/50 hover:text-primary"
-            onClick={() => router.push('/admin/messages')}
-          >
-            <MessageSquare size={14} className="text-primary" />
-            Messages
-            {stats.unreadAgentMessages > 0 && (
-              <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
-                {stats.unreadAgentMessages}
-              </Badge>
-            )}
-          </Button>
-        </nav>
+          </nav>
+        </div>
+
+        {/* KPI Stat Cards */}
+        <section aria-label="Key metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+          {[
+            { label: 'Total Deals', value: allDeals.length, icon: FileText, accent: 'text-primary' },
+            { label: 'Under Review', value: stats.underReviewDeals, icon: Clock, accent: 'text-status-blue' },
+            { label: 'Pending Actions', value: stats.pendingKycCount + stats.pendingBankingCount, icon: AlertTriangle, accent: 'text-status-amber' },
+            { label: 'Unread Messages', value: stats.unreadAgentMessages, icon: MessageSquare, accent: 'text-status-red' },
+          ].map(stat => (
+            <Card key={stat.label} className="border-border/40 bg-card/60">
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{stat.label}</span>
+                  <stat.icon size={15} className={`${stat.accent} opacity-60`} />
+                </div>
+                <p className="text-2xl font-bold tracking-tight text-foreground">{stat.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
 
         {/* PENDING ACTIONS */}
         {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
@@ -585,41 +590,43 @@ export default function AdminDashboard() {
         </div>
 
         {/* Deals Table */}
-        <Card className="border-border/50 shadow-lg shadow-black/20">
-          <CardHeader className="py-4 px-5 sm:px-6 border-b border-border/50">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-sm">
+        <Card className="border-border/40 shadow-lg shadow-black/20 overflow-hidden">
+          <CardHeader className="py-4 px-5 sm:px-6 border-b border-border/40 bg-card/80">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-base font-semibold">
                   {statusFilter ? `${statusFilter.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} Deals` : 'All Deals'}
                 </CardTitle>
+                <span className="text-xs text-muted-foreground/60 tabular-nums">{filtered.length}</span>
                 {statusFilter && (
                   <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs text-muted-foreground" onClick={() => { setStatusFilter(null); setCurrentPage(1) }}>
                     <X size={12} /> Clear
                   </Button>
                 )}
-                <span className="text-xs text-muted-foreground">{filtered.length} deal{filtered.length !== 1 ? 's' : ''}</span>
               </div>
               <div className="relative">
                 <Label htmlFor="deal-search" className="sr-only">Search deals by address or agent</Label>
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/40" />
                 <Input
                   id="deal-search"
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                   placeholder="Search by address or agent..."
-                  className="pl-9 h-9 w-full sm:w-72 bg-secondary/50 border-border/50"
+                  className="pl-9 h-9 w-full sm:w-72 bg-secondary/30 border-border/30 placeholder:text-muted-foreground/40"
                 />
               </div>
             </div>
           </CardHeader>
 
           {paged.length === 0 ? (
-            <div className="px-6 py-16 text-center">
-              <FileText className="mx-auto mb-4 text-muted-foreground/30" size={40} />
-              <p className="text-sm font-medium text-muted-foreground">
+            <div className="px-6 py-20 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-muted/30 flex items-center justify-center mx-auto mb-5">
+                <FileText className="text-muted-foreground/40" size={24} />
+              </div>
+              <p className="text-sm font-semibold text-muted-foreground">
                 {searchQuery || statusFilter ? 'No deals match your search' : 'No deals yet'}
               </p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
+              <p className="text-xs text-muted-foreground/50 mt-1.5 max-w-xs mx-auto">
                 {searchQuery || statusFilter ? 'Try adjusting your search or clearing the filter.' : 'Deals will appear here once agents submit advance requests.'}
               </p>
             </div>
