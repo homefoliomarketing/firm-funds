@@ -582,44 +582,22 @@ export default function DealDetailPage() {
     router.push('/login')
   }
 
-  // Track whether we arrived via #messages hash
-  const arrivedViaHash = useRef(
-    typeof window !== 'undefined' && window.location.hash === '#messages'
-  )
-
-  // Auto-expand when messages load if there are unread (last message from agent) or arrived via hash
-  useEffect(() => {
-    if (messages.length > 0) {
-      if (arrivedViaHash.current || messages[messages.length - 1].sender_role !== 'admin') {
-        setMessagesExpanded(true)
-      }
-    }
-  }, [messages.length])
-
   useEffect(() => { loadDealData() }, [dealId])
 
-  // Scroll message container to bottom when expanded, then scroll page to show messages section
+  // After expanding messages, scroll the inner container to bottom so newest messages are visible
   useEffect(() => {
-    if (messages.length > 0 && messagesExpanded) {
-      const scrollContainer = adminMessagesContainerRef.current
-      const scrollToBottom = () => {
-        if (scrollContainer) {
-          scrollContainer.scrollTop = scrollContainer.scrollHeight
+    if (messagesExpanded && messages.length > 0) {
+      const scrollContainerToBottom = () => {
+        if (adminMessagesContainerRef.current) {
+          adminMessagesContainerRef.current.scrollTop = adminMessagesContainerRef.current.scrollHeight
         }
       }
-      scrollToBottom()
-      const raf = requestAnimationFrame(() => scrollToBottom())
-      const timer = setTimeout(() => {
-        scrollToBottom()
-        // If we arrived via #messages hash, scroll the page to show the messages section
-        if (arrivedViaHash.current) {
-          arrivedViaHash.current = false
-          document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-      }, 300)
-      return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
+      // Multiple attempts — DOM needs time to render the expanded section
+      requestAnimationFrame(scrollContainerToBottom)
+      setTimeout(scrollContainerToBottom, 100)
+      setTimeout(scrollContainerToBottom, 300)
     }
-  }, [messages.length, messagesExpanded])
+  }, [messagesExpanded, messages.length])
 
   // Auto-dismiss message notifications when admin expands the messages section
   useEffect(() => {
@@ -657,6 +635,30 @@ export default function DealDetailPage() {
     const esignResult = await getDealSignatureStatus(dealId)
     if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
     setLoading(false)
+
+    // After ALL data is loaded, handle auto-expand + scroll for #messages hash or unread messages
+    const hasHash = window.location.hash === '#messages'
+    const hasUnread = messagesData && messagesData.length > 0 && messagesData[messagesData.length - 1].sender_role !== 'admin'
+    if (hasHash || hasUnread) {
+      setMessagesExpanded(true)
+      // Wait for React to render the expanded section, then scroll
+      setTimeout(() => {
+        // Scroll the messages container to bottom (newest messages visible)
+        if (adminMessagesContainerRef.current) {
+          adminMessagesContainerRef.current.scrollTop = adminMessagesContainerRef.current.scrollHeight
+        }
+        // Scroll the page to the messages section
+        if (hasHash) {
+          document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          // After page scroll animation, scroll container again (scrollIntoView can reset it)
+          setTimeout(() => {
+            if (adminMessagesContainerRef.current) {
+              adminMessagesContainerRef.current.scrollTop = adminMessagesContainerRef.current.scrollHeight
+            }
+          }, 500)
+        }
+      }, 200)
+    }
   }
 
   const handleChecklistToggle = async (item: ChecklistItem) => {

@@ -1112,7 +1112,7 @@ export default function BrokerageDashboard() {
                         >
                           <div className="flex items-center gap-2">
                             {hasUnread && (
-                              <span className="inline-block w-2 h-2 rounded-full bg-primary flex-shrink-0" />
+                              <span className="inline-block w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                             )}
                             <p className="text-xs font-semibold truncate text-foreground">{item.property_address}</p>
                           </div>

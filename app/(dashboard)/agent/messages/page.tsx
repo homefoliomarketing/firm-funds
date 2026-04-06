@@ -327,7 +327,7 @@ export default function AgentMessagesPage() {
                             )}
                             <div className="flex items-center gap-1">
                               {hasUnread && (
-                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-primary text-primary-foreground">
+                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
                                   {item.unread_message_count}
                                 </span>
                               )}

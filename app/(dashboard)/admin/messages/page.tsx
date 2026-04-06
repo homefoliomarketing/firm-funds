@@ -307,13 +307,13 @@ export default function AdminMessagesPage() {
                           isSelected
                             ? 'bg-muted'
                             : item.needs_reply
-                              ? 'bg-primary/[0.04] hover:bg-primary/[0.08]'
+                              ? 'bg-red-500/[0.04] hover:bg-red-500/[0.08]'
                               : 'hover:bg-muted/50'
                         }`}
                       >
                         {/* Unread indicator bar */}
                         <div className={`w-1 shrink-0 ${
-                          item.needs_reply ? 'bg-primary' : isSelected ? 'bg-primary' : 'bg-transparent'
+                          item.needs_reply ? 'bg-red-500' : isSelected ? 'bg-red-500' : 'bg-transparent'
                         }`} />
 
                         <button
@@ -324,7 +324,7 @@ export default function AdminMessagesPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 {item.needs_reply && (
-                                  <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
                                 )}
                                 <p className={`text-sm truncate ${item.needs_reply ? 'font-bold' : 'font-medium'} text-foreground`}>
                                   {item.property_address}
