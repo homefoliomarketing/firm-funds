@@ -68,7 +68,7 @@ export default function BrokerageDashboard() {
   const [loading, setLoading] = useState(true)
   const [uploadingDeal, setUploadingDeal] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [dealTradeRecords, setDealTradeRecords] = useState<Set<string>>(new Set())
+  const [dealTradeRecords, setDealTradeRecords] = useState<Map<string, { file_name: string; created_at: string }>>(new Map())
   const [dealsPage, setDealsPage] = useState(1)
   const [referralMonth, setReferralMonth] = useState<string>('all')
   const [referralFilter, setReferralFilter] = useState<'all' | 'earned' | 'pending'>('all')
@@ -100,11 +100,16 @@ export default function BrokerageDashboard() {
           const dealIds = dealData.map((d: any) => d.id)
           const { data: tradeRecDocs } = await supabase
             .from('deal_documents')
-            .select('deal_id')
+            .select('deal_id, file_name, created_at')
             .in('deal_id', dealIds)
             .eq('document_type', 'trade_record')
+            .order('created_at', { ascending: false })
           if (tradeRecDocs) {
-            setDealTradeRecords(new Set(tradeRecDocs.map((d: any) => d.deal_id)))
+            const map = new Map<string, { file_name: string; created_at: string }>()
+            for (const doc of tradeRecDocs) {
+              if (!map.has(doc.deal_id)) map.set(doc.deal_id, { file_name: doc.file_name, created_at: doc.created_at })
+            }
+            setDealTradeRecords(map)
           }
         }
         const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profileData.brokerage_id).order('last_name', { ascending: true })
@@ -196,7 +201,11 @@ export default function BrokerageDashboard() {
     const result = await uploadDocument(formData)
     if (result.success) {
       setUploadMessage({ type: 'success', text: `Trade record "${file.name}" uploaded successfully.` })
-      setDealTradeRecords(prev => new Set([...prev, dealId]))
+      setDealTradeRecords(prev => {
+        const next = new Map(prev)
+        next.set(dealId, { file_name: file.name, created_at: new Date().toISOString() })
+        return next
+      })
     } else {
       setUploadMessage({ type: 'error', text: result.error || 'Upload failed' })
     }
@@ -485,7 +494,7 @@ export default function BrokerageDashboard() {
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
+                            {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
                               <span className="inline-flex w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Trade record needed" />
                             )}
                             <p className="text-sm font-medium truncate text-foreground">{deal.property_address}</p>
@@ -495,7 +504,7 @@ export default function BrokerageDashboard() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
-                          {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
+                          {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
                             <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-red-950/50 text-red-400 border border-red-800">
                               <AlertTriangle size={11} />
                               Trade Record Needed
@@ -547,28 +556,66 @@ export default function BrokerageDashboard() {
                                 </div>
                               )}
                               <div className="mt-4 pt-3 border-t border-border/50">
-                                <label className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors bg-blue-950/40 text-blue-400 border border-blue-800 hover:bg-blue-950/60">
-                                  {uploadingDeal === deal.id ? (
-                                    <span>Uploading...</span>
-                                  ) : (
-                                    <>
-                                      <Upload size={13} />
-                                      Upload Trade Record
-                                    </>
-                                  )}
-                                  <input
-                                    type="file"
-                                    className="hidden"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    disabled={uploadingDeal === deal.id}
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0]
-                                      if (file) handleTradeRecordUpload(deal.id, file)
-                                      e.target.value = ''
-                                    }}
-                                  />
-                                </label>
-                                <p className="text-xs mt-1.5 text-muted-foreground/50">Upload a trade record / deal sheet for this deal</p>
+                                {/* Trade Record Section */}
+                                {dealTradeRecords.has(deal.id) ? (
+                                  <>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <CheckCircle size={14} className="text-green-400" />
+                                      <span className="text-xs font-semibold text-green-400">Trade Record Uploaded</span>
+                                    </div>
+                                    <div className="flex items-center justify-between rounded-lg px-3 py-2 bg-muted/50 border border-border/50">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <FileText size={14} className="text-muted-foreground flex-shrink-0" />
+                                        <span className="text-xs font-medium truncate text-foreground">{dealTradeRecords.get(deal.id)?.file_name}</span>
+                                      </div>
+                                      <label className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold cursor-pointer transition-colors text-muted-foreground hover:text-foreground hover:bg-muted">
+                                        <Upload size={10} />
+                                        Replace
+                                        <input
+                                          type="file"
+                                          className="hidden"
+                                          accept=".pdf,.jpg,.jpeg,.png"
+                                          disabled={uploadingDeal === deal.id}
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0]
+                                            if (file) handleTradeRecordUpload(deal.id, file)
+                                            e.target.value = ''
+                                          }}
+                                        />
+                                      </label>
+                                    </div>
+                                  </>
+                                ) : !['denied', 'cancelled', 'completed'].includes(deal.status) ? (
+                                  <>
+                                    <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 mb-2 bg-red-950/50 border border-red-800">
+                                      <AlertTriangle size={14} className="text-red-400 flex-shrink-0" />
+                                      <span className="text-xs font-semibold text-red-400">Trade Record Required</span>
+                                    </div>
+                                    <label className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors bg-red-950/40 text-red-400 border border-red-800 hover:bg-red-950/60">
+                                      {uploadingDeal === deal.id ? (
+                                        <span>Uploading...</span>
+                                      ) : (
+                                        <>
+                                          <Upload size={13} />
+                                          Upload Trade Record
+                                        </>
+                                      )}
+                                      <input
+                                        type="file"
+                                        className="hidden"
+                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        disabled={uploadingDeal === deal.id}
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0]
+                                          if (file) handleTradeRecordUpload(deal.id, file)
+                                          e.target.value = ''
+                                        }}
+                                      />
+                                    </label>
+                                  </>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground/50">No trade record uploaded</p>
+                                )}
                               </div>
                             </div>
                           </div>
