@@ -29,6 +29,7 @@ import {
   returnDocument,
   chargeLateClosingInterest,
 } from '@/lib/actions/account-actions'
+import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
 import type { EsignatureEnvelope } from '@/types/database'
@@ -564,6 +565,8 @@ export default function DealDetailPage() {
   // Collapsible sections
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [messagesExpanded, setMessagesExpanded] = useState(false)
+  // Unread messages: last message is from agent (not admin)
+  const hasUnreadMessages = messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin'
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
   // Drag-and-drop
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
@@ -578,6 +581,23 @@ export default function DealDetailPage() {
     router.push('/login')
   }
 
+  // Auto-expand messages if URL has #messages hash or if there are unread messages
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#messages') {
+      setMessagesExpanded(true)
+      setTimeout(() => {
+        document.getElementById('messages')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 500)
+    }
+  }, [])
+
+  // Auto-expand when messages load if there are unread (last message from agent)
+  useEffect(() => {
+    if (messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin') {
+      setMessagesExpanded(true)
+    }
+  }, [messages.length])
+
   useEffect(() => { loadDealData() }, [dealId])
 
   useEffect(() => {
@@ -591,6 +611,13 @@ export default function DealDetailPage() {
       return () => { cancelAnimationFrame(raf); clearTimeout(timer) }
     }
   }, [messages.length, messagesExpanded])
+
+  // Auto-dismiss message notifications when admin expands the messages section
+  useEffect(() => {
+    if (messagesExpanded && dealId) {
+      void dismissDealMessages(dealId)
+    }
+  }, [messagesExpanded, dealId])
 
   async function loadDealData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -2276,83 +2303,87 @@ export default function DealDetailPage() {
               )}
             </div>
             )}
-          </div>
 
-          </div>
-          )}
-        </div>
-
-        {/* MESSAGES */}
-        <div id="messages" className="rounded-lg overflow-hidden mb-3 bg-card border border-border/50">
-          <div
-            className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
-            onClick={() => setMessagesExpanded(!messagesExpanded)}
-          >
-            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-              <Send className="w-4 h-4" />
-              Messages
-              {messages.length > 0 && <span className="text-xs font-normal text-muted-foreground">({messages.length})</span>}
-            </div>
-            {messagesExpanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
-          </div>
-          {messagesExpanded && (
-            <div className="p-4">
-              {messages.length > 0 && (
-                <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-48 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
-                  {messages.map(msg => (
-                    <div key={msg.id} className="rounded px-2.5 py-1.5"
-                      style={{
-                        background: msg.sender_role === 'admin' ? '#0F2A18' : 'hsl(var(--muted)/0.5)',
-                        border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : 'hsl(var(--border)/0.5)'}`,
-                      }}>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                          {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
-                        </span>
-                        {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
-                        <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
-                      </div>
-                      <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
-                    </div>
-                  ))}
-                  <div ref={messagesEndRef} />
+            {/* MESSAGES — sits under documents in the right column */}
+            <div id="messages" className={`rounded-lg overflow-hidden bg-card border ${hasUnreadMessages ? 'border-red-500/50' : 'border-border/50'}`}>
+              <div
+                className={`flex items-center justify-between px-4 py-2.5 cursor-pointer border-b ${hasUnreadMessages ? 'bg-red-500/10 border-red-500/20' : 'bg-primary/5 border-primary/20'}`}
+                onClick={() => setMessagesExpanded(!messagesExpanded)}
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                  <Send className="w-4 h-4" />
+                  Messages
+                  {hasUnreadMessages && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white animate-pulse">
+                      New
+                    </span>
+                  )}
                 </div>
-              )}
-              {messages.length === 0 && (
-                <p className="text-xs text-center py-1 mb-2 text-muted-foreground">No messages yet</p>
-              )}
-              {showDealQuickReplies && (
-                <div className="flex flex-wrap gap-1 mb-1.5">
-                  {ADMIN_QUICK_REPLIES.map((template, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => { setMessageText(template.message); setShowDealQuickReplies(false) }}
-                      className="px-2 py-1 rounded text-[10px] font-medium bg-card text-muted-foreground border border-border/50 hover:border-primary hover:text-primary transition-colors"
-                    >
-                      {template.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => setShowDealQuickReplies(!showDealQuickReplies)}
-                  className={`p-1.5 rounded transition-colors flex-shrink-0 border ${showDealQuickReplies ? 'text-primary border-primary' : 'text-muted-foreground border-border/50'}`}
-                  title="Quick replies"
-                >
-                  <Zap className="w-3 h-3" />
-                </button>
-                <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
-                  placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
-                  className="flex-1 px-2.5 py-1.5 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground focus:border-primary"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
-                />
-                <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
-                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1 bg-primary hover:bg-primary/90 transition-colors">
-                  <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
-                </button>
+                {messagesExpanded ? <ChevronUp className="w-4 h-4 text-primary" /> : <ChevronDown className="w-4 h-4 text-primary" />}
               </div>
+              {messagesExpanded && (
+                <div className="p-3">
+                  {messages.length > 0 && (
+                    <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-64 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
+                      {messages.map(msg => (
+                        <div key={msg.id} className="rounded px-2.5 py-1.5"
+                          style={{
+                            background: msg.sender_role === 'admin' ? '#0F2A18' : 'hsl(var(--muted)/0.5)',
+                            border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : 'hsl(var(--border)/0.5)'}`,
+                          }}>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
+                              {msg.sender_name || (msg.sender_role === 'admin' ? 'Firm Funds' : 'Agent')}
+                            </span>
+                            {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
+                            <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
+                          </div>
+                          <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
+                        </div>
+                      ))}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  )}
+                  {messages.length === 0 && (
+                    <p className="text-xs text-center py-1 mb-2 text-muted-foreground">No messages yet</p>
+                  )}
+                  {showDealQuickReplies && (
+                    <div className="flex flex-wrap gap-1 mb-1.5">
+                      {ADMIN_QUICK_REPLIES.map((template, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => { setMessageText(template.message); setShowDealQuickReplies(false) }}
+                          className="px-2 py-1 rounded text-[10px] font-medium bg-card text-muted-foreground border border-border/50 hover:border-primary hover:text-primary transition-colors"
+                        >
+                          {template.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setShowDealQuickReplies(!showDealQuickReplies)}
+                      className={`p-1.5 rounded transition-colors flex-shrink-0 border ${showDealQuickReplies ? 'text-primary border-primary' : 'text-muted-foreground border-border/50'}`}
+                      title="Quick replies"
+                    >
+                      <Zap className="w-3 h-3" />
+                    </button>
+                    <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)}
+                      placeholder={messages.length === 0 ? 'Message agent... (sends email)' : 'Reply... (sends email)'}
+                      className="flex-1 px-2.5 py-1.5 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground focus:border-primary"
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
+                    />
+                    <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
+                      className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1 bg-primary hover:bg-primary/90 transition-colors">
+                      <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
+
+          </div>
           )}
         </div>
 

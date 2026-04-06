@@ -242,7 +242,7 @@ export default function AdminDashboard() {
               <link.icon size={14} className="text-primary" />
               {link.label}
               {link.badge ? (
-                <Badge variant="destructive" className="ml-1 h-4 min-w-[16px] px-1 text-[10px] animate-pulse">
+                <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold animate-pulse bg-red-600 text-white border-red-600">
                   {link.badge}
                 </Badge>
               ) : null}
@@ -513,7 +513,7 @@ export default function AdminDashboard() {
               >
                 {tab.label}
                 {showBadge ? (
-                  <Badge variant="destructive" className="h-4 min-w-[16px] px-1 text-[10px] animate-pulse">
+                  <Badge className="h-4 min-w-[16px] px-1 text-[10px] font-bold animate-pulse bg-red-600 text-white border-red-600">
                     {unreadInStatus > 0 ? unreadInStatus : count}
                   </Badge>
                 ) : (
@@ -578,17 +578,19 @@ export default function AdminDashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paged.map((deal) => (
+                    {paged.map((deal) => {
+                      const hasUnread = stats.dealsWithUnreadMessages.includes(deal.id)
+                      return (
                       <TableRow
                         key={deal.id}
                         className="cursor-pointer border-border/30 hover:bg-secondary/50 transition-colors"
-                        onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                        onClick={() => router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`)}
                       >
                         <TableCell className="text-sm font-medium">
                           <span className="flex items-center gap-1.5">
                             {deal.property_address}
                             {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                              <Badge variant="destructive" className="gap-0.5 px-1.5 py-0 text-[10px] font-bold h-5">
+                              <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold h-5 bg-red-600 text-white border-red-600">
                                 <MessageSquare size={10} /> New
                               </Badge>
                             )}
@@ -611,24 +613,27 @@ export default function AdminDashboard() {
                         </TableCell>
                         <TableCell><ChevronRight size={14} className="text-muted-foreground/40" /></TableCell>
                       </TableRow>
-                    ))}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
 
               {/* Mobile Cards */}
               <div className="md:hidden space-y-2 p-3">
-                {paged.map((deal) => (
+                {paged.map((deal) => {
+                  const hasUnread = stats.dealsWithUnreadMessages.includes(deal.id)
+                  return (
                   <Card
                     key={deal.id}
                     className="cursor-pointer border-border/30 hover:bg-secondary/50 transition-colors"
-                    onClick={() => router.push(`/admin/deals/${deal.id}`)}
+                    onClick={() => router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`)}
                   >
                     <CardContent className="p-3.5">
                       <div className="flex items-start gap-2 mb-2">
                         <p className="text-sm font-bold text-foreground truncate flex-1">{deal.property_address}</p>
                         {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                          <Badge variant="destructive" className="gap-0.5 px-1.5 py-0 text-[10px] font-bold shrink-0">
+                          <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold shrink-0 bg-red-600 text-white border-red-600">
                             <MessageSquare size={10} /> New
                           </Badge>
                         )}
@@ -661,7 +666,8 @@ export default function AdminDashboard() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  )
+                })}
               </div>
             </>
           )}

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   MessageSquare, ExternalLink, Inbox, Search, ArrowLeft,
-  AlertCircle, CheckCircle,
+  AlertCircle, CheckCheck, X,
 } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeStyle, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
@@ -81,7 +81,18 @@ export default function AdminMessagesPage() {
       setMessages(result.data)
     }
     setMessagesLoading(false)
-  }, [])
+
+    // Auto-dismiss: viewing the conversation = reading it
+    const item = inbox.find(i => i.deal_id === dealId)
+    if (item?.needs_reply) {
+      const dismissResult = await dismissDealMessages(dealId)
+      if (dismissResult.success) {
+        setInbox(prev => prev.map(i =>
+          i.deal_id === dealId ? { ...i, needs_reply: false } : i
+        ))
+      }
+    }
+  }, [inbox])
 
   useEffect(() => {
     if (!selectedDealId || messages.length === 0) return
@@ -270,10 +281,18 @@ export default function AdminMessagesPage() {
                       className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors border ${
                         filterMode === 'needs_reply'
                           ? 'bg-red-600 text-white border-red-600'
-                          : 'text-muted-foreground border-border/50 hover:text-foreground'
+                          : needsReplyCount > 0
+                            ? 'text-red-400 border-red-500/40 hover:bg-red-500/10'
+                            : 'text-muted-foreground border-border/50 hover:text-foreground'
                       }`}
                     >
-                      Needs Reply ({needsReplyCount})
+                      Needs Reply
+                      {needsReplyCount > 0 && (
+                        <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-600 text-white">
+                          {needsReplyCount}
+                        </span>
+                      )}
+                      {needsReplyCount === 0 && ' (0)'}
                     </button>
                   </div>
                 </div>
@@ -282,40 +301,67 @@ export default function AdminMessagesPage() {
                   {filteredInbox.map((item) => {
                     const isSelected = item.deal_id === selectedDealId
                     return (
-                      <button
+                      <div
                         key={item.deal_id}
-                        onClick={() => selectDeal(item.deal_id)}
-                        className={`w-full text-left px-4 py-3 transition-colors border-b border-border/30 border-l-[3px] ${
+                        className={`relative flex items-stretch border-b border-border/30 transition-colors ${
                           isSelected
-                            ? 'bg-muted border-l-primary'
-                            : 'border-l-transparent hover:bg-muted/50'
+                            ? 'bg-muted'
+                            : item.needs_reply
+                              ? 'bg-primary/[0.04] hover:bg-primary/[0.08]'
+                              : 'hover:bg-muted/50'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${item.needs_reply ? 'font-bold' : 'font-medium'} text-foreground`}>
-                              {item.property_address}
-                            </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-primary">{item.agent_name}</span>
-                              <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
-                                {formatStatusLabel(item.deal_status)}
-                              </span>
+                        {/* Unread indicator bar */}
+                        <div className={`w-1 shrink-0 ${
+                          item.needs_reply ? 'bg-primary' : isSelected ? 'bg-primary' : 'bg-transparent'
+                        }`} />
+
+                        <button
+                          onClick={() => selectDeal(item.deal_id)}
+                          className="flex-1 text-left px-3 py-3 min-w-0"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                {item.needs_reply && (
+                                  <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                                )}
+                                <p className={`text-sm truncate ${item.needs_reply ? 'font-bold' : 'font-medium'} text-foreground`}>
+                                  {item.property_address}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-primary">{item.agent_name}</span>
+                                <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                                  {formatStatusLabel(item.deal_status)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              <span className="text-[10px] text-muted-foreground/60">{formatRelativeTime(item.latest_message_at)}</span>
+                              {item.needs_reply && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
+                                  <AlertCircle size={9} />Reply
+                                </span>
+                              )}
                             </div>
                           </div>
-                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            <span className="text-[10px] text-muted-foreground/60">{formatRelativeTime(item.latest_message_at)}</span>
-                            {item.needs_reply && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse bg-red-500/10 text-red-400 border border-red-500/25">
-                                <AlertCircle size={9} />Reply
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <p className={`text-xs mt-1 truncate ${item.needs_reply ? 'font-medium text-foreground/80' : 'text-muted-foreground'}`}>
-                          {item.latest_sender_role === 'agent' ? `${item.agent_name.split(' ')[0]}: ` : 'You: '}{item.latest_message}
-                        </p>
-                      </button>
+                          <p className={`text-xs mt-1 truncate ${item.needs_reply ? 'font-medium text-foreground/80' : 'text-muted-foreground'}`}>
+                            {item.latest_sender_role === 'agent' ? `${item.agent_name.split(' ')[0]}: ` : 'You: '}{item.latest_message}
+                          </p>
+                        </button>
+
+                        {/* Inline dismiss button */}
+                        {item.needs_reply && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDismiss(item.deal_id) }}
+                            className="px-2 flex items-center text-muted-foreground/40 hover:text-primary transition-colors"
+                            title="Mark as read"
+                          >
+                            <CheckCheck size={16} />
+                          </button>
+                        )}
+                      </div>
                     )
                   })}
                   {filteredInbox.length === 0 && (
@@ -362,16 +408,6 @@ export default function AdminMessagesPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {selectedDeal?.needs_reply && (
-                          <Button
-                            onClick={() => handleDismiss(selectedDealId!)}
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 text-xs h-8"
-                          >
-                            <CheckCircle size={12} /><span className="hidden sm:inline">Dismiss</span>
-                          </Button>
-                        )}
                         <Button
                           onClick={() => router.push(`/admin/deals/${selectedDealId}`)}
                           variant="outline"
