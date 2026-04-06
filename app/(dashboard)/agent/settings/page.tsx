@@ -185,7 +185,6 @@ export default function AgentSettingsPage() {
         subtitle="Manage your account"
         brokerageLogo={agent?.brokerages?.logo_url}
         brokerageName={agent?.brokerages?.name}
-        brokerageBrandColor={agent?.brokerages?.brand_color}
       />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

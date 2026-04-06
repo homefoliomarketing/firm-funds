@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle, Settings, Briefcase } from 'lucide-react'
+import { FileText, Building2, DollarSign, Clock, CheckCircle, ChevronRight, Search, X, ChevronLeft, BarChart3, Shield, Users, MessageSquare, AlertTriangle, Settings, Briefcase, CreditCard, Eye } from 'lucide-react'
+import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 import { useTheme } from '@/lib/theme'
@@ -28,6 +29,13 @@ export default function AdminDashboard() {
     dealsWithUnreadMessages: [],
   })
   const [allDeals, setAllDeals] = useState<any[]>([])
+  const [pendingBankingAgents, setPendingBankingAgents] = useState<any[]>([])
+  const [pendingKycAgents, setPendingKycAgents] = useState<any[]>([])
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [rejectingAgentId, setRejectingAgentId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [preauthViewUrl, setPreauthViewUrl] = useState<string | null>(null)
+  const [revealedBankingIds, setRevealedBankingIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
@@ -61,17 +69,20 @@ export default function AdminDashboard() {
       // Fetch all deals once and compute stats client-side (replaces 6 separate count queries)
       const [
         { data: deals },
-        { count: pendingKycCount },
-        { count: pendingBankingCount },
+        { data: bankingAgents },
+        { data: kycAgents },
         { data: allMsgs },
         { data: dismissals },
       ] = await Promise.all([
         supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }),
-        supabase.from('agents').select('*', { count: 'exact', head: true }).eq('kyc_status', 'submitted'),
-        supabase.from('agents').select('*', { count: 'exact', head: true }).eq('banking_approval_status', 'pending'),
+        supabase.from('agents').select('id, first_name, last_name, email, banking_submitted_transit, banking_submitted_institution, banking_submitted_account, banking_submitted_at, banking_approval_status, preauth_form_path, brokerage_id, brokerages(name)').eq('banking_approval_status', 'pending'),
+        supabase.from('agents').select('id, first_name, last_name, email, kyc_status, kyc_submitted_at, kyc_document_path, kyc_document_type, brokerage_id, brokerages(name)').eq('kyc_status', 'submitted'),
         supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
         supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
       ])
+
+      setPendingBankingAgents(bankingAgents || [])
+      setPendingKycAgents(kycAgents || [])
 
       const allDealsList = deals || []
 
@@ -103,8 +114,8 @@ export default function AdminDashboard() {
 
       setStats({
         underReviewDeals: allDealsList.filter(d => d.status === 'under_review').length,
-        pendingKycCount: pendingKycCount || 0,
-        pendingBankingCount: pendingBankingCount || 0,
+        pendingKycCount: kycAgents?.length || 0,
+        pendingBankingCount: bankingAgents?.length || 0,
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
       })
@@ -221,16 +232,6 @@ export default function AdminDashboard() {
             )}
           </button>
           <button
-            onClick={() => router.push('/admin/portfolio')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-            style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = colors.cardBg; e.currentTarget.style.borderColor = colors.border }}
-          >
-            <Briefcase size={14} style={{ color: colors.gold }} />
-            Portfolio
-          </button>
-          <button
             onClick={() => router.push('/admin/reports')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
             style={{ background: colors.cardBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
@@ -261,6 +262,191 @@ export default function AdminDashboard() {
             Audit Trail
           </button>
         </div>
+
+        {/* PENDING ACTIONS — Banking approvals, KYC reviews */}
+        {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
+          <div className="mb-4 rounded-xl overflow-hidden" style={{ background: colors.cardBg, border: `1px solid #D97706` }}>
+            <div className="px-4 py-3 flex items-center gap-2" style={{ background: '#2A1F00', borderBottom: `1px solid #5C4400` }}>
+              <AlertTriangle size={16} style={{ color: '#FBBF24' }} />
+              <h3 className="text-sm font-bold" style={{ color: '#FBBF24' }}>
+                Pending Actions ({pendingBankingAgents.length + pendingKycAgents.length})
+              </h3>
+            </div>
+            <div className="divide-y" style={{ borderColor: colors.divider }}>
+              {/* Pending Banking Approvals */}
+              {pendingBankingAgents.map(agent => (
+                <div key={agent.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[250px]">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CreditCard size={14} style={{ color: '#7B9FE0' }} />
+                        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#7B9FE0' }}>Banking Approval</span>
+                      </div>
+                      <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+                        {agent.first_name} {agent.last_name}
+                        <span className="text-xs font-normal ml-2" style={{ color: colors.textMuted }}>
+                          {agent.brokerages?.name || ''} · {agent.email}
+                        </span>
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        {revealedBankingIds.has(agent.id) ? (
+                          <p className="text-xs font-mono" style={{ color: colors.textSecondary }}>
+                            Transit: {agent.banking_submitted_transit} · Institution: {agent.banking_submitted_institution} · Account: {agent.banking_submitted_account}
+                          </p>
+                        ) : (
+                          <p className="text-xs font-mono" style={{ color: colors.textMuted }}>
+                            Transit: ••••• · Institution: ••• · Account: •••••••
+                          </p>
+                        )}
+                        <button
+                          onClick={() => setRevealedBankingIds(prev => {
+                            const next = new Set(prev)
+                            if (next.has(agent.id)) next.delete(agent.id); else next.add(agent.id)
+                            return next
+                          })}
+                          className="p-1 rounded transition-colors"
+                          style={{ color: colors.textMuted }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = colors.textPrimary}
+                          onMouseLeave={(e) => e.currentTarget.style.color = colors.textMuted}
+                          title={revealedBankingIds.has(agent.id) ? 'Hide banking info' : 'Show banking info'}
+                        >
+                          {revealedBankingIds.has(agent.id) ? <X size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                      {agent.banking_submitted_at && (
+                        <p className="text-[10px] mt-0.5" style={{ color: colors.textFaint }}>
+                          Submitted {new Date(agent.banking_submitted_at).toLocaleDateString('en-CA')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {agent.preauth_form_path && (
+                        <button
+                          onClick={async () => {
+                            const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path, 300)
+                            if (data?.signedUrl) setPreauthViewUrl(data.signedUrl)
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                          style={{ background: colors.inputBg, color: colors.textPrimary, border: `1px solid ${colors.border}` }}
+                        >
+                          <Eye size={12} />
+                          Pre-Auth Form
+                        </button>
+                      )}
+                      {rejectingAgentId === agent.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            placeholder="Reason..."
+                            className="w-48 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                            style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                            autoFocus
+                          />
+                          <button
+                            disabled={!rejectReason.trim() || actionLoading === agent.id}
+                            onClick={async () => {
+                              setActionLoading(agent.id)
+                              const res = await rejectAgentBanking({ agentId: agent.id, reason: rejectReason })
+                              if (res.success) {
+                                setPendingBankingAgents(prev => prev.filter(a => a.id !== agent.id))
+                                setStats(prev => ({ ...prev, pendingBankingCount: prev.pendingBankingCount - 1 }))
+                                setRejectingAgentId(null)
+                                setRejectReason('')
+                              }
+                              setActionLoading(null)
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40"
+                            style={{ background: '#993D3D' }}
+                          >
+                            Confirm
+                          </button>
+                          <button onClick={() => { setRejectingAgentId(null); setRejectReason('') }}
+                            className="text-xs" style={{ color: colors.textMuted }}>Cancel</button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            disabled={actionLoading === agent.id}
+                            onClick={async () => {
+                              setActionLoading(agent.id)
+                              const res = await approveAgentBanking({ agentId: agent.id })
+                              if (res.success) {
+                                setPendingBankingAgents(prev => prev.filter(a => a.id !== agent.id))
+                                setStats(prev => ({ ...prev, pendingBankingCount: prev.pendingBankingCount - 1 }))
+                              }
+                              setActionLoading(null)
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition-colors"
+                            style={{ background: '#1A7A2E' }}
+                            onMouseEnter={(e) => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#156A24' }}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#1A7A2E'}
+                          >
+                            {actionLoading === agent.id ? 'Approving...' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => setRejectingAgentId(agent.id)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                            style={{ background: '#2A1212', color: '#E07B7B', border: '1px solid #4A2020' }}
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Pending KYC Reviews */}
+              {pendingKycAgents.map(agent => (
+                <div key={agent.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[250px]">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Shield size={14} style={{ color: '#C4A5F5' }} />
+                        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#C4A5F5' }}>KYC Review</span>
+                      </div>
+                      <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>
+                        {agent.first_name} {agent.last_name}
+                        <span className="text-xs font-normal ml-2" style={{ color: colors.textMuted }}>
+                          {agent.brokerages?.name || ''} · {agent.email}
+                        </span>
+                      </p>
+                      {agent.kyc_submitted_at && (
+                        <p className="text-[10px] mt-0.5" style={{ color: colors.textFaint }}>
+                          Submitted {new Date(agent.kyc_submitted_at).toLocaleDateString('en-CA')}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => router.push('/admin/brokerages')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                      style={{ background: '#1F1535', color: '#C4A5F5', border: '1px solid #352A50' }}
+                    >
+                      Review in Brokerages
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pre-auth form inline viewer */}
+        {preauthViewUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setPreauthViewUrl(null)}>
+            <div className="relative w-full max-w-3xl mx-4" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setPreauthViewUrl(null)}
+                className="absolute -top-10 right-0 flex items-center gap-1 text-sm font-medium" style={{ color: '#E8E4DF' }}>
+                <X size={16} /> Close
+              </button>
+              <iframe src={preauthViewUrl} className="w-full h-full rounded-xl" style={{ background: '#FFF', border: `2px solid ${colors.border}` }} />
+            </div>
+          </div>
+        )}
 
         {/* Overdue / Needs Attention Alerts */}
         {(() => {

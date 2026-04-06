@@ -112,13 +112,16 @@ export default function AgentDashboard() {
     return counts
   }, [deals])
 
-  // Show KYC verified modal once
+  // Show KYC verified modal once — check both localStorage and sessionStorage to be safe
   useEffect(() => {
     if (agent?.kyc_status === 'verified' && agent?.id) {
       const key = `kyc_verified_seen_${agent.id}`
-      if (!localStorage.getItem(key)) {
+      // Check across all storage mechanisms
+      const alreadySeen = localStorage.getItem(key) || sessionStorage.getItem(key)
+      if (!alreadySeen) {
         setShowKycVerifiedModal(true)
         localStorage.setItem(key, 'true')
+        sessionStorage.setItem(key, 'true')
       }
     }
   }, [agent?.kyc_status, agent?.id])
@@ -195,7 +198,6 @@ export default function AgentDashboard() {
         agentId={agent?.id || ''}
         brokerageLogo={agent?.brokerages?.logo_url}
         brokerageName={agent?.brokerages?.name}
-        brokerageBrandColor={agent?.brokerages?.brand_color}
       />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

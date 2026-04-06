@@ -138,6 +138,7 @@ export default function BrokeragesPage() {
   )
   const [brokerageDocs, setBrokerageDocs] = useState<Record<string, { id: string; file_name: string; document_type: string; file_path: string; file_size: number; created_at: string }[]>>({})
   const [uploadingBrokerageDoc, setUploadingBrokerageDoc] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   // KYC state
   const [kycRecoNumber, setKycRecoNumber] = useState('')
   const [kycNotes, setKycNotes] = useState('')
@@ -340,6 +341,37 @@ export default function BrokeragesPage() {
     })
     setEditingBrokerageId(brokerage.id)
     setExpandedId(brokerage.id)
+  }
+
+  // ---- Logo Upload ----
+  const handleLogoUpload = async (file: File, brokerageId: string, isCreate: boolean) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp']
+    if (!allowed.includes(file.type)) {
+      setStatusMessage({ type: 'error', text: 'Logo must be JPEG, PNG, SVG, or WebP' }); return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setStatusMessage({ type: 'error', text: 'Logo must be under 2MB' }); return
+    }
+    setUploadingLogo(true)
+    try {
+      const ext = file.name.split('.').pop() || 'png'
+      const path = `${brokerageId}/logo.${ext}`
+      const { error: uploadErr } = await supabase.storage.from('brokerage-logos').upload(path, file, { upsert: true })
+      if (uploadErr) { setStatusMessage({ type: 'error', text: 'Failed to upload logo' }); setUploadingLogo(false); return }
+      const { data: { publicUrl } } = supabase.storage.from('brokerage-logos').getPublicUrl(path)
+      // Add cache-busting param
+      const logoUrl = `${publicUrl}?t=${Date.now()}`
+      if (isCreate) {
+        setCreateFormData(prev => ({ ...prev, logoUrl }))
+      } else {
+        setEditFormData(prev => ({ ...prev, logoUrl }))
+      }
+      setStatusMessage({ type: 'success', text: 'Logo uploaded' })
+      setTimeout(() => setStatusMessage(null), 2000)
+    } catch {
+      setStatusMessage({ type: 'error', text: 'Logo upload failed' })
+    }
+    setUploadingLogo(false)
   }
 
   // ---- Agent CRUD ----
@@ -928,13 +960,19 @@ export default function BrokeragesPage() {
                 {renderInput('Transaction System', createFormData.transactionSystem, (v) => setCreateFormData({ ...createFormData, transactionSystem: v }), { placeholder: 'e.g., Nexone' })}
                 {renderInput('Broker of Record', createFormData.brokerOfRecordName, (v) => setCreateFormData({ ...createFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
                 {renderInput('Broker of Record Email', createFormData.brokerOfRecordEmail, (v) => setCreateFormData({ ...createFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
-                {renderInput('Logo URL', createFormData.logoUrl, (v) => setCreateFormData({ ...createFormData, logoUrl: v }), { placeholder: 'https://... (public image URL)' })}
                 <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Brand Color</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={createFormData.brandColor || '#5FA873'} onChange={(e) => setCreateFormData({ ...createFormData, brandColor: e.target.value })} className="w-10 h-10 rounded-lg cursor-pointer border-0" style={{ background: 'transparent' }} />
-                    <input type="text" value={createFormData.brandColor || '#5FA873'} onChange={(e) => setCreateFormData({ ...createFormData, brandColor: e.target.value })} placeholder="#5FA873" maxLength={7} className="flex-1 px-4 py-2 rounded-lg text-sm outline-none font-mono" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+                  <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Brokerage Logo</label>
+                  <div className="flex items-center gap-3">
+                    {createFormData.logoUrl && <img src={createFormData.logoUrl} alt="Logo" className="h-10 w-auto rounded" style={{ background: '#222' }} />}
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${uploadingLogo ? 'opacity-50' : ''}`}
+                      style={{ background: colors.inputBg, color: colors.textPrimary, border: `1px solid ${colors.inputBorder}` }}>
+                      <Upload size={14} />
+                      {uploadingLogo ? 'Uploading...' : createFormData.logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                      <input type="file" accept="image/jpeg,image/png,image/svg+xml,image/webp" className="hidden" disabled={uploadingLogo}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f, 'new-brokerage-' + Date.now(), true); e.target.value = '' }} />
+                    </label>
                   </div>
+                  <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>JPEG, PNG, SVG, or WebP. Max 2MB.</p>
                 </div>
               </div>
               <div>
@@ -1143,29 +1181,23 @@ export default function BrokeragesPage() {
                             {renderInput('Transaction System', editFormData.transactionSystem, (v) => setEditFormData({ ...editFormData, transactionSystem: v }))}
                             {renderInput('Broker of Record', editFormData.brokerOfRecordName, (v) => setEditFormData({ ...editFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
                             {renderInput('Broker of Record Email', editFormData.brokerOfRecordEmail, (v) => setEditFormData({ ...editFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
-                            {renderInput('Logo URL', editFormData.logoUrl, (v) => setEditFormData({ ...editFormData, logoUrl: v }), { placeholder: 'https://... (public image URL)' })}
                             <div>
-                              <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Brand Color</label>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="color"
-                                  value={editFormData.brandColor || '#5FA873'}
-                                  onChange={(e) => setEditFormData({ ...editFormData, brandColor: e.target.value })}
-                                  className="w-10 h-10 rounded-lg cursor-pointer border-0"
-                                  style={{ background: 'transparent' }}
-                                />
-                                <input
-                                  type="text"
-                                  value={editFormData.brandColor || '#5FA873'}
-                                  onChange={(e) => setEditFormData({ ...editFormData, brandColor: e.target.value })}
-                                  placeholder="#5FA873"
-                                  maxLength={7}
-                                  className="flex-1 px-4 py-2 rounded-lg text-sm outline-none font-mono"
-                                  style={inputStyle}
-                                  onFocus={onFocus}
-                                  onBlur={onBlur}
-                                />
+                              <label className="block text-sm font-medium mb-2" style={{ color: colors.textSecondary }}>Brokerage Logo</label>
+                              <div className="flex items-center gap-3">
+                                {editFormData.logoUrl && <img src={editFormData.logoUrl} alt="Logo" className="h-10 w-auto rounded" style={{ background: '#222' }} />}
+                                <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${uploadingLogo ? 'opacity-50' : ''}`}
+                                  style={{ background: colors.inputBg, color: colors.textPrimary, border: `1px solid ${colors.inputBorder}` }}>
+                                  <Upload size={14} />
+                                  {uploadingLogo ? 'Uploading...' : editFormData.logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                                  <input type="file" accept="image/jpeg,image/png,image/svg+xml,image/webp" className="hidden" disabled={uploadingLogo}
+                                    onChange={(e) => { const f = e.target.files?.[0]; if (f && editingBrokerageId) handleLogoUpload(f, editingBrokerageId, false); e.target.value = '' }} />
+                                </label>
+                                {editFormData.logoUrl && (
+                                  <button type="button" onClick={() => setEditFormData(prev => ({ ...prev, logoUrl: '' }))}
+                                    className="text-xs" style={{ color: colors.textMuted }}>Remove</button>
+                                )}
                               </div>
+                              <p className="text-[10px] mt-1" style={{ color: colors.textFaint }}>JPEG, PNG, SVG, or WebP. Max 2MB.</p>
                             </div>
                           </div>
                           <div>
