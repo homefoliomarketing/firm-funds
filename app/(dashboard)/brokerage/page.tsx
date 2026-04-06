@@ -484,14 +484,19 @@ export default function BrokerageDashboard() {
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate text-foreground">{deal.property_address}</p>
+                          <div className="flex items-center gap-2">
+                            {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
+                              <span className="inline-flex w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Trade record needed" />
+                            )}
+                            <p className="text-sm font-medium truncate text-foreground">{deal.property_address}</p>
+                          </div>
                           <p className="text-xs mt-1 text-muted-foreground">
                             Agent: {deal.agent?.first_name} {deal.agent?.last_name} | Submitted {formatDate(deal.created_at)}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                           {!dealTradeRecords.has(deal.id) && ['under_review', 'approved'].includes(deal.status) && (
-                            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-yellow-950/50 text-yellow-400 border border-yellow-800">
+                            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-red-950/50 text-red-400 border border-red-800">
                               <AlertTriangle size={11} />
                               Trade Record Needed
                             </span>
