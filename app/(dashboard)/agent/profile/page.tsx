@@ -224,7 +224,8 @@ export default function AgentProfilePage() {
         brokerageName={agent?.brokerages?.name}
       />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="sr-only">Agent Profile</h1>
         <h2 className="text-2xl font-bold mb-1 text-foreground">My Profile</h2>
         <p className="text-sm mb-8 text-muted-foreground">Manage your personal information and banking details.</p>
 
@@ -365,10 +366,10 @@ export default function AgentProfilePage() {
                 </div>
               </div>
             ) : agent?.banking_approval_status === 'pending' ? (
-              <div className="rounded-lg p-4 bg-[#1A2240] border border-[#2D3A5C]">
+              <div className="rounded-lg p-4 bg-status-blue-muted border border-status-blue-border">
                 <div className="flex items-center gap-2 mb-1">
-                  <Loader2 size={16} className="text-[#7B9FE0] animate-spin" />
-                  <span className="text-sm font-semibold text-[#7B9FE0]">Pending approval</span>
+                  <Loader2 size={16} className="text-status-blue animate-spin" />
+                  <span className="text-sm font-semibold text-status-blue">Pending approval</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Your banking info has been submitted and is being reviewed. You'll receive an email once it's approved.

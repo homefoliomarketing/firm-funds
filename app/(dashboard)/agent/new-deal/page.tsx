@@ -334,13 +334,13 @@ export default function NewDealPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Draft restored banner */}
         {draftRestored && (
-          <div className="mb-4 px-4 py-3 rounded-xl flex items-center justify-between bg-[#1A2240] border border-[#2D3A5C]">
+          <div className="mb-4 px-4 py-3 rounded-xl flex items-center justify-between bg-status-blue-muted border border-status-blue-border">
             <div className="flex items-center gap-2">
-              <Save size={14} className="text-[#7B9FE0]" />
-              <span className="text-xs font-medium text-[#7B9FE0]">Draft restored from your last session</span>
+              <Save size={14} className="text-status-blue" />
+              <span className="text-xs font-medium text-status-blue">Draft restored from your last session</span>
             </div>
             <button
               type="button"
@@ -351,7 +351,7 @@ export default function NewDealPage() {
                 setTransactionType('buy'); setNotes(''); setIsFirm(false)
                 setDocSlots({ aps: [], notice_of_fulfillment: [], amendment: [], banking_info: [] })
               }}
-              className="text-xs font-semibold px-2.5 py-1 rounded-md transition-colors text-[#7B9FE0] bg-[#2D3A5C] hover:bg-[#3D4A6C]"
+              className="text-xs font-semibold px-2.5 py-1 rounded-md transition-colors text-status-blue bg-status-blue-border hover:bg-status-blue-border/80"
             >
               Clear &amp; Start Fresh
             </button>

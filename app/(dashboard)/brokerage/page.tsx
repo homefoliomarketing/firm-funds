@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
-import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
@@ -358,7 +358,7 @@ export default function BrokerageDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background" role="status" aria-label="Loading brokerage dashboard">
         <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
             <Skeleton className="h-6 w-36 bg-white/10" />
@@ -368,6 +368,7 @@ export default function BrokerageDashboard() {
           <Skeleton className="h-6 w-48 rounded-lg mb-2" />
           <Skeleton className="h-3 w-36 rounded mb-4" />
           <Skeleton className="h-3 w-48 rounded mb-4" />
+          <span className="sr-only">Loading brokerage dashboard...</span>
         </main>
       </div>
     )
@@ -392,6 +393,7 @@ export default function BrokerageDashboard() {
                 onClick={() => setActiveTab('messages')}
                 className="relative p-1.5 rounded-lg transition-colors text-white/50 hover:text-primary"
                 title="Messages"
+                aria-label={`Messages${unreadNotifCount > 0 ? `, ${unreadNotifCount} unread` : ''}`}
               >
                 <Bell size={16} />
                 {unreadNotifCount > 0 && (
@@ -404,6 +406,7 @@ export default function BrokerageDashboard() {
                 onClick={() => router.push('/brokerage/settings')}
                 className="p-1.5 rounded-lg transition-colors text-white/50 hover:text-primary"
                 title="Settings"
+                aria-label="Settings"
               >
                 <Settings size={16} />
               </button>
@@ -413,57 +416,68 @@ export default function BrokerageDashboard() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main id="main-content" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Welcome */}
-        <div className="mb-4">
+        <section aria-label="Welcome" className="mb-4">
           <h2 className="text-lg font-bold text-foreground">
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h2>
           <p className="text-xs mt-0.5 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
-        </div>
+        </section>
 
         {/* Tabbed Content */}
         <Card className="overflow-hidden">
-          <div className="flex overflow-x-auto border-b border-border/50">
-            {(['deals', 'agents', 'referrals', 'payments', 'messages'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  setActiveTab(tab)
-                  if (tab === 'messages' && profile?.brokerage_id) {
-                    getBrokerageInbox(profile.brokerage_id).then(r => {
-                      if (r.success && r.data) setBrokerageInbox(r.data.inbox)
-                    })
-                  }
-                }}
-                className={`px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 border-b-2 -mb-px ${
-                  activeTab === tab
-                    ? 'text-primary border-primary'
-                    : 'text-muted-foreground border-transparent hover:text-foreground/80'
-                }`}
-              >
-                {tab === 'deals' ? `Deals (${deals.length})` : tab === 'agents' ? `Agents (${agents.length})` : tab === 'referrals' ? 'Referral Fees' : tab === 'payments' ? 'Payment Status' : 'Messages'}
-                {tab === 'deals' && dealsMissingTradeRecord > 0 && (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
-                    {dealsMissingTradeRecord}
-                  </span>
-                )}
-                {tab === 'messages' && unansweredMessageCount > 0 && (
-                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
-                    {unansweredMessageCount}
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="flex overflow-x-auto border-b border-border/50" role="tablist" aria-label="Brokerage dashboard tabs">
+            {(['deals', 'agents', 'referrals', 'payments', 'messages'] as const).map((tab) => {
+              const tabLabels: Record<string, string> = { deals: `Deals (${deals.length})`, agents: `Agents (${agents.length})`, referrals: 'Referral Fees', payments: 'Payment Status', messages: 'Messages' }
+              return (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  aria-controls={`tabpanel-${tab}`}
+                  id={`tab-${tab}`}
+                  onClick={() => {
+                    setActiveTab(tab)
+                    if (tab === 'messages' && profile?.brokerage_id) {
+                      getBrokerageInbox(profile.brokerage_id).then(r => {
+                        if (r.success && r.data) setBrokerageInbox(r.data.inbox)
+                      })
+                    }
+                  }}
+                  className={`px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 border-b-2 -mb-px ${
+                    activeTab === tab
+                      ? 'text-primary border-primary'
+                      : 'text-muted-foreground border-transparent hover:text-foreground/80'
+                  }`}
+                >
+                  {tabLabels[tab]}
+                  {tab === 'deals' && dealsMissingTradeRecord > 0 && (
+                    <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
+                      {dealsMissingTradeRecord}
+                    </span>
+                  )}
+                  {tab === 'messages' && unansweredMessageCount > 0 && (
+                    <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
+                      {unansweredMessageCount}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           {/* Upload Status Message */}
           {uploadMessage && (
-            <div className={`mx-4 sm:mx-6 mt-4 p-3 rounded-lg text-sm font-medium border ${
-              uploadMessage.type === 'success'
-                ? 'bg-green-950/50 border-green-800 text-green-400'
-                : 'bg-red-950/50 border-red-800 text-red-400'
-            }`}>
+            <div
+              role="status"
+              aria-live="polite"
+              className={`mx-4 sm:mx-6 mt-4 p-3 rounded-lg text-sm font-medium border ${
+                uploadMessage.type === 'success'
+                  ? 'bg-green-950/50 border-green-800 text-green-400'
+                  : 'bg-red-950/50 border-red-800 text-red-400'
+              }`}
+            >
               {uploadMessage.text}
             </div>
           )}
@@ -472,7 +486,7 @@ export default function BrokerageDashboard() {
           {/* DEALS TAB                                                        */}
           {/* ================================================================ */}
           {activeTab === 'deals' && (
-            <>
+            <section role="tabpanel" id="tabpanel-deals" aria-labelledby="tab-deals">
               {deals.length === 0 ? (
                 <div className="px-6 py-16 text-center">
                   <FileText className="mx-auto mb-4 text-muted-foreground/30" size={40} />
@@ -511,8 +525,7 @@ export default function BrokerageDashboard() {
                             </span>
                           )}
                           <span
-                            className="inline-flex px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md"
-                            style={getStatusBadgeStyle(deal.status)}
+                            className={`inline-flex px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}
                           >
                             {formatStatusLabel(deal.status)}
                           </span>
@@ -628,7 +641,7 @@ export default function BrokerageDashboard() {
                     const totalPages = Math.ceil(sortedDeals.length / DEALS_PER_PAGE)
                     const page = Math.min(dealsPage, totalPages)
                     return (
-                      <div className="px-4 sm:px-6 py-4 flex items-center justify-between border-t border-border/50">
+                      <nav aria-label="Deal list pagination" className="px-4 sm:px-6 py-4 flex items-center justify-between border-t border-border/50">
                         <p className="text-xs text-muted-foreground">
                           Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, sortedDeals.length)} of {sortedDeals.length}
                         </p>
@@ -639,6 +652,7 @@ export default function BrokerageDashboard() {
                             variant="outline"
                             size="sm"
                             className="p-2 h-8 w-8"
+                            aria-label="Previous page"
                           >
                             <ChevronLeft size={14} />
                           </Button>
@@ -649,23 +663,24 @@ export default function BrokerageDashboard() {
                             variant="outline"
                             size="sm"
                             className="p-2 h-8 w-8"
+                            aria-label="Next page"
                           >
                             <ChevronRight size={14} />
                           </Button>
                         </div>
-                      </div>
+                      </nav>
                     )
                   })()}
                 </div>
               )}
-            </>
+            </section>
           )}
 
           {/* ================================================================ */}
           {/* AGENTS TAB                                                       */}
           {/* ================================================================ */}
           {activeTab === 'agents' && (
-            <>
+            <section role="tabpanel" id="tabpanel-agents" aria-labelledby="tab-agents">
               {agents.length === 0 ? (
                 <div className="px-6 py-16 text-center">
                   <Users className="mx-auto mb-4 text-muted-foreground/30" size={40} />
@@ -732,16 +747,16 @@ export default function BrokerageDashboard() {
                   ))}
                 </div>
               )}
-            </>
+            </section>
           )}
 
           {/* ================================================================ */}
           {/* REFERRAL FEES TAB                                                */}
           {/* ================================================================ */}
           {activeTab === 'referrals' && (
-            <div className="p-4">
+            <section role="tabpanel" id="tabpanel-referrals" aria-labelledby="tab-referrals" className="p-4">
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" aria-label="Referral fee summary">
                 <div
                   className="rounded-lg px-4 py-3 cursor-pointer hover:opacity-80 transition-opacity bg-green-950/40 border border-green-800"
                   onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
@@ -814,10 +829,10 @@ export default function BrokerageDashboard() {
                               <div key={m.month} className="flex-1 flex flex-col items-center gap-0.5" title={`${formatMonthLabel(m.month)}: Earned ${formatCurrency(m.earned)}, Pending ${formatCurrency(m.pending)}`}>
                                 <div className="w-full flex flex-col items-center justify-end" style={{ height: '140px' }}>
                                   {pendingH > 0 && (
-                                    <div className="w-full max-w-[32px] rounded-t-sm opacity-70" style={{ height: `${pendingH}px`, background: '#facc15' }} />
+                                    <div className="w-full max-w-[32px] rounded-t-sm opacity-70" style={{ height: `${pendingH}px`, background: 'var(--warning)' }} />
                                   )}
                                   {earnedH > 0 && (
-                                    <div className="w-full max-w-[32px]" style={{ height: `${earnedH}px`, background: '#4ade80', borderRadius: pendingH > 0 ? '0' : '4px 4px 0 0' }} />
+                                    <div className="w-full max-w-[32px]" style={{ height: `${earnedH}px`, background: 'var(--success)', borderRadius: pendingH > 0 ? '0' : '4px 4px 0 0' }} />
                                   )}
                                 </div>
                                 <span className="text-[10px] font-medium text-muted-foreground">{monthLabel}</span>
@@ -843,8 +858,10 @@ export default function BrokerageDashboard() {
                     <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Fee Breakdown by Deal</h4>
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
-                        <Calendar size={14} className="text-muted-foreground" />
+                        <Calendar size={14} className="text-muted-foreground" aria-hidden="true" />
+                        <label htmlFor="referral-month-filter" className="sr-only">Filter by month</label>
                         <select
+                          id="referral-month-filter"
                           value={referralMonth}
                           onChange={(e) => setReferralMonth(e.target.value)}
                           className="text-xs rounded-lg px-3 py-1.5 font-medium bg-input border border-border text-foreground"
@@ -878,7 +895,7 @@ export default function BrokerageDashboard() {
                   </div>
 
                   <div className="rounded-lg overflow-x-auto border border-border/50">
-                    <table className="w-full min-w-[600px]">
+                    <table className="w-full min-w-[600px]" aria-label="Referral fee breakdown by deal">
                       <thead>
                         <tr className="bg-muted/50 border-b border-border/50">
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Property</th>
@@ -905,7 +922,7 @@ export default function BrokerageDashboard() {
                                   <td className="px-4 py-3 text-sm text-foreground/80">{deal.agent?.first_name} {deal.agent?.last_name}</td>
                                   <td className="px-4 py-3 text-sm text-foreground/80">{formatDate(deal.closing_date)}</td>
                                   <td className="px-4 py-3">
-                                    <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
+                                    <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}>
                                       {formatStatusLabel(deal.status)}
                                     </span>
                                   </td>
@@ -938,7 +955,7 @@ export default function BrokerageDashboard() {
                         Monthly Summary
                       </h4>
                       <div className="rounded-lg overflow-x-auto border border-border/50">
-                        <table className="w-full">
+                        <table className="w-full" aria-label="Monthly referral fee summary">
                           <thead>
                             <tr className="bg-muted/50 border-b border-border/50">
                               <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Month</th>
@@ -979,14 +996,14 @@ export default function BrokerageDashboard() {
                   </p>
                 </div>
               )}
-            </div>
+            </section>
           )}
 
           {/* ================================================================ */}
           {/* PAYMENTS TAB                                                     */}
           {/* ================================================================ */}
           {activeTab === 'payments' && (
-            <div className="p-4 sm:p-6">
+            <section role="tabpanel" id="tabpanel-payments" aria-labelledby="tab-payments" className="p-4 sm:p-6">
               {(() => {
                 const fundedDeals = deals.filter(d => ['funded', 'completed'].includes(d.status))
                 if (fundedDeals.length === 0) {
@@ -1034,7 +1051,7 @@ export default function BrokerageDashboard() {
                           className="h-full rounded-full transition-all duration-500"
                           style={{
                             width: `${paidPct}%`,
-                            background: paidPct >= 99.9 ? '#4ade80' : '#5FA873',
+                            background: paidPct >= 99.9 ? 'var(--success)' : 'var(--primary)',
                           }}
                         />
                       </div>
@@ -1109,16 +1126,16 @@ export default function BrokerageDashboard() {
                   </>
                 )
               })()}
-            </div>
+            </section>
           )}
 
           {/* ================================================================ */}
           {/* MESSAGES TAB                                                     */}
           {/* ================================================================ */}
           {activeTab === 'messages' && (
-            <div className="flex" style={{ minHeight: '500px', height: '60vh' }}>
+            <section role="tabpanel" id="tabpanel-messages" aria-labelledby="tab-messages" className="flex" style={{ minHeight: '500px', height: '60vh' }}>
               {/* Deal list */}
-              <div className="flex flex-col border-r border-border/50" style={{ width: '300px', minWidth: '250px' }}>
+              <nav aria-label="Deal conversations" className="flex flex-col border-r border-border/50" style={{ width: '300px', minWidth: '250px' }}>
                 <div className="p-3 border-b border-border/50">
                   <p className="text-xs font-bold text-muted-foreground">
                     Select a deal to message Firm Funds
@@ -1170,7 +1187,7 @@ export default function BrokerageDashboard() {
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-muted-foreground">{item.agent_name}</span>
-                            <span className="inline-flex px-1.5 py-0.5 text-[9px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                            <span className={`inline-flex px-1.5 py-0.5 text-[9px] font-semibold rounded ${getStatusBadgeClass(item.deal_status)}`}>
                               {formatStatusLabel(item.deal_status)}
                             </span>
                           </div>
@@ -1187,7 +1204,7 @@ export default function BrokerageDashboard() {
                     })
                   )}
                 </div>
-              </div>
+              </nav>
 
               {/* Message thread */}
               <div className="flex-1 flex flex-col min-w-0">
@@ -1245,7 +1262,7 @@ export default function BrokerageDashboard() {
                   </>
                 )}
               </div>
-            </div>
+            </section>
           )}
         </Card>
       </main>

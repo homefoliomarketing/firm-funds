@@ -109,19 +109,18 @@ export const DEAL_STATUSES = {
 // Import from here — do NOT duplicate in page components.
 // =============================================================================
 
-export const STATUS_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  under_review: { bg: '#1A2240', text: '#7B9FE0', border: '#2D3A5C' },
-  approved:     { bg: '#0F2A18', text: '#5FA873', border: '#1E4A2C' },
-  funded:       { bg: '#1F1535', text: '#A385D0', border: '#352A50' },
-  completed:    { bg: '#0F2A24', text: '#5FB8A0', border: '#1E4A3C' },
-  denied:       { bg: '#2A1212', text: '#E07B7B', border: '#4A2020' },
-  cancelled:    { bg: '#2A1F0F', text: '#D4A04A', border: '#4A3820' },
+export const STATUS_BADGE_CLASSES: Record<string, string> = {
+  under_review: 'bg-status-blue-muted text-status-blue border border-status-blue-border',
+  approved:     'bg-status-green-muted text-status-green border border-status-green-border',
+  funded:       'bg-status-purple-muted text-status-purple border border-status-purple-border',
+  completed:    'bg-status-teal-muted text-status-teal border border-status-teal-border',
+  denied:       'bg-status-red-muted text-status-red border border-status-red-border',
+  cancelled:    'bg-status-amber-muted text-status-amber border border-status-amber-border',
 }
 
-/** Helper: get inline style object for a status badge */
-export function getStatusBadgeStyle(status: string) {
-  const s = STATUS_BADGE_STYLES[status] || STATUS_BADGE_STYLES.completed
-  return { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
+/** Helper: get Tailwind class string for a status badge */
+export function getStatusBadgeClass(status: string): string {
+  return STATUS_BADGE_CLASSES[status] || STATUS_BADGE_CLASSES.completed
 }
 
 // =============================================================================
@@ -145,18 +144,17 @@ export const KYC_STATUSES = {
   REJECTED: 'rejected',
 } as const
 
-/** KYC status badge styles */
-export const KYC_STATUS_BADGE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  pending:   { bg: '#2A1F0F', text: '#D4A04A', border: '#4A3820' },
-  submitted: { bg: '#1A2240', text: '#7B9FE0', border: '#2D3A5C' },
-  verified:  { bg: '#0F2A18', text: '#5FA873', border: '#1E4A2C' },
-  rejected:  { bg: '#2A1212', text: '#E07B7B', border: '#4A2020' },
+/** KYC status badge classes */
+export const KYC_STATUS_BADGE_CLASSES: Record<string, string> = {
+  pending:   'bg-status-amber-muted text-status-amber border border-status-amber-border',
+  submitted: 'bg-status-blue-muted text-status-blue border border-status-blue-border',
+  verified:  'bg-status-green-muted text-status-green border border-status-green-border',
+  rejected:  'bg-status-red-muted text-status-red border border-status-red-border',
 }
 
-/** Helper: get inline style object for a KYC status badge */
-export function getKycBadgeStyle(status: string) {
-  const s = KYC_STATUS_BADGE_STYLES[status] || KYC_STATUS_BADGE_STYLES.pending
-  return { backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}` }
+/** Helper: get Tailwind class string for a KYC status badge */
+export function getKycBadgeClass(status: string): string {
+  return KYC_STATUS_BADGE_CLASSES[status] || KYC_STATUS_BADGE_CLASSES.pending
 }
 
 /** Max file size for KYC document upload (10MB) */

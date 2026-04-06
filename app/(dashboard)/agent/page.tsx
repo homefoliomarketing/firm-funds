@@ -8,7 +8,7 @@ import {
   PlusCircle, Search, Calendar, ChevronRight, ChevronLeft, CreditCard,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
-import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import AgentKycGate from '@/components/AgentKycGate'
 import AgentHeader from '@/components/AgentHeader'
 import { Button } from '@/components/ui/button'
@@ -133,7 +133,7 @@ export default function AgentDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-background" role="status" aria-label="Loading deals">
         <p className="text-lg text-muted-foreground">Loading your dashboard...</p>
       </div>
     )
@@ -146,17 +146,20 @@ export default function AgentDashboard() {
         <div
           className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
           onClick={() => setShowKycVerifiedModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="kyc-verified-title"
         >
           <div
             onClick={(e) => e.stopPropagation()}
             className="bg-card border-2 border-primary rounded-2xl p-10 max-w-md w-full text-center shadow-2xl"
           >
             <div className="w-16 h-16 rounded-full mx-auto mb-5 bg-primary/15 border-2 border-primary flex items-center justify-center">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden="true">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
-            <h2 className="text-[22px] font-bold text-foreground mb-2">
+            <h2 id="kyc-verified-title" className="text-[22px] font-bold text-foreground mb-2">
               Identity Verified!
             </h2>
             <p className="text-[15px] leading-relaxed text-muted-foreground mb-6">
@@ -180,23 +183,25 @@ export default function AgentDashboard() {
         brokerageName={agent?.brokerages?.name}
       />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* KYC Banner */}
-        {(kycPending || kycRejected) && (
-          <AgentKycGate agent={agent} onKycSubmitted={() => window.location.reload()} />
-        )}
-        {kycSubmitted && (
-          <div className="mb-6 rounded-xl p-4 flex items-center gap-3 bg-blue-950/40 border border-blue-800/50">
-            <Clock size={18} className="text-blue-400 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-blue-400">Identity verification submitted</p>
-              <p className="text-xs mt-0.5 text-blue-500/80">Your ID is under review. You can browse your dashboard but deal submission is locked until verified.</p>
+      <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* KYC / Banking status banners */}
+        <section aria-label="Account status notifications">
+          {/* KYC Banner */}
+          {(kycPending || kycRejected) && (
+            <AgentKycGate agent={agent} onKycSubmitted={() => window.location.reload()} />
+          )}
+          {kycSubmitted && (
+            <div className="mb-6 rounded-xl p-4 flex items-center gap-3 bg-blue-950/40 border border-blue-800/50" role="status">
+              <Clock size={18} className="text-blue-400 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-medium text-blue-400">Identity verification submitted</p>
+                <p className="text-xs mt-0.5 text-blue-500/80">Your ID is under review. You can browse your dashboard but deal submission is locked until verified.</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Banking nudge — show after KYC verified but no banking on file */}
-        {agent?.kyc_status === 'verified' && !agent?.banking_verified && !agent?.preauth_form_path && (
+          {/* Banking nudge — show after KYC verified but no banking on file */}
+          {agent?.kyc_status === 'verified' && !agent?.banking_verified && !agent?.preauth_form_path && (
           <div className="mb-6 rounded-xl p-4 flex items-center justify-between gap-3 bg-amber-950/40 border border-amber-800/50">
             <div className="flex items-center gap-3">
               <CreditCard size={18} className="text-amber-400 shrink-0" />
@@ -218,16 +223,18 @@ export default function AgentDashboard() {
 
         {/* Banking submitted but not yet verified */}
         {agent?.kyc_status === 'verified' && !agent?.banking_verified && agent?.preauth_form_path && (
-          <div className="mb-6 rounded-xl p-4 flex items-center gap-3 bg-blue-950/40 border border-blue-800/50">
-            <Clock size={18} className="text-blue-400 shrink-0" />
+          <div className="mb-6 rounded-xl p-4 flex items-center gap-3 bg-blue-950/40 border border-blue-800/50" role="status">
+            <Clock size={18} className="text-blue-400 shrink-0" aria-hidden="true" />
             <div>
               <p className="text-sm font-medium text-blue-400">Banking info under review</p>
               <p className="text-xs mt-0.5 text-blue-500/80">Your pre-authorized debit form has been uploaded and is being reviewed. You can submit deals in the meantime.</p>
             </div>
           </div>
         )}
+        </section>
 
         {/* Welcome + New Deal Button */}
+        <section aria-label="Welcome and actions">
         <div className="mb-8 flex justify-between items-start">
           <div>
             <h2 className="text-2xl font-bold text-foreground">
@@ -247,17 +254,21 @@ export default function AgentDashboard() {
             New Advance Request
           </Button>
         </div>
+        </section>
 
         {/* Deals List */}
-        <Card className="rounded-xl overflow-hidden border-border/50">
+        <section aria-label="Your deals">
+        <Card className="rounded-xl overflow-hidden border-border/50 shadow-lg shadow-black/20">
           {/* Header with search */}
           <div className="px-6 py-4 border-b border-border/50">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <h3 className="text-lg font-bold text-foreground shrink-0">Your Deals</h3>
               {deals.length > 0 && (
                 <div className="relative flex-1 max-w-sm ml-auto">
-                  <Search size={14} className="text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search size={14} className="text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
+                  <label htmlFor="agent-search" className="sr-only">Search deals</label>
                   <Input
+                    id="agent-search"
                     type="text"
                     placeholder="Search by address..."
                     value={searchQuery}
@@ -270,8 +281,10 @@ export default function AgentDashboard() {
 
             {/* Status filter tabs */}
             {deals.length > 3 && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
+              <div className="flex flex-wrap gap-1.5 mt-3" role="tablist" aria-label="Filter deals by status">
                 <button
+                  role="tab"
+                  aria-selected={statusFilter === null}
                   onClick={() => { setStatusFilter(null); setCurrentPage(1) }}
                   className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors border ${
                     statusFilter === null
@@ -287,6 +300,8 @@ export default function AgentDashboard() {
                   return (
                     <button
                       key={status}
+                      role="tab"
+                      aria-selected={statusFilter === status}
                       onClick={() => { setStatusFilter(statusFilter === status ? null : status); setCurrentPage(1) }}
                       className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors border ${
                         statusFilter === status
@@ -335,7 +350,7 @@ export default function AgentDashboard() {
                       {paged.map((deal, i) => (
                         <div
                           key={deal.id}
-                          className={`px-6 py-4 flex items-center justify-between cursor-pointer transition-colors hover:bg-muted/30 ${
+                          className={`group px-6 py-4.5 flex items-center justify-between cursor-pointer transition-all duration-150 hover:bg-white/[0.03] ${
                             i < paged.length - 1 ? 'border-b border-border/30' : ''
                           }`}
                           onClick={() => router.push(`/agent/deals/${deal.id}`)}
@@ -359,8 +374,7 @@ export default function AgentDashboard() {
                           </div>
                           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
                             <span
-                              className="inline-flex px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-semibold rounded-md whitespace-nowrap"
-                              style={getStatusBadgeStyle(deal.status)}
+                              className={`inline-flex px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-semibold rounded-md whitespace-nowrap ${getStatusBadgeClass(deal.status)}`}
                             >
                               {formatStatusLabel(deal.status)}
                             </span>
@@ -371,30 +385,32 @@ export default function AgentDashboard() {
                       ))}
                     </div>
                     {totalPages > 1 && (
-                      <div className="px-6 py-4 flex items-center justify-between border-t border-border/50">
+                      <nav className="px-6 py-4 flex items-center justify-between border-t border-border/50" aria-label="Deals pagination">
                         <p className="text-xs text-muted-foreground">
                           Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, filteredDeals.length)} of {filteredDeals.length}
                         </p>
                         <div className="flex items-center gap-1">
                           <button
+                            aria-label="Previous page"
                             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                             disabled={page === 1}
                             className="p-2 rounded-lg transition-colors disabled:opacity-30 text-muted-foreground border border-border/50 hover:bg-muted/30"
                           >
-                            <ChevronLeft size={14} />
+                            <ChevronLeft size={14} aria-hidden="true" />
                           </button>
                           <span className="px-3 text-xs font-semibold text-foreground">
                             {page} / {totalPages}
                           </span>
                           <button
+                            aria-label="Next page"
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                             disabled={page === totalPages}
                             className="p-2 rounded-lg transition-colors disabled:opacity-30 text-muted-foreground border border-border/50 hover:bg-muted/30"
                           >
-                            <ChevronRight size={14} />
+                            <ChevronRight size={14} aria-hidden="true" />
                           </button>
                         </div>
-                      </div>
+                      </nav>
                     )}
                   </>
                 )
@@ -402,6 +418,7 @@ export default function AgentDashboard() {
             </>
           )}
         </Card>
+        </section>
       </main>
     </div>
   )

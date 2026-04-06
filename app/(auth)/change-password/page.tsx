@@ -120,7 +120,7 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div id="main-content" className="min-h-screen flex items-center justify-center bg-background">
       <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full bg-primary blur-[80px] pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full bg-primary blur-[60px] pointer-events-none" />
 
@@ -134,9 +134,9 @@ export default function ChangePasswordPage() {
 
         <div className="rounded-2xl shadow-2xl p-5 sm:p-8 bg-card border border-border/50">
           <div className="mb-6">
-            <h2 className="text-lg font-bold mb-1 text-foreground">
+            <h1 className="text-lg font-bold mb-1 text-foreground">
               Set Your New Password
-            </h2>
+            </h1>
             <p className="text-sm text-muted-foreground">
               For security, please create a new password before continuing.
             </p>
@@ -189,7 +189,7 @@ export default function ChangePasswordPage() {
           </form>
         </div>
 
-        <p className="text-center text-xs mt-6 text-white/30">
+        <p className="text-center text-xs mt-6 text-muted-foreground/40">
           &copy; {new Date().getFullYear()} Firm Funds Inc. All rights reserved.
         </p>
       </div>

@@ -199,7 +199,9 @@ export default function BrokerageSettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+      <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+        <h1 className="sr-only">Brokerage Settings</h1>
+
         {/* Status message */}
         {message && (
           <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border ${

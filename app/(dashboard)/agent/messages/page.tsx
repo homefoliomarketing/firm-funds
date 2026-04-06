@@ -8,7 +8,7 @@ import {
   CheckCircle2, ChevronDown, ChevronUp, ArrowLeft,
 } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatting'
-import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -247,7 +247,9 @@ export default function AgentMessagesPage() {
         brokerageName={agent?.brokerages?.name}
       />
 
-      <main className="flex-1 overflow-hidden max-w-5xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
+      <main id="main-content" className="flex-1 overflow-hidden max-w-5xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
+        <h1 className="sr-only">Agent Messages</h1>
+
         {/* Status message */}
         {statusMessage && (
           <div
@@ -275,7 +277,8 @@ export default function AgentMessagesPage() {
 
             {/* LEFT PANEL — Deal list */}
             {showList && (
-              <div
+              <section
+                aria-label="Deal list"
                 className="flex flex-col border-r border-border"
                 style={{ width: isMobile ? '100%' : '340px', minWidth: isMobile ? '100%' : '280px', borderRight: isMobile ? 'none' : undefined }}
               >
@@ -314,7 +317,7 @@ export default function AgentMessagesPage() {
                               {item.property_address}
                             </p>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                              <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(item.deal_status)}`}>
                                 {formatStatusLabel(item.deal_status)}
                               </span>
                             </div>
@@ -355,12 +358,12 @@ export default function AgentMessagesPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </section>
             )}
 
             {/* RIGHT PANEL — Messages thread */}
             {showThread && (
-              <div className="flex-1 flex flex-col min-w-0">
+              <section aria-label="Message thread" className="flex-1 flex flex-col min-w-0">
                 {!selectedDealId ? (
                   <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
@@ -384,7 +387,7 @@ export default function AgentMessagesPage() {
                         </p>
                         <div className="flex items-center gap-2 mt-0.5">
                           {selectedDeal && (
-                            <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(selectedDeal.deal_status)}>
+                            <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(selectedDeal.deal_status)}`}>
                               {formatStatusLabel(selectedDeal.deal_status)}
                             </span>
                           )}
@@ -404,28 +407,28 @@ export default function AgentMessagesPage() {
 
                     {/* Returned docs alert */}
                     {selectedDealReturns.length > 0 && (
-                      <div className="bg-[#2A1212] border-b border-[#4A2020]">
+                      <div className="bg-status-red-muted border-b border-status-red-border">
                         <button onClick={() => setReturnsExpanded(!returnsExpanded)} className="w-full px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <AlertTriangle size={14} className="text-[#F87171] flex-shrink-0" />
-                            <span className="text-xs font-bold truncate text-[#F87171]">
+                            <AlertTriangle size={14} className="text-destructive flex-shrink-0" />
+                            <span className="text-xs font-bold truncate text-destructive">
                               {selectedDealReturns.filter(r => !uploadedReturnIds.has(r.id)).length === 0
                                 ? 'All returned documents re-uploaded!'
                                 : `${selectedDealReturns.length} document${selectedDealReturns.length > 1 ? 's' : ''} returned for revision`}
                             </span>
                           </div>
                           {returnsExpanded
-                            ? <ChevronUp size={14} className="text-[#F87171]" />
-                            : <ChevronDown size={14} className="text-[#F87171]" />}
+                            ? <ChevronUp size={14} className="text-destructive" />
+                            : <ChevronDown size={14} className="text-destructive" />}
                         </button>
                         {returnsExpanded && (
                           <div className="px-4 sm:px-5 pb-3 space-y-2">
                             {selectedDealReturns.map(ret => (
-                              <div key={ret.id} className="rounded-lg px-3 py-2.5 bg-[#3A1818] border border-[#4A2020]">
+                              <div key={ret.id} className="rounded-lg px-3 py-2.5 bg-status-red-muted border border-status-red-border">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold truncate text-[#FCA5A5]">{ret.deal_documents?.file_name || 'Document'}</p>
-                                    <p className="text-[10px] mt-0.5 text-[#F87171]">Reason: {ret.reason}</p>
+                                    <p className="text-xs font-semibold truncate text-red-300">{ret.deal_documents?.file_name || 'Document'}</p>
+                                    <p className="text-[10px] mt-0.5 text-destructive">Reason: {ret.reason}</p>
                                   </div>
                                   {uploadedReturnIds.has(ret.id) ? (
                                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -434,7 +437,7 @@ export default function AgentMessagesPage() {
                                     </div>
                                   ) : (
                                     <label
-                                      className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md cursor-pointer transition-colors bg-[#4A2020] text-[#FCA5A5] hover:bg-[#5A2525]"
+                                      className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md cursor-pointer transition-colors bg-status-red-border text-red-300 hover:bg-status-red-border/80"
                                     >
                                       <Upload size={10} />
                                       {uploadingReturnId === ret.id ? 'Uploading...' : 'Re-upload'}
@@ -485,7 +488,7 @@ export default function AgentMessagesPage() {
                     />
                   </>
                 )}
-              </div>
+              </section>
             )}
           </div>
         )}

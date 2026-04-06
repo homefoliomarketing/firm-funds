@@ -9,13 +9,14 @@ import {
   CreditCard, Eye, EyeOff, Loader2
 } from 'lucide-react'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
-import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -170,7 +171,7 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background" role="status" aria-label="Loading dashboard">
         <header className="border-b border-border/50 bg-card">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <Skeleton className="h-8 w-40" />
@@ -229,14 +230,14 @@ export default function AdminDashboard() {
       {/* Header */}
       <header className="border-b border-border/50 bg-card/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-14">
+          <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-9 w-auto" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-9 sm:h-10 w-auto" />
               <Separator orientation="vertical" className="h-6 bg-border/30" />
-              <span className="text-sm font-medium text-muted-foreground">Admin</span>
+              <span className="text-sm font-semibold tracking-wide text-muted-foreground">Admin</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-primary hidden sm:block">{profile?.full_name}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-primary font-medium hidden sm:block">{profile?.full_name}</span>
               <Button
                 variant="ghost"
                 size="icon"
@@ -252,17 +253,17 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Welcome */}
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-foreground">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Here&apos;s what&apos;s happening with Firm Funds.</p>
+          <p className="text-sm text-muted-foreground mt-1.5">Here&apos;s what&apos;s happening with Firm Funds.</p>
         </div>
 
         {/* Quick Links */}
-        <div className="flex items-center gap-2 mb-6">
+        <nav aria-label="Admin quick links" className="flex items-center gap-2 mb-8">
           <div className="flex flex-wrap gap-2 flex-1">
             {[
               { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
@@ -301,10 +302,11 @@ export default function AdminDashboard() {
               </Badge>
             )}
           </Button>
-        </div>
+        </nav>
 
         {/* PENDING ACTIONS */}
         {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
+          <section aria-label="Pending approvals">
           <Card className="mb-6 border-amber-500/40">
             <CardHeader className="py-3 px-4 bg-amber-500/5 border-b border-amber-500/20">
               <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-400">
@@ -466,6 +468,7 @@ export default function AdminDashboard() {
               ))}
             </CardContent>
           </Card>
+          </section>
         )}
 
         {/* Pre-auth form viewer */}
@@ -482,6 +485,7 @@ export default function AdminDashboard() {
 
         {/* Attention Alerts */}
         {totalAlerts > 0 && (
+          <section aria-label="Deals needing attention">
           <Card className="mb-6 border-red-500/30 bg-red-500/5">
             <CardHeader className="py-2.5 px-4 border-b border-red-500/20">
               <CardTitle className="text-xs font-semibold flex items-center gap-2 text-red-400">
@@ -537,8 +541,11 @@ export default function AdminDashboard() {
               ))}
             </CardContent>
           </Card>
+          </section>
         )}
 
+        {/* Deals Section */}
+        <section aria-label="Deals">
         {/* Status Filter Tabs */}
         <div className="flex flex-wrap gap-1.5 mb-4">
           {[
@@ -578,8 +585,8 @@ export default function AdminDashboard() {
         </div>
 
         {/* Deals Table */}
-        <Card className="border-border/50">
-          <CardHeader className="py-3 px-4 border-b border-border/50">
+        <Card className="border-border/50 shadow-lg shadow-black/20">
+          <CardHeader className="py-4 px-5 sm:px-6 border-b border-border/50">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-sm">
@@ -593,8 +600,10 @@ export default function AdminDashboard() {
                 <span className="text-xs text-muted-foreground">{filtered.length} deal{filtered.length !== 1 ? 's' : ''}</span>
               </div>
               <div className="relative">
+                <Label htmlFor="deal-search" className="sr-only">Search deals by address or agent</Label>
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
                 <Input
+                  id="deal-search"
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                   placeholder="Search by address or agent..."
@@ -621,12 +630,12 @@ export default function AdminDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent border-border/50">
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Property</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Agent</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Status</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Commission</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Advance</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider">Closing</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Property</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Agent</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Status</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Commission</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Advance</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Closing</TableHead>
                       <TableHead className="w-8"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -636,7 +645,7 @@ export default function AdminDashboard() {
                       return (
                       <TableRow
                         key={deal.id}
-                        className="cursor-pointer border-border/30 hover:bg-secondary/50 transition-colors"
+                        className="cursor-pointer border-border/30 hover:bg-white/[0.03] transition-colors group"
                         onClick={() => router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`)}
                       >
                         <TableCell className="text-sm font-medium">
@@ -653,7 +662,7 @@ export default function AdminDashboard() {
                           {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
                         </TableCell>
                         <TableCell>
-                          <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
+                          <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}>
                             {formatStatusLabel(deal.status)}
                           </span>
                         </TableCell>
@@ -664,7 +673,7 @@ export default function AdminDashboard() {
                         <TableCell className="text-sm text-muted-foreground">
                           {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
                         </TableCell>
-                        <TableCell><ChevronRight size={14} className="text-muted-foreground/40" /></TableCell>
+                        <TableCell><ChevronRight size={14} className="text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" /></TableCell>
                       </TableRow>
                       )
                     })}
@@ -695,7 +704,7 @@ export default function AdminDashboard() {
                         <p className="text-sm text-muted-foreground truncate">
                           {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
                         </p>
-                        <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap" style={getStatusBadgeStyle(deal.status)}>
+                        <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap ${getStatusBadgeClass(deal.status)}`}>
                           {formatStatusLabel(deal.status)}
                         </span>
                       </div>
@@ -772,6 +781,7 @@ export default function AdminDashboard() {
             </div>
           )}
         </Card>
+        </section>
       </main>
     </div>
   )

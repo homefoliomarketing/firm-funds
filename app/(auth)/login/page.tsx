@@ -160,12 +160,10 @@ function LoginPageInner() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-background">
+    <div id="main-content" className="min-h-screen flex items-center justify-center relative overflow-hidden bg-background">
       {/* Premium ambient glow effects */}
-      <div className="absolute top-[-200px] right-[-100px] w-[500px] h-[500px] rounded-full opacity-[0.03]"
-        style={{ background: 'radial-gradient(circle, #5FA873, transparent 70%)', filter: 'blur(80px)' }} />
-      <div className="absolute bottom-[-150px] left-[-80px] w-[400px] h-[400px] rounded-full opacity-[0.03]"
-        style={{ background: 'radial-gradient(circle, #5FA873, transparent 70%)', filter: 'blur(60px)' }} />
+      <div className="absolute top-[-200px] right-[-100px] w-[500px] h-[500px] rounded-full opacity-[0.03] blur-[80px] bg-primary" />
+      <div className="absolute bottom-[-150px] left-[-80px] w-[400px] h-[400px] rounded-full opacity-[0.03] blur-[60px] bg-primary" />
 
       <div className="relative max-w-[420px] w-full mx-4">
         {/* Logo / Brand */}
@@ -175,14 +173,15 @@ function LoginPageInner() {
             alt="Firm Funds"
             className="h-28 sm:h-36 md:h-44 w-auto mx-auto mb-4"
           />
+          <h1 className="sr-only">Firm Funds — Sign In</h1>
           <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary">
             Commission Advance Portal
           </p>
         </div>
 
         {/* Login Card */}
-        <Card className="border-border/50 shadow-2xl shadow-black/40">
-          <CardContent className="p-6 sm:p-8">
+        <Card className="border-border/40 shadow-2xl shadow-black/50 bg-card/90 backdrop-blur-sm">
+          <CardContent className="p-7 sm:p-9">
             <form onSubmit={handleLogin} className="space-y-5">
               {error && (
                 <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">

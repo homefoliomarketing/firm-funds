@@ -288,7 +288,7 @@ export default function AuditExplorerPage() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-4">
+      <section aria-label="Audit log" className="max-w-7xl mx-auto px-4 py-4">
         {/* Search + Filter Bar */}
         <div className="rounded-lg p-4 mb-4 bg-card border border-border/50">
           <div className="flex gap-2 mb-3">
@@ -402,8 +402,9 @@ export default function AuditExplorerPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium mb-1 text-muted-foreground">From Date</label>
+                <label htmlFor="audit-date-from" className="block text-xs font-medium mb-1 text-muted-foreground">From Date</label>
                 <input
+                  id="audit-date-from"
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
@@ -412,8 +413,9 @@ export default function AuditExplorerPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium mb-1 text-muted-foreground">To Date</label>
+                <label htmlFor="audit-date-to" className="block text-xs font-medium mb-1 text-muted-foreground">To Date</label>
                 <input
+                  id="audit-date-to"
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
@@ -617,7 +619,7 @@ export default function AuditExplorerPage() {
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }

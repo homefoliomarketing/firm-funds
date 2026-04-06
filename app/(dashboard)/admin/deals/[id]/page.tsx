@@ -33,7 +33,7 @@ import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeStyle, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, RETURN_PROCESSING_DAYS } from '@/lib/constants'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, RETURN_PROCESSING_DAYS } from '@/lib/constants'
 import { calculateDeal } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
@@ -179,7 +179,7 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
           const sep = document.createElement('div')
           sep.className = 'pdf-page-sep'
           sep.style.height = '4px'
-          sep.style.background = '#333'
+          sep.style.background = 'hsl(var(--border))'
           container.appendChild(sep)
         }
         container.appendChild(canvas)
@@ -438,15 +438,15 @@ interface ChecklistCategory {
 }
 
 const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; border: string }> = {
-  'Agent Verification': { icon: User, color: '#C4A5F5', bg: 'rgba(91,61,153,0.15)', border: 'rgba(91,61,153,0.3)' },
-  'Deal Verification': { icon: FileText, color: '#7EB3F5', bg: 'rgba(61,90,153,0.15)', border: 'rgba(61,90,153,0.3)' },
-  'Deal Document Review': { icon: FileText, color: '#7EB3F5', bg: 'rgba(61,90,153,0.15)', border: 'rgba(61,90,153,0.3)' },
-  'Financial': { icon: DollarSign, color: '#E8C96A', bg: 'rgba(146,112,12,0.15)', border: 'rgba(146,112,12,0.3)' },
-  'Firm Fund Documents': { icon: Shield, color: '#5FA873', bg: 'rgba(45,122,79,0.15)', border: 'rgba(45,122,79,0.3)' },
-  'Firm Funds Documents': { icon: Shield, color: '#5FA873', bg: 'rgba(45,122,79,0.15)', border: 'rgba(45,122,79,0.3)' },
+  'Agent Verification': { icon: User, color: 'var(--checklist-purple)', bg: 'color-mix(in srgb, var(--action-purple) 15%, transparent)', border: 'color-mix(in srgb, var(--action-purple) 30%, transparent)' },
+  'Deal Verification': { icon: FileText, color: 'var(--checklist-blue)', bg: 'color-mix(in srgb, var(--action-blue) 15%, transparent)', border: 'color-mix(in srgb, var(--action-blue) 30%, transparent)' },
+  'Deal Document Review': { icon: FileText, color: 'var(--checklist-blue)', bg: 'color-mix(in srgb, var(--action-blue) 15%, transparent)', border: 'color-mix(in srgb, var(--action-blue) 30%, transparent)' },
+  'Financial': { icon: DollarSign, color: 'var(--checklist-amber)', bg: 'color-mix(in srgb, var(--status-amber) 15%, transparent)', border: 'color-mix(in srgb, var(--status-amber) 30%, transparent)' },
+  'Firm Fund Documents': { icon: Shield, color: 'var(--primary)', bg: 'color-mix(in srgb, var(--primary) 15%, transparent)', border: 'color-mix(in srgb, var(--primary) 30%, transparent)' },
+  'Firm Funds Documents': { icon: Shield, color: 'var(--primary)', bg: 'color-mix(in srgb, var(--primary) 15%, transparent)', border: 'color-mix(in srgb, var(--primary) 30%, transparent)' },
 }
 
-const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: '#999', bg: 'rgba(100,100,100,0.15)', border: 'rgba(100,100,100,0.3)' }
+const DEFAULT_CATEGORY_STYLE = { icon: FileText, color: 'var(--action-grey)', bg: 'color-mix(in srgb, var(--action-grey) 15%, transparent)', border: 'color-mix(in srgb, var(--action-grey) 30%, transparent)' }
 
 const CATEGORY_ORDER = ['Agent Verification', 'Deal Verification', 'Firm Fund Documents']
 
@@ -480,12 +480,12 @@ function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
 }
 
 const ACTION_CONFIG: Record<string, { label: string; icon: any; bg: string; hoverBg: string }> = {
-  under_review: { label: 'Start Review', icon: RefreshCw, bg: '#3D5A99', hoverBg: '#2D4A89' },
-  approved:     { label: 'Approve Deal', icon: CheckCircle2, bg: '#1A7A2E', hoverBg: '#156A24' },
-  funded:       { label: 'Mark as Funded', icon: Banknote, bg: '#5B3D99', hoverBg: '#4B2D89' },
-  completed:    { label: 'Mark Complete', icon: CheckCircle2, bg: '#0D7A5F', hoverBg: '#0A6A4F' },
-  denied:       { label: 'Deny Deal', icon: XCircle, bg: '#993D3D', hoverBg: '#892D2D' },
-  cancelled:    { label: 'Cancel Deal', icon: XCircle, bg: '#666666', hoverBg: '#555555' },
+  under_review: { label: 'Start Review', icon: RefreshCw, bg: 'var(--action-blue)', hoverBg: 'var(--action-blue-hover)' },
+  approved:     { label: 'Approve Deal', icon: CheckCircle2, bg: 'var(--action-green)', hoverBg: 'var(--action-green-hover)' },
+  funded:       { label: 'Mark as Funded', icon: Banknote, bg: 'var(--action-purple)', hoverBg: 'var(--action-purple-hover)' },
+  completed:    { label: 'Mark Complete', icon: CheckCircle2, bg: 'var(--action-teal)', hoverBg: 'var(--action-teal-hover)' },
+  denied:       { label: 'Deny Deal', icon: XCircle, bg: 'var(--action-red)', hoverBg: 'var(--action-red-hover)' },
+  cancelled:    { label: 'Cancel Deal', icon: XCircle, bg: 'var(--action-grey)', hoverBg: 'var(--action-grey-hover)' },
 }
 
 const BACKWARD_LABELS: Record<string, string> = {
@@ -1036,7 +1036,7 @@ export default function DealDetailPage() {
   }
   const getDocTypeLabel = (type: string) => DOCUMENT_TYPES.find(d => d.value === type)?.label || type
 
-  const statusBadge = getStatusBadgeStyle
+  const statusBadgeClass = getStatusBadgeClass
 
   const checkedCount = checklist.filter(c => c.is_checked || c.is_na).length
   const totalChecklist = checklist.length
@@ -1114,7 +1114,7 @@ export default function DealDetailPage() {
       {/* FLAGGED AGENT WARNING BANNER */}
       {agent?.flagged_by_brokerage && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-[#1a0a0a] border-2 border-red-600 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
+          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-red-muted border-2 border-red-600 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-500" />
             <p className="font-bold text-sm text-red-500">
               AGENT FLAGGED BY BROKERAGE — {agent.first_name} {agent.last_name}. Review carefully.
@@ -1126,7 +1126,7 @@ export default function DealDetailPage() {
       {/* OUTSTANDING RECOVERY WARNING BANNER */}
       {agent && agent.outstanding_recovery && agent.outstanding_recovery > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
-          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-[#1a1400] border-2 border-amber-600 shadow-[0_0_15px_rgba(217,119,6,0.2)]">
+          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-amber-muted border-2 border-amber-600 shadow-[0_0_15px_rgba(217,119,6,0.2)]">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-500" />
             <p className="font-bold text-sm text-amber-500">
               OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })} — {agent.first_name} {agent.last_name}
@@ -1135,7 +1135,7 @@ export default function DealDetailPage() {
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* DEAL PIPELINE */}
         <div className="mb-3">
           <div className="flex justify-between mb-1">
@@ -1151,10 +1151,9 @@ export default function DealDetailPage() {
         <div className="sticky top-0 z-20 mb-4 rounded-lg px-3 py-2 bg-card border border-border/50 shadow-sm">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              {statusBadge(deal.status) && (
+              {statusBadgeClass(deal.status) && (
                 <div
-                  className="px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide"
-                  style={statusBadge(deal.status)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide ${statusBadgeClass(deal.status)}`}
                 >
                   {STATUS_LABELS[deal.status]}
                 </div>
@@ -1504,8 +1503,8 @@ export default function DealDetailPage() {
               return (deal.eft_transfers && deal.eft_transfers.length > 0) ? (
                 <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm"
                   style={{
-                    background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
-                    border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
+                    background: isMatch ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : isOver ? 'color-mix(in srgb, var(--status-red) 10%, transparent)' : 'color-mix(in srgb, var(--status-amber) 10%, transparent)',
+                    border: `1px solid ${isMatch ? 'var(--primary)' : isOver ? 'var(--status-red)' : 'var(--status-amber)'}`,
                   }}>
                   <div>
                     <span className="text-muted-foreground">EFT Total: </span>
@@ -1513,7 +1512,7 @@ export default function DealDetailPage() {
                     <span className="text-muted-foreground"> / Expected: </span>
                     <span className="font-bold text-foreground">{formatCurrency(expected)}</span>
                   </div>
-                  <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
+                  <span className="font-semibold" style={{ color: isMatch ? 'var(--primary)' : isOver ? 'var(--status-red)' : 'var(--status-amber)' }}>
                     {isMatch ? 'Matched' : isOver ? `Over by ${formatCurrency(eftTotal - expected)}` : `Remaining: ${formatCurrency(diff)}`}
                   </span>
                 </div>
@@ -1654,8 +1653,8 @@ export default function DealDetailPage() {
               return (deal.brokerage_payments && deal.brokerage_payments.length > 0) ? (
                 <div className="mb-4 p-3 rounded-lg flex items-center justify-between text-sm"
                   style={{
-                    background: isMatch ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.1)',
-                    border: `1px solid ${isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'}`,
+                    background: isMatch ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : isOver ? 'color-mix(in srgb, var(--status-red) 10%, transparent)' : 'color-mix(in srgb, var(--status-amber) 10%, transparent)',
+                    border: `1px solid ${isMatch ? 'var(--primary)' : isOver ? 'var(--status-red)' : 'var(--status-amber)'}`,
                   }}>
                   <div>
                     <span className="text-muted-foreground">Received: </span>
@@ -1663,7 +1662,7 @@ export default function DealDetailPage() {
                     <span className="text-muted-foreground"> / Expected: </span>
                     <span className="font-bold text-foreground">{formatCurrency(expected)}</span>
                   </div>
-                  <span className="font-semibold" style={{ color: isMatch ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A' }}>
+                  <span className="font-semibold" style={{ color: isMatch ? 'var(--primary)' : isOver ? 'var(--status-red)' : 'var(--status-amber)' }}>
                     {isMatch ? '✓ Ready to mark Complete' : isOver ? `Over by ${formatCurrency(payTotal - expected)}` : `Outstanding: ${formatCurrency(diff)}`}
                   </span>
                 </div>
@@ -1839,10 +1838,10 @@ export default function DealDetailPage() {
                 if (brokerageTotal <= 0) return null
                 const isFullyPaid = Math.abs(brokerageTotal - deal.amount_due_from_brokerage) < 0.01
                 const isOver = brokerageTotal > deal.amount_due_from_brokerage + 0.01
-                const statusColor = isFullyPaid ? '#5FA873' : isOver ? '#E07B7B' : '#D4A04A'
+                const statusColor = isFullyPaid ? 'var(--primary)' : isOver ? 'var(--status-red)' : 'var(--status-amber)'
                 return (
                   <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1"
-                    style={{ background: isFullyPaid ? 'rgba(95,168,115,0.1)' : isOver ? 'rgba(224,123,123,0.1)' : 'rgba(212,160,74,0.15)' }}>
+                    style={{ background: isFullyPaid ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : isOver ? 'color-mix(in srgb, var(--status-red) 10%, transparent)' : 'color-mix(in srgb, var(--status-amber) 15%, transparent)' }}>
                     <span className="font-semibold" style={{ color: statusColor }}>Brokerage Payments ({(deal.brokerage_payments || []).length})</span>
                     <span className="font-bold" style={{ color: statusColor }}>{formatCurrency(brokerageTotal)}</span>
                   </div>
@@ -1956,7 +1955,7 @@ export default function DealDetailPage() {
                             style={{
                               background: isDropTarget ? 'rgba(95,168,115,0.1)' : na ? 'rgba(100,100,100,0.05)' : checked ? 'rgba(95,168,115,0.05)' : 'transparent',
                               opacity: na ? 0.6 : 1,
-                              outline: isDropTarget ? '2px dashed #5FA873' : 'none',
+                              outline: isDropTarget ? '2px dashed var(--primary)' : 'none',
                               outlineOffset: '-2px',
                             }}
                             onMouseEnter={(e) => { if (!checked && !na && !isDropTarget) e.currentTarget.style.background = 'rgba(95,168,115,0.08)' }}
@@ -1996,8 +1995,8 @@ export default function DealDetailPage() {
                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity hover:opacity-80"
                                     style={{
                                       background: checked ? 'rgba(95,168,115,0.15)' : 'rgba(95,168,115,0.1)',
-                                      color: '#5FA873',
-                                      border: `1px solid ${checked ? '#5FA873' : 'rgba(95,168,115,0.25)'}`,
+                                      color: 'var(--primary)',
+                                      border: `1px solid ${checked ? 'var(--primary)' : 'color-mix(in srgb, var(--primary) 25%, transparent)'}`,
                                     }}
                                   >
                                     <Link2 className="w-3 h-3" />
@@ -2351,17 +2350,17 @@ export default function DealDetailPage() {
                         <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                           <div className="max-w-[80%] rounded-xl px-3 py-2"
                             style={{
-                              background: isOwn ? '#0F2A18' : isNew ? 'rgba(239, 68, 68, 0.08)' : 'hsl(var(--muted)/0.5)',
-                              border: `1px solid ${isOwn ? '#1E4A2C' : isNew ? 'rgba(239, 68, 68, 0.3)' : 'hsl(var(--border)/0.5)'}`,
+                              background: isOwn ? 'var(--status-green-muted)' : isNew ? 'rgba(239, 68, 68, 0.08)' : 'hsl(var(--muted)/0.5)',
+                              border: `1px solid ${isOwn ? 'var(--status-green-border)' : isNew ? 'rgba(239, 68, 68, 0.3)' : 'hsl(var(--border)/0.5)'}`,
                             }}>
                             <div className="flex items-center gap-2 mb-0.5">
-                              <span className="text-[10px] font-semibold" style={{ color: isOwn ? '#5FA873' : '#7B9FE0' }}>
+                              <span className="text-[10px] font-semibold" style={{ color: isOwn ? 'var(--status-green)' : 'var(--status-blue)' }}>
                                 {isOwn ? 'You' : (msg.sender_name || 'Agent')}
                               </span>
                               {isNew && (
                                 <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-red-600 text-white leading-none">New</span>
                               )}
-                              {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
+                              {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-status-blue-border text-status-blue">email</span>}
                               <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
                             </div>
                             <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>

@@ -143,14 +143,14 @@ export default function KycMobileUploadPage() {
   // ---- Loading ----
   if (status === 'loading') {
     return (
-      <div className="min-h-[100dvh] bg-[#121212] text-[#E8E4DF] flex flex-col">
-        <div className="px-6 py-5 border-b-2 border-primary bg-[#1C1C1C] text-center">
+      <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+        <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center p-10">
-            <div className="w-10 h-10 border-[3px] border-[#333] border-t-primary rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-[#888] text-[15px]">Verifying your link...</p>
+            <div className="w-10 h-10 border-[3px] border-white/15 border-t-primary rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-muted-foreground/70 text-[15px]">Verifying your link...</p>
           </div>
         </div>
       </div>
@@ -171,18 +171,18 @@ export default function KycMobileUploadPage() {
       expired: 'This link has expired. Please go back to your desktop and request a new link.',
     }
     const Icon = icons[status]
-    const iconColor = status === 'used' ? '#5FA873' : '#E07B7B'
+    const iconColor = status === 'used' ? 'var(--primary)' : 'var(--status-red)'
 
     return (
-      <div className="min-h-[100dvh] bg-[#121212] text-[#E8E4DF] flex flex-col">
-        <div className="px-6 py-5 border-b-2 border-primary bg-[#1C1C1C] text-center">
+      <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+        <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="bg-[#1C1C1C] rounded-2xl p-7 mx-4 border border-[#2A2A2A] text-center">
+          <div className="bg-card rounded-2xl p-7 mx-4 border border-border text-center">
             <Icon size={52} style={{ color: iconColor }} className="mx-auto mb-4" />
             <h2 className="text-white text-[22px] font-bold mb-3">{titles[status]}</h2>
-            <p className="text-[#AAA] text-[15px] leading-relaxed">{messages[status]}</p>
+            <p className="text-muted-foreground text-[15px] leading-relaxed">{messages[status]}</p>
           </div>
         </div>
       </div>
@@ -192,18 +192,18 @@ export default function KycMobileUploadPage() {
   // ---- Success ----
   if (status === 'success') {
     return (
-      <div className="min-h-[100dvh] bg-[#121212] text-[#E8E4DF] flex flex-col">
-        <div className="px-6 py-5 border-b-2 border-primary bg-[#1C1C1C] text-center">
+      <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+        <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="bg-[#1C1C1C] rounded-2xl p-7 mx-4 border border-[#2A2A2A] text-center">
+          <div className="bg-card rounded-2xl p-7 mx-4 border border-border text-center">
             <CheckCircle size={56} className="text-primary mx-auto mb-4" />
             <h2 className="text-white text-2xl font-bold mb-3">ID Uploaded Successfully</h2>
-            <p className="text-[#AAA] text-[15px] leading-[1.7] mb-2">
+            <p className="text-muted-foreground text-[15px] leading-[1.7] mb-2">
               Your government-issued photo ID has been submitted for review.
             </p>
-            <p className="text-[#888] text-sm">
+            <p className="text-muted-foreground/70 text-sm">
               You can close this page and go back to your desktop — your status will update automatically once we&apos;ve reviewed your ID.
             </p>
           </div>
@@ -215,15 +215,15 @@ export default function KycMobileUploadPage() {
   // ---- Uploading ----
   if (status === 'uploading') {
     return (
-      <div className="min-h-[100dvh] bg-[#121212] text-[#E8E4DF] flex flex-col">
-        <div className="px-6 py-5 border-b-2 border-primary bg-[#1C1C1C] text-center">
+      <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+        <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center p-10">
-            <div className="w-11 h-11 border-[3px] border-[#333] border-t-primary rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-[#E8E4DF] text-[17px] font-semibold">Uploading your ID...</p>
-            <p className="text-[#888] text-sm mt-1">Please don&apos;t close this page</p>
+            <div className="w-11 h-11 border-[3px] border-white/15 border-t-primary rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-foreground text-[17px] font-semibold">Uploading your ID...</p>
+            <p className="text-muted-foreground/70 text-sm mt-1">Please don&apos;t close this page</p>
           </div>
         </div>
       </div>
@@ -234,33 +234,33 @@ export default function KycMobileUploadPage() {
   const canSubmit = selectedFiles.length > 0 && !!documentType
 
   return (
-    <div className="min-h-[100dvh] bg-[#121212] text-[#E8E4DF] flex flex-col">
-      <div className="px-6 py-5 border-b-2 border-primary bg-[#1C1C1C] text-center">
+    <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+      <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
         <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
       </div>
 
       <div className="flex-1 pb-10">
-        <div className="bg-[#1C1C1C] rounded-2xl p-7 mx-4 mt-5 border border-[#2A2A2A]">
+        <div className="bg-card rounded-2xl p-7 mx-4 mt-5 border border-border">
           {/* Greeting */}
           <div className="text-center mb-6">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
               <Smartphone size={30} className="text-primary" />
             </div>
             <h2 className="text-white text-[22px] font-bold mb-2">Upload Your Photo ID</h2>
-            <p className="text-[#AAA] text-sm leading-relaxed">
+            <p className="text-muted-foreground text-sm leading-relaxed">
               Hi {agentName} — take a clear photo of your government-issued ID below.
             </p>
           </div>
 
           {/* Document type selection */}
           <div className="mb-[18px]">
-            <label className="block text-[#AAA] text-[13px] font-semibold mb-2 uppercase tracking-[0.5px]">
+            <label className="block text-muted-foreground text-[13px] font-semibold mb-2 uppercase tracking-[0.5px]">
               Type of ID
             </label>
             <select
               value={documentType}
               onChange={e => setDocumentType(e.target.value)}
-              className="bg-[#252525] border border-[#3A3A3A] text-[#E8E4DF] w-full px-4 py-[14px] rounded-[10px] text-base"
+              className="bg-secondary border border-white/10 text-foreground w-full px-4 py-[14px] rounded-[10px] text-base"
             >
               <option value="">Select ID type...</option>
               {KYC_DOCUMENT_TYPES.map(t => (
@@ -271,7 +271,7 @@ export default function KycMobileUploadPage() {
 
           {/* Camera / file upload */}
           <div className="mb-[18px]">
-            <label className="block text-[#AAA] text-[13px] font-semibold mb-2 uppercase tracking-[0.5px]">
+            <label className="block text-muted-foreground text-[13px] font-semibold mb-2 uppercase tracking-[0.5px]">
               Photo of your ID {selectedFiles.length > 0 && `(${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''})`}
             </label>
 
@@ -279,24 +279,24 @@ export default function KycMobileUploadPage() {
             {selectedFiles.map((file, i) => (
               <div key={i} className="mb-[10px] relative">
                 {previewUrls[i] ? (
-                  <div className="rounded-[10px] overflow-hidden border border-[#3A3A3A]">
+                  <div className="rounded-[10px] overflow-hidden border border-white/10">
                     <img src={previewUrls[i]} alt={`ID photo ${i + 1}`} className="w-full block" />
                   </div>
                 ) : (
-                  <div className="flex items-center gap-[10px] px-4 py-[14px] bg-[#252525] rounded-[10px] border border-[#3A3A3A]">
+                  <div className="flex items-center gap-[10px] px-4 py-[14px] bg-secondary rounded-[10px] border border-white/10">
                     <FileText size={20} className="text-primary" />
                     <span className="text-sm flex-1">{file.name}</span>
-                    <span className="text-xs text-[#888]">{(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="text-xs text-muted-foreground/70">{(file.size / 1024 / 1024).toFixed(1)} MB</span>
                   </div>
                 )}
                 <button
                   onClick={() => removeFile(i)}
-                  className="absolute top-2 right-2 bg-black/70 rounded-full w-7 h-7 flex items-center justify-center text-[#E07B7B] border-0 cursor-pointer"
+                  className="absolute top-2 right-2 bg-black/70 rounded-full w-7 h-7 flex items-center justify-center text-status-red border-0 cursor-pointer"
                   title="Remove"
                 >
                   <XCircle size={16} />
                 </button>
-                <div className="absolute top-2 left-2 bg-black/70 rounded-md px-2 py-[2px] text-[11px] text-[#AAA] font-semibold">
+                <div className="absolute top-2 left-2 bg-black/70 rounded-md px-2 py-[2px] text-[11px] text-muted-foreground font-semibold">
                   {i === 0 ? 'Front' : i === 1 ? 'Back' : `Photo ${i + 1}`}
                 </div>
               </div>
@@ -304,7 +304,7 @@ export default function KycMobileUploadPage() {
 
             {/* Camera and File buttons */}
             <div className="flex gap-[10px]">
-              <label className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-[#252525] border-2 border-dashed border-primary text-primary font-semibold text-center`}>
+              <label className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-secondary border-2 border-dashed border-primary text-primary font-semibold text-center`}>
                 <Camera size={selectedFiles.length > 0 ? 16 : 20} />
                 {selectedFiles.length > 0 ? 'Add Photo' : 'Take Photo'}
                 <input
@@ -315,7 +315,7 @@ export default function KycMobileUploadPage() {
                   onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
                 />
               </label>
-              <label className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-[#252525] border border-[#3A3A3A] text-[#AAA] font-semibold text-center`}>
+              <label className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-secondary border border-white/10 text-muted-foreground font-semibold text-center`}>
                 <Upload size={selectedFiles.length > 0 ? 16 : 20} />
                 {selectedFiles.length > 0 ? 'Add File' : 'Choose File'}
                 <input
@@ -335,9 +335,9 @@ export default function KycMobileUploadPage() {
 
           {/* Error */}
           {error && (
-            <div className="flex items-center gap-[10px] px-4 py-3 bg-[#2A1212] border border-[#4A2020] rounded-[10px] mb-[18px]">
-              <AlertCircle size={18} className="text-[#E07B7B] flex-shrink-0" />
-              <span className="text-[#E07B7B] text-sm">{error}</span>
+            <div className="flex items-center gap-[10px] px-4 py-3 bg-status-red-muted border border-status-red-border rounded-[10px] mb-[18px]">
+              <AlertCircle size={18} className="text-status-red flex-shrink-0" />
+              <span className="text-status-red text-sm">{error}</span>
             </div>
           )}
 
@@ -345,13 +345,13 @@ export default function KycMobileUploadPage() {
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className={`w-full py-4 px-6 rounded-xl border-none text-[17px] font-bold transition-colors ${canSubmit ? 'bg-primary text-white cursor-pointer' : 'bg-[#333] text-[#666] cursor-not-allowed'}`}
+            className={`w-full py-4 px-6 rounded-xl border-none text-[17px] font-bold transition-colors ${canSubmit ? 'bg-primary text-white cursor-pointer' : 'bg-white/15 text-muted-foreground/50 cursor-not-allowed'}`}
           >
             Submit for Verification
           </button>
 
           {/* Note */}
-          <p className="text-[#666] text-xs text-center mt-4 leading-relaxed">
+          <p className="text-muted-foreground/50 text-xs text-center mt-4 leading-relaxed">
             Your ID must be valid (not expired) and the name must match your Firm Funds account.
           </p>
         </div>

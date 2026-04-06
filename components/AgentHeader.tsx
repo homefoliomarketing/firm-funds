@@ -129,20 +129,25 @@ export default function AgentHeader({
   )
 
   return (
-    <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
+    <header className="bg-card/80 ff-header-blur border-b border-border/50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-5">
+        <div className="flex justify-between items-center py-4 sm:py-5">
           {/* Left side */}
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push('/agent')}>
+            <button
+              type="button"
+              onClick={() => router.push('/agent')}
+              className="flex items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
+              aria-label="Go to agent dashboard"
+            >
               {brokerageLogo ? (
                 <>
                   <img
                     src={brokerageLogo}
-                    alt={brokerageName || 'Brokerage'}
+                    alt={`${brokerageName || 'Brokerage'} logo`}
                     className="h-12 sm:h-16 md:h-20 w-auto object-contain"
                   />
-                  <div className="w-px h-8 bg-white/15" />
+                  <div className="w-px h-8 bg-white/15" aria-hidden="true" />
                   <img
                     src="/brand/white.png"
                     alt="Firm Funds"
@@ -156,7 +161,7 @@ export default function AgentHeader({
                   className="h-16 sm:h-20 md:h-28 w-auto"
                 />
               )}
-            </div>
+            </button>
             <div className="w-px h-10 bg-white/15" />
 
             {backHref ? (
@@ -213,7 +218,7 @@ export default function AgentHeader({
             <button
               onClick={() => router.push('/agent/messages')}
               className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden"
-              title="Messages & Notifications"
+              aria-label={totalNotifications > 0 ? `Messages — ${totalNotifications} unread` : 'Messages'}
             >
               <Bell size={18} />
               {totalNotifications > 0 && (
@@ -228,7 +233,7 @@ export default function AgentHeader({
               <button
                 onClick={() => router.push('/agent/messages')}
                 className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white hidden sm:block"
-                title="Messages & Notifications"
+                aria-label={totalNotifications > 0 ? `Messages — ${totalNotifications} unread` : 'Messages'}
               >
                 <Bell size={18} />
                 {totalNotifications > 0 && (

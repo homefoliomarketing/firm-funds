@@ -7,7 +7,7 @@ import {
   BarChart3, TrendingUp, DollarSign, Clock, ArrowLeft, Download, FileText,
   Building2, Percent, Calendar, Activity, ChevronDown, ChevronUp, ChevronRight,
 } from 'lucide-react'
-import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
@@ -58,7 +58,7 @@ function BarChartSVG({ data, dataKey, color, height = 200 }: {
             y1={chartHeight - chartHeight * pct}
             x2={Math.max(chartWidth, 300)}
             y2={chartHeight - chartHeight * pct}
-            stroke="#2a2a2a"
+            stroke="var(--border)"
             strokeDasharray="4 4"
           />
         ))}
@@ -82,7 +82,7 @@ function BarChartSVG({ data, dataKey, color, height = 200 }: {
                 y={height - 4}
                 textAnchor="middle"
                 fontSize="9"
-                fill="#6b7280"
+                fill="var(--muted-foreground)"
               >
                 {d.label.split(' ')[0]}
               </text>
@@ -132,7 +132,7 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
             y1={chartHeight - chartHeight * pct}
             x2={chartWidth}
             y2={chartHeight - chartHeight * pct}
-            stroke="#2a2a2a"
+            stroke="var(--border)"
             strokeDasharray="4 4"
           />
         ))}
@@ -156,7 +156,7 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
                 y={height - 4}
                 textAnchor="middle"
                 fontSize="9"
-                fill="#6b7280"
+                fill="var(--muted-foreground)"
               >
                 {d.label.split(' ')[0]}
               </text>
@@ -174,12 +174,12 @@ function LineChartSVG({ data, dataKey, color, height = 200 }: {
 
 function PipelineDonut({ pipeline }: { pipeline: ReportMetrics['pipeline'] }) {
   const segments = [
-    { key: 'under_review', value: pipeline.under_review, color: '#3D5A99' },
-    { key: 'approved', value: pipeline.approved, color: '#1A7A2E' },
-    { key: 'funded', value: pipeline.funded, color: '#5B3D99' },
-    { key: 'completed', value: pipeline.completed, color: '#0D7A5F' },
-    { key: 'denied', value: pipeline.denied, color: '#993D3D' },
-    { key: 'cancelled', value: pipeline.cancelled, color: '#995C1A' },
+    { key: 'under_review', value: pipeline.under_review, color: 'var(--action-blue)' },
+    { key: 'approved', value: pipeline.approved, color: 'var(--action-green)' },
+    { key: 'funded', value: pipeline.funded, color: 'var(--action-purple)' },
+    { key: 'completed', value: pipeline.completed, color: 'var(--action-teal)' },
+    { key: 'denied', value: pipeline.denied, color: 'var(--action-red)' },
+    { key: 'cancelled', value: pipeline.cancelled, color: 'var(--status-amber)' },
   ].filter(s => s.value > 0)
 
   const total = segments.reduce((s, seg) => s + seg.value, 0)
@@ -232,8 +232,8 @@ function PipelineDonut({ pipeline }: { pipeline: ReportMetrics['pipeline'] }) {
 
           return <path key={seg.key} d={path} fill={seg.color} />
         })}
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="22" fontWeight="bold" fill="#f9fafb">{total}</text>
-        <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill="#6b7280">DEALS</text>
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="22" fontWeight="bold" fill="var(--foreground)">{total}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill="var(--muted-foreground)">DEALS</text>
       </svg>
       <div className="flex flex-col gap-1.5">
         {segments.map(seg => (
@@ -479,9 +479,11 @@ export default function ReportsPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="sr-only">Reports</h1>
+
         {/* Title + Date Range */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <section aria-label="Report controls and metrics" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Reporting Dashboard</h2>
             <p className="text-sm mt-1 text-muted-foreground">Financial performance and pipeline analytics</p>
@@ -510,15 +512,16 @@ export default function ReportsPage() {
               {dateRange === 'custom' ? `${customStart} — ${customEnd}` : 'Custom'}
             </Button>
           </div>
-        </div>
+        </section>
 
         {/* Custom Date Picker */}
         {showCustomPicker && (
           <Card className="mb-6">
             <CardContent className="p-4 flex flex-wrap items-end gap-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Start Date</label>
+                <label htmlFor="report-date-start" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Start Date</label>
                 <input
+                  id="report-date-start"
                   type="date"
                   value={customStart}
                   onChange={(e) => setCustomStart(e.target.value)}
@@ -526,8 +529,9 @@ export default function ReportsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">End Date</label>
+                <label htmlFor="report-date-end" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">End Date</label>
                 <input
+                  id="report-date-end"
                   type="date"
                   value={customEnd}
                   onChange={(e) => setCustomEnd(e.target.value)}
@@ -548,10 +552,10 @@ export default function ReportsPage() {
         {/* KPI Cards Row 1 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
           {[
-            { label: 'Total Revenue', value: formatCurrency(metrics.totalRevenue), icon: DollarSign, accent: '#5FA873', sub: 'Discount fees earned' },
-            { label: 'Total Advanced', value: formatCurrency(metrics.totalAdvanced), icon: TrendingUp, accent: '#5FA873', sub: 'Capital deployed' },
-            { label: 'Net Profit', value: formatCurrency(metrics.totalProfit), icon: DollarSign, accent: '#1A7A2E', sub: 'After referral fees' },
-            { label: 'Referral Fees Paid', value: formatCurrency(metrics.totalReferralFeesPaid), icon: Building2, accent: '#5FA873', sub: 'To partner brokerages' },
+            { label: 'Total Revenue', value: formatCurrency(metrics.totalRevenue), icon: DollarSign, accent: 'var(--primary)', sub: 'Discount fees earned' },
+            { label: 'Total Advanced', value: formatCurrency(metrics.totalAdvanced), icon: TrendingUp, accent: 'var(--primary)', sub: 'Capital deployed' },
+            { label: 'Net Profit', value: formatCurrency(metrics.totalProfit), icon: DollarSign, accent: 'var(--action-green)', sub: 'After referral fees' },
+            { label: 'Referral Fees Paid', value: formatCurrency(metrics.totalReferralFeesPaid), icon: Building2, accent: 'var(--primary)', sub: 'To partner brokerages' },
           ].map((card) => (
             <Card key={card.label}>
               <CardContent className="p-6">
@@ -561,7 +565,7 @@ export default function ReportsPage() {
                     <p className="text-2xl font-black mt-2 text-foreground">{card.value}</p>
                     <p className="text-xs mt-1 text-muted-foreground/60">{card.sub}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: `${card.accent}12` }}>
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: `color-mix(in srgb, ${card.accent} 7%, transparent)` }}>
                     <card.icon size={20} style={{ color: card.accent }} />
                   </div>
                 </div>
@@ -573,15 +577,15 @@ export default function ReportsPage() {
         {/* KPI Cards Row 2 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           {[
-            { label: 'Total Deals', value: metrics.totalDeals.toString(), icon: FileText, accent: '#5FA873' },
-            { label: 'Avg Discount Fee', value: formatCurrencyFull(metrics.avgDiscountFee), icon: DollarSign, accent: '#5FA873' },
-            { label: 'Avg Days to Close', value: `${Math.round(metrics.avgDaysToClose)} days`, icon: Clock, accent: '#5FA873' },
-            { label: 'Conversion Rate', value: `${metrics.conversionRate.toFixed(1)}%`, icon: Percent, accent: '#5FA873' },
+            { label: 'Total Deals', value: metrics.totalDeals.toString(), icon: FileText, accent: 'var(--primary)' },
+            { label: 'Avg Discount Fee', value: formatCurrencyFull(metrics.avgDiscountFee), icon: DollarSign, accent: 'var(--primary)' },
+            { label: 'Avg Days to Close', value: `${Math.round(metrics.avgDaysToClose)} days`, icon: Clock, accent: 'var(--primary)' },
+            { label: 'Conversion Rate', value: `${metrics.conversionRate.toFixed(1)}%`, icon: Percent, accent: 'var(--primary)' },
           ].map((card) => (
             <Card key={card.label}>
               <CardContent className="p-5">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${card.accent}12` }}>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `color-mix(in srgb, ${card.accent} 7%, transparent)` }}>
                     <card.icon size={16} style={{ color: card.accent }} />
                   </div>
                   <div>
@@ -603,7 +607,7 @@ export default function ReportsPage() {
                 <h3 className="text-sm font-bold text-foreground">Monthly Revenue</h3>
               </div>
               {metrics.monthlyTrends.some(m => m.revenue > 0) ? (
-                <LineChartSVG data={metrics.monthlyTrends} dataKey="revenue" color="#5FA873" height={220} />
+                <LineChartSVG data={metrics.monthlyTrends} dataKey="revenue" color="var(--primary)" height={220} />
               ) : (
                 <div className="flex items-center justify-center h-48">
                   <p className="text-sm text-muted-foreground">No revenue data yet</p>
@@ -615,11 +619,11 @@ export default function ReportsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-2 mb-4">
-                <BarChart3 size={16} style={{ color: '#5B3D99' }} />
+                <BarChart3 size={16} style={{ color: 'var(--action-purple)' }} />
                 <h3 className="text-sm font-bold text-foreground">Deal Volume by Month</h3>
               </div>
               {metrics.monthlyTrends.some(m => m.deals > 0) ? (
-                <BarChartSVG data={metrics.monthlyTrends} dataKey="deals" color="#5B3D99" height={220} />
+                <BarChartSVG data={metrics.monthlyTrends} dataKey="deals" color="var(--action-purple)" height={220} />
               ) : (
                 <div className="flex items-center justify-center h-48">
                   <p className="text-sm text-muted-foreground">No deal data yet</p>
@@ -634,7 +638,7 @@ export default function ReportsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-2 mb-4">
-                <Activity size={16} style={{ color: '#3D5A99' }} />
+                <Activity size={16} style={{ color: 'var(--action-blue)' }} />
                 <h3 className="text-sm font-bold text-foreground">Pipeline Breakdown</h3>
               </div>
               <PipelineDonut pipeline={metrics.pipeline} />
@@ -644,11 +648,11 @@ export default function ReportsPage() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-2 mb-4">
-                <DollarSign size={16} style={{ color: '#1A7A2E' }} />
+                <DollarSign size={16} style={{ color: 'var(--action-green)' }} />
                 <h3 className="text-sm font-bold text-foreground">Monthly Profit</h3>
               </div>
               {metrics.monthlyTrends.some(m => m.profit > 0) ? (
-                <BarChartSVG data={metrics.monthlyTrends} dataKey="profit" color="#1A7A2E" height={220} />
+                <BarChartSVG data={metrics.monthlyTrends} dataKey="profit" color="var(--action-green)" height={220} />
               ) : (
                 <div className="flex items-center justify-center h-48">
                   <p className="text-sm text-muted-foreground">No profit data yet</p>
@@ -754,8 +758,7 @@ export default function ReportsPage() {
                     <div className="flex items-center gap-3">
                       <h3 className="text-xl font-bold text-foreground">{selectedBrokerage.name}</h3>
                       <span
-                        className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md"
-                        style={getStatusBadgeStyle(selectedBrokerage.status)}
+                        className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(selectedBrokerage.status)}`}
                       >
                         {formatStatusLabel(selectedBrokerage.status)}
                       </span>
@@ -775,10 +778,10 @@ export default function ReportsPage() {
                 <div className="px-6 py-5">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     {[
-                      { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: '#5FA873' },
-                      { label: 'Funded', value: selectedBrokerage.fundedDeals.toString(), accent: '#1A7A2E' },
-                      { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: '#5FA873' },
-                      { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: '#5FA873' },
+                      { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: 'var(--primary)' },
+                      { label: 'Funded', value: selectedBrokerage.fundedDeals.toString(), accent: 'var(--action-green)' },
+                      { label: 'Total Advanced', value: formatCurrency(selectedBrokerage.totalAdvanced), accent: 'var(--primary)' },
+                      { label: 'Referral Fees', value: formatCurrency(selectedBrokerage.totalReferralFees), accent: 'var(--primary)' },
                     ].map(card => (
                       <div key={card.label} className="rounded-lg p-4 bg-background border border-border/50">
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{card.label}</p>
@@ -809,8 +812,7 @@ export default function ReportsPage() {
                         {Object.entries(selectedBrokerage.pipeline).map(([status, count]) => (
                           <span
                             key={status}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold"
-                            style={getStatusBadgeStyle(status)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold ${getStatusBadgeClass(status)}`}
                           >
                             {formatStatusLabel(status)}: {count}
                           </span>
@@ -872,7 +874,7 @@ export default function ReportsPage() {
                               >
                                 <td className="px-4 py-3 text-sm font-medium text-foreground">{deal.property_address}</td>
                                 <td className="px-4 py-3">
-                                  <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md" style={getStatusBadgeStyle(deal.status)}>
+                                  <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}>
                                     {formatStatusLabel(deal.status)}
                                   </span>
                                 </td>

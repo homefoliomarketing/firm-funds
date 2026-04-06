@@ -8,7 +8,7 @@ import {
   AlertCircle, CheckCheck, X,
 } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatting'
-import { getStatusBadgeStyle, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -214,7 +214,9 @@ export default function AdminMessagesPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-14 sm:h-18 md:h-24 w-auto cursor-pointer" onClick={() => router.push('/admin')} />
+              <button onClick={() => router.push('/admin')} aria-label="Go to admin dashboard">
+                <img src="/brand/white.png" alt="Firm Funds" className="h-14 sm:h-18 md:h-24 w-auto cursor-pointer" />
+              </button>
               <div className="w-px h-8 bg-white/15" />
               <button
                 onClick={() => router.push('/admin')}
@@ -238,7 +240,7 @@ export default function AdminMessagesPage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden max-w-7xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
+      <main id="main-content" className="flex-1 overflow-hidden max-w-7xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
         {inbox.length === 0 ? (
           <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full bg-card border border-border/50">
             <Inbox className="mx-auto mb-4 text-muted-foreground/40" size={48} />
@@ -250,7 +252,8 @@ export default function AdminMessagesPage() {
 
             {/* LEFT PANEL */}
             {showList && (
-              <div
+              <section
+                aria-label="Inbox"
                 className="flex flex-col border-r border-border/50"
                 style={{ width: isMobile ? '100%' : '380px', minWidth: isMobile ? '100%' : '300px' }}
               >
@@ -332,7 +335,7 @@ export default function AdminMessagesPage() {
                               </div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-xs text-primary">{item.agent_name}</span>
-                                <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                                <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(item.deal_status)}`}>
                                   {formatStatusLabel(item.deal_status)}
                                 </span>
                               </div>
@@ -372,12 +375,12 @@ export default function AdminMessagesPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </section>
             )}
 
             {/* RIGHT PANEL */}
             {showThread && (
-              <div className="flex-1 flex flex-col min-w-0">
+              <section aria-label="Message thread" className="flex-1 flex flex-col min-w-0">
                 {!selectedDealId ? (
                   <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
@@ -400,7 +403,7 @@ export default function AdminMessagesPage() {
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-xs text-primary">{selectedDeal?.agent_name}</span>
                           {selectedDeal && (
-                            <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(selectedDeal.deal_status)}>
+                            <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(selectedDeal.deal_status)}`}>
                               {formatStatusLabel(selectedDeal.deal_status)}
                             </span>
                           )}
@@ -428,7 +431,7 @@ export default function AdminMessagesPage() {
                     />
                   </>
                 )}
-              </div>
+              </section>
             )}
           </div>
         )}

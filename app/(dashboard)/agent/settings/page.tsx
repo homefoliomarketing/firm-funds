@@ -178,7 +178,9 @@ export default function AgentSettingsPage() {
         brokerageName={agent?.brokerages?.name}
       />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <h1 className="sr-only">Agent Settings</h1>
+
         {/* Status message */}
         {message && (
           <div className={`flex items-center gap-2 px-4 py-3 rounded-lg mb-4 text-sm font-medium border ${

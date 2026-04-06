@@ -78,6 +78,58 @@
   --warning-foreground: #1A1408;
   --info: #60A5FA;
   --info-foreground: #0A1428;
+
+  /* ---- Status / role color palette ---- */
+  /* Blue (under_review, agent messages) */
+  --status-blue: #7B9FE0;
+  --status-blue-muted: #1A2240;
+  --status-blue-border: #2D3A5C;
+
+  /* Green (approved, admin messages) */
+  --status-green: #5FA873;
+  --status-green-muted: #0F2A18;
+  --status-green-border: #1E4A2C;
+
+  /* Purple (funded, brokerage messages) */
+  --status-purple: #A385D0;
+  --status-purple-muted: #1F1535;
+  --status-purple-border: #352A50;
+
+  /* Teal (completed) */
+  --status-teal: #5FB8A0;
+  --status-teal-muted: #0F2A24;
+  --status-teal-border: #1E4A3C;
+
+  /* Red (denied, rejected) */
+  --status-red: #E07B7B;
+  --status-red-muted: #2A1212;
+  --status-red-border: #4A2020;
+
+  /* Amber (cancelled, pending) */
+  --status-amber: #D4A04A;
+  --status-amber-muted: #2A1F0F;
+  --status-amber-border: #4A3820;
+
+  /* ---- Action button colors (saturated, for CTAs) ---- */
+  --action-green: #1A7A2E;
+  --action-green-hover: #156A24;
+  --action-green-border: #25A03C;
+  --action-red: #993D3D;
+  --action-red-hover: #892D2D;
+  --action-red-border: #B84A4A;
+  --action-blue: #3D5A99;
+  --action-blue-hover: #2D4A89;
+  --action-purple: #5B3D99;
+  --action-purple-hover: #4B2D89;
+  --action-teal: #0D7A5F;
+  --action-teal-hover: #0A6A4F;
+  --action-grey: #666666;
+  --action-grey-hover: #555555;
+
+  /* ---- Checklist category accents ---- */
+  --checklist-purple: #C4A5F5;
+  --checklist-blue: #7EB3F5;
+  --checklist-amber: #E8C96A;
 }
 
 /* Dark variant (same as root — app is always dark) */
@@ -114,6 +166,41 @@
   --sidebar-accent-foreground: #EAEAEF;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-ring: #5FA873;
+  --status-blue: #7B9FE0;
+  --status-blue-muted: #1A2240;
+  --status-blue-border: #2D3A5C;
+  --status-green: #5FA873;
+  --status-green-muted: #0F2A18;
+  --status-green-border: #1E4A2C;
+  --status-purple: #A385D0;
+  --status-purple-muted: #1F1535;
+  --status-purple-border: #352A50;
+  --status-teal: #5FB8A0;
+  --status-teal-muted: #0F2A24;
+  --status-teal-border: #1E4A3C;
+  --status-red: #E07B7B;
+  --status-red-muted: #2A1212;
+  --status-red-border: #4A2020;
+  --status-amber: #D4A04A;
+  --status-amber-muted: #2A1F0F;
+  --status-amber-border: #4A3820;
+  --action-green: #1A7A2E;
+  --action-green-hover: #156A24;
+  --action-green-border: #25A03C;
+  --action-red: #993D3D;
+  --action-red-hover: #892D2D;
+  --action-red-border: #B84A4A;
+  --action-blue: #3D5A99;
+  --action-blue-hover: #2D4A89;
+  --action-purple: #5B3D99;
+  --action-purple-hover: #4B2D89;
+  --action-teal: #0D7A5F;
+  --action-teal-hover: #0A6A4F;
+  --action-grey: #666666;
+  --action-grey-hover: #555555;
+  --checklist-purple: #C4A5F5;
+  --checklist-blue: #7EB3F5;
+  --checklist-amber: #E8C96A;
 }
 
 @theme inline {
@@ -174,6 +261,47 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
 
+  /* Status / role color tokens */
+  --color-status-blue: var(--status-blue);
+  --color-status-blue-muted: var(--status-blue-muted);
+  --color-status-blue-border: var(--status-blue-border);
+  --color-status-green: var(--status-green);
+  --color-status-green-muted: var(--status-green-muted);
+  --color-status-green-border: var(--status-green-border);
+  --color-status-purple: var(--status-purple);
+  --color-status-purple-muted: var(--status-purple-muted);
+  --color-status-purple-border: var(--status-purple-border);
+  --color-status-teal: var(--status-teal);
+  --color-status-teal-muted: var(--status-teal-muted);
+  --color-status-teal-border: var(--status-teal-border);
+  --color-status-red: var(--status-red);
+  --color-status-red-muted: var(--status-red-muted);
+  --color-status-red-border: var(--status-red-border);
+  --color-status-amber: var(--status-amber);
+  --color-status-amber-muted: var(--status-amber-muted);
+  --color-status-amber-border: var(--status-amber-border);
+
+  /* Action button tokens */
+  --color-action-green: var(--action-green);
+  --color-action-green-hover: var(--action-green-hover);
+  --color-action-green-border: var(--action-green-border);
+  --color-action-red: var(--action-red);
+  --color-action-red-hover: var(--action-red-hover);
+  --color-action-red-border: var(--action-red-border);
+  --color-action-blue: var(--action-blue);
+  --color-action-blue-hover: var(--action-blue-hover);
+  --color-action-purple: var(--action-purple);
+  --color-action-purple-hover: var(--action-purple-hover);
+  --color-action-teal: var(--action-teal);
+  --color-action-teal-hover: var(--action-teal-hover);
+  --color-action-grey: var(--action-grey);
+  --color-action-grey-hover: var(--action-grey-hover);
+
+  /* Checklist accent tokens */
+  --color-checklist-purple: var(--checklist-purple);
+  --color-checklist-blue: var(--checklist-blue);
+  --color-checklist-amber: var(--checklist-amber);
+
   /* Radii */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -207,15 +335,45 @@
 
 /* ---- Firm Funds utility classes ---- */
 .ff-gradient-charcoal {
-  background: linear-gradient(135deg, #0B0B0F 0%, #141418 50%, #1E1E24 100%);
+  background: linear-gradient(135deg, var(--background) 0%, var(--card) 50%, var(--secondary) 100%);
 }
 
 .ff-gradient-sand {
-  background: linear-gradient(135deg, #3D7A4F 0%, #5FA873 50%, #7BC48D 100%);
+  background: linear-gradient(135deg, var(--ff-sand-dark) 0%, var(--primary) 50%, var(--ff-sand-light) 100%);
 }
 
 .ff-text-shadow {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ---- Premium fintech refinements ---- */
+
+/* Consistent card elevation system */
+.ff-card-elevated {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Subtle inner glow for focused cards */
+.ff-card-glow {
+  box-shadow: 0 0 0 1px rgba(95, 168, 115, 0.05), 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Sticky header backdrop refinement */
+.ff-header-blur {
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(95, 168, 115, 0.25);
+  color: var(--foreground);
+}
+
+/* Focus ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* ---- Scrollbar styling (premium touch) ---- */

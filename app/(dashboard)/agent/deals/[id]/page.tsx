@@ -14,7 +14,7 @@ import {
   MAX_UPLOAD_SIZE_BYTES,
   ALLOWED_UPLOAD_EXTENSIONS,
   DOCUMENT_TYPES as DOC_TYPES,
-  getStatusBadgeStyle,
+  getStatusBadgeClass,
   formatStatusLabel,
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
@@ -301,7 +301,7 @@ export default function AgentDealDetailPage() {
     }
   }
 
-  const statusBadge = getStatusBadgeStyle
+  const statusBadgeClass = getStatusBadgeClass
 
   if (loading) return (
     <div className="min-h-screen bg-background">
@@ -363,8 +363,7 @@ export default function AgentDealDetailPage() {
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <span
-                className="inline-flex px-2.5 py-1 text-xs sm:text-sm font-semibold rounded-lg"
-                style={statusBadge(deal.status)}
+                className={`inline-flex px-2.5 py-1 text-xs sm:text-sm font-semibold rounded-lg ${statusBadgeClass(deal.status)}`}
               >
                 {formatStatusLabel(deal.status)}
               </span>
@@ -378,7 +377,7 @@ export default function AgentDealDetailPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Status Message */}
         {statusMessage && (
           <div className={`mb-6 p-4 rounded-xl text-sm font-medium border ${
@@ -437,8 +436,8 @@ export default function AgentDealDetailPage() {
                 const isActive = status === deal.status
                 const isPast = ['under_review', 'approved', 'funded', 'completed'].indexOf(deal.status) > index
                 const isDenied = deal.status === 'denied'
-                const barColor = isDenied ? '#F0C5C5' : isActive ? '#5FA873' : isPast ? '#1A7A2E' : 'hsl(var(--muted))'
-                const labelColor = isDenied ? '#993D3D' : isActive ? '#5FA873' : isPast ? '#1A7A2E' : 'hsl(var(--muted-foreground))'
+                const barColor = isDenied ? 'var(--status-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'hsl(var(--muted))'
+                const labelColor = isDenied ? 'var(--action-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'hsl(var(--muted-foreground))'
                 return (
                   <div key={status} className="flex-1">
                     <div className="h-2 rounded-full" style={{ background: barColor }} />
@@ -694,17 +693,17 @@ export default function AgentDealDetailPage() {
               <CardContent className="p-4">
                 {(() => {
                   const events: { label: string; date: string | null; color: string; active: boolean }[] = [
-                    { label: 'Submitted', date: deal.created_at, color: '#5FA873', active: true },
-                    { label: 'Under Review', date: ['under_review', 'approved', 'funded', 'completed'].includes(deal.status) ? deal.created_at : null, color: '#7B9FE0', active: deal.status === 'under_review' },
-                    { label: 'Approved', date: ['approved', 'funded', 'completed'].includes(deal.status) ? (deal.funding_date || deal.created_at) : null, color: '#5FA873', active: deal.status === 'approved' },
-                    { label: 'Funded', date: deal.funding_date, color: '#A385D0', active: deal.status === 'funded' },
-                    { label: 'Completed', date: deal.repayment_date, color: '#5FB8A0', active: deal.status === 'completed' },
+                    { label: 'Submitted', date: deal.created_at, color: 'var(--status-green)', active: true },
+                    { label: 'Under Review', date: ['under_review', 'approved', 'funded', 'completed'].includes(deal.status) ? deal.created_at : null, color: 'var(--status-blue)', active: deal.status === 'under_review' },
+                    { label: 'Approved', date: ['approved', 'funded', 'completed'].includes(deal.status) ? (deal.funding_date || deal.created_at) : null, color: 'var(--status-green)', active: deal.status === 'approved' },
+                    { label: 'Funded', date: deal.funding_date, color: 'var(--status-purple)', active: deal.status === 'funded' },
+                    { label: 'Completed', date: deal.repayment_date, color: 'var(--status-teal)', active: deal.status === 'completed' },
                   ]
                   if (deal.status === 'denied') {
-                    events.push({ label: 'Denied', date: deal.updated_at, color: '#EF4444', active: true })
+                    events.push({ label: 'Denied', date: deal.updated_at, color: 'var(--destructive)', active: true })
                   }
                   if (deal.status === 'cancelled') {
-                    events.push({ label: 'Cancelled', date: deal.updated_at, color: '#F59E0B', active: true })
+                    events.push({ label: 'Cancelled', date: deal.updated_at, color: 'var(--warning)', active: true })
                   }
 
                   return (
@@ -726,7 +725,7 @@ export default function AgentDealDetailPage() {
                               border: isCompleted ? 'none' : '2px solid hsl(var(--border))',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                             }}>
-                              {isCompleted && <CheckCircle2 size={16} style={{ color: '#FFF' }} />}
+                              {isCompleted && <CheckCircle2 size={16} className="text-white" />}
                             </div>
                             <div className="pb-4">
                               <p className={`text-sm ${event.active ? 'font-bold' : 'font-medium'} ${isCompleted ? 'text-foreground' : 'text-muted-foreground/50'}`}>
@@ -752,18 +751,18 @@ export default function AgentDealDetailPage() {
 
             {/* RETURNED DOCUMENTS ALERT */}
             {docReturns.length > 0 && (
-              <div id="returned-docs" className="rounded-xl p-4 bg-[#2A1212] border border-[#4A2020]">
-                <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-[#F87171]">
+              <div id="returned-docs" className="rounded-xl p-4 bg-status-red-muted border border-status-red-border">
+                <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-destructive">
                   Action Required — Returned Documents
                 </h4>
                 <div className="space-y-2">
                   {docReturns.map(ret => {
                     const doc = documents.find(d => d.id === ret.document_id)
                     return (
-                      <div key={ret.id} className="px-3 py-2 rounded bg-[#1A0F0F] border border-[#3A1515]">
-                        <p className="text-xs font-semibold text-[#E07B7B]">{doc?.file_name || 'Document'}</p>
-                        <p className="text-xs mt-1 text-[#CC9999]">Reason: {ret.reason}</p>
-                        <p className="text-xs mt-1 text-[#806060]">Please upload a corrected version below.</p>
+                      <div key={ret.id} className="px-3 py-2 rounded bg-status-red-muted border border-status-red-border">
+                        <p className="text-xs font-semibold text-status-red">{doc?.file_name || 'Document'}</p>
+                        <p className="text-xs mt-1 text-muted-foreground">Reason: {ret.reason}</p>
+                        <p className="text-xs mt-1 text-muted-foreground/60">Please upload a corrected version below.</p>
                       </div>
                     )
                   })}
@@ -781,11 +780,11 @@ export default function AgentDealDetailPage() {
                     return (
                     <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                       <div className="max-w-[80%] rounded-xl px-3 py-2" style={{
-                        background: isOwn ? 'hsl(var(--card))' : '#0F2A18',
-                        border: `1px solid ${isOwn ? 'hsl(var(--border))' : '#1E4A2C'}`,
+                        background: isOwn ? 'hsl(var(--card))' : 'var(--status-green-muted)',
+                        border: `1px solid ${isOwn ? 'hsl(var(--border))' : 'var(--status-green-border)'}`,
                       }}>
                         <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-[10px] font-semibold" style={{ color: isOwn ? '#7B9FE0' : '#5FA873' }}>
+                          <span className="text-[10px] font-semibold" style={{ color: isOwn ? 'var(--status-blue)' : 'var(--status-green)' }}>
                             {isOwn ? 'You' : 'Firm Funds Agent'}
                           </span>
                           <span className="text-[10px] text-muted-foreground/60">
@@ -825,10 +824,10 @@ export default function AgentDealDetailPage() {
             {/* What Happens Next */}
             {(() => {
               const tips: Record<string, { title: string; message: string; color: string; bg: string; border: string }> = {
-                under_review: { title: 'Under Review', message: 'Our team is reviewing your deal. Upload all required documents to speed up the process.', color: '#7B9FE0', bg: '#0F1A2A', border: '#1E2E4A' },
-                approved: { title: 'Approved!', message: 'Your advance has been approved. Funding will be processed shortly — typically within 24 hours.', color: '#5FA873', bg: '#0F2A18', border: '#1E4A2C' },
-                funded: { title: 'Funded', message: 'Your advance has been sent! The amount will be recovered from the proceeds at closing.', color: '#A385D0', bg: '#1F1535', border: '#352A50' },
-                completed: { title: 'Completed', message: 'This advance is complete. The amount has been recovered from the closing proceeds. No further action needed.', color: '#5FB8A0', bg: '#0F2A24', border: '#1E4A3C' },
+                under_review: { title: 'Under Review', message: 'Our team is reviewing your deal. Upload all required documents to speed up the process.', color: 'var(--status-blue)', bg: 'var(--status-blue-muted)', border: 'var(--status-blue-border)' },
+                approved: { title: 'Approved!', message: 'Your advance has been approved. Funding will be processed shortly — typically within 24 hours.', color: 'var(--status-green)', bg: 'var(--status-green-muted)', border: 'var(--status-green-border)' },
+                funded: { title: 'Funded', message: 'Your advance has been sent! The amount will be recovered from the proceeds at closing.', color: 'var(--status-purple)', bg: 'var(--status-purple-muted)', border: 'var(--status-purple-border)' },
+                completed: { title: 'Completed', message: 'This advance is complete. The amount has been recovered from the closing proceeds. No further action needed.', color: 'var(--status-teal)', bg: 'var(--status-teal-muted)', border: 'var(--status-teal-border)' },
               }
               const tip = tips[deal.status]
               if (!tip) return null

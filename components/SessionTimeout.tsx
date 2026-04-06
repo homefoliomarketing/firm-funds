@@ -177,15 +177,20 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
   if (!showWarning) return null
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4">
-      <div className="bg-card border border-yellow-600/40 rounded-2xl p-8 max-w-[420px] w-full text-center shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4" role="presentation">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-timeout-title"
+        className="bg-card border border-yellow-600/40 rounded-2xl p-8 max-w-[420px] w-full text-center shadow-2xl"
+      >
         {/* Icon */}
-        <div className="w-14 h-14 rounded-full bg-yellow-500/10 border border-yellow-600/30 flex items-center justify-center mx-auto mb-5">
+        <div className="w-14 h-14 rounded-full bg-yellow-500/10 border border-yellow-600/30 flex items-center justify-center mx-auto mb-5" aria-hidden="true">
           <ShieldAlert size={28} className="text-yellow-500" />
         </div>
 
         {/* Title */}
-        <h2 className="text-foreground text-lg font-bold mb-2">
+        <h2 id="session-timeout-title" className="text-foreground text-lg font-bold mb-2">
           Session Expiring
         </h2>
 
@@ -195,9 +200,9 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
         </p>
 
         {/* Countdown */}
-        <div className="bg-yellow-500/10 border border-yellow-600/30 rounded-xl px-4 py-3 mb-6 flex items-center justify-center gap-2">
-          <Clock size={18} className="text-yellow-500" />
-          <span className="text-yellow-500 font-bold text-xl tabular-nums">
+        <div className="bg-yellow-500/10 border border-yellow-600/30 rounded-xl px-4 py-3 mb-6 flex items-center justify-center gap-2" role="status" aria-live="polite">
+          <Clock size={18} className="text-yellow-500" aria-hidden="true" />
+          <span className="text-yellow-500 font-bold text-xl tabular-nums" aria-label={`${formatTime(countdown)} remaining`}>
             {formatTime(countdown)}
           </span>
         </div>

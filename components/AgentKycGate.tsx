@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
 import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
 import { createClient } from '@/lib/supabase/client'
-import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeStyle } from '@/lib/constants'
+import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeClass } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -188,8 +188,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             You&apos;ll be able to submit deals once your identity is verified.
           </p>
           <div
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-            style={getKycBadgeStyle('submitted')}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${getKycBadgeClass('submitted')}`}
           >
             <Clock size={14} /> Submitted — Awaiting Review
           </div>

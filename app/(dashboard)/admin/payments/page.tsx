@@ -220,9 +220,11 @@ export default function AdminPaymentsPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="sr-only">Payments</h1>
+
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        <section aria-label="Payment summary" className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -267,7 +269,7 @@ export default function AdminPaymentsPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
+        </section>
 
         {/* Search & Filter */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -357,7 +359,7 @@ export default function AdminPaymentsPage() {
                           className="h-full rounded-full transition-all duration-300"
                           style={{
                             width: `${paidPct}%`,
-                            background: isFullyPaid ? '#4ade80' : paidPct > 0 ? '#facc15' : '#4b5563',
+                            background: isFullyPaid ? 'var(--success)' : paidPct > 0 ? 'var(--warning)' : 'var(--muted-foreground)',
                           }}
                         />
                       </div>

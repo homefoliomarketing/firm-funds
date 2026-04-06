@@ -8,7 +8,7 @@ import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportA
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
-import { getStatusBadgeStyle as getSharedStatusBadgeStyle, formatStatusLabel, getKycBadgeStyle, RECO_PUBLIC_REGISTER_URL } from '@/lib/constants'
+import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -890,7 +890,7 @@ export default function BrokeragesPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Status Message */}
         {statusMessage && (
           <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 animate-in fade-in border ${
@@ -1095,15 +1095,13 @@ export default function BrokeragesPage() {
                         {brokerage.status.charAt(0).toUpperCase() + brokerage.status.slice(1)}
                       </span>
                       {(brokerage as any).kyc_verified ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded"
-                          style={getKycBadgeStyle('verified')}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ${getKycBadgeClass('verified')}`}
                           title={`KYC verified${(brokerage as any).kyc_verified_at ? ' on ' + new Date((brokerage as any).kyc_verified_at).toLocaleDateString('en-CA') : ''}`}
                         >
                           <Shield size={11} /> KYC
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded"
-                          style={getKycBadgeStyle('pending')}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ${getKycBadgeClass('pending')}`}
                           title="KYC not verified"
                         >
                           <Shield size={11} /> No KYC
@@ -1227,8 +1225,7 @@ export default function BrokeragesPage() {
                             FINTRAC — RECO Verification
                           </h4>
                           {(brokerage as any).kyc_verified && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2"
-                              style={getKycBadgeStyle('verified')}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getKycBadgeClass('verified')}`}>
                               <CheckCircle size={11} /> Verified
                             </span>
                           )}
@@ -1289,7 +1286,7 @@ export default function BrokeragesPage() {
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-opacity hover:opacity-85"
-                              style={{ background: '#1A2240', color: '#7B9FE0', border: '1px solid #2D3A5C' }}
+                              style={{ background: 'var(--status-blue-muted)', color: 'var(--status-blue)', border: '1px solid var(--status-blue-border)' }}
                             >
                               <ExternalLink size={12} /> Open RECO Public Register
                             </a>
@@ -1835,11 +1832,10 @@ export default function BrokeragesPage() {
                                         <td className="px-4 py-3">
                                           {(() => {
                                             const kycStatus = agent.kyc_status || 'pending'
-                                            const kycBadge = getKycBadgeStyle(kycStatus)
+                                            const kycBadgeClass = getKycBadgeClass(kycStatus)
                                             return (
                                               <div className="flex flex-col gap-1">
-                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded w-fit"
-                                                  style={kycBadge}
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded w-fit ${kycBadgeClass}`}
                                                 >
                                                   <Shield size={10} />
                                                   {kycStatus === 'pending' ? 'Pending' : kycStatus === 'submitted' ? 'Submitted' : kycStatus === 'verified' ? 'Verified' : 'Rejected'}
@@ -1884,7 +1880,7 @@ export default function BrokeragesPage() {
                                                       }}
                                                       disabled={kycPreviewLoading === agent.id}
                                                       className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all disabled:opacity-50 hover:opacity-90"
-                                                      style={{ color: '#7B9FE0', background: '#1A2240', border: '1px solid #2D3A5C' }}
+                                                      style={{ color: 'var(--status-blue)', background: 'var(--status-blue-muted)', border: '1px solid var(--status-blue-border)' }}
                                                     >
                                                       <Eye size={13} />
                                                       {kycPreviewLoading === agent.id ? 'Loading...' : 'View ID'}
@@ -1907,7 +1903,7 @@ export default function BrokeragesPage() {
                                                         }}
                                                         disabled={kycSubmitting}
                                                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all disabled:opacity-50 text-white hover:opacity-90"
-                                                        style={{ background: '#1A7A2E', border: '1px solid #25A03C' }}
+                                                        style={{ background: 'var(--action-green)', border: '1px solid var(--action-green-border)' }}
                                                       >
                                                         <CheckCircle size={13} />
                                                         Approve
@@ -1919,7 +1915,7 @@ export default function BrokeragesPage() {
                                                           setKycRejectReason('')
                                                         }}
                                                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all text-white hover:opacity-90"
-                                                        style={{ background: '#993D3D', border: '1px solid #B84A4A' }}
+                                                        style={{ background: 'var(--action-red)', border: '1px solid var(--action-red-border)' }}
                                                       >
                                                         <XCircle size={13} />
                                                         Reject
@@ -1957,7 +1953,7 @@ export default function BrokeragesPage() {
                                                         }}
                                                         disabled={kycSubmitting || !kycRejectReason.trim()}
                                                         className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold disabled:opacity-50 transition-all text-white hover:opacity-90"
-                                                        style={{ background: '#993D3D', border: '1px solid #B84A4A' }}
+                                                        style={{ background: 'var(--action-red)', border: '1px solid var(--action-red-border)' }}
                                                       >
                                                         Confirm Reject
                                                       </button>
@@ -2105,11 +2101,11 @@ export default function BrokeragesPage() {
                                                 </div>
                                                 {/* Pending banking approval banner */}
                                                 {agent.banking_approval_status === 'pending' && agent.banking_submitted_transit && (
-                                                  <div className="mb-2 rounded-lg p-3" style={{ background: '#1A2240', border: '1px solid #2D3A5C' }}>
+                                                  <div className="mb-2 rounded-lg p-3" style={{ background: 'var(--status-blue-muted)', border: '1px solid var(--status-blue-border)' }}>
                                                     <div className="flex items-center justify-between mb-2">
                                                       <div className="flex items-center gap-1.5">
-                                                        <AlertCircle size={13} style={{ color: '#7B9FE0' }} />
-                                                        <span className="text-xs font-semibold" style={{ color: '#7B9FE0' }}>Pending Approval</span>
+                                                        <AlertCircle size={13} style={{ color: 'var(--status-blue)' }} />
+                                                        <span className="text-xs font-semibold" style={{ color: 'var(--status-blue)' }}>Pending Approval</span>
                                                         <span className="text-[10px] text-muted-foreground">
                                                           Submitted {agent.banking_submitted_at ? new Date(agent.banking_submitted_at).toLocaleDateString('en-CA') : ''}
                                                         </span>
@@ -2145,7 +2141,7 @@ export default function BrokeragesPage() {
                                                             setBankingApprovingId(null)
                                                           }}
                                                           className="px-3 py-1.5 rounded text-xs font-semibold text-white disabled:opacity-40 hover:opacity-90"
-                                                          style={{ background: '#993D3D' }}
+                                                          style={{ background: 'var(--action-red)' }}
                                                         >
                                                           Confirm Reject
                                                         </button>
@@ -2174,14 +2170,14 @@ export default function BrokeragesPage() {
                                                             setBankingApprovingId(null)
                                                           }}
                                                           className="px-3 py-1.5 rounded text-xs font-semibold text-white disabled:opacity-40 hover:opacity-90"
-                                                          style={{ background: '#1A7A2E' }}
+                                                          style={{ background: 'var(--action-green)' }}
                                                         >
                                                           {bankingApprovingId === agent.id ? 'Approving...' : 'Approve'}
                                                         </button>
                                                         <button
                                                           onClick={() => setBankingRejectingId(agent.id)}
                                                           className="px-3 py-1.5 rounded text-xs font-semibold transition-colors"
-                                                          style={{ background: '#2A1212', color: '#E07B7B', border: '1px solid #4A2020' }}
+                                                          style={{ background: 'var(--status-red-muted)', color: 'var(--status-red)', border: '1px solid var(--status-red-border)' }}
                                                         >
                                                           Reject
                                                         </button>
@@ -2316,14 +2312,13 @@ export default function BrokeragesPage() {
                                               ) : (
                                                 <div className="space-y-2">
                                                   {agentDeals[agent.id]?.map((deal) => {
-                                                    const dealBadgeStyle = getSharedStatusBadgeStyle(deal.status)
+                                                    const dealBadgeClass = getSharedStatusBadgeClass(deal.status)
                                                     return (
                                                       <div key={deal.id} className="flex items-center justify-between p-2 rounded bg-muted/20 border border-border">
                                                         <div className="flex-1">
                                                           <p className="text-xs font-medium text-foreground">{deal.property_address}</p>
                                                           <div className="flex items-center gap-3 mt-1">
-                                                            <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded"
-                                                              style={dealBadgeStyle}
+                                                            <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded ${dealBadgeClass}`}
                                                             >
                                                               {formatStatusLabel(deal.status)}
                                                             </span>
@@ -2442,7 +2437,7 @@ export default function BrokeragesPage() {
               }}
               disabled={kycSubmitting}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50 text-white hover:opacity-90"
-              style={{ background: '#1A7A2E', border: '1px solid #25A03C' }}
+              style={{ background: 'var(--action-green)', border: '1px solid var(--action-green-border)' }}
             >
               <CheckCircle size={16} />
               Approve ID
@@ -2454,7 +2449,7 @@ export default function BrokeragesPage() {
                 closeKycPanel()
               }}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all text-white hover:opacity-90"
-              style={{ background: '#993D3D', border: '1px solid #B84A4A' }}
+              style={{ background: 'var(--action-red)', border: '1px solid var(--action-red-border)' }}
             >
               <XCircle size={16} />
               Reject ID
