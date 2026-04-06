@@ -440,17 +440,17 @@ export default function ReportsPage() {
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10 bg-white/15" />
+            <div className="flex items-center gap-3">
+              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <div className="w-px h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}
-                className="flex items-center gap-2 text-lg font-medium tracking-wide text-white/60 hover:text-primary transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
               >
-                <ArrowLeft size={16} /> Dashboard
+                <ArrowLeft size={14} /> Back
               </button>
-              <div className="w-px h-10 bg-white/15" />
-              <p className="text-lg font-medium tracking-wide text-white">Reports</p>
+              <div className="w-px h-6 bg-border/30" />
+              <p className="text-sm font-semibold tracking-wide text-foreground">Reports</p>
             </div>
             <div className="flex items-center gap-3">
               <Button

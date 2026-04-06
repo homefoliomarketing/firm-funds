@@ -1148,7 +1148,7 @@ export default function DealDetailPage() {
         </div>
 
         {/* STICKY ACTION BAR */}
-        <div className="sticky top-0 z-20 mb-5 rounded-xl px-4 py-3 bg-card/95 ff-header-blur border border-border/40 shadow-lg shadow-black/20">
+        <div className="sticky top-0 z-20 mb-5 rounded-xl px-4 py-3 bg-card/95 ff-header-blur border border-border/40 shadow-lg shadow-black/20 ff-card-elevated">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               {statusBadgeClass(deal.status) && (
@@ -1434,18 +1434,19 @@ export default function DealDetailPage() {
 
         {/* EFT SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
-          <div className="mb-4 rounded-lg p-4 bg-card border border-border/50">
+          <div className="mb-4 rounded-xl p-4 bg-card border border-border/50 ff-card-elevated">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold flex items-center gap-2 text-foreground">
                 <Banknote className="w-4 h-4 text-primary" />
                 EFT Transfers
               </h2>
-              <button
+              <Button
                 onClick={() => setShowEftForm(!showEftForm)}
-                className="px-4 py-2 rounded-lg font-medium text-white bg-primary hover:bg-primary/90 transition-opacity"
+                variant={showEftForm ? 'outline' : 'default'}
+                size="sm"
               >
                 {showEftForm ? 'Cancel' : 'Record Transfer'}
-              </button>
+              </Button>
             </div>
 
             {showEftForm && (
@@ -1464,7 +1465,7 @@ export default function DealDetailPage() {
                     <Input type="text" value={eftReference} onChange={(e) => setEftReference(e.target.value)} placeholder="Bank ref #, confirmation..." />
                   </div>
                 </div>
-                <button
+                <Button
                   onClick={async () => {
                     if (!eftAmount || !eftDate) return
                     setEftSaving(true)
@@ -1486,10 +1487,10 @@ export default function DealDetailPage() {
                     setEftSaving(false)
                   }}
                   disabled={eftSaving || !eftAmount || !eftDate}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-green-700 hover:bg-green-800 transition-colors"
+                  size="sm"
                 >
                   Record Transfer
-                </button>
+                </Button>
               </div>
             )}
 
@@ -1520,68 +1521,75 @@ export default function DealDetailPage() {
             })()}
 
             {deal.eft_transfers && deal.eft_transfers.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {deal.eft_transfers.map((eft, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/30">
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
                     <div>
-                      <p className="font-semibold text-foreground">{formatCurrency(eft.amount)}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatDate(eft.date)}{eft.reference ? ` • Ref: ${eft.reference}` : ''}
+                      <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(eft.amount)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(eft.date)}{eft.reference ? ` · Ref: ${eft.reference}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       {eft.confirmed ? (
-                        <span className="px-3 py-1 rounded-full text-sm font-medium bg-primary/10 text-primary">
+                        <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
                           Confirmed
-                        </span>
+                        </Badge>
                       ) : (
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={async () => {
                             const result = await confirmEftTransfer({ dealId: deal.id, transferIndex: idx })
                             if (result.success) {
                               setDeal(prev => prev ? { ...prev, ...result.data } : null)
                             }
                           }}
-                          className="px-3 py-1 rounded-full text-sm font-medium bg-amber-950/30 text-amber-400 border border-amber-800/40 hover:bg-amber-950/50 transition-colors"
+                          className="text-amber-400 border-amber-800/40 bg-amber-950/30 hover:bg-amber-950/50 hover:text-amber-300"
                         >
                           Confirm
-                        </button>
+                        </Button>
                       )}
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         onClick={async () => {
                           const result = await removeEftTransfer({ dealId: deal.id, transferIndex: idx })
                           if (result.success) {
                             setDeal(prev => prev ? { ...prev, ...result.data } : null)
                           }
                         }}
-                        className="p-2 rounded-lg transition-colors text-destructive hover:bg-destructive/10"
                       >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-muted-foreground">No EFT transfers recorded yet</p>
+              <p className="text-sm text-muted-foreground">No EFT transfers recorded yet</p>
             )}
           </div>
         )}
 
         {/* BROKERAGE PAYMENTS SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
-          <div className="mb-4 rounded-lg p-4 bg-card border border-border/50">
+          <div className="mb-4 rounded-xl p-4 bg-card border border-border/50 ff-card-elevated">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold flex items-center gap-2 text-foreground">
                 <DollarSign className="w-4 h-4 text-cyan-400" />
                 Brokerage Payments
               </h2>
-              <button
+              <Button
                 onClick={() => setShowPaymentForm(!showPaymentForm)}
-                className="px-4 py-2 rounded-lg font-medium text-white bg-cyan-600 hover:bg-cyan-700 transition-colors"
+                variant={showPaymentForm ? 'outline' : 'default'}
+                size="sm"
+                className={showPaymentForm ? '' : 'bg-cyan-600 hover:bg-cyan-700'}
               >
                 {showPaymentForm ? 'Cancel' : 'Record Payment'}
-              </button>
+              </Button>
             </div>
 
             {showPaymentForm && (
@@ -1613,7 +1621,7 @@ export default function DealDetailPage() {
                     <Input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder="Cheque #, ref..." />
                   </div>
                 </div>
-                <button
+                <Button
                   onClick={async () => {
                     if (!paymentAmount || !paymentDate) return
                     setPaymentSaving(true)
@@ -1636,10 +1644,11 @@ export default function DealDetailPage() {
                     setPaymentSaving(false)
                   }}
                   disabled={paymentSaving || !paymentAmount || !paymentDate}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-teal-700 hover:bg-teal-800 transition-colors"
+                  size="sm"
+                  className="bg-teal-700 hover:bg-teal-800"
                 >
                   Record Payment
-                </button>
+                </Button>
               </div>
             )}
 
@@ -1674,18 +1683,21 @@ export default function DealDetailPage() {
             })()}
 
             {deal.brokerage_payments && deal.brokerage_payments.length > 0 && (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {deal.brokerage_payments.map((payment, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/30">
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
                     <div>
-                      <p className="font-semibold text-foreground">{formatCurrency(payment.amount)}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(payment.amount)}</p>
+                      <p className="text-xs text-muted-foreground">
                         {formatDate(payment.date)}
-                        {payment.method ? ` • ${payment.method.charAt(0).toUpperCase() + payment.method.slice(1)}` : ''}
-                        {payment.reference ? ` • Ref: ${payment.reference}` : ''}
+                        {payment.method ? ` · ${payment.method.charAt(0).toUpperCase() + payment.method.slice(1)}` : ''}
+                        {payment.reference ? ` · Ref: ${payment.reference}` : ''}
                       </p>
                     </div>
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={async () => {
                         if (!confirm('Remove this payment?')) return
                         const result = await removeBrokeragePayment({ dealId: deal.id, paymentIndex: idx })
@@ -1696,10 +1708,9 @@ export default function DealDetailPage() {
                           setStatusMessage({ type: 'error', text: result.error || 'Failed to remove payment' })
                         }
                       }}
-                      className="p-2 rounded-lg transition-colors text-muted-foreground hover:text-destructive"
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -1708,30 +1719,34 @@ export default function DealDetailPage() {
         )}
 
         {/* AGENT & BROKERAGE */}
-        <div className="rounded-lg mb-3 flex flex-col sm:flex-row bg-card border border-border/50">
-          <div className="flex-1 px-3 py-2.5 flex items-center gap-3 border-r border-border/50">
-            <User className="w-4 h-4 flex-shrink-0 text-primary" />
-            <div className="flex items-center gap-3 flex-wrap text-xs min-w-0">
-              <span className="font-semibold text-foreground">{agent.first_name} {agent.last_name}</span>
-              <span className="text-muted-foreground">{agent.email}</span>
-              {agent.phone && <span className="text-muted-foreground">{agent.phone}</span>}
-              {agent.reco_number && <span className="text-muted-foreground/60">RECO: {agent.reco_number}</span>}
-              {agent.flagged_by_brokerage && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/30 text-amber-400">Flagged</span>
-              )}
-              {agent.outstanding_recovery != null && agent.outstanding_recovery > 0 && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-destructive/10 text-destructive">Recovery: {formatCurrency(agent.outstanding_recovery)}</span>
-              )}
+        <div className="rounded-xl mb-3 flex flex-col sm:flex-row bg-card border border-border/50 ff-card-elevated overflow-hidden">
+          <div className="flex-1 px-4 py-3 flex items-start gap-3 sm:border-r border-b sm:border-b-0 border-border/30">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary/10">
+              <User className="w-4 h-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground leading-tight">{agent.first_name} {agent.last_name}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{agent.email}{agent.phone ? ` · ${agent.phone}` : ''}</p>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                {agent.reco_number && <span className="text-[10px] text-muted-foreground/60">RECO {agent.reco_number}</span>}
+                {agent.flagged_by_brokerage && (
+                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-amber-800/40 text-amber-400 bg-amber-950/30">Flagged</Badge>
+                )}
+                {agent.outstanding_recovery != null && agent.outstanding_recovery > 0 && (
+                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-destructive/40 text-destructive bg-destructive/10">Recovery: {formatCurrency(agent.outstanding_recovery)}</Badge>
+                )}
+              </div>
             </div>
           </div>
-          <div className="flex-1 px-3 py-2.5 flex items-center gap-3">
-            <Building2 className="w-4 h-4 flex-shrink-0 text-primary" />
-            <div className="flex items-center gap-3 flex-wrap text-xs min-w-0">
-              <span className="font-semibold text-foreground">{brokerage.name}</span>
-              {brokerage.brand && <span className="text-muted-foreground">{brokerage.brand}</span>}
-              {brokerage.email && <span className="text-muted-foreground">{brokerage.email}</span>}
+          <div className="flex-1 px-4 py-3 flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary/10">
+              <Building2 className="w-4 h-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground leading-tight">{brokerage.name}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{brokerage.brand ? `${brokerage.brand} · ` : ''}{brokerage.email || ''}</p>
               {brokerage.referral_fee_percentage !== null && (
-                <span className="text-muted-foreground/60">Referral: {(brokerage.referral_fee_percentage * 100).toFixed(0)}%</span>
+                <p className="text-[10px] text-muted-foreground/60 mt-1">Referral: {(brokerage.referral_fee_percentage * 100).toFixed(0)}%</p>
               )}
             </div>
           </div>
@@ -1740,8 +1755,8 @@ export default function DealDetailPage() {
         {/* DEAL DETAILS + FINANCIAL */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
           {/* DEAL DETAILS */}
-          <div className="rounded-lg px-3 py-3 bg-card border border-border/50">
-            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider text-primary">
+          <div className="rounded-xl px-4 py-3 bg-card border border-border/50 ff-card-elevated">
+            <h2 className="text-xs font-bold mb-3 flex items-center gap-1.5 uppercase tracking-wider text-primary">
               <FileText className="w-3.5 h-3.5" />
               Deal Details
             </h2>
@@ -1807,8 +1822,8 @@ export default function DealDetailPage() {
           </div>
 
           {/* FINANCIAL BREAKDOWN */}
-          <div className="rounded-lg px-3 py-3 bg-card border border-border/50">
-            <h2 className="text-xs font-bold mb-2 flex items-center gap-1.5 uppercase tracking-wider text-primary">
+          <div className="rounded-xl px-4 py-3 bg-card border border-border/50 ff-card-elevated">
+            <h2 className="text-xs font-bold mb-3 flex items-center gap-1.5 uppercase tracking-wider text-primary">
               <DollarSign className="w-3.5 h-3.5" />
               Financial Breakdown
             </h2>
@@ -1816,22 +1831,22 @@ export default function DealDetailPage() {
               {[
                 { label: 'Gross Commission', value: formatCurrency(deal.gross_commission) },
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
-                { label: 'Net Commission', value: formatCurrency(deal.net_commission) },
+                { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
                 { label: 'Discount Fee', value: formatCurrency(deal.discount_fee) },
                 { label: 'Brokerage Referral Fee', value: formatCurrency(deal.brokerage_referral_fee) },
               ].map((row) => (
-                <div key={row.label} className="flex justify-between py-1 text-xs border-b border-border/20">
+                <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
                   <span className="text-muted-foreground">{row.label}</span>
-                  <span className="font-medium text-foreground">{row.value}</span>
+                  <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'}`}>{row.value}</span>
                 </div>
               ))}
-              <div className="flex justify-between py-1 text-xs border-b border-border/20">
+              <div className="flex justify-between py-2 text-sm border-b border-primary/20">
                 <span className="font-semibold text-primary">Advance Amount</span>
-                <span className="font-bold text-primary">{formatCurrency(deal.advance_amount)}</span>
+                <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.advance_amount)}</span>
               </div>
-              <div className="flex justify-between rounded px-1.5 py-1 text-xs mt-1 bg-primary/10">
+              <div className="flex justify-between rounded-lg px-2.5 py-2 text-sm mt-2 bg-primary/10">
                 <span className="font-semibold text-primary">Due from Brokerage</span>
-                <span className="font-bold text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>
+                <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>
               </div>
               {(() => {
                 const brokerageTotal = (deal.brokerage_payments || []).reduce((sum: number, p: any) => sum + p.amount, 0)
@@ -1852,9 +1867,9 @@ export default function DealDetailPage() {
         </div>
 
         {/* UNDERWRITING — collapsible */}
-        <div className="rounded-lg overflow-hidden mb-3 bg-card border border-border/50">
+        <div className="rounded-xl overflow-hidden mb-3 bg-card border border-border/50 ff-card-elevated">
           <div
-            className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
+            className="flex items-center justify-between px-5 py-3 cursor-pointer bg-primary/5 border-b border-primary/20 transition-colors hover:bg-primary/[0.07]"
             onClick={() => setUnderwritingExpanded(!underwritingExpanded)}
           >
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -1922,10 +1937,10 @@ export default function DealDetailPage() {
             {/* LEFT: CHECKLIST */}
             <div className="space-y-2">
               {categorizedChecklist.map((category, catIdx) => (
-                <div key={catIdx} className="rounded-lg overflow-hidden bg-card border border-border/50">
+                <div key={catIdx} className="rounded-xl overflow-hidden bg-card border border-border/50">
                   <button
                     onClick={() => setChecklistExpanded(!checklistExpanded)}
-                    className="w-full px-4 py-2.5 flex items-center justify-between text-sm font-semibold transition"
+                    className="w-full px-4 py-2.5 flex items-center justify-between text-sm font-semibold transition-colors"
                     style={{ background: category.bg, color: category.color, borderBottom: `1px solid ${category.border}` }}
                   >
                     <div className="flex items-center gap-2">
@@ -2056,7 +2071,7 @@ export default function DealDetailPage() {
             {/* RIGHT COLUMN: DOCUMENTS + MESSAGES */}
             <div className="space-y-3">
             {viewingDoc ? (
-              <div className="rounded-lg overflow-hidden flex flex-col bg-card border-2 border-primary sticky top-4"
+              <div className="rounded-xl overflow-hidden flex flex-col bg-card border-2 border-primary sticky top-4 ff-card-elevated"
                 style={{ minHeight: 500, maxHeight: 'calc(100vh - 120px)' }}>
                 {/* Inline viewer header */}
                 <div className="flex items-center justify-between px-3 py-2 flex-shrink-0 border-b border-border/50 bg-primary/5">
@@ -2105,24 +2120,24 @@ export default function DealDetailPage() {
                 </div>
               </div>
             ) : (
-            <div className="rounded-lg overflow-hidden bg-card border border-border/50">
-              <div className="px-4 py-2.5 flex items-center justify-between bg-primary/5 border-b border-primary/20">
+            <div className="rounded-xl overflow-hidden bg-card border border-border/50">
+              <div className="px-5 py-3 flex items-center justify-between bg-primary/5 border-b border-primary/20">
                 <button
                   onClick={() => setDocsExpanded(!docsExpanded)}
-                  className="flex items-center gap-2 text-sm font-semibold transition text-primary"
+                  className="flex items-center gap-2 text-sm font-semibold transition-colors text-primary hover:text-primary/80"
                 >
                   <Paperclip className="w-4 h-4" />
                   Documents
                   <span className="ml-1 text-xs font-normal opacity-70">({documents.length})</span>
                   {docsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
-                <button
+                <Button
                   onClick={() => setShowDocRequest(!showDocRequest)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-opacity"
+                  size="sm"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-3.5 h-3.5 mr-1.5" />
                   Request Doc
-                </button>
+                </Button>
               </div>
 
               {/* DOCUMENT REQUEST FORM */}
@@ -2154,20 +2169,21 @@ export default function DealDetailPage() {
                     />
                   </div>
                   <div className="flex gap-2">
-                    <button
+                    <Button
                       onClick={handleRequestDocument}
                       disabled={docRequestSending || !docRequestType}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-primary hover:bg-primary/90 transition-opacity"
+                      size="sm"
                     >
-                      <Send className="w-4 h-4" />
+                      <Send className="w-3.5 h-3.5 mr-1.5" />
                       {docRequestSending ? 'Sending...' : 'Send Request'}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => { setShowDocRequest(false); setDocRequestType(''); setDocRequestMessage('') }}
-                      className="px-4 py-2 rounded-lg font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -2226,15 +2242,15 @@ export default function DealDetailPage() {
                         draggable
                         onDragStart={(e) => handleDocDragStart(e, doc.id)}
                         onDragEnd={handleDocDragEnd}
-                        className="px-4 py-2 flex items-center gap-3"
+                        className="px-4 py-2.5 flex items-center gap-3 transition-colors duration-150 hover:bg-primary/[0.03] group/doc"
                         style={{ opacity: draggingDocId === doc.id ? 0.5 : 1, cursor: 'grab' }}
                       >
-                        <GripVertical className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground/40" />
-                        <FileText className="w-4 h-4 flex-shrink-0 text-primary" />
+                        <GripVertical className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground/30 transition-colors group-hover/doc:text-muted-foreground/60" />
+                        <FileText className="w-4 h-4 flex-shrink-0 text-primary/70 transition-colors group-hover/doc:text-primary" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate text-foreground">{doc.file_name}</p>
+                          <p className="text-sm font-medium truncate text-foreground transition-colors group-hover/doc:text-primary">{doc.file_name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {getDocTypeLabel(doc.document_type)} • {formatFileSize(doc.file_size)} • {formatDate(doc.created_at)}
+                            {getDocTypeLabel(doc.document_type)} · {formatFileSize(doc.file_size)} · {formatDate(doc.created_at)}
                           </p>
                         </div>
                         <div className="flex gap-1.5 flex-shrink-0">
@@ -2317,9 +2333,9 @@ export default function DealDetailPage() {
             )}
 
             {/* MESSAGES — sits under documents in the right column */}
-            <div id="messages" className={`rounded-lg overflow-hidden bg-card border ${hasUnreadMessages ? 'border-red-500/50' : 'border-border/50'}`}>
+            <div id="messages" className={`rounded-xl overflow-hidden bg-card border transition-colors ${hasUnreadMessages ? 'border-red-500/50' : 'border-border/50'}`}>
               <div
-                className={`flex items-center justify-between px-4 py-2.5 cursor-pointer border-b ${hasUnreadMessages ? 'bg-red-500/10 border-red-500/20' : 'bg-primary/5 border-primary/20'}`}
+                className={`flex items-center justify-between px-5 py-3 cursor-pointer border-b transition-colors ${hasUnreadMessages ? 'bg-red-500/10 border-red-500/20 hover:bg-red-500/[0.12]' : 'bg-primary/5 border-primary/20 hover:bg-primary/[0.07]'}`}
                 onClick={() => setMessagesExpanded(!messagesExpanded)}
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -2401,10 +2417,10 @@ export default function DealDetailPage() {
                       className="flex-1 px-2.5 py-1.5 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground focus:border-primary"
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
                     />
-                    <button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
-                      className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1 bg-primary hover:bg-primary/90 transition-colors">
-                      <Send className="w-3 h-3" />{messageSending ? '...' : 'Send'}
-                    </button>
+                    <Button onClick={handleSendMessage} disabled={messageSending || !messageText.trim()}
+                      size="sm" className="h-[30px]">
+                      <Send className="w-3 h-3 mr-1" />{messageSending ? '...' : 'Send'}
+                    </Button>
                   </div>
                 </div>
               )}
@@ -2418,10 +2434,10 @@ export default function DealDetailPage() {
 
         {/* LATE CLOSING INTEREST */}
         {deal && ['funded', 'completed'].includes(deal.status) && (
-          <div className="rounded-lg mb-3 overflow-hidden bg-card border border-border/50">
+          <div className="rounded-xl mb-3 overflow-hidden bg-card border border-border/50 ff-card-elevated">
             <button
               onClick={() => setLateInterestExpanded(!lateInterestExpanded)}
-              className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-muted/30"
+              className="w-full px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-500/5 transition-colors hover:bg-amber-500/[0.07] border-b border-amber-500/10"
             >
               <div className="flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
@@ -2482,9 +2498,9 @@ export default function DealDetailPage() {
         )}
 
         {/* ADMIN NOTES */}
-        <div className="rounded-lg overflow-hidden mb-3 bg-card border border-border/50">
+        <div className="rounded-xl overflow-hidden mb-3 bg-card border border-border/50 ff-card-elevated">
           <div
-            className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
+            className="flex items-center justify-between px-5 py-3 cursor-pointer bg-primary/5 border-b border-primary/20 transition-colors hover:bg-primary/[0.07]"
             onClick={() => setNotesExpanded(!notesExpanded)}
           >
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -2502,17 +2518,17 @@ export default function DealDetailPage() {
                   className="flex-1 px-2.5 py-1.5 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground focus:border-primary"
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote() }}
                 />
-                <button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
-                  className="px-2.5 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 flex items-center gap-1 bg-blue-700 hover:bg-blue-800 transition-colors">
-                  <Plus className="w-3 h-3" />{addingNote ? '...' : 'Add'}
-                </button>
+                <Button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
+                  size="sm" className="bg-blue-700 hover:bg-blue-800">
+                  <Plus className="w-3 h-3 mr-1" />{addingNote ? '...' : 'Add'}
+                </Button>
               </div>
               {notesTimeline.length > 0 ? (
                 <div className="space-y-1.5 max-h-64 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
                   {[...notesTimeline].reverse().map((note) => (
-                    <div key={note.id} className="rounded px-2.5 py-1.5 bg-muted/30 border border-border/20">
-                      <p className="text-xs whitespace-pre-wrap text-foreground">{note.text}</p>
-                      <p className="text-[10px] mt-1 text-muted-foreground/60">{note.author_name} · {formatDateTime(note.created_at)}</p>
+                    <div key={note.id} className="rounded-lg px-3 py-2 bg-muted/20 border border-border/20 transition-colors hover:border-border/40">
+                      <p className="text-xs whitespace-pre-wrap text-foreground leading-relaxed">{note.text}</p>
+                      <p className="text-[10px] mt-1.5 text-muted-foreground/60">{note.author_name} · {formatDateTime(note.created_at)}</p>
                     </div>
                   ))}
                 </div>
@@ -2531,9 +2547,9 @@ export default function DealDetailPage() {
 
         {/* AUDIT TRAIL */}
         {deal && (
-          <div className="rounded-lg overflow-hidden bg-card border border-border/50">
+          <div className="rounded-xl overflow-hidden bg-card border border-border/50 ff-card-elevated">
             <div
-              className="flex items-center justify-between px-6 py-3 cursor-pointer bg-primary/5 border-b border-primary/20"
+              className="flex items-center justify-between px-5 py-3 cursor-pointer bg-primary/5 border-b border-primary/20 transition-colors hover:bg-primary/[0.07]"
               onClick={() => setAuditExpanded(!auditExpanded)}
             >
               <div className="flex items-center gap-2 text-sm font-semibold text-primary">
@@ -2552,13 +2568,15 @@ export default function DealDetailPage() {
 
         {/* DELETE DEAL */}
         {deal && ['under_review', 'cancelled', 'denied'].includes(deal.status) && (
-          <div className="mt-6 rounded-lg p-4 bg-card border border-destructive/30">
+          <div className="mt-6 rounded-xl p-4 bg-card border border-destructive/30 ff-card-elevated">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-destructive">Delete This Deal</p>
                 <p className="text-xs mt-0.5 text-muted-foreground">Permanently removes this deal and all associated documents and checklist items. This cannot be undone.</p>
               </div>
-              <button
+              <Button
+                variant="destructive"
+                size="sm"
                 onClick={async () => {
                   if (!confirm('Are you SURE you want to permanently delete this deal? This cannot be undone.')) return
                   if (!confirm('This will delete the deal, all uploaded documents, and all checklist data. Last chance — proceed?')) return
@@ -2569,10 +2587,9 @@ export default function DealDetailPage() {
                     setStatusMessage({ type: 'error', text: result.error || 'Failed to delete deal' })
                   }
                 }}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-white flex items-center gap-1.5 shrink-0 bg-destructive hover:bg-destructive/90 transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5" /> Delete Deal
-              </button>
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete Deal
+              </Button>
             </div>
           </div>
         )}

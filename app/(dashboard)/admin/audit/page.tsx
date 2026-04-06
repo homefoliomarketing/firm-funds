@@ -269,13 +269,14 @@ export default function AuditExplorerPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/admin')}
-                className="p-1.5 rounded-lg text-white hover:opacity-70 transition-opacity"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
               >
-                <ArrowLeft size={18} />
+                <ArrowLeft size={14} /> Back
               </button>
+              <div className="w-px h-6 bg-border/30" />
               <div className="flex items-center gap-2">
-                <Shield size={18} className="text-primary" />
-                <h1 className="text-base font-bold text-white">Audit Explorer</h1>
+                <Shield size={16} className="text-primary" />
+                <h1 className="text-sm font-semibold text-foreground">Audit Explorer</h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -290,7 +291,7 @@ export default function AuditExplorerPage() {
 
       <section aria-label="Audit log" className="max-w-7xl mx-auto px-4 py-6">
         {/* Search + Filter Bar */}
-        <div className="rounded-lg p-4 mb-4 bg-card border border-border/40 shadow-lg shadow-black/20">
+        <div className="rounded-xl p-4 mb-4 bg-card border border-border/40 ff-card-elevated">
           <div className="flex gap-2 mb-3">
             {/* Search */}
             <div className="flex-1 relative">
@@ -447,7 +448,7 @@ export default function AuditExplorerPage() {
         )}
 
         {/* Results Table */}
-        <div className="rounded-lg overflow-hidden bg-card border border-border/40 shadow-lg shadow-black/20">
+        <div className="rounded-xl overflow-hidden bg-card border border-border/40 ff-card-elevated">
           {/* Table Header */}
           <div
             className="grid gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider bg-muted/50 border-b border-border/40 text-muted-foreground"
@@ -485,9 +486,9 @@ export default function AuditExplorerPage() {
             return (
               <div key={log.id}>
                 <div
-                  className={`grid gap-2 px-4 py-2.5 items-center transition-colors border-b border-border/30 ${
+                  className={`grid gap-2 px-4 py-2.5 items-center transition-colors duration-150 border-b border-border/30 group/row ${
                     hasDetails ? 'cursor-pointer' : ''
-                  } ${isExpanded ? 'bg-muted/40' : 'hover:bg-muted/20'}`}
+                  } ${isExpanded ? 'bg-muted/40' : 'hover:bg-primary/[0.03]'}`}
                   style={{ gridTemplateColumns: '150px 80px 1fr 180px 120px 40px' }}
                   onClick={() => hasDetails && toggleExpanded(log.id)}
                 >

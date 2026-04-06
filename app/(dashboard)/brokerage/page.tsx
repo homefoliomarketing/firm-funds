@@ -1051,17 +1051,17 @@ export default function BrokerageDashboard() {
                 return (
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                      <div className="rounded-lg p-4 bg-blue-950/40 border border-blue-800">
+                      <div className="rounded-xl p-4 bg-blue-950/40 border border-blue-800/50">
                         <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">Total Owed</p>
-                        <p className="text-xl font-black mt-1 text-blue-400">{formatCurrency(totalOwed)}</p>
+                        <p className="text-xl font-black mt-1 tabular-nums text-blue-400">{formatCurrency(totalOwed)}</p>
                       </div>
-                      <div className="rounded-lg p-4 bg-green-950/40 border border-green-800">
+                      <div className="rounded-xl p-4 bg-green-950/40 border border-green-800/50">
                         <p className="text-xs font-semibold uppercase tracking-wider text-green-400">Paid</p>
-                        <p className="text-xl font-black mt-1 text-green-400">{formatCurrency(totalPaid)}</p>
+                        <p className="text-xl font-black mt-1 tabular-nums text-green-400">{formatCurrency(totalPaid)}</p>
                       </div>
-                      <div className={`rounded-lg p-4 ${outstanding > 0.01 ? 'bg-yellow-950/40 border border-yellow-800' : 'bg-green-950/40 border border-green-800'}`}>
+                      <div className={`rounded-xl p-4 ${outstanding > 0.01 ? 'bg-yellow-950/40 border border-yellow-800/50' : 'bg-green-950/40 border border-green-800/50'}`}>
                         <p className={`text-xs font-semibold uppercase tracking-wider ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>Outstanding</p>
-                        <p className={`text-xl font-black mt-1 ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>{formatCurrency(Math.max(outstanding, 0))}</p>
+                        <p className={`text-xl font-black mt-1 tabular-nums ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>{formatCurrency(Math.max(outstanding, 0))}</p>
                       </div>
                     </div>
 
@@ -1091,10 +1091,10 @@ export default function BrokerageDashboard() {
                         const isPartial = paid > 0 && !isPaid
 
                         return (
-                          <div key={deal.id} className="rounded-lg p-4 bg-muted/30 border border-border/30">
+                          <div key={deal.id} className="rounded-xl p-4 bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group/deal">
                             <div className="flex items-start justify-between mb-2">
                               <div>
-                                <p className="font-medium text-sm text-foreground">{deal.property_address}</p>
+                                <p className="font-medium text-sm text-foreground transition-colors group-hover/deal:text-primary">{deal.property_address}</p>
                                 <p className="text-xs mt-0.5 text-muted-foreground">
                                   {deal.agent ? `${deal.agent.first_name} ${deal.agent.last_name}` : ''} &middot; {formatStatusLabel(deal.status)}
                                 </p>
@@ -1197,17 +1197,17 @@ export default function BrokerageDashboard() {
                               })
                             }
                           }}
-                          className={`w-full text-left px-3 py-3 transition-colors border-b border-border/30 border-l-[3px] ${
+                          className={`w-full text-left px-3 py-3 transition-all duration-150 border-b border-border/30 border-l-[3px] group/msg ${
                             isSelected
                               ? 'bg-muted border-l-primary'
-                              : 'border-l-transparent hover:bg-muted/30'
+                              : 'border-l-transparent hover:bg-primary/[0.03] hover:border-l-primary/50'
                           }`}
                         >
                           <div className="flex items-center gap-2">
                             {hasUnread && (
                               <span className="inline-block w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                             )}
-                            <p className="text-xs font-semibold truncate text-foreground">{item.property_address}</p>
+                            <p className="text-xs font-semibold truncate text-foreground transition-colors group-hover/msg:text-primary">{item.property_address}</p>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-muted-foreground">{item.agent_name}</span>

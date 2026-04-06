@@ -273,7 +273,7 @@ export default function AgentMessagesPage() {
             </p>
           </div>
         ) : (
-          <div className="rounded-xl overflow-hidden flex h-full bg-card border border-border">
+          <div className="rounded-xl overflow-hidden flex h-full bg-card border border-border ff-card-elevated">
 
             {/* LEFT PANEL — Deal list */}
             {showList && (
@@ -305,15 +305,15 @@ export default function AgentMessagesPage() {
                       <button
                         key={item.deal_id}
                         onClick={() => selectDeal(item.deal_id)}
-                        className={`w-full text-left px-4 py-3.5 transition-colors border-b border-border/40 ${
+                        className={`w-full text-left px-4 py-3.5 transition-all duration-150 border-b border-border/40 group/inbox ${
                           isSelected
                             ? 'bg-muted border-l-[3px] border-l-primary'
-                            : 'border-l-[3px] border-l-transparent hover:bg-muted/50'
+                            : 'border-l-[3px] border-l-transparent hover:bg-primary/[0.03] hover:border-l-primary/50'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${hasUnread ? 'font-bold text-foreground' : 'font-medium text-foreground'}`}>
+                            <p className={`text-sm truncate transition-colors group-hover/inbox:text-primary ${hasUnread ? 'font-bold text-foreground' : 'font-medium text-foreground'}`}>
                               {item.property_address}
                             </p>
                             <div className="flex items-center gap-2 mt-1">
@@ -396,13 +396,15 @@ export default function AgentMessagesPage() {
                           </span>
                         </div>
                       </div>
-                      <button
+                      <Button
                         onClick={() => router.push(`/agent/deals/${selectedDealId}`)}
-                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 text-primary border border-border hover:bg-muted hover:border-primary"
+                        variant="outline"
+                        size="sm"
+                        className="flex-shrink-0 text-primary hover:border-primary"
                       >
-                        <ExternalLink size={12} />
+                        <ExternalLink size={12} className="mr-1.5" />
                         <span className="hidden sm:inline">View Deal</span>
-                      </button>
+                      </Button>
                     </div>
 
                     {/* Returned docs alert */}

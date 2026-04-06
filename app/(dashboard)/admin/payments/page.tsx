@@ -201,17 +201,18 @@ export default function AdminPaymentsPage() {
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10 bg-white/15" />
+            <div className="flex items-center gap-3">
+              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <div className="w-px h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}
-                className="text-white/70 hover:text-primary transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
               >
-                <ArrowLeft size={20} />
+                <ArrowLeft size={14} /> Back
               </button>
+              <div className="w-px h-6 bg-border/30" />
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white">Brokerage Payments</h1>
+                <h1 className="text-sm font-semibold tracking-wide text-foreground">Brokerage Payments</h1>
                 <p className="text-xs text-muted-foreground">Track payments from partner brokerages</p>
               </div>
             </div>
@@ -230,7 +231,7 @@ export default function AdminPaymentsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Owed</p>
-                  <p className="text-3xl font-black mt-2 text-foreground">{formatCurrency(totals.totalOwed)}</p>
+                  <p className="text-3xl font-black mt-2 tabular-nums text-foreground">{formatCurrency(totals.totalOwed)}</p>
                 </div>
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-500/10">
                   <DollarSign size={22} className="text-blue-400" />
@@ -243,7 +244,7 @@ export default function AdminPaymentsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Collected</p>
-                  <p className="text-3xl font-black mt-2 text-green-400">{formatCurrency(totals.totalPaid)}</p>
+                  <p className="text-3xl font-black mt-2 tabular-nums text-green-400">{formatCurrency(totals.totalPaid)}</p>
                 </div>
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-green-500/10">
                   <CheckCircle2 size={22} className="text-green-400" />
@@ -256,7 +257,7 @@ export default function AdminPaymentsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Outstanding</p>
-                  <p className={`text-3xl font-black mt-2 ${totals.outstanding > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                  <p className={`text-3xl font-black mt-2 tabular-nums ${totals.outstanding > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
                     {formatCurrency(totals.outstanding)}
                   </p>
                 </div>
@@ -399,11 +400,11 @@ export default function AdminPaymentsPage() {
                           const remaining = owed - paid
 
                           return (
-                            <div key={deal.id} className="rounded-lg p-4 bg-muted/30 border border-border/30">
+                            <div key={deal.id} className="rounded-lg p-4 bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group/deal">
                               <div className="flex items-start justify-between mb-2">
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
-                                    <p className="font-medium text-sm truncate text-foreground">{deal.property_address}</p>
+                                    <p className="font-medium text-sm truncate text-foreground transition-colors group-hover/deal:text-primary">{deal.property_address}</p>
                                     <span className={`flex-shrink-0 inline-flex px-2 py-0.5 text-xs font-semibold rounded-md border ${
                                       paymentStatus === 'paid'
                                         ? 'bg-green-950/50 text-green-400 border-green-800'

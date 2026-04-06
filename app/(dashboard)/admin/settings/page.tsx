@@ -170,15 +170,16 @@ export default function AdminSettingsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
-              <div className="w-px h-8 bg-white/15" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <div className="w-px h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}
-                className="text-white/60 hover:text-primary transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
               >
-                <ArrowLeft size={20} />
+                <ArrowLeft size={14} /> Back
               </button>
-              <p className="text-sm font-medium tracking-wide text-white">Admin Settings</p>
+              <div className="w-px h-6 bg-border/30" />
+              <p className="text-sm font-semibold tracking-wide text-foreground">Admin Settings</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-primary">{profile?.full_name}</span>
