@@ -113,19 +113,17 @@ export default function AgentDashboard() {
     return counts
   }, [deals])
 
-  // Show KYC verified modal once — check both localStorage and sessionStorage to be safe
+  // Show KYC verified modal once — stored in DB so it persists across browsers/sessions
   useEffect(() => {
-    if (agent?.kyc_status === 'verified' && agent?.id) {
-      const key = `kyc_verified_seen_${agent.id}`
-      // Check across all storage mechanisms
-      const alreadySeen = localStorage.getItem(key) || sessionStorage.getItem(key)
-      if (!alreadySeen) {
-        setShowKycVerifiedModal(true)
-        localStorage.setItem(key, 'true')
-        sessionStorage.setItem(key, 'true')
-      }
+    if (agent?.kyc_status === 'verified' && agent?.id && !agent?.kyc_verified_modal_seen) {
+      setShowKycVerifiedModal(true)
+      // Mark as seen in DB (fire-and-forget)
+      void supabase
+        .from('agents')
+        .update({ kyc_verified_modal_seen: true })
+        .eq('id', agent.id)
     }
-  }, [agent?.kyc_status, agent?.id])
+  }, [agent?.kyc_status, agent?.id, agent?.kyc_verified_modal_seen])
 
   // KYC status
   const kycPending = agent && agent.kyc_status === 'pending'
