@@ -62,8 +62,8 @@ function makeHeader(title: string): Header {
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
-        border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' } },
-        children: [new TextRun({ text: `FIRM FUNDS INC. — ${title}`, font: FONT, size: 18, color: '666666' })],
+        border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
+        children: [new TextRun({ text: `FIRM FUNDS INC. — ${title}`, font: FONT, size: 18, color: '000000' })],
       }),
     ],
   })
@@ -73,21 +73,21 @@ function makeFooter(initialsLabel: string): Footer {
   return new Footer({
     children: [
       new Paragraph({
-        border: { top: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' } },
+        border: { top: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
         spacing: { before: 100 },
         tabStops: [
           { type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 },
           { type: TabStopType.RIGHT, position: TabStopPosition.MAX },
         ],
         children: [
-          new TextRun({ text: `FIRM FUNDS INC. — Confidential`, font: FONT, size: SMALL_SIZE, color: '999999' }),
+          new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE }),
+          new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE }),
+          new TextRun({ text: ' of ', font: FONT, size: SMALL_SIZE }),
+          new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [new Tab()] }),
-          new TextRun({ text: `${initialsLabel}: /ini1/`, font: FONT, size: SMALL_SIZE, color: '666666' }),
+          new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [new Tab()] }),
-          new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE, color: '999999' }),
-          new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE, color: '999999' }),
-          new TextRun({ text: ' of ', font: FONT, size: SMALL_SIZE, color: '999999' }),
-          new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE, color: '999999' }),
+          new TextRun({ text: `${initialsLabel}: /ini1/  ________`, font: FONT, size: SMALL_SIZE }),
         ],
       }),
     ],
@@ -103,12 +103,10 @@ function scheduleTable(rows: [string, string][]): Table {
         children: [
           new TableCell({
             width: { size: 35, type: WidthType.PERCENTAGE },
-            shading: { fill: 'EEEEEE' },
             children: [new Paragraph({ children: [new TextRun({ text: 'Item', bold: true, font: FONT, size: 22 })] })],
           }),
           new TableCell({
             width: { size: 65, type: WidthType.PERCENTAGE },
-            shading: { fill: 'EEEEEE' },
             children: [new Paragraph({ children: [new TextRun({ text: 'Details', bold: true, font: FONT, size: 22 })] })],
           }),
         ],
@@ -133,7 +131,6 @@ function infoTable(rows: [string, string][]): Table {
         children: [
           new TableCell({
             width: { size: 35, type: WidthType.PERCENTAGE },
-            shading: { fill: 'F5F5F5' },
             children: [new Paragraph({ children: [new TextRun({ text: label, bold: true, font: FONT, size: 22 })] })],
           }),
           new TableCell({
@@ -336,16 +333,16 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           default: new Footer({
             children: [
               new Paragraph({
-                border: { top: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' } },
+                border: { top: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
                 spacing: { before: 100 },
                 tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
                 children: [
-                  new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE, color: '999999' }),
+                  new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE }),
                   new TextRun({ children: [new Tab()] }),
-                  new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE, color: '999999' }),
-                  new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE, color: '999999' }),
-                  new TextRun({ text: ' of ', font: FONT, size: SMALL_SIZE, color: '999999' }),
-                  new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE, color: '999999' }),
+                  new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE }),
+                  new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE }),
+                  new TextRun({ text: ' of ', font: FONT, size: SMALL_SIZE }),
+                  new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE }),
                 ],
               }),
             ],
