@@ -2343,26 +2343,29 @@ export default function DealDetailPage() {
                       if (messages[i].sender_role === 'admin') { lastAdminIdx = i; break }
                     }
                     return (
-                    <div ref={adminMessagesContainerRef} className="space-y-1.5 max-h-64 overflow-y-auto mb-2" style={{ scrollbarWidth: 'thin' }}>
+                    <div ref={adminMessagesContainerRef} className="space-y-2 max-h-72 overflow-y-auto mb-2 px-1" style={{ scrollbarWidth: 'thin' }}>
                       {messages.map((msg, idx) => {
-                        const isNew = hasUnreadMessages && msg.sender_role !== 'admin' && idx > lastAdminIdx
+                        const isOwn = msg.sender_role === 'admin'
+                        const isNew = hasUnreadMessages && !isOwn && idx > lastAdminIdx
                         return (
-                        <div key={msg.id} className="rounded px-2.5 py-1.5"
-                          style={{
-                            background: msg.sender_role === 'admin' ? '#0F2A18' : isNew ? 'rgba(239, 68, 68, 0.08)' : 'hsl(var(--muted)/0.5)',
-                            border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : isNew ? 'rgba(239, 68, 68, 0.3)' : 'hsl(var(--border)/0.5)'}`,
-                          }}>
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-[10px] font-semibold" style={{ color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0' }}>
-                              {msg.sender_role === 'admin' ? 'Firm Funds Agent' : (msg.sender_name || 'Agent')}
-                            </span>
-                            {isNew && (
-                              <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-red-600 text-white leading-none">New</span>
-                            )}
-                            {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
-                            <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
+                        <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                          <div className="max-w-[80%] rounded-xl px-3 py-2"
+                            style={{
+                              background: isOwn ? '#0F2A18' : isNew ? 'rgba(239, 68, 68, 0.08)' : 'hsl(var(--muted)/0.5)',
+                              border: `1px solid ${isOwn ? '#1E4A2C' : isNew ? 'rgba(239, 68, 68, 0.3)' : 'hsl(var(--border)/0.5)'}`,
+                            }}>
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-[10px] font-semibold" style={{ color: isOwn ? '#5FA873' : '#7B9FE0' }}>
+                                {isOwn ? 'You' : (msg.sender_name || 'Agent')}
+                              </span>
+                              {isNew && (
+                                <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-red-600 text-white leading-none">New</span>
+                              )}
+                              {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-[#2D3A5C] text-[#7B9FE0]">email</span>}
+                              <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
+                            </div>
+                            <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                           </div>
-                          <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                         </div>
                         )
                       })}
