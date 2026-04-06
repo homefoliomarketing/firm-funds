@@ -203,8 +203,23 @@ export default function AdminDashboard() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="relative h-8 w-8 text-muted-foreground hover:text-primary"
+                onClick={() => router.push('/admin/messages')}
+                title="Messages"
+              >
+                <MessageSquare size={16} />
+                {stats.unreadAgentMessages > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-600 text-white animate-pulse">
+                    {stats.unreadAgentMessages}
+                  </span>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-primary"
                 onClick={() => router.push('/admin/settings')}
+                title="Settings"
               >
                 <Settings size={16} />
               </Button>
@@ -226,7 +241,6 @@ export default function AdminDashboard() {
         {/* Quick Links */}
         <div className="flex flex-wrap gap-2 mb-6">
           {[
-            { label: 'Messages', icon: MessageSquare, path: '/admin/messages', badge: stats.unreadAgentMessages },
             { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
             { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
             { label: 'Payments', icon: DollarSign, path: '/admin/payments' },

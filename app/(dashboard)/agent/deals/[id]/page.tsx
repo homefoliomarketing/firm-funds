@@ -18,7 +18,7 @@ import {
   formatStatusLabel,
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
-import { sendAgentReply } from '@/lib/actions/notification-actions'
+import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
 import { AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -124,6 +124,21 @@ export default function AgentDealDetailPage() {
       }
     }
   }, [dealMessages.length])
+
+  // Auto-mark messages as read when agent views this deal page
+  useEffect(() => {
+    if (dealMessages.length > 0 && dealMessages.some(m => m.sender_role === 'admin')) {
+      const doMark = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const { data: profile } = await supabase.from('user_profiles').select('agent_id').eq('id', user.id).single()
+        if (profile?.agent_id) {
+          void markDealMessagesRead({ agentId: profile.agent_id, dealId })
+        }
+      }
+      doMark()
+    }
+  }, [dealMessages.length, dealId])
 
   async function loadDealData() {
     const { data: { user } } = await supabase.auth.getUser()
