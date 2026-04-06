@@ -186,18 +186,22 @@ export async function POST(request: Request) {
               .single()
 
             if (checklistItem) {
-              await supabase
+              const { error: checkErr } = await supabase
                 .from('underwriting_checklist')
                 .update({
                   is_checked: true,
-                  checked_by: 'system',
+                  checked_by: null,
                   checked_at: new Date().toISOString(),
                   linked_document_id: docRecord.id,
-                  notes: `Auto-completed: Signed document received from DocuSign (envelope ${envelopeId})`,
+                  notes: `Auto-completed by system: Signed document received from DocuSign`,
                 })
                 .eq('id', checklistItem.id)
 
-              console.log(`DocuSign webhook: linked ${docType} to checklist item ${checklistItem.id} and marked complete`)
+              if (checkErr) {
+                console.error(`DocuSign webhook: failed to update checklist item ${checklistItem.id}:`, checkErr.message)
+              } else {
+                console.log(`DocuSign webhook: linked ${docType} to checklist item ${checklistItem.id} and marked complete`)
+              }
             }
 
           } catch (docErr: any) {
