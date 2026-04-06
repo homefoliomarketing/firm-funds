@@ -2054,7 +2054,8 @@ export default function DealDetailPage() {
               ))}
             </div>
 
-            {/* RIGHT: INLINE VIEWER or DOCUMENTS */}
+            {/* RIGHT COLUMN: DOCUMENTS + MESSAGES */}
+            <div className="space-y-3">
             {viewingDoc ? (
               <div className="rounded-lg overflow-hidden flex flex-col bg-card border-2 border-primary sticky top-4"
                 style={{ minHeight: 500, maxHeight: 'calc(100vh - 120px)' }}>
@@ -2407,6 +2408,7 @@ export default function DealDetailPage() {
               )}
             </div>
           </div>
+          </div>{/* close RIGHT COLUMN wrapper */}
 
           </div>
           )}
