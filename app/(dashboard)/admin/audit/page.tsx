@@ -288,9 +288,9 @@ export default function AuditExplorerPage() {
         </div>
       </header>
 
-      <section aria-label="Audit log" className="max-w-7xl mx-auto px-4 py-4">
+      <section aria-label="Audit log" className="max-w-7xl mx-auto px-4 py-6">
         {/* Search + Filter Bar */}
-        <div className="rounded-lg p-4 mb-4 bg-card border border-border/50">
+        <div className="rounded-lg p-4 mb-4 bg-card border border-border/40 shadow-lg shadow-black/20">
           <div className="flex gap-2 mb-3">
             {/* Search */}
             <div className="flex-1 relative">
@@ -350,7 +350,7 @@ export default function AuditExplorerPage() {
 
           {/* Filter panel */}
           {showFilters && (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-border/50">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-border/40">
               <div>
                 <label className="block text-xs font-medium mb-1 text-muted-foreground">Severity</label>
                 <select
@@ -447,10 +447,10 @@ export default function AuditExplorerPage() {
         )}
 
         {/* Results Table */}
-        <div className="rounded-lg overflow-hidden bg-card border border-border/50">
+        <div className="rounded-lg overflow-hidden bg-card border border-border/40 shadow-lg shadow-black/20">
           {/* Table Header */}
           <div
-            className="grid gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider bg-muted/50 border-b border-border/50 text-muted-foreground"
+            className="grid gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider bg-muted/50 border-b border-border/40 text-muted-foreground"
             style={{ gridTemplateColumns: '150px 80px 1fr 180px 120px 40px' }}
           >
             <span>Timestamp</span>

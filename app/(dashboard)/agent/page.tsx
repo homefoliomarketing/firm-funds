@@ -258,9 +258,9 @@ export default function AgentDashboard() {
 
         {/* Deals List */}
         <section aria-label="Your deals">
-        <Card className="rounded-xl overflow-hidden border-border/50 shadow-lg shadow-black/20">
+        <Card className="rounded-xl overflow-hidden border-border/40 shadow-lg shadow-black/20">
           {/* Header with search */}
-          <div className="px-6 py-4 border-b border-border/50">
+          <div className="px-6 py-4 border-b border-border/40 bg-card/80">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <h3 className="text-lg font-bold text-foreground shrink-0">Your Deals</h3>
               {deals.length > 0 && (
@@ -378,8 +378,8 @@ export default function AgentDashboard() {
                             >
                               {formatStatusLabel(deal.status)}
                             </span>
-                            <p className="text-sm font-bold text-right hidden sm:block text-primary">{formatCurrency(deal.advance_amount)}</p>
-                            <ChevronRight size={16} className="text-muted-foreground/40" />
+                            <p className="text-sm font-bold text-right text-primary tabular-nums">{formatCurrency(deal.advance_amount)}</p>
+                            <ChevronRight size={16} className="text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
                           </div>
                         </div>
                       ))}

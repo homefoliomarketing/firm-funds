@@ -499,7 +499,7 @@ export default function AgentDealDetailPage() {
 
             {/* Deal Details */}
             <Card>
-              <CardHeader className="border-b border-border flex flex-row items-center justify-between py-4">
+              <CardHeader className="border-b border-border bg-card/80 flex flex-row items-center justify-between py-4">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <MapPin size={16} className="text-primary" />
                   Deal Details
@@ -666,7 +666,7 @@ export default function AgentDealDetailPage() {
           <div className="space-y-6">
             {/* Financial Summary */}
             <Card>
-              <CardHeader className="border-b border-border py-4">
+              <CardHeader className="border-b border-border bg-card/80 py-4">
                 <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
                   <DollarSign size={14} />Financial Summary
                 </CardTitle>
@@ -685,7 +685,7 @@ export default function AgentDealDetailPage() {
 
             {/* Timeline */}
             <Card>
-              <CardHeader className="border-b border-border py-4">
+              <CardHeader className="border-b border-border bg-card/80 py-4">
                 <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
                   <Clock size={14} />Deal Timeline
                 </CardTitle>

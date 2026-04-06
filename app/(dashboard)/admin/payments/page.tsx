@@ -211,7 +211,7 @@ export default function AdminPaymentsPage() {
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 className="text-lg font-bold text-white">Brokerage Payments</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-white">Brokerage Payments</h1>
                 <p className="text-xs text-muted-foreground">Track payments from partner brokerages</p>
               </div>
             </div>
@@ -319,7 +319,7 @@ export default function AdminPaymentsPage() {
               const isFullyPaid = summary.outstanding < 0.01 && summary.totalOwed > 0
 
               return (
-                <Card key={summary.brokerage.id} className="overflow-hidden">
+                <Card key={summary.brokerage.id} className="overflow-hidden shadow-lg shadow-black/20">
                   {/* Summary Row */}
                   <div
                     className="px-6 py-5 cursor-pointer hover:bg-muted/20 transition-colors"
@@ -371,7 +371,7 @@ export default function AdminPaymentsPage() {
 
                   {/* Expanded Details */}
                   {isExpanded && (
-                    <div className="px-6 pb-5 border-t border-border/50">
+                    <div className="px-6 pb-5 border-t border-border/40">
                       {/* Totals */}
                       <div className="grid grid-cols-3 gap-4 py-4 mb-4 border-b border-border/30">
                         <div>

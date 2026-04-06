@@ -416,17 +416,17 @@ export default function BrokerageDashboard() {
         </div>
       </header>
 
-      <main id="main-content" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main id="main-content" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Welcome */}
-        <section aria-label="Welcome" className="mb-4">
-          <h2 className="text-lg font-bold text-foreground">
+        <section aria-label="Welcome" className="mb-6">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">
             Welcome back, {profile?.full_name?.split(' ')[0]}
           </h2>
-          <p className="text-xs mt-0.5 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
+          <p className="text-sm mt-1 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
         </section>
 
         {/* Tabbed Content */}
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden border-border/40 shadow-lg shadow-black/20">
           <div className="flex overflow-x-auto border-b border-border/50" role="tablist" aria-label="Brokerage dashboard tabs">
             {(['deals', 'agents', 'referrals', 'payments', 'messages'] as const).map((tab) => {
               const tabLabels: Record<string, string> = { deals: `Deals (${deals.length})`, agents: `Agents (${agents.length})`, referrals: 'Referral Fees', payments: 'Payment Status', messages: 'Messages' }

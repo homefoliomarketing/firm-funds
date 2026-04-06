@@ -1135,20 +1135,20 @@ export default function DealDetailPage() {
         </div>
       )}
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* DEAL PIPELINE */}
-        <div className="mb-3">
-          <div className="flex justify-between mb-1">
-            <span className="text-xs font-semibold text-primary">Pipeline</span>
-            <span className="text-xs text-muted-foreground">{checklistPct}%</span>
+        <div className="mb-4">
+          <div className="flex justify-between mb-1.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-primary/80">Pipeline Progress</span>
+            <span className="text-xs font-semibold tabular-nums text-muted-foreground">{checklistPct}%</span>
           </div>
-          <div className="w-full rounded-full h-1.5 bg-border">
-            <div className="h-1.5 rounded-full transition-all bg-primary" style={{ width: `${checklistPct}%` }} />
+          <div className="w-full rounded-full h-2 bg-secondary">
+            <div className="h-2 rounded-full transition-all bg-primary shadow-sm shadow-primary/30" style={{ width: `${checklistPct}%` }} />
           </div>
         </div>
 
         {/* STICKY ACTION BAR */}
-        <div className="sticky top-0 z-20 mb-4 rounded-lg px-3 py-2 bg-card border border-border/50 shadow-sm">
+        <div className="sticky top-0 z-20 mb-5 rounded-xl px-4 py-3 bg-card/95 ff-header-blur border border-border/40 shadow-lg shadow-black/20">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               {statusBadgeClass(deal.status) && (

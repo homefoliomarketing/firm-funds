@@ -196,7 +196,7 @@ export default function AdminMessagesPage() {
       <div className="min-h-screen bg-background">
         <div className="bg-card/80 backdrop-blur-sm h-20" />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="rounded-xl p-8 bg-card border border-border/50">
+          <div className="rounded-xl p-8 bg-card border border-border/40">
             <Skeleton className="h-4 w-32 mb-4" />
             {[1, 2, 3].map(i => (
               <Skeleton key={i} className="h-16 rounded-lg mb-3" />
@@ -225,7 +225,7 @@ export default function AdminMessagesPage() {
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 className="text-lg font-bold text-white">Messages</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-white">Messages</h1>
                 <p className="text-xs text-muted-foreground">
                   {inbox.length} conversation{inbox.length !== 1 ? 's' : ''}
                   {needsReplyCount > 0 && <span className="text-primary"> · {needsReplyCount} awaiting reply</span>}
@@ -242,13 +242,13 @@ export default function AdminMessagesPage() {
 
       <main id="main-content" className="flex-1 overflow-hidden max-w-7xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
         {inbox.length === 0 ? (
-          <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full bg-card border border-border/50">
+          <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full bg-card border border-border/40">
             <Inbox className="mx-auto mb-4 text-muted-foreground/40" size={48} />
             <p className="text-lg font-semibold text-muted-foreground">No messages yet</p>
             <p className="text-sm mt-2 text-muted-foreground/70">Messages sent on deal pages will appear here.</p>
           </div>
         ) : (
-          <div className="rounded-xl overflow-hidden flex h-full bg-card border border-border/50">
+          <div className="rounded-xl overflow-hidden flex h-full bg-card border border-border/40">
 
             {/* LEFT PANEL */}
             {showList && (

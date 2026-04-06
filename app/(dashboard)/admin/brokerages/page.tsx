@@ -845,7 +845,7 @@ export default function BrokeragesPage() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Skeleton className="h-8 w-64 rounded-lg mb-2" />
           <Skeleton className="h-4 w-48 rounded mb-8" />
-          <div className="bg-card border border-border/50 rounded-xl p-6">
+          <div className="bg-card border border-border/40 rounded-xl p-6 shadow-lg shadow-black/20">
             {[1, 2, 3, 4, 5].map(i => (
               <div key={i} className="flex gap-4 mb-4">
                 <Skeleton className="h-4 flex-1 rounded" />
@@ -941,8 +941,8 @@ export default function BrokeragesPage() {
 
         {/* Create Brokerage Form */}
         {showCreateForm && (
-          <div className="mb-8 rounded-xl overflow-hidden bg-card border border-border/50">
-            <div className="px-6 py-5 border-b border-border/50">
+          <div className="mb-8 rounded-xl overflow-hidden bg-card border border-border/40 shadow-lg shadow-black/20">
+            <div className="px-6 py-5 border-b border-border/40 bg-card/80">
               <h3 className="text-lg font-bold text-foreground">Create New Brokerage</h3>
             </div>
             <form onSubmit={handleCreateSubmit} className="p-6 space-y-4">
@@ -1034,7 +1034,7 @@ export default function BrokeragesPage() {
 
         {/* Brokerage List */}
         {filteredBrokerages.length === 0 ? (
-          <div className="rounded-xl px-6 py-16 text-center bg-card border border-border/50">
+          <div className="rounded-xl px-6 py-16 text-center bg-card border border-border/40 shadow-lg shadow-black/20">
             <p className="text-base font-semibold text-muted-foreground">
               {searchQuery ? 'No brokerages match your search' : 'No brokerages yet'}
             </p>
@@ -1059,7 +1059,7 @@ export default function BrokeragesPage() {
               const actionCount = pendingKycInBrokerage + pendingBankingInBrokerage
 
               return (
-                <div key={brokerage.id} className={`rounded-xl overflow-hidden transition-all bg-card ${isExpanded ? 'border border-primary/50' : 'border border-border/50'}`}>
+                <div key={brokerage.id} className={`rounded-xl overflow-hidden transition-all bg-card shadow-lg shadow-black/20 ${isExpanded ? 'border border-primary/50' : 'border border-border/40'}`}>
                   {/* Brokerage Row (click to expand) */}
                   <div
                     className={`flex items-center gap-4 px-6 py-4 cursor-pointer transition-colors ${isExpanded ? 'bg-muted/30' : 'hover:bg-muted/20'}`}

@@ -305,7 +305,7 @@ export default function AgentMessagesPage() {
                       <button
                         key={item.deal_id}
                         onClick={() => selectDeal(item.deal_id)}
-                        className={`w-full text-left px-4 py-3.5 transition-colors border-b border-border/50 ${
+                        className={`w-full text-left px-4 py-3.5 transition-colors border-b border-border/40 ${
                           isSelected
                             ? 'bg-muted border-l-[3px] border-l-primary'
                             : 'border-l-[3px] border-l-transparent hover:bg-muted/50'

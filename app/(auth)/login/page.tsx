@@ -180,9 +180,10 @@ function LoginPageInner() {
         </div>
 
         {/* Login Card */}
-        <Card className="border-border/40 shadow-2xl shadow-black/50 bg-card/90 backdrop-blur-sm">
+        <Card className="border-border/40 shadow-2xl shadow-black/50 bg-card/90 backdrop-blur-sm overflow-hidden">
+          <div className="h-[2px] bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
           <CardContent className="p-7 sm:p-9">
-            <form onSubmit={handleLogin} className="space-y-5">
+            <form onSubmit={handleLogin} className="space-y-6">
               {error && (
                 <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
                   <AlertCircle className="h-4 w-4" />
@@ -253,7 +254,7 @@ function LoginPageInner() {
               <Button
                 type="submit"
                 disabled={loading}
-                className="w-full h-11 text-sm font-semibold uppercase tracking-wider"
+                className="w-full h-12 text-sm font-bold uppercase tracking-[0.15em] shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 transition-all"
                 size="lg"
               >
                 {loading ? (
