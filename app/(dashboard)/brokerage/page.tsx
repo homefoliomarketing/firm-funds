@@ -7,10 +7,10 @@ import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
-  MessageSquare, Inbox, Settings,
+  MessageSquare, Inbox, Settings, Bell,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
-import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage } from '@/lib/actions/notification-actions'
+import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -79,6 +79,7 @@ export default function BrokerageDashboard() {
   const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
   const [dealMessages, setDealMessages] = useState<any[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
@@ -116,6 +117,56 @@ export default function BrokerageDashboard() {
     }
     loadBrokerage()
   }, [])
+
+  // Poll for notification counts every 30 seconds
+  useEffect(() => {
+    if (!profile?.brokerage_id) return
+    const brokerageId = profile.brokerage_id
+
+    const loadCounts = async () => {
+      try {
+        const result = await getBrokerageNotificationCounts(brokerageId)
+        if (result.success && result.data) {
+          setUnreadNotifCount(result.data.unreadMessages)
+        }
+      } catch { /* silent */ }
+    }
+
+    loadCounts()
+    const interval = setInterval(loadCounts, 30000)
+    return () => clearInterval(interval)
+  }, [profile?.brokerage_id])
+
+  // Poll for new messages in selected thread every 5 seconds
+  const latestMsgRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedMsgDealId) return
+    // Track the latest message timestamp
+    if (dealMessages.length > 0) {
+      latestMsgRef.current = dealMessages[dealMessages.length - 1].created_at
+    }
+
+    const pollNewMessages = async () => {
+      if (!selectedMsgDealId || !latestMsgRef.current) return
+      try {
+        const result = await getNewMessages({ dealId: selectedMsgDealId, afterTimestamp: latestMsgRef.current })
+        if (result.success && result.data && result.data.length > 0) {
+          setDealMessages((prev: any[]) => {
+            const existingIds = new Set(prev.map((m: any) => m.id))
+            const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
+            if (newMsgs.length === 0) return prev
+            latestMsgRef.current = newMsgs[newMsgs.length - 1].created_at
+            return [...prev, ...newMsgs]
+          })
+          // Auto-mark as read when new messages arrive
+          markBrokerageMessagesRead(selectedMsgDealId)
+        }
+      } catch { /* silent */ }
+    }
+
+    const interval = setInterval(pollNewMessages, 5000)
+    return () => clearInterval(interval)
+  }, [selectedMsgDealId, dealMessages.length])
 
   const handleToggleFlag = async (agentId: string, currentFlag: boolean) => {
     const agentName = agents.find(a => a.id === agentId)
@@ -240,7 +291,7 @@ export default function BrokerageDashboard() {
     deals.filter(d => !['denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
     [deals, dealTradeRecords])
   const unansweredMessageCount = useMemo(() =>
-    brokerageInbox.filter((item: any) => item.total_message_count > 0 && item.latest_sender_role === 'admin').length,
+    brokerageInbox.reduce((sum: number, item: any) => sum + (item.unread_message_count || 0), 0),
     [brokerageInbox])
   const totalReferralFees = useMemo(() =>
     earnedDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [earnedDeals])
@@ -329,6 +380,18 @@ export default function BrokerageDashboard() {
             <div className="flex items-center gap-3">
               <span className="text-xs hidden sm:inline text-primary">{profile?.full_name}</span>
               <button
+                onClick={() => setActiveTab('messages')}
+                className="relative p-1.5 rounded-lg transition-colors text-white/50 hover:text-primary"
+                title="Messages"
+              >
+                <Bell size={16} />
+                {unreadNotifCount > 0 && (
+                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
+                    {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={() => router.push('/brokerage/settings')}
                 className="p-1.5 rounded-lg transition-colors text-white/50 hover:text-primary"
                 title="Settings"
@@ -358,7 +421,7 @@ export default function BrokerageDashboard() {
                 key={tab}
                 onClick={() => {
                   setActiveTab(tab)
-                  if (tab === 'messages' && brokerageInbox.length === 0 && profile?.brokerage_id) {
+                  if (tab === 'messages' && profile?.brokerage_id) {
                     getBrokerageInbox(profile.brokerage_id).then(r => {
                       if (r.success && r.data) setBrokerageInbox(r.data.inbox)
                     })
@@ -1018,6 +1081,7 @@ export default function BrokerageDashboard() {
                   ) : (
                     brokerageInbox.map((item: any) => {
                       const isSelected = item.deal_id === selectedMsgDealId
+                      const hasUnread = (item.unread_message_count || 0) > 0
                       return (
                         <button
                           key={item.deal_id}
@@ -1027,6 +1091,18 @@ export default function BrokerageDashboard() {
                             const result = await getDealMessages(item.deal_id)
                             if (result.success && result.data) setDealMessages(result.data)
                             setMessagesLoading(false)
+                            // Mark messages as read
+                            await markBrokerageMessagesRead(item.deal_id)
+                            // Update local unread count
+                            setBrokerageInbox((prev: any[]) =>
+                              prev.map((d: any) => d.deal_id === item.deal_id ? { ...d, unread_message_count: 0 } : d)
+                            )
+                            // Refresh notification count
+                            if (profile?.brokerage_id) {
+                              getBrokerageNotificationCounts(profile.brokerage_id).then(r => {
+                                if (r.success && r.data) setUnreadNotifCount(r.data.unreadMessages)
+                              })
+                            }
                           }}
                           className={`w-full text-left px-3 py-3 transition-colors border-b border-border/30 border-l-[3px] ${
                             isSelected
@@ -1034,7 +1110,12 @@ export default function BrokerageDashboard() {
                               : 'border-l-transparent hover:bg-muted/30'
                           }`}
                         >
-                          <p className="text-xs font-semibold truncate text-foreground">{item.property_address}</p>
+                          <div className="flex items-center gap-2">
+                            {hasUnread && (
+                              <span className="inline-block w-2 h-2 rounded-full bg-primary flex-shrink-0" />
+                            )}
+                            <p className="text-xs font-semibold truncate text-foreground">{item.property_address}</p>
+                          </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-muted-foreground">{item.agent_name}</span>
                             <span className="inline-flex px-1.5 py-0.5 text-[9px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
@@ -1043,7 +1124,10 @@ export default function BrokerageDashboard() {
                           </div>
                           {item.total_message_count > 0 && (
                             <p className="text-[10px] mt-1 truncate text-muted-foreground/50">
-                              {item.total_message_count} message{item.total_message_count !== 1 ? 's' : ''}
+                              {hasUnread
+                                ? `${item.unread_message_count} new message${item.unread_message_count !== 1 ? 's' : ''}`
+                                : `${item.total_message_count} message${item.total_message_count !== 1 ? 's' : ''}`
+                              }
                             </p>
                           )}
                         </button>

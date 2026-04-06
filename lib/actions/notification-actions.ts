@@ -237,7 +237,7 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
 // ============================================================================
 
 export async function getDealMessages(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -754,20 +754,43 @@ export async function getBrokerageInbox(brokerageId: string): Promise<ActionResu
     if (!deals || deals.length === 0) return { success: true, data: { inbox: [] } }
 
     const dealIds = deals.map(d => d.id)
-    const { data: messages } = await serviceClient
-      .from('deal_messages')
-      .select('deal_id, sender_role, sender_name, message, created_at')
-      .in('deal_id', dealIds)
-      .order('created_at', { ascending: false })
 
-    // Build message map — latest message per deal
-    const msgMap = new Map<string, { message: string; sender_role: string; sender_name: string | null; created_at: string; count: number }>()
+    // Fetch messages and read statuses in parallel
+    const [{ data: messages }, { data: readStatuses }] = await Promise.all([
+      serviceClient
+        .from('deal_messages')
+        .select('deal_id, sender_role, sender_name, message, created_at')
+        .in('deal_id', dealIds)
+        .order('created_at', { ascending: false }),
+      serviceClient
+        .from('brokerage_message_reads')
+        .select('deal_id, last_read_at')
+        .eq('brokerage_user_id', user.id),
+    ])
+
+    // Build read map
+    const readMap = new Map<string, string>()
+    if (readStatuses) {
+      for (const rs of readStatuses) {
+        readMap.set(rs.deal_id, rs.last_read_at)
+      }
+    }
+
+    // Build message map — latest message per deal + unread count
+    const msgMap = new Map<string, { message: string; sender_role: string; sender_name: string | null; created_at: string; count: number; unread: number }>()
     for (const msg of (messages || [])) {
       if (!msgMap.has(msg.deal_id)) {
-        msgMap.set(msg.deal_id, { message: msg.message, sender_role: msg.sender_role, sender_name: msg.sender_name, created_at: msg.created_at, count: 0 })
+        msgMap.set(msg.deal_id, { message: msg.message, sender_role: msg.sender_role, sender_name: msg.sender_name, created_at: msg.created_at, count: 0, unread: 0 })
       }
       const entry = msgMap.get(msg.deal_id)!
       entry.count++
+      // Count unread: admin messages after last read
+      if (msg.sender_role === 'admin') {
+        const lastRead = readMap.get(msg.deal_id)
+        if (!lastRead || new Date(msg.created_at) > new Date(lastRead)) {
+          entry.unread++
+        }
+      }
     }
 
     const inbox = deals.map(d => {
@@ -782,11 +805,107 @@ export async function getBrokerageInbox(brokerageId: string): Promise<ActionResu
         latest_message_at: msgEntry?.created_at || '',
         latest_sender_role: msgEntry?.sender_role || '',
         total_message_count: msgEntry?.count || 0,
+        unread_message_count: msgEntry?.unread || 0,
       }
     })
 
     return { success: true, data: { inbox } }
   } catch (err: any) {
     return { success: false, error: 'Failed to load inbox' }
+  }
+}
+
+// ============================================================================
+// BROKERAGE — Get unread notification counts for bell icon
+// ============================================================================
+
+export async function getBrokerageNotificationCounts(brokerageId: string): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.brokerage_id !== brokerageId) return { success: false, error: 'Access denied' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    // Get all active deals for this brokerage
+    const { data: deals } = await serviceClient
+      .from('deals')
+      .select('id')
+      .eq('brokerage_id', brokerageId)
+      .not('status', 'in', '("denied","cancelled")')
+
+    if (!deals || deals.length === 0) {
+      return { success: true, data: { unreadMessages: 0 } }
+    }
+
+    const dealIds = deals.map(d => d.id)
+
+    // Get read statuses
+    const { data: readStatuses } = await serviceClient
+      .from('brokerage_message_reads')
+      .select('deal_id, last_read_at')
+      .eq('brokerage_user_id', user.id)
+
+    const readMap = new Map<string, string>()
+    if (readStatuses) {
+      for (const rs of readStatuses) {
+        readMap.set(rs.deal_id, rs.last_read_at)
+      }
+    }
+
+    // Count unread admin messages across all deals
+    let unreadMessages = 0
+    for (const dealId of dealIds) {
+      const lastRead = readMap.get(dealId)
+      let query = serviceClient
+        .from('deal_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('deal_id', dealId)
+        .eq('sender_role', 'admin')
+
+      if (lastRead) {
+        query = query.gt('created_at', lastRead)
+      }
+
+      const { count } = await query
+      unreadMessages += (count || 0)
+    }
+
+    return {
+      success: true,
+      data: { unreadMessages },
+    }
+  } catch (err: any) {
+    console.error('getBrokerageNotificationCounts error:', err?.message)
+    return { success: false, error: 'Failed to load notification counts' }
+  }
+}
+
+// ============================================================================
+// BROKERAGE — Mark messages as read for a deal
+// ============================================================================
+
+export async function markBrokerageMessagesRead(dealId: string): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { error } = await serviceClient
+      .from('brokerage_message_reads')
+      .upsert(
+        {
+          brokerage_user_id: user.id,
+          deal_id: dealId,
+          last_read_at: new Date().toISOString(),
+        },
+        { onConflict: 'brokerage_user_id,deal_id' }
+      )
+
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to mark messages as read' }
   }
 }
