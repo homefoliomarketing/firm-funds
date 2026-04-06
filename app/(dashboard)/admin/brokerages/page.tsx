@@ -28,6 +28,7 @@ interface Agent {
   status: 'active' | 'suspended' | 'archived'
   flagged_by_brokerage: boolean
   outstanding_recovery: number
+  kyc_status: 'pending' | 'submitted' | 'verified' | 'rejected'
   // Banking fields
   bank_transit_number: string | null
   bank_institution_number: string | null
@@ -173,6 +174,7 @@ export default function BrokeragesPage() {
   const [bankingRejectingId, setBankingRejectingId] = useState<string | null>(null)
   const [bankingRejectReason, setBankingRejectReason] = useState('')
   const [preauthViewingAgentId, setPreauthViewingAgentId] = useState<string | null>(null)
+  const [preauthViewUrl, setPreauthViewUrl] = useState<string | null>(null)
   // User management state (password reset, email change)
   const [resettingPasswordForUserId, setResettingPasswordForUserId] = useState<string | null>(null)
   const [changingEmailForUserId, setChangingEmailForUserId] = useState<string | null>(null)
@@ -215,6 +217,17 @@ export default function BrokeragesPage() {
     }
     loadPage()
   }, [])
+
+  // Auto-expand the first brokerage with pending actions
+  useEffect(() => {
+    if (loading || brokerages.length === 0 || expandedId) return
+    const brokerageWithAction = brokerages.find(b =>
+      b.agents.some(a => a.kyc_status === 'submitted' || a.banking_approval_status === 'pending')
+    )
+    if (brokerageWithAction) {
+      setExpandedId(brokerageWithAction.id)
+    }
+  }, [loading, brokerages.length])
 
   async function loadBrokerages() {
     const { data, error } = await supabase
@@ -1040,6 +1053,10 @@ export default function BrokeragesPage() {
               const visibleAgents = showArchived ? allAgents : nonArchivedAgents
               const agentCount = visibleAgents.length
               const activeAgents = allAgents.filter(a => a.status === 'active').length
+              // Count agents needing attention in this brokerage
+              const pendingKycInBrokerage = allAgents.filter(a => a.kyc_status === 'submitted').length
+              const pendingBankingInBrokerage = allAgents.filter(a => a.banking_approval_status === 'pending').length
+              const actionCount = pendingKycInBrokerage + pendingBankingInBrokerage
 
               return (
                 <div key={brokerage.id} className={`rounded-xl overflow-hidden transition-all bg-card ${isExpanded ? 'border border-primary/50' : 'border border-border/50'}`}>
@@ -1063,6 +1080,12 @@ export default function BrokeragesPage() {
                         <p className="text-sm font-bold truncate text-foreground">{brokerage.name}</p>
                         {brokerage.brand && (
                           <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">{brokerage.brand}</span>
+                        )}
+                        {actionCount > 0 && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
+                            <AlertCircle size={10} />
+                            {actionCount} pending
+                          </span>
                         )}
                       </div>
                       <p className="text-xs mt-0.5 text-muted-foreground">{brokerage.email}</p>
@@ -1770,9 +1793,10 @@ export default function BrokeragesPage() {
                                       )
                                     }
 
+                                    const needsAction = agent.kyc_status === 'submitted' || agent.banking_approval_status === 'pending'
                                     return [
                                       <tr key={agent.id}
-                                        className={`transition-colors ${isAgentMatch ? 'bg-primary/5 border-l-2 border-l-primary' : 'hover:bg-muted/20'} ${idx < agentCount - 1 ? 'border-b border-border' : ''}`}
+                                        className={`transition-colors ${isAgentMatch ? 'bg-primary/5 border-l-2 border-l-primary' : needsAction ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : 'hover:bg-muted/20'} ${idx < agentCount - 1 ? 'border-b border-border' : ''}`}
                                       >
                                         <td className="px-4 py-3 text-sm font-medium text-foreground">
                                           <button
@@ -1789,6 +1813,16 @@ export default function BrokeragesPage() {
                                               Flagged
                                             </span>
                                           )}
+                                          {agent.kyc_status === 'submitted' && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                              <Shield size={9} /> ID needs review
+                                            </span>
+                                          )}
+                                          {agent.banking_approval_status === 'pending' && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                              <CreditCard size={9} /> Banking needs review
+                                            </span>
+                                          )}
                                         </td>
                                         <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email}</td>
                                         <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || '—'}</td>
@@ -1800,7 +1834,7 @@ export default function BrokeragesPage() {
                                         </td>
                                         <td className="px-4 py-3">
                                           {(() => {
-                                            const kycStatus = (agent as any).kyc_status || 'pending'
+                                            const kycStatus = agent.kyc_status || 'pending'
                                             const kycBadge = getKycBadgeStyle(kycStatus)
                                             return (
                                               <div className="flex flex-col gap-1">
@@ -2053,7 +2087,7 @@ export default function BrokeragesPage() {
                                                           try {
                                                             setPreauthViewingAgentId(agent.id)
                                                             const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path!, 300)
-                                                            if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                                                            if (data?.signedUrl) setPreauthViewUrl(data.signedUrl)
                                                           } catch { /* ignore */ }
                                                           setPreauthViewingAgentId(null)
                                                         }}
@@ -2425,6 +2459,21 @@ export default function BrokeragesPage() {
               <XCircle size={16} />
               Reject ID
             </button>
+          </div>
+        </div>
+      )}
+      {/* Pre-auth form inline viewer */}
+      {preauthViewUrl && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setPreauthViewUrl(null)}>
+          <div className="relative w-full max-w-3xl mx-4 bg-card rounded-xl overflow-hidden border border-border/50" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+              <h3 className="text-sm font-semibold text-foreground">Pre-Authorization Form</h3>
+              <button onClick={() => setPreauthViewUrl(null)} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <X size={16} /> Close
+              </button>
+            </div>
+            <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 52px)' }} />
           </div>
         </div>
       )}
