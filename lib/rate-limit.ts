@@ -28,7 +28,7 @@ function getRedis(): Redis | null {
 // Limiters — sliding window
 // ============================================================================
 
-/** Login: 5 attempts per 15 minutes per IP */
+/** Login: 20 attempts per 15 minutes per IP (relaxed for multi-account testing) */
 let loginLimiter: Ratelimit | null = null
 function getLoginLimiter(): Ratelimit | null {
   const r = getRedis()
@@ -36,7 +36,7 @@ function getLoginLimiter(): Ratelimit | null {
   if (!loginLimiter) {
     loginLimiter = new Ratelimit({
       redis: r,
-      limiter: Ratelimit.slidingWindow(5, '15 m'),
+      limiter: Ratelimit.slidingWindow(20, '15 m'),
       prefix: 'rl:login',
     })
   }

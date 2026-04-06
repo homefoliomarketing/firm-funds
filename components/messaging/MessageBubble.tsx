@@ -43,7 +43,7 @@ export default function MessageBubble({ msg, viewerRole }: MessageBubbleProps) {
         {/* Sender info */}
         <div className="flex items-center gap-2 mb-1">
           <span className="text-[11px] font-semibold" style={{ color: style.nameColor }}>
-            {msg.sender_name || style.label}
+            {msg.sender_role === 'admin' ? 'Firm Funds Agent' : (msg.sender_name || style.label)}
           </span>
           {msg.is_email_reply && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2D3A5C] text-[#7B9FE0]">
