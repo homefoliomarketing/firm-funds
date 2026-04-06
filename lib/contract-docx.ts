@@ -9,7 +9,6 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
-  HeadingLevel,
   Header,
   Footer,
   PageNumber,
@@ -29,9 +28,8 @@ const SMALL_SIZE = 16 // 8pt
 
 function heading2(text: string): Paragraph {
   return new Paragraph({
-    heading: HeadingLevel.HEADING_2,
     spacing: { before: 360, after: 120 },
-    children: [new TextRun({ text, bold: true, font: FONT, size: 28 })],
+    children: [new TextRun({ text, bold: true, font: FONT, size: 28, color: '000000' })],
   })
 }
 
@@ -72,22 +70,30 @@ function makeHeader(title: string): Header {
 function makeFooter(initialsLabel: string): Footer {
   return new Footer({
     children: [
+      // Initials line — right-aligned, sits above the page info line
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        spacing: { before: 200, after: 80 },
+        children: [
+          new TextRun({ text: `${initialsLabel}:  `, font: FONT, size: 20 }),
+          new TextRun({ text: '/ini1/', font: FONT, size: 20 }),
+          new TextRun({ text: '  __________', font: FONT, size: 20 }),
+        ],
+      }),
+      // Page number + confidential line
       new Paragraph({
         border: { top: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
-        spacing: { before: 100 },
+        spacing: { before: 60 },
         tabStops: [
-          { type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 },
           { type: TabStopType.RIGHT, position: TabStopPosition.MAX },
         ],
         children: [
+          new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE }),
+          new TextRun({ children: [new Tab()] }),
           new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE }),
           new TextRun({ text: ' of ', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE }),
-          new TextRun({ children: [new Tab()] }),
-          new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE }),
-          new TextRun({ children: [new Tab()] }),
-          new TextRun({ text: `${initialsLabel}: /ini1/  ________`, font: FONT, size: SMALL_SIZE }),
         ],
       }),
     ],
@@ -154,7 +160,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
     sections: [
       {
         properties: {
-          page: { margin: { top: 1000, bottom: 1200, left: 1000, right: 1000 } },
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Commission Purchase Agreement') },
         footers: { default: makeFooter('Seller Initials') },
@@ -163,7 +169,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 40 },
-            children: [new TextRun({ text: 'COMMISSION PURCHASE AGREEMENT', bold: true, font: FONT, size: 36 })],
+            children: [new TextRun({ text: 'COMMISSION PURCHASE AGREEMENT', bold: true, font: FONT, size: 36, color: '000000' })],
           }),
           new Paragraph({
             alignment: AlignmentType.CENTER,
@@ -294,7 +300,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
       // Schedule A — new section (new page)
       {
         properties: {
-          page: { margin: { top: 1000, bottom: 1200, left: 1000, right: 1000 } },
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Commission Purchase Agreement — Schedule "A"') },
         footers: { default: makeFooter('Seller Initials') },
@@ -302,7 +308,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 300 },
-            children: [new TextRun({ text: 'SCHEDULE "A" — TRANSACTION DETAILS', bold: true, font: FONT, size: 28 })],
+            children: [new TextRun({ text: 'SCHEDULE "A" — TRANSACTION DETAILS', bold: true, font: FONT, size: 28, color: '000000' })],
           }),
           scheduleTable([
             ['Property Address', r('{{PROPERTY_ADDRESS}}')],
@@ -326,7 +332,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
       // Signature Page — new section (new page)
       {
         properties: {
-          page: { margin: { top: 1000, bottom: 1200, left: 1000, right: 1000 } },
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Commission Purchase Agreement — Signature Page') },
         footers: {
@@ -352,7 +358,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 300 },
-            children: [new TextRun({ text: 'SIGNATURE PAGE', bold: true, font: FONT, size: 28 })],
+            children: [new TextRun({ text: 'SIGNATURE PAGE', bold: true, font: FONT, size: 28, color: '000000' })],
           }),
           body('IN WITNESS WHEREOF the Parties have executed this Agreement as of the date first written above.'),
           emptyLine(),
@@ -387,7 +393,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
     sections: [
       {
         properties: {
-          page: { margin: { top: 1000, bottom: 1200, left: 1000, right: 1000 } },
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
         headers: { default: makeHeader('Irrevocable Direction to Pay') },
         footers: { default: makeFooter('Agent Initials') },
@@ -396,7 +402,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 40 },
-            children: [new TextRun({ text: 'IRREVOCABLE DIRECTION TO PAY', bold: true, font: FONT, size: 36 })],
+            children: [new TextRun({ text: 'IRREVOCABLE DIRECTION TO PAY', bold: true, font: FONT, size: 36, color: '000000' })],
           }),
           new Paragraph({
             alignment: AlignmentType.CENTER,
