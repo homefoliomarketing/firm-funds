@@ -1,4 +1,15 @@
-# Firm Funds — Session 15 Handoff Document
+# ⚠️ THIS FILE IS SUPERSEDED
+
+**As of Session 16 (2026-04-05), project knowledge has been moved to:**
+- **`CLAUDE.md`** — Permanent project rules (auto-loaded every session)
+- **Memory system** — Accumulated knowledge at `~/.claude/projects/.../memory/` (auto-indexed)
+- **Handoff prompts** — Short session deltas only (~20 lines)
+
+This file is kept for historical reference only. Do not maintain or update it.
+
+---
+
+# Firm Funds — Session 15 Handoff Document (ARCHIVED)
 
 **Date:** April 5, 2026
 **Owner:** Bud (homefoliomarketing@gmail.com)
