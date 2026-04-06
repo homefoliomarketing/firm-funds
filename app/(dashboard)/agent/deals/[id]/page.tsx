@@ -347,15 +347,15 @@ export default function AgentDealDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-card border-b border-border">
+      <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-14 w-auto" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
               <div className="w-px h-6 bg-border" />
               <button
                 onClick={() => router.push('/agent')}
-                className="flex items-center gap-1.5 text-sm transition-colors text-muted-foreground hover:text-primary"
+                className="flex items-center gap-1.5 text-sm transition-colors text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft size={16} />
                 <span className="hidden sm:inline">Back</span>
@@ -430,7 +430,7 @@ export default function AgentDealDetailPage() {
         {/* Deal Pipeline */}
         <Card className="mb-6">
           <CardContent className="p-6">
-            <h3 className="text-xs font-bold uppercase tracking-wider mb-4 text-primary">Deal Progress</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider mb-4 text-muted-foreground/70">Deal Progress</h3>
             <div className="flex items-center gap-1.5">
               {['under_review', 'approved', 'funded', 'completed'].map((status, index) => {
                 const isActive = status === deal.status
@@ -440,7 +440,7 @@ export default function AgentDealDetailPage() {
                 const labelColor = isDenied ? 'var(--action-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'hsl(var(--muted-foreground))'
                 return (
                   <div key={status} className="flex-1">
-                    <div className="h-2 rounded-full" style={{ background: barColor }} />
+                    <div className="h-1.5 rounded-full" style={{ background: barColor }} />
                     <p className={`text-xs mt-1.5 text-center ${isActive ? 'font-bold' : isPast ? 'font-medium' : ''}`} style={{ color: labelColor }}>
                       {formatStatusLabel(status)}
                     </p>
@@ -462,7 +462,9 @@ export default function AgentDealDetailPage() {
             )}
             {['under_review', 'approved'].includes(deal.status) && (
               <div className="mt-4 flex justify-end">
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={async () => {
                     const msg = deal.status === 'under_review'
                       ? 'Withdraw this advance request? It will be permanently removed.'
@@ -483,11 +485,11 @@ export default function AgentDealDetailPage() {
                     setCancelling(false)
                   }}
                   disabled={cancelling}
-                  className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 text-destructive border border-destructive/30 bg-destructive/10 hover:bg-destructive/20"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
                 >
                   <X size={14} />
                   {cancelling ? (deal.status === 'under_review' ? 'Withdrawing...' : 'Cancelling...') : (deal.status === 'under_review' ? 'Withdraw Request' : 'Cancel This Advance')}
-                </button>
+                </Button>
               </div>
             )}
           </CardContent>
@@ -617,7 +619,7 @@ export default function AgentDealDetailPage() {
                         {DOCUMENT_TYPES.map(dt => (<option key={dt.value} value={dt.value}>{dt.label}</option>))}
                       </select>
                     </div>
-                    <label className="inline-flex items-center gap-2 text-primary-foreground bg-primary px-4 py-2 rounded-lg font-medium text-sm cursor-pointer transition-colors hover:bg-primary/90">
+                    <label className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium text-sm cursor-pointer transition-colors hover:bg-primary/90">
                       <Upload size={16} />{uploading ? 'Uploading...' : 'Choose Files'}
                       <input type="file" multiple onChange={handleFileUpload} disabled={uploading} className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.xls,.xlsx,.csv,.txt" />
                     </label>
@@ -676,7 +678,7 @@ export default function AgentDealDetailPage() {
                 <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</span><span className="font-medium text-destructive">-{formatCurrency(deal.gross_commission - deal.net_commission)}</span></div>
                 <div className="flex justify-between pt-2 border-t border-border"><span className="font-medium text-foreground">Your Net Commission</span><span className="font-semibold text-foreground">{formatCurrency(deal.net_commission)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Discount Fee</span><span className="font-medium text-destructive">-{formatCurrency(deal.discount_fee)}</span></div>
-                <div className="flex justify-between items-center rounded-xl px-4 py-3 -mx-1 mt-2 bg-primary/10 border border-primary/30">
+                <div className="flex justify-between items-center rounded-xl px-4 py-3 -mx-1 mt-2 bg-primary/8 border border-primary/20 shadow-sm shadow-primary/5">
                   <span className="font-bold text-primary">Advance Amount</span>
                   <span className="font-bold text-lg text-primary">{formatCurrency(deal.advance_amount)}</span>
                 </div>
@@ -771,53 +773,57 @@ export default function AgentDealDetailPage() {
             )}
 
             {/* MESSAGES */}
-            <div id="messages" className="rounded-xl p-4 bg-muted/50 border border-border">
-              <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-primary">Messages</h4>
-              {dealMessages.length > 0 ? (
-                <div ref={messagesContainerRef} className="space-y-2 max-h-56 overflow-y-auto mb-3 px-1" style={{ scrollbarWidth: 'thin' }}>
-                  {dealMessages.map(msg => {
-                    const isOwn = msg.sender_role === 'agent'
-                    return (
-                    <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                      <div className="max-w-[80%] rounded-xl px-3 py-2" style={{
-                        background: isOwn ? 'hsl(var(--card))' : 'var(--status-green-muted)',
-                        border: `1px solid ${isOwn ? 'hsl(var(--border))' : 'var(--status-green-border)'}`,
-                      }}>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-[10px] font-semibold" style={{ color: isOwn ? 'var(--status-blue)' : 'var(--status-green)' }}>
-                            {isOwn ? 'You' : 'Firm Funds Agent'}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground/60">
-                            {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </span>
+            <div id="messages" className="rounded-xl overflow-hidden bg-card border border-border/40">
+              <div className="px-4 py-3 border-b border-border/40">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Messages</h4>
+              </div>
+              <div className="p-4">
+                {dealMessages.length > 0 ? (
+                  <div ref={messagesContainerRef} className="space-y-2 max-h-56 overflow-y-auto mb-3 px-1" style={{ scrollbarWidth: 'thin' }}>
+                    {dealMessages.map(msg => {
+                      const isOwn = msg.sender_role === 'agent'
+                      return (
+                      <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                        <div className="max-w-[80%] rounded-xl px-3 py-2" style={{
+                          background: isOwn ? 'hsl(var(--card))' : 'var(--status-green-muted)',
+                          border: `1px solid ${isOwn ? 'hsl(var(--border))' : 'var(--status-green-border)'}`,
+                        }}>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] font-semibold" style={{ color: isOwn ? 'var(--status-blue)' : 'var(--status-green)' }}>
+                              {isOwn ? 'You' : 'Firm Funds Agent'}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {new Date(msg.created_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                         </div>
-                        <p className="text-xs whitespace-pre-wrap text-foreground">{msg.message}</p>
                       </div>
-                    </div>
-                    )
-                  })}
-                  <div ref={messagesEndRef} />
+                      )
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+                ) : (
+                  <p className="text-xs mb-3 text-muted-foreground/60">No messages yet. Send a message to the Firm Funds team below.</p>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder={dealMessages.length > 0 ? 'Type a reply...' : 'Type a message...'}
+                    className="flex-1 text-xs"
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply() } }}
+                  />
+                  <Button
+                    size="sm"
+                    disabled={replySending || !replyText.trim()}
+                    onClick={handleSendReply}
+                  >
+                    <Send size={12} />
+                    {replySending ? '...' : 'Send'}
+                  </Button>
                 </div>
-              ) : (
-                <p className="text-xs mb-3 text-muted-foreground/60">No messages yet. Send a message to the Firm Funds team below.</p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder={dealMessages.length > 0 ? 'Type a reply...' : 'Type a message...'}
-                  className="flex-1 px-3 py-2 rounded border text-xs focus:outline-none bg-background border-input text-foreground focus:ring-2 focus:ring-primary/25 focus:border-primary"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply() } }}
-                />
-                <button
-                  onClick={handleSendReply}
-                  disabled={replySending || !replyText.trim()}
-                  className="px-3 py-2 rounded text-xs font-medium text-primary-foreground bg-primary disabled:opacity-50 flex items-center gap-1 hover:bg-primary/90 transition-colors"
-                >
-                  <Send size={12} />
-                  {replySending ? '...' : 'Send'}
-                </button>
               </div>
             </div>
 

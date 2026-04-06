@@ -1080,15 +1080,15 @@ export default function DealDetailPage() {
     <div className="min-h-screen bg-background">
       <div>
       {/* HEADER */}
-      <header className="bg-card/80 backdrop-blur-sm">
+      <header className="bg-card/80 backdrop-blur-sm border-b border-border/50 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
-              <div className="w-px h-8 bg-white/15" />
+              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <Separator orientation="vertical" className="h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors text-sm font-medium text-white hover:bg-white/10"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 Back
@@ -1097,7 +1097,7 @@ export default function DealDetailPage() {
             <SignOutModal onConfirm={handleLogout} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">{deal.property_address}</h1>
+            <h1 className="text-lg font-bold text-foreground">{deal.property_address}</h1>
           </div>
         </div>
       </header>

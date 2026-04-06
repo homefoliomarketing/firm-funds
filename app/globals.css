@@ -376,6 +376,54 @@
   outline-offset: 2px;
 }
 
+/* ---- Premium table refinements ---- */
+[data-slot="table-head"] {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+[data-slot="table-row"]:hover [data-slot="table-cell"]:first-child {
+  color: var(--primary);
+}
+
+[data-slot="table-cell"] {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+/* ---- Premium card refinements ---- */
+[data-slot="card"] {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+[data-slot="card-header"] {
+  padding-bottom: 0.75rem;
+}
+
+/* ---- Premium input refinements ---- */
+input[type="date"],
+input[type="number"],
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(95, 168, 115, 0.1);
+}
+
 /* ---- Scrollbar styling (premium touch) ---- */
 ::-webkit-scrollbar {
   width: 6px;
@@ -385,9 +433,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
 }

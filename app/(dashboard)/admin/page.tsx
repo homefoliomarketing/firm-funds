@@ -571,9 +571,9 @@ export default function AdminDashboard() {
             return (
               <Button
                 key={tab.label}
-                variant={isActive ? 'default' : 'outline'}
+                variant={isActive ? 'default' : 'ghost'}
                 size="sm"
-                className={`gap-1.5 text-xs ${!isActive ? 'border-border/50 text-muted-foreground hover:text-foreground' : ''}`}
+                className={`gap-1.5 text-xs ${isActive ? 'bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground'}`}
                 onClick={() => { setStatusFilter(tab.value); setCurrentPage(1) }}
               >
                 {tab.label}
@@ -655,7 +655,7 @@ export default function AdminDashboard() {
                         className="cursor-pointer border-border/30 hover:bg-white/[0.03] transition-colors group"
                         onClick={() => router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`)}
                       >
-                        <TableCell className="text-sm font-medium">
+                        <TableCell className="text-[13px] font-semibold group-hover:text-primary transition-colors">
                           <span className="flex items-center gap-1.5">
                             {deal.property_address}
                             {stats.dealsWithUnreadMessages.includes(deal.id) && (
@@ -674,7 +674,7 @@ export default function AdminDashboard() {
                           </span>
                         </TableCell>
                         <TableCell className="text-sm font-medium">{formatCurrency(deal.gross_commission)}</TableCell>
-                        <TableCell className={`text-sm font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-emerald-400'}`}>
+                        <TableCell className={`text-sm font-bold tabular-nums ${['denied', 'cancelled'].includes(deal.status) ? 'text-status-red' : 'text-primary'}`}>
                           {formatCurrency(deal.advance_amount)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">

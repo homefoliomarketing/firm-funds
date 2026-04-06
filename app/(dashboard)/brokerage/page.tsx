@@ -7,7 +7,7 @@ import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
-  MessageSquare, Inbox, Settings, Bell,
+  MessageSquare, Inbox, Settings, Bell, CheckCircle2,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
@@ -18,7 +18,7 @@ import type { MessageData } from '@/components/messaging/MessageBubble'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 interface Deal {
@@ -419,11 +419,33 @@ export default function BrokerageDashboard() {
       <main id="main-content" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Welcome */}
         <section aria-label="Welcome" className="mb-6">
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Welcome back, {profile?.full_name?.split(' ')[0]}
-          </h2>
+          </h1>
           <p className="text-sm mt-1 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
         </section>
+
+        {/* KPI Summary */}
+        {deals.length > 0 && (
+          <section aria-label="Key metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {[
+              { label: 'Total Deals', value: deals.length, icon: FileText, accent: 'text-primary' },
+              { label: 'Active', value: deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length, icon: TrendingUp, accent: 'text-status-blue' },
+              { label: 'Referral Fees Earned', value: formatCurrency(earnedDeals.reduce((s, d) => s + d.brokerage_referral_fee, 0)), icon: DollarSign, accent: 'text-primary' },
+              { label: 'Missing Trade Records', value: dealsMissingTradeRecord, icon: AlertTriangle, accent: dealsMissingTradeRecord > 0 ? 'text-status-red' : 'text-status-teal' },
+            ].map(stat => (
+              <Card key={stat.label} className="border-border/40 bg-card/60">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{stat.label}</span>
+                    <stat.icon size={15} className={`${stat.accent} opacity-60`} aria-hidden="true" />
+                  </div>
+                  <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{stat.value}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+        )}
 
         {/* Tabbed Content */}
         <Card className="overflow-hidden border-border/40 shadow-lg shadow-black/20">
@@ -445,10 +467,10 @@ export default function BrokerageDashboard() {
                       })
                     }
                   }}
-                  className={`px-4 sm:px-6 py-3.5 text-sm font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 border-b-2 -mb-px ${
+                  className={`px-4 sm:px-5 py-3 text-[13px] font-medium transition-all whitespace-nowrap inline-flex items-center gap-1.5 border-b-2 -mb-px ${
                     activeTab === tab
                       ? 'text-primary border-primary'
-                      : 'text-muted-foreground border-transparent hover:text-foreground/80'
+                      : 'text-muted-foreground/70 border-transparent hover:text-foreground hover:border-border'
                   }`}
                 >
                   {tabLabels[tab]}
@@ -488,10 +510,12 @@ export default function BrokerageDashboard() {
           {activeTab === 'deals' && (
             <section role="tabpanel" id="tabpanel-deals" aria-labelledby="tab-deals">
               {deals.length === 0 ? (
-                <div className="px-6 py-16 text-center">
-                  <FileText className="mx-auto mb-4 text-muted-foreground/30" size={40} />
-                  <p className="text-base font-semibold text-muted-foreground">No deals yet</p>
-                  <p className="text-sm mt-1 text-muted-foreground/70">Deals will appear here when your agents request commission advances.</p>
+                <div className="px-6 py-20 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-secondary/80 flex items-center justify-center mx-auto mb-5">
+                    <FileText className="text-muted-foreground/50" size={28} />
+                  </div>
+                  <p className="text-base font-semibold text-foreground mb-1">No deals yet</p>
+                  <p className="text-sm text-muted-foreground max-w-xs mx-auto">Deals will appear here when your agents request commission advances.</p>
                 </div>
               ) : (
                 <div>
@@ -503,18 +527,18 @@ export default function BrokerageDashboard() {
                   })().map((deal, i) => (
                     <div key={deal.id}>
                       <div
-                        className="px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-colors hover:bg-muted/30 border-b border-border/30"
+                        className="group px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-all duration-150 hover:bg-white/[0.03] border-b border-border/20"
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
-                              <span className="inline-flex w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Trade record needed" />
+                              <span className="inline-flex w-2 h-2 rounded-full bg-red-500 flex-shrink-0 animate-pulse" title="Trade record needed" />
                             )}
-                            <p className="text-sm font-medium truncate text-foreground">{deal.property_address}</p>
+                            <p className="text-[13px] font-semibold truncate text-foreground group-hover:text-primary transition-colors">{deal.property_address}</p>
                           </div>
-                          <p className="text-xs mt-1 text-muted-foreground">
-                            Agent: {deal.agent?.first_name} {deal.agent?.last_name} | Submitted {formatDate(deal.created_at)}
+                          <p className="text-xs mt-1.5 text-muted-foreground/70">
+                            {deal.agent?.first_name} {deal.agent?.last_name} <span className="text-muted-foreground/30 mx-1" aria-hidden="true">|</span> {formatDate(deal.created_at)}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
@@ -641,9 +665,9 @@ export default function BrokerageDashboard() {
                     const totalPages = Math.ceil(sortedDeals.length / DEALS_PER_PAGE)
                     const page = Math.min(dealsPage, totalPages)
                     return (
-                      <nav aria-label="Deal list pagination" className="px-4 sm:px-6 py-4 flex items-center justify-between border-t border-border/50">
-                        <p className="text-xs text-muted-foreground">
-                          Showing {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, sortedDeals.length)} of {sortedDeals.length}
+                      <nav aria-label="Deal list pagination" className="px-4 sm:px-6 py-3 flex items-center justify-between border-t border-border/30 bg-card/50">
+                        <p className="text-xs text-muted-foreground/70 tabular-nums">
+                          {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, sortedDeals.length)} of {sortedDeals.length}
                         </p>
                         <div className="flex items-center gap-1">
                           <Button
@@ -682,22 +706,24 @@ export default function BrokerageDashboard() {
           {activeTab === 'agents' && (
             <section role="tabpanel" id="tabpanel-agents" aria-labelledby="tab-agents">
               {agents.length === 0 ? (
-                <div className="px-6 py-16 text-center">
-                  <Users className="mx-auto mb-4 text-muted-foreground/30" size={40} />
-                  <p className="text-base font-semibold text-muted-foreground">No agents registered</p>
-                  <p className="text-sm mt-1 text-muted-foreground/70">Agents will appear here once they are added to the system.</p>
+                <div className="px-6 py-20 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-secondary/80 flex items-center justify-center mx-auto mb-5">
+                    <Users className="text-muted-foreground/50" size={28} />
+                  </div>
+                  <p className="text-base font-semibold text-foreground mb-1">No agents registered</p>
+                  <p className="text-sm text-muted-foreground max-w-xs mx-auto">Agents will appear here once they are added to the system.</p>
                 </div>
               ) : (
                 <div>
                   {agents.map((agent, i) => (
                     <div
                       key={agent.id}
-                      className="px-4 sm:px-6 py-4 flex items-center justify-between transition-colors hover:bg-muted/20 border-b border-border/30 last:border-0"
+                      className="px-4 sm:px-6 py-4 flex items-center justify-between transition-all duration-150 hover:bg-white/[0.03] border-b border-border/20 last:border-0"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate text-foreground">{agent.first_name} {agent.last_name}</p>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className="text-xs truncate text-muted-foreground">{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
+                        <p className="text-[13px] font-semibold truncate text-foreground">{agent.first_name} {agent.last_name}</p>
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <span className="text-xs truncate text-muted-foreground/70">{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
                           {agent.kyc_status === 'verified' ? (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
                               <Shield size={9} /> KYC
@@ -758,32 +784,30 @@ export default function BrokerageDashboard() {
               {/* Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" aria-label="Referral fee summary">
                 <div
-                  className="rounded-lg px-4 py-3 cursor-pointer hover:opacity-80 transition-opacity bg-green-950/40 border border-green-800"
+                  className={`rounded-xl px-4 py-3 cursor-pointer transition-all bg-status-green-muted/60 border ${referralFilter === 'earned' ? 'border-status-green ring-1 ring-status-green/20' : 'border-status-green-border/60 hover:border-status-green-border'}`}
                   onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wider text-green-400/70">Total Earned</p>
-                  <p className="text-xl font-black mt-1 text-green-400">{formatCurrency(totalReferralFees)}</p>
-                  <p className="text-xs text-green-400/60">{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
-                  {referralFilter === 'earned' && <p className="text-xs mt-1 font-semibold text-green-400">Show All</p>}
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-status-green/70">Total Earned</p>
+                  <p className="text-xl font-bold mt-1 text-status-green tabular-nums">{formatCurrency(totalReferralFees)}</p>
+                  <p className="text-xs text-status-green/50">{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
                 </div>
                 <div
-                  className="rounded-lg px-4 py-3 cursor-pointer hover:opacity-80 transition-opacity bg-yellow-950/40 border border-yellow-800"
+                  className={`rounded-xl px-4 py-3 cursor-pointer transition-all bg-status-amber-muted/60 border ${referralFilter === 'pending' ? 'border-status-amber ring-1 ring-status-amber/20' : 'border-status-amber-border/60 hover:border-status-amber-border'}`}
                   onClick={() => setReferralFilter(referralFilter === 'pending' ? 'all' : 'pending')}
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wider text-yellow-400/70">Pending</p>
-                  <p className="text-xl font-black mt-1 text-yellow-400">{formatCurrency(pendingReferralFees)}</p>
-                  <p className="text-xs text-yellow-400/60">{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
-                  {referralFilter === 'pending' && <p className="text-xs mt-1 font-semibold text-yellow-400">Show All</p>}
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-status-amber/70">Pending</p>
+                  <p className="text-xl font-bold mt-1 text-status-amber tabular-nums">{formatCurrency(pendingReferralFees)}</p>
+                  <p className="text-xs text-status-amber/50">{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
                 </div>
-                <div className="rounded-lg px-4 py-3 bg-blue-950/40 border border-blue-800">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-blue-400/70">Avg Fee / Deal</p>
-                  <p className="text-xl font-black mt-1 text-blue-400">{formatCurrency(avgFeePerDeal)}</p>
-                  <p className="text-xs text-blue-400/60">across funded deals</p>
+                <div className="rounded-xl px-4 py-3 bg-status-blue-muted/60 border border-status-blue-border/60">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-status-blue/70">Avg Fee / Deal</p>
+                  <p className="text-xl font-bold mt-1 text-status-blue tabular-nums">{formatCurrency(avgFeePerDeal)}</p>
+                  <p className="text-xs text-status-blue/50">across funded deals</p>
                 </div>
-                <div className="rounded-lg px-4 py-3 bg-card border border-border/50">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Combined Total</p>
-                  <p className="text-xl font-black mt-1 text-primary">{formatCurrency(totalReferralFees + pendingReferralFees)}</p>
-                  <p className="text-xs text-muted-foreground/60">earned + pending</p>
+                <div className="rounded-xl px-4 py-3 bg-card/60 border border-border/40">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">Combined Total</p>
+                  <p className="text-xl font-bold mt-1 text-primary tabular-nums">{formatCurrency(totalReferralFees + pendingReferralFees)}</p>
+                  <p className="text-xs text-muted-foreground/50">earned + pending</p>
                 </div>
               </div>
 

@@ -312,10 +312,10 @@ export default function NewDealPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-card border-b border-border">
+      <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border/50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4 py-5">
-            <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
+          <div className="flex items-center gap-4 py-4">
+            <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
             <div className="w-px h-10 bg-border" />
             <button
               onClick={() => router.push('/agent')}
@@ -337,7 +337,7 @@ export default function NewDealPage() {
       <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Draft restored banner */}
         {draftRestored && (
-          <div className="mb-4 px-4 py-3 rounded-xl flex items-center justify-between bg-status-blue-muted border border-status-blue-border">
+          <div className="mb-4 px-4 py-3 rounded-lg flex items-center justify-between bg-status-blue-muted/40 border border-status-blue-border/40">
             <div className="flex items-center gap-2">
               <Save size={14} className="text-status-blue" />
               <span className="text-xs font-medium text-status-blue">Draft restored from your last session</span>
@@ -542,9 +542,9 @@ export default function NewDealPage() {
                     <span className="text-muted-foreground">Discount Fee ($0.75/$1,000/day × {preview.daysUntilClosing} days)</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.discountFee)}</span>
                   </div>
-                  <div className="flex justify-between items-center rounded-xl px-5 py-4 -mx-1 mt-2 bg-primary/10 border border-primary/30">
+                  <div className="flex justify-between items-center rounded-xl px-5 py-4 -mx-1 mt-2 bg-primary/8 border border-primary/20">
                     <span className="font-bold text-base text-primary">Your Advance Amount</span>
-                    <span className="font-black text-xl text-primary">{formatCurrency(preview.advanceAmount)}</span>
+                    <span className="text-2xl font-bold text-primary tabular-nums">{formatCurrency(preview.advanceAmount)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -577,7 +577,7 @@ export default function NewDealPage() {
                 { key: 'amendment', label: 'Amendments', required: false, hint: 'Any amendments to the APS' },
                 ...(isFirstAdvance ? [{ key: 'banking_info', label: 'Banking Information', required: true, hint: 'Void cheque or direct deposit form — required for your first advance' }] : []),
               ].map(slot => (
-                <div key={slot.key} className="rounded-lg p-4 bg-muted/50 border border-border">
+                <div key={slot.key} className="rounded-xl p-4 bg-secondary/30 border border-border/30">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm font-semibold text-foreground">{slot.label}</span>
                     {slot.required ? (
@@ -606,7 +606,10 @@ export default function NewDealPage() {
                     </div>
                   )}
 
-                  <div
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       const input = document.createElement('input')
                       input.type = 'file'
@@ -620,11 +623,11 @@ export default function NewDealPage() {
                       }
                       input.click()
                     }}
-                    className="flex items-center justify-center gap-1.5 rounded-md py-2 px-3 cursor-pointer transition-colors text-xs font-medium border-[1.5px] border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    className="w-full border-dashed border-border hover:border-primary hover:text-primary"
                   >
                     <Upload size={13} />
                     {docSlots[slot.key]?.length > 0 ? 'Add more files' : 'Choose files'}
-                  </div>
+                  </Button>
                 </div>
               ))}
             </CardContent>
@@ -675,7 +678,7 @@ export default function NewDealPage() {
             <Button
               type="submit"
               disabled={!preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0)}
-              className="flex-1 py-3 flex items-center justify-center gap-2"
+              className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2"
             >
               {submitting ? 'Submitting...' : (<><Send size={16} />Review &amp; Submit</>)}
             </Button>
@@ -685,8 +688,8 @@ export default function NewDealPage() {
         {/* Confirmation Modal */}
         {showConfirmation && preview && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-            <div className="rounded-2xl max-w-lg w-full overflow-hidden bg-card border border-border shadow-2xl">
-              <div className="px-6 py-5 bg-card border-b border-border">
+            <div className="rounded-2xl max-w-lg w-full overflow-hidden bg-card border border-border/40 shadow-2xl">
+              <div className="px-6 py-5 bg-card border-b border-border/40">
                 <h3 className="text-lg font-bold text-foreground">Confirm Your Advance Request</h3>
                 <p className="text-xs mt-1 text-primary">Please review the details below before submitting.</p>
               </div>
@@ -754,7 +757,7 @@ export default function NewDealPage() {
                     type="button"
                     onClick={handleConfirmSubmit}
                     disabled={submitting}
-                    className="flex-1 py-3 flex items-center justify-center gap-2"
+                    className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2 bg-primary hover:bg-primary/90"
                   >
                     {submitting ? 'Submitting...' : (<><Send size={16} />Confirm &amp; Submit</>)}
                   </Button>
