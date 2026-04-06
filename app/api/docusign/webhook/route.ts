@@ -1,25 +1,27 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { getValidAccessToken } from '@/lib/docusign'
 
 // DocuSign Connect webhook — receives envelope status updates
 // Configure in DocuSign: Settings → Connect → Add Configuration
 // URL: https://firmfunds.ca/api/docusign/webhook
+// Data Format: REST v2.1 (JSON)
+// Event Delivery Mode: Aggregate
 
 export async function POST(request: Request) {
   try {
     const body = await request.text()
     let payload: any
 
-    // DocuSign sends XML by default, but we'll configure it for JSON
-    // Try JSON first, fall back to treating as XML error
+    // DocuSign sends JSON when configured for REST v2.1
     try {
       payload = JSON.parse(body)
     } catch {
       console.error('DocuSign webhook: received non-JSON payload')
-      return new Response('OK', { status: 200 }) // Always return 200 to DocuSign
+      return new Response('OK', { status: 200 })
     }
 
-    const envelopeId = payload?.envelopeId || payload?.EnvelopeStatus?.EnvelopeID
-    const envelopeStatus = payload?.status || payload?.EnvelopeStatus?.Status
+    const envelopeId = payload?.envelopeId || payload?.data?.envelopeId || payload?.EnvelopeStatus?.EnvelopeID
+    const envelopeStatus = payload?.status || payload?.data?.envelopeSummary?.status || payload?.EnvelopeStatus?.Status
 
     if (!envelopeId) {
       console.error('DocuSign webhook: no envelopeId in payload')
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
 
     const supabase = createServiceRoleClient()
 
-    // Find our envelope records
+    // Find our envelope records (one per document in this envelope)
     const { data: envelopes, error: fetchErr } = await supabase
       .from('esignature_envelopes')
       .select('*')
@@ -52,7 +54,7 @@ export async function POST(request: Request) {
 
     const mappedStatus = statusMap[envelopeStatus?.toLowerCase()] || envelopeStatus?.toLowerCase()
 
-    // Update envelope records
+    // Build envelope update data
     const updateData: Record<string, any> = {
       status: mappedStatus,
     }
@@ -70,10 +72,9 @@ export async function POST(request: Request) {
     }
 
     // Check individual recipient statuses if available
-    const recipients = payload?.recipients?.signers || []
+    const recipients = payload?.recipients?.signers || payload?.data?.envelopeSummary?.recipients?.signers || []
     for (const signer of recipients) {
       if (signer.recipientId === '1') {
-        // Agent signer
         const signerStatus = signer.status?.toLowerCase()
         if (signerStatus === 'completed') {
           updateData.agent_signer_status = 'signed'
@@ -86,6 +87,7 @@ export async function POST(request: Request) {
       }
     }
 
+    // Update all envelope records for this envelopeId
     const { error: updateErr } = await supabase
       .from('esignature_envelopes')
       .update(updateData)
@@ -95,37 +97,121 @@ export async function POST(request: Request) {
       console.error('DocuSign webhook: failed to update envelope:', updateErr.message)
     }
 
-    // If all signed, auto-check the underwriting checklist items
+    // ================================================================
+    // SIGNED — Download docs, store them, link to checklist, check off
+    // ================================================================
     if (mappedStatus === 'signed') {
       const dealId = envelopes[0].deal_id
+      console.log(`DocuSign webhook: envelope signed — downloading docs for deal ${dealId}`)
 
-      // Check item 11: "Commission Purchase Agreement - Signed and Executed"
-      await supabase
-        .from('underwriting_checklist')
-        .update({
-          is_checked: true,
-          checked_by: 'system',
-          checked_at: new Date().toISOString(),
-          notes: `Auto-checked: DocuSign envelope ${envelopeId} completed`,
-        })
-        .eq('deal_id', dealId)
-        .ilike('checklist_item', '%Commission Purchase Agreement%')
-        .eq('is_checked', false)
+      // Get DocuSign auth token for API calls
+      const auth = await getValidAccessToken()
 
-      // Check item 12: "Irrevocable Direction to Pay - Signed and Executed"
-      await supabase
-        .from('underwriting_checklist')
-        .update({
-          is_checked: true,
-          checked_by: 'system',
-          checked_at: new Date().toISOString(),
-          notes: `Auto-checked: DocuSign envelope ${envelopeId} completed`,
-        })
-        .eq('deal_id', dealId)
-        .ilike('checklist_item', '%Irrevocable Direction to Pay%')
-        .eq('is_checked', false)
+      if (auth) {
+        // Process each document in the envelope (CPA = docId 1, IDP = docId 2)
+        for (const envelope of envelopes) {
+          const docType = envelope.document_type // 'cpa' or 'idp'
+          const docId = docType === 'cpa' ? '1' : '2'
 
-      console.log(`DocuSign webhook: auto-checked CPA + IDP checklist items for deal ${dealId}`)
+          try {
+            // 1. Download the signed PDF from DocuSign
+            const docRes = await fetch(
+              `${auth.baseUri}/restapi/v2.1/accounts/${auth.accountId}/envelopes/${envelopeId}/documents/${docId}`,
+              { headers: { 'Authorization': `Bearer ${auth.accessToken}` } }
+            )
+
+            if (!docRes.ok) {
+              console.error(`DocuSign webhook: failed to download ${docType} doc: ${docRes.status}`)
+              continue
+            }
+
+            const pdfBuffer = await docRes.arrayBuffer()
+            const pdfBytes = new Uint8Array(pdfBuffer)
+
+            // 2. Upload to Supabase storage
+            const timestamp = Date.now()
+            const randomId = crypto.randomUUID()
+            const fileName = docType === 'cpa'
+              ? `Commission_Purchase_Agreement_Signed.pdf`
+              : `Irrevocable_Direction_to_Pay_Signed.pdf`
+            const storagePath = `${dealId}/${timestamp}_${randomId}.pdf`
+
+            const { error: uploadErr } = await supabase.storage
+              .from('deal-documents')
+              .upload(storagePath, pdfBytes, {
+                contentType: 'application/pdf',
+                upsert: false,
+              })
+
+            if (uploadErr) {
+              console.error(`DocuSign webhook: failed to upload ${docType} to storage:`, uploadErr.message)
+              continue
+            }
+
+            // 3. Create deal_documents record
+            const dealDocType = docType === 'cpa' ? 'commission_agreement' : 'direction_to_pay'
+
+            const { data: docRecord, error: insertErr } = await supabase
+              .from('deal_documents')
+              .insert({
+                deal_id: dealId,
+                uploaded_by: envelope.sent_by || '00000000-0000-0000-0000-000000000000',
+                document_type: dealDocType,
+                file_name: fileName,
+                file_path: storagePath,
+                file_size: pdfBytes.length,
+                upload_source: 'nexone_auto', // system-uploaded
+                notes: `Signed via DocuSign (envelope ${envelopeId})`,
+              })
+              .select('id')
+              .single()
+
+            if (insertErr || !docRecord) {
+              console.error(`DocuSign webhook: failed to insert ${docType} document record:`, insertErr?.message)
+              continue
+            }
+
+            console.log(`DocuSign webhook: stored signed ${docType} as document ${docRecord.id}`)
+
+            // 4. Link document to the matching checklist item and auto-check it
+            const checklistMatch = docType === 'cpa'
+              ? '%Commission Purchase Agreement%'
+              : '%Irrevocable Direction to Pay%'
+
+            const { data: checklistItem } = await supabase
+              .from('underwriting_checklist')
+              .select('id')
+              .eq('deal_id', dealId)
+              .ilike('checklist_item', checklistMatch)
+              .single()
+
+            if (checklistItem) {
+              await supabase
+                .from('underwriting_checklist')
+                .update({
+                  is_checked: true,
+                  checked_by: 'system',
+                  checked_at: new Date().toISOString(),
+                  linked_document_id: docRecord.id,
+                  notes: `Auto-completed: Signed document received from DocuSign (envelope ${envelopeId})`,
+                })
+                .eq('id', checklistItem.id)
+
+              console.log(`DocuSign webhook: linked ${docType} to checklist item ${checklistItem.id} and marked complete`)
+            }
+
+          } catch (docErr: any) {
+            console.error(`DocuSign webhook: error processing ${docType} document:`, docErr?.message)
+            // Continue with the next document — don't fail the whole webhook
+          }
+        }
+      } else {
+        // No auth token — can't download the signed docs, so do NOT check off the items.
+        // The admin will need to re-authorize DocuSign and manually retrieve the documents.
+        console.error(`DocuSign webhook: no valid auth token — cannot download signed docs for deal ${envelopes[0].deal_id}. Checklist items NOT checked. Admin must re-authorize DocuSign.`)
+      }
+
+      console.log(`DocuSign webhook: completed processing for deal ${envelopes[0].deal_id}`)
     }
 
     return new Response('OK', { status: 200 })

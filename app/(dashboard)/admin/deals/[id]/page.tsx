@@ -1078,6 +1078,10 @@ export default function DealDetailPage() {
   const totalChecklist = checklist.length
   const checklistPct = totalChecklist > 0 ? Math.round((checkedCount / totalChecklist) * 100) : 0
   const allChecklistComplete = totalChecklist > 0 && checkedCount === totalChecklist
+  // For approval: only require Agent Verification + Deal Verification items (not Firm Fund Documents)
+  const approvalItems = checklist.filter(c => c.category !== 'Firm Fund Documents')
+  const approvalCheckedCount = approvalItems.filter(c => c.is_checked || c.is_na).length
+  const allApprovalItemsComplete = approvalItems.length > 0 && approvalCheckedCount === approvalItems.length
 
   if (loading) return (
     <div className="min-h-screen" style={{ background: colors.pageBg }}>
@@ -1222,7 +1226,8 @@ export default function DealDetailPage() {
                 if (!config) return null
                 const Icon = config.icon
                 // Block approval/funding until all checklist items are complete
-                const needsChecklist = (status === 'approved' || status === 'funded') && !allChecklistComplete
+                // Approval only needs Agent Verification + Deal Verification; Funding needs ALL items including signed docs
+                const needsChecklist = (status === 'approved' && !allApprovalItemsComplete) || (status === 'funded' && !allChecklistComplete)
                 // Block completed until brokerage payments match expected amount
                 const paymentTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
                 const paymentsMatch = Math.abs(paymentTotal - deal.amount_due_from_brokerage) < 0.01 && paymentTotal > 0
@@ -1244,7 +1249,11 @@ export default function DealDetailPage() {
                     {(needsChecklist || needsPayments) && (
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30"
                         style={{ background: '#1A1A1A', color: '#E07B7B', border: '1px solid #333' }}>
-                        {needsChecklist ? `Complete all checklist items first (${checkedCount}/${totalChecklist})` : 'Brokerage payments must match expected amount first'}
+                        {needsChecklist
+                          ? (status === 'approved'
+                            ? `Complete verification checklist first (${approvalCheckedCount}/${approvalItems.length})`
+                            : `Complete all checklist items first — signed contracts required (${checkedCount}/${totalChecklist})`)
+                          : 'Brokerage payments must match expected amount first'}
                       </div>
                     )}
                   </div>
