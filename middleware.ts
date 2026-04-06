@@ -39,7 +39,7 @@ export async function middleware(request: NextRequest) {
 
   // Redirect unauthenticated users to login (except login/auth/kyc-upload/kyc API routes/invite/magic-link)
   // Preserve the original URL so we can redirect back after login
-  if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/kyc-upload') && !pathname.startsWith('/api/kyc-') && !pathname.startsWith('/invite') && !pathname.startsWith('/api/magic-link') && !pathname.startsWith('/api/rate-limit')) {
+  if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/kyc-upload') && !pathname.startsWith('/api/kyc-') && !pathname.startsWith('/invite') && !pathname.startsWith('/api/magic-link') && !pathname.startsWith('/api/rate-limit') && !pathname.startsWith('/api/docusign/webhook')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     // Pass the original destination so login can redirect back
