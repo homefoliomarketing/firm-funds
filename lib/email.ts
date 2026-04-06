@@ -1271,3 +1271,51 @@ export async function sendBankingApprovalNotification(params: {
     console.error('[email] Failed to send banking approval notification:', err)
   }
 }
+
+// ============================================================================
+// Agent Message Notification (to Admin — agent sent a message)
+// ============================================================================
+
+export async function sendAgentMessageNotification(params: {
+  dealId: string
+  propertyAddress: string
+  agentName: string
+  message: string
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `Message from ${params.agentName} — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E8E4DF; font-size:20px; font-weight:600;">
+          New Message from Agent
+        </h2>
+        <p style="margin:0 0 8px; color:#BCBBB8; font-size:14px;">
+          <strong style="color:#7B9FE0;">${params.agentName}</strong> sent a message about <strong style="color:#E8E4DF;">${params.propertyAddress}</strong>:
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+          <tr>
+            <td style="padding:12px 16px; background:#1A2240; border-left:3px solid #7B9FE0; border-radius:0 8px 8px 0;">
+              <p style="margin:0; color:#E8E4DF; font-size:14px; line-height:1.5; white-space:pre-wrap;">${params.message.replace(/\n/g, '<br/>')}</p>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/admin/messages" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                View &amp; Reply
+              </a>
+            </td>
+          </tr>
+        </table>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send agent message notification:', err)
+  }
+}

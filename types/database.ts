@@ -209,9 +209,14 @@ export interface DealMessage {
   id: string
   deal_id: string
   sender_id: string | null
-  sender_role: 'admin' | 'agent'
+  sender_role: 'admin' | 'agent' | 'brokerage_admin'
+  sender_name?: string | null
   message: string
   is_email_reply: boolean
+  file_path: string | null
+  file_name: string | null
+  file_size: number | null
+  file_type: string | null
   created_at: string
 }
 

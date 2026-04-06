@@ -298,6 +298,10 @@ export async function markDealMessagesRead(input: {
 export async function sendAgentReply(input: {
   dealId: string
   message: string
+  filePath?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  fileType?: string | null
 }): Promise<ActionResult> {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -305,6 +309,13 @@ export async function sendAgentReply(input: {
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Get deal for email notification
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('id, property_address')
+      .eq('id', input.dealId)
+      .single()
+
     const { data: msg, error } = await serviceClient
       .from('deal_messages')
       .insert({
@@ -314,16 +325,67 @@ export async function sendAgentReply(input: {
         sender_name: profile?.full_name || 'Agent',
         message: input.message.trim(),
         is_email_reply: false,
+        file_path: input.filePath || null,
+        file_name: input.fileName || null,
+        file_size: input.fileSize || null,
+        file_type: input.fileType || null,
       })
       .select()
       .single()
 
     if (error) return { success: false, error: error.message }
 
+    // Send email to admin — throttled 1 per deal per 15 min
+    try {
+      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
+      const { data: recentAgentMsgs } = await serviceClient
+        .from('deal_messages')
+        .select('id')
+        .eq('deal_id', input.dealId)
+        .eq('sender_role', 'agent')
+        .neq('id', msg.id)
+        .gte('created_at', fifteenMinsAgo)
+        .limit(1)
+
+      if (!recentAgentMsgs || recentAgentMsgs.length === 0) {
+        const { sendAgentMessageNotification } = await import('@/lib/email')
+        await sendAgentMessageNotification({
+          dealId: deal?.id || input.dealId,
+          propertyAddress: deal?.property_address || 'Unknown',
+          agentName: profile?.full_name || 'Agent',
+          message: input.message.trim(),
+        })
+      }
+    } catch { /* non-fatal */ }
+
     return { success: true, data: msg }
   } catch (err: any) {
     return { success: false, error: 'Failed to send reply' }
   }
+}
+
+// ============================================================================
+// Get new messages since a timestamp (for polling)
+// ============================================================================
+
+export async function getNewMessages(input: {
+  dealId: string
+  afterTimestamp: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedUser(['agent', 'super_admin', 'firm_funds_admin', 'brokerage_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  const { data: messages, error } = await serviceClient
+    .from('deal_messages')
+    .select('id, deal_id, sender_id, sender_role, sender_name, message, is_email_reply, file_path, file_name, file_size, file_type, created_at')
+    .eq('deal_id', input.dealId)
+    .gt('created_at', input.afterTimestamp)
+    .order('created_at', { ascending: true })
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, data: messages || [] }
 }
 
 // ============================================================================
@@ -531,6 +593,10 @@ export async function getAdminDealMessages(dealId: string): Promise<ActionResult
 export async function sendAdminMessage(input: {
   dealId: string
   message: string
+  filePath?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  fileType?: string | null
 }): Promise<ActionResult> {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -555,6 +621,10 @@ export async function sendAdminMessage(input: {
         sender_role: 'admin',
         sender_name: profile?.full_name || 'Firm Funds',
         message: input.message.trim(),
+        file_path: input.filePath || null,
+        file_name: input.fileName || null,
+        file_size: input.fileSize || null,
+        file_type: input.fileType || null,
       })
       .select()
       .single()
@@ -602,6 +672,10 @@ export async function sendAdminMessage(input: {
 export async function sendBrokerageMessage(input: {
   dealId: string
   message: string
+  filePath?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  fileType?: string | null
 }): Promise<ActionResult> {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -628,6 +702,10 @@ export async function sendBrokerageMessage(input: {
         sender_name: profile?.full_name || 'Brokerage',
         message: input.message.trim(),
         is_email_reply: false,
+        file_path: input.filePath || null,
+        file_name: input.fileName || null,
+        file_size: input.fileSize || null,
+        file_type: input.fileType || null,
       })
       .select()
       .single()

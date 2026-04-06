@@ -4,30 +4,25 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
-  MessageSquare, AlertTriangle, Send, FileText, ExternalLink,
-  Inbox, ChevronRight, Clock, Search, Upload, CheckCircle2, ChevronDown, ChevronUp,
+  MessageSquare, AlertTriangle, ExternalLink, Inbox, Search, Upload,
+  CheckCircle2, ChevronDown, ChevronUp, ArrowLeft,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
-import { formatDate, formatDateTime } from '@/lib/formatting'
+import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeStyle, formatStatusLabel } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
+import MessageThread from '@/components/messaging/MessageThread'
+import MessageInput from '@/components/messaging/MessageInput'
+import type { MessageData } from '@/components/messaging/MessageBubble'
 import {
   getAgentInbox,
   getDealMessages,
+  getNewMessages,
   markDealMessagesRead,
   sendAgentReply,
   type InboxDeal,
 } from '@/lib/actions/notification-actions'
 import { uploadDocument } from '@/lib/actions/deal-actions'
-
-interface DealMessageItem {
-  id: string
-  sender_role: string
-  sender_name: string | null
-  message: string
-  is_email_reply: boolean
-  created_at: string
-}
 
 interface DocumentReturnItem {
   id: string
@@ -48,19 +43,25 @@ export default function AgentMessagesPage() {
   const [inbox, setInbox] = useState<InboxDeal[]>([])
   const [pendingReturns, setPendingReturns] = useState<DocumentReturnItem[]>([])
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<DealMessageItem[]>([])
+  const [messages, setMessages] = useState<MessageData[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
-  const [replyText, setReplyText] = useState('')
-  const [replySending, setReplySending] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [returnsExpanded, setReturnsExpanded] = useState(false)
   const [uploadingReturnId, setUploadingReturnId] = useState<string | null>(null)
   const [uploadedReturnIds, setUploadedReturnIds] = useState<Set<string>>(new Set())
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [isMobile, setIsMobile] = useState(false)
   const router = useRouter()
   const supabase = createClient()
   const { colors } = useTheme()
+
+  // Mobile detection
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Load agent profile and inbox
   useEffect(() => {
@@ -98,7 +99,6 @@ export default function AgentMessagesPage() {
   const selectDeal = useCallback(async (dealId: string) => {
     setSelectedDealId(dealId)
     setMessagesLoading(true)
-    setReplyText('')
     setReturnsExpanded(false)
     setUploadedReturnIds(new Set())
 
@@ -111,55 +111,97 @@ export default function AgentMessagesPage() {
     // Mark as read
     if (agent?.id) {
       await markDealMessagesRead({ agentId: agent.id, dealId })
-      // Update inbox unread count locally
       setInbox(prev => prev.map(item =>
         item.deal_id === dealId ? { ...item, unread_message_count: 0 } : item
       ))
     }
   }, [agent?.id])
 
-  // Scroll to bottom when messages change
+  // Poll for new messages every 5 seconds
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }, 100)
-    }
-  }, [messages.length])
+    if (!selectedDealId || messages.length === 0) return
+    const interval = setInterval(async () => {
+      const lastMsg = messages[messages.length - 1]
+      if (!lastMsg) return
+      const result = await getNewMessages({ dealId: selectedDealId, afterTimestamp: lastMsg.created_at })
+      if (result.success && result.data && result.data.length > 0) {
+        setMessages(prev => [...prev, ...result.data])
+        // Mark as read
+        if (agent?.id) {
+          markDealMessagesRead({ agentId: agent.id, dealId: selectedDealId })
+          setInbox(prev => prev.map(item =>
+            item.deal_id === selectedDealId ? { ...item, unread_message_count: 0 } : item
+          ))
+        }
+      }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [selectedDealId, messages, agent?.id])
 
-  // Send reply
-  const handleSendReply = async () => {
-    if (!selectedDealId || !replyText.trim()) return
-    setReplySending(true)
-    const result = await sendAgentReply({ dealId: selectedDealId, message: replyText })
+  // Send message with optional file
+  const handleSend = async (message: string, file?: File | null) => {
+    if (!selectedDealId) return
+
+    let filePath: string | null = null
+    let fileName: string | null = null
+    let fileSize: number | null = null
+    let fileType: string | null = null
+
+    // Upload file if attached
+    if (file) {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('dealId', selectedDealId)
+      fd.append('documentType', 'other')
+      const uploadResult = await uploadDocument(fd)
+      if (!uploadResult.success) {
+        setStatusMessage({ type: 'error', text: uploadResult.error || 'File upload failed' })
+        throw new Error('Upload failed')
+      }
+      filePath = uploadResult.data?.file_path || null
+      fileName = file.name
+      fileSize = file.size
+      fileType = file.type
+    }
+
+    const result = await sendAgentReply({
+      dealId: selectedDealId,
+      message,
+      filePath,
+      fileName,
+      fileSize,
+      fileType,
+    })
+
     if (result.success && result.data) {
       setMessages(prev => [...prev, result.data])
-      setReplyText('')
-      // Update inbox preview
       setInbox(prev => prev.map(item =>
         item.deal_id === selectedDealId
-          ? {
-              ...item,
-              latest_message: result.data.message,
-              latest_message_at: result.data.created_at,
-              latest_sender_role: 'agent',
-              latest_sender_name: profile?.full_name || 'You',
-            }
+          ? { ...item, latest_message: result.data.message, latest_message_at: result.data.created_at, latest_sender_role: 'agent', latest_sender_name: profile?.full_name || 'You' }
           : item
       ))
     } else {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to send reply' })
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send message' })
+      throw new Error(result.error)
     }
-    setReplySending(false)
   }
 
-  // Filter inbox by search
+  // Back to inbox (mobile)
+  const handleBack = () => {
+    setSelectedDealId(null)
+    setMessages([])
+  }
+
   const filteredInbox = searchQuery.trim()
     ? inbox.filter(item => item.property_address.toLowerCase().includes(searchQuery.toLowerCase()))
     : inbox
 
   const selectedDeal = inbox.find(d => d.deal_id === selectedDealId)
   const selectedDealReturns = pendingReturns.filter(r => r.deal_id === selectedDealId)
+
+  // Mobile: show either list or thread
+  const showList = !isMobile || !selectedDealId
+  const showThread = !isMobile || !!selectedDealId
 
   if (loading) {
     return (
@@ -186,402 +228,255 @@ export default function AgentMessagesPage() {
         brokerageName={agent?.brokerages?.name}
       />
 
-      <main className="flex-1 overflow-hidden max-w-5xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className="flex-1 overflow-hidden max-w-5xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
         {/* Status message */}
         {statusMessage && (
           <div
-            className="mb-4 p-3 rounded-xl text-sm font-medium"
+            className="mb-3 p-3 rounded-xl text-sm font-medium"
             style={statusMessage.type === 'success'
               ? { background: colors.successBg, border: `1px solid ${colors.successBorder}`, color: colors.successText }
               : { background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, color: colors.errorText }
             }
+            onClick={() => setStatusMessage(null)}
           >
             {statusMessage.text}
           </div>
         )}
 
         {inbox.length === 0 ? (
-          /* Empty state — agent has no active deals at all */
           <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
             <Inbox className="mx-auto mb-4" size={48} style={{ color: colors.textFaint }} />
             <p className="text-lg font-semibold" style={{ color: colors.textSecondary }}>No active deals</p>
             <p className="text-sm mt-2" style={{ color: colors.textMuted }}>
-              Submit an advance request to get started. You can message the Firm Funds team about any active deal.
+              Submit an advance request to get started.
             </p>
           </div>
         ) : (
-          /* Inbox layout */
-          <div
-            className="rounded-xl overflow-hidden flex h-full"
-            style={{
-              background: colors.cardBg,
-              border: `1px solid ${colors.border}`,
-            }}
-          >
+          <div className="rounded-xl overflow-hidden flex h-full" style={{ background: colors.cardBg, border: `1px solid ${colors.border}` }}>
+
             {/* LEFT PANEL — Deal list */}
-            <div
-              className="flex flex-col"
-              style={{
-                width: '340px',
-                minWidth: '280px',
-                borderRight: `1px solid ${colors.border}`,
-              }}
-            >
-              {/* Search */}
-              <div className="p-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <div className="relative">
-                  <Search size={14} style={{ color: colors.textMuted, position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
-                  <input
-                    type="text"
-                    placeholder="Search deals..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full rounded-lg pl-8 pr-3 py-2 text-sm outline-none"
-                    style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-                  />
-                </div>
-              </div>
-
-              {/* Deal list */}
-              <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-                {filteredInbox.map((item) => {
-                  const isSelected = item.deal_id === selectedDealId
-                  const hasUnread = item.unread_message_count > 0
-                  const hasReturns = item.pending_return_count > 0
-
-                  return (
-                    <button
-                      key={item.deal_id}
-                      onClick={() => selectDeal(item.deal_id)}
-                      className="w-full text-left px-4 py-3.5 transition-colors"
-                      style={{
-                        background: isSelected ? colors.tableHeaderBg : 'transparent',
-                        borderBottom: `1px solid ${colors.divider}`,
-                        borderLeft: isSelected ? `3px solid ${colors.gold}` : '3px solid transparent',
-                      }}
-                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = colors.cardHoverBg }}
-                      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p
-                            className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-medium'}`}
-                            style={{ color: colors.textPrimary }}
-                          >
-                            {item.property_address}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span
-                              className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                              style={getStatusBadgeStyle(item.deal_status)}
-                            >
-                              {formatStatusLabel(item.deal_status)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          {item.latest_message_at && (
-                            <span className="text-[10px]" style={{ color: colors.textFaint }}>
-                              {formatRelativeTime(item.latest_message_at)}
-                            </span>
-                          )}
-                          <div className="flex items-center gap-1">
-                            {hasUnread && (
-                              <span
-                                className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold"
-                                style={{ background: colors.gold, color: '#FFFFFF' }}
-                              >
-                                {item.unread_message_count}
-                              </span>
-                            )}
-                            {hasReturns && (
-                              <span
-                                className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold"
-                                style={{ background: '#EF4444', color: '#FFFFFF' }}
-                                title="Returned documents need attention"
-                              >
-                                !
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Message preview */}
-                      <p
-                        className={`text-xs mt-1.5 truncate ${hasUnread ? 'font-medium' : ''}`}
-                        style={{ color: hasUnread ? colors.textSecondary : colors.textMuted }}
-                      >
-                        {item.total_message_count === 0 && item.pending_return_count === 0
-                          ? 'No messages yet — tap to start a conversation'
-                          : (
-                            <>
-                              {item.latest_sender_role === 'admin' ? 'Firm Funds: ' : item.latest_sender_role === 'agent' ? 'You: ' : ''}
-                              {item.latest_message || (item.pending_return_count > 0 ? 'Document returned for revision' : '')}
-                            </>
-                          )
-                        }
-                      </p>
-                    </button>
-                  )
-                })}
-
-                {filteredInbox.length === 0 && searchQuery.trim() && (
-                  <div className="px-4 py-8 text-center">
-                    <p className="text-xs" style={{ color: colors.textMuted }}>No matching deals</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* RIGHT PANEL — Messages thread */}
-            <div className="flex-1 flex flex-col min-w-0">
-              {!selectedDealId ? (
-                /* No deal selected */
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="text-center">
-                    <MessageSquare size={40} style={{ color: colors.textFaint }} className="mx-auto mb-3" />
-                    <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>
-                      Select a deal to view messages
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: colors.textMuted }}>
-                      Choose from the list on the left
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {/* Thread header */}
-                  <div
-                    className="px-5 py-3 flex items-center justify-between"
-                    style={{ borderBottom: `1px solid ${colors.border}` }}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold truncate" style={{ color: colors.textPrimary }}>
-                        {selectedDeal?.property_address}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {selectedDeal && (
-                          <span
-                            className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded"
-                            style={getStatusBadgeStyle(selectedDeal.deal_status)}
-                          >
-                            {formatStatusLabel(selectedDeal.deal_status)}
-                          </span>
-                        )}
-                        <span className="text-[10px]" style={{ color: colors.textFaint }}>
-                          {selectedDeal?.total_message_count || 0} messages
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => router.push(`/agent/deals/${selectedDealId}`)}
-                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                      style={{ color: colors.gold, border: `1px solid ${colors.border}` }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.border }}
-                    >
-                      <ExternalLink size={12} />
-                      View Deal
-                    </button>
-                  </div>
-
-                  {/* Returned docs alert with inline upload */}
-                  {selectedDealReturns.length > 0 && (
-                    <div style={{ background: '#2A1212', borderBottom: '1px solid #4A2020' }}>
-                      <button
-                        onClick={() => setReturnsExpanded(!returnsExpanded)}
-                        className="w-full px-5 py-2.5 flex items-center justify-between gap-3"
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <AlertTriangle size={14} style={{ color: '#F87171', flexShrink: 0 }} />
-                          <span className="text-xs font-bold truncate" style={{ color: '#F87171' }}>
-                            {selectedDealReturns.filter(r => !uploadedReturnIds.has(r.id)).length === 0
-                              ? 'All returned documents re-uploaded!'
-                              : selectedDealReturns.length === 1
-                                ? `Returned: ${selectedDealReturns[0].deal_documents?.file_name || 'Document'} — ${selectedDealReturns[0].reason}`
-                                : `${selectedDealReturns.length} documents returned for revision`
-                            }
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {returnsExpanded
-                            ? <ChevronUp size={14} style={{ color: '#F87171' }} />
-                            : <ChevronDown size={14} style={{ color: '#F87171' }} />
-                          }
-                        </div>
-                      </button>
-
-                      {returnsExpanded && (
-                        <div className="px-5 pb-3 space-y-2">
-                          {selectedDealReturns.map(ret => (
-                            <div key={ret.id} className="rounded-lg px-3 py-2.5" style={{ background: '#3A1818', border: '1px solid #4A2020' }}>
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs font-semibold truncate" style={{ color: '#FCA5A5' }}>
-                                    {ret.deal_documents?.file_name || 'Document'}
-                                  </p>
-                                  <p className="text-[10px] mt-0.5" style={{ color: '#F87171' }}>
-                                    Reason: {ret.reason}
-                                  </p>
-                                </div>
-                                {uploadedReturnIds.has(ret.id) ? (
-                                  <div className="flex items-center gap-1 flex-shrink-0">
-                                    <CheckCircle2 size={12} style={{ color: '#5FA873' }} />
-                                    <span className="text-[10px] font-semibold" style={{ color: '#5FA873' }}>Uploaded</span>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      const input = document.createElement('input')
-                                      input.type = 'file'
-                                      input.accept = '.pdf,.jpg,.jpeg,.png,.doc,.docx'
-                                      input.onchange = async (ev) => {
-                                        const target = ev.target as HTMLInputElement
-                                        const file = target.files?.[0]
-                                        if (!file || !selectedDealId) return
-                                        setUploadingReturnId(ret.id)
-                                        try {
-                                          const fd = new FormData()
-                                          fd.append('file', file)
-                                          fd.append('dealId', selectedDealId)
-                                          fd.append('documentType', ret.deal_documents?.document_type || 'other')
-                                          const result = await uploadDocument(fd)
-                                          if (result.success) {
-                                            setUploadedReturnIds(prev => new Set([...prev, ret.id]))
-                                            setStatusMessage({ type: 'success', text: `${file.name} uploaded successfully` })
-                                          } else {
-                                            setStatusMessage({ type: 'error', text: result.error || 'Upload failed' })
-                                          }
-                                        } catch {
-                                          setStatusMessage({ type: 'error', text: 'Upload failed — try from the deal page' })
-                                        }
-                                        setUploadingReturnId(null)
-                                      }
-                                      input.click()
-                                    }}
-                                    disabled={uploadingReturnId === ret.id}
-                                    className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
-                                    style={{ background: '#4A2020', color: '#FCA5A5' }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = '#5A2525'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = '#4A2020'}
-                                  >
-                                    <Upload size={10} />
-                                    {uploadingReturnId === ret.id ? 'Uploading...' : 'Re-upload'}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Messages area */}
-                  <div className="flex-1 overflow-y-auto px-5 py-4" style={{ scrollbarWidth: 'thin' }}>
-                    {messagesLoading ? (
-                      <div className="space-y-3">
-                        {[1,2,3].map(i => (
-                          <div key={i} className="h-12 rounded-lg animate-pulse" style={{ background: colors.skeletonHighlight }} />
-                        ))}
-                      </div>
-                    ) : messages.length === 0 ? (
-                      <div className="flex items-center justify-center h-full">
-                        <div className="text-center">
-                          <MessageSquare size={32} style={{ color: colors.textFaint }} className="mx-auto mb-2" />
-                          <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>No messages yet</p>
-                          <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Send a message to the Firm Funds team below</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {messages.map(msg => (
-                          <div
-                            key={msg.id}
-                            className={`px-4 py-3 rounded-xl max-w-[85%] ${msg.sender_role === 'agent' ? 'ml-auto' : ''}`}
-                            style={{
-                              background: msg.sender_role === 'admin' ? '#0F2A18' : colors.tableHeaderBg,
-                              border: `1px solid ${msg.sender_role === 'admin' ? '#1E4A2C' : colors.border}`,
-                            }}
-                          >
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-semibold" style={{
-                                color: msg.sender_role === 'admin' ? '#5FA873' : '#7B9FE0',
-                              }}>
-                                {msg.sender_role === 'admin' ? (msg.sender_name || 'Firm Funds') : 'You'}
-                              </span>
-                              <span className="text-[10px]" style={{ color: colors.textFaint }}>
-                                {formatDateTime(msg.created_at)}
-                              </span>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: colors.textPrimary }}>
-                              {msg.message}
-                            </p>
-                          </div>
-                        ))}
-                        <div ref={messagesEndRef} />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Reply input */}
-                  <div
-                    className="px-5 py-3 flex gap-2"
-                    style={{ borderTop: `1px solid ${colors.border}`, background: colors.tableHeaderBg }}
-                  >
+            {showList && (
+              <div className="flex flex-col" style={{ width: isMobile ? '100%' : '340px', minWidth: isMobile ? '100%' : '280px', borderRight: isMobile ? 'none' : `1px solid ${colors.border}` }}>
+                <div className="p-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <div className="relative">
+                    <Search size={14} style={{ color: colors.textMuted, position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
                     <input
                       type="text"
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      placeholder={messages.length > 0 ? 'Type a reply...' : 'Type a message...'}
-                      className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none"
-                      style={{ background: colors.inputBg, border: `1px solid ${colors.inputBorder}`, color: colors.inputText }}
+                      placeholder="Search deals..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full rounded-lg pl-8 pr-3 py-2 text-sm outline-none"
+                      style={{ border: `1px solid ${colors.inputBorder}`, color: colors.inputText, background: colors.inputBg }}
                       onFocus={(e) => { e.currentTarget.style.borderColor = colors.gold }}
                       onBlur={(e) => { e.currentTarget.style.borderColor = colors.inputBorder }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply() } }}
                     />
-                    <button
-                      onClick={handleSendReply}
-                      disabled={replySending || !replyText.trim()}
-                      className="px-4 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 flex items-center gap-1.5 transition-colors"
-                      style={{ background: '#5FA873' }}
-                      onMouseEnter={(e) => { if (!replySending && replyText.trim()) e.currentTarget.style.background = '#4A8B5F' }}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#5FA873'}
-                    >
-                      <Send size={14} />
-                      {replySending ? 'Sending...' : 'Reply'}
-                    </button>
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+                  {filteredInbox.map((item) => {
+                    const isSelected = item.deal_id === selectedDealId
+                    const hasUnread = item.unread_message_count > 0
+                    const hasReturns = item.pending_return_count > 0
+
+                    return (
+                      <button
+                        key={item.deal_id}
+                        onClick={() => selectDeal(item.deal_id)}
+                        className="w-full text-left px-4 py-3.5 transition-colors"
+                        style={{
+                          background: isSelected ? colors.tableHeaderBg : 'transparent',
+                          borderBottom: `1px solid ${colors.divider}`,
+                          borderLeft: isSelected ? `3px solid ${colors.gold}` : '3px solid transparent',
+                        }}
+                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = colors.cardHoverBg }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-medium'}`} style={{ color: colors.textPrimary }}>
+                              {item.property_address}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(item.deal_status)}>
+                                {formatStatusLabel(item.deal_status)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            {item.latest_message_at && (
+                              <span className="text-[10px]" style={{ color: colors.textFaint }}>
+                                {formatRelativeTime(item.latest_message_at)}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-1">
+                              {hasUnread && (
+                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold" style={{ background: colors.gold, color: '#FFFFFF' }}>
+                                  {item.unread_message_count}
+                                </span>
+                              )}
+                              {hasReturns && (
+                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold" style={{ background: '#EF4444', color: '#FFFFFF' }} title="Returned documents need attention">!</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <p className={`text-xs mt-1.5 truncate ${hasUnread ? 'font-medium' : ''}`} style={{ color: hasUnread ? colors.textSecondary : colors.textMuted }}>
+                          {item.total_message_count === 0 && item.pending_return_count === 0
+                            ? 'No messages yet — tap to start a conversation'
+                            : <>
+                                {item.latest_sender_role === 'admin' ? 'Firm Funds: ' : item.latest_sender_role === 'agent' ? 'You: ' : ''}
+                                {item.latest_message || (item.pending_return_count > 0 ? 'Document returned for revision' : '')}
+                              </>
+                          }
+                        </p>
+                      </button>
+                    )
+                  })}
+                  {filteredInbox.length === 0 && searchQuery.trim() && (
+                    <div className="px-4 py-8 text-center">
+                      <p className="text-xs" style={{ color: colors.textMuted }}>No matching deals</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* RIGHT PANEL — Messages thread */}
+            {showThread && (
+              <div className="flex-1 flex flex-col min-w-0">
+                {!selectedDealId ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center">
+                      <MessageSquare size={40} style={{ color: colors.textFaint }} className="mx-auto mb-3" />
+                      <p className="text-sm font-medium" style={{ color: colors.textSecondary }}>Select a deal to view messages</p>
+                      <p className="text-xs mt-1" style={{ color: colors.textMuted }}>Choose from the list on the left</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Thread header */}
+                    <div className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2" style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      {isMobile && (
+                        <button onClick={handleBack} className="p-1 mr-1" style={{ color: colors.textMuted }}>
+                          <ArrowLeft size={20} />
+                        </button>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate" style={{ color: colors.textPrimary }}>
+                          {selectedDeal?.property_address}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {selectedDeal && (
+                            <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded" style={getStatusBadgeStyle(selectedDeal.deal_status)}>
+                              {formatStatusLabel(selectedDeal.deal_status)}
+                            </span>
+                          )}
+                          <span className="text-[10px]" style={{ color: colors.textFaint }}>
+                            {selectedDeal?.total_message_count || 0} messages
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => router.push(`/agent/deals/${selectedDealId}`)}
+                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+                        style={{ color: colors.gold, border: `1px solid ${colors.border}` }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = colors.cardHoverBg; e.currentTarget.style.borderColor = colors.gold }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = colors.border }}
+                      >
+                        <ExternalLink size={12} />
+                        <span className="hidden sm:inline">View Deal</span>
+                      </button>
+                    </div>
+
+                    {/* Returned docs alert */}
+                    {selectedDealReturns.length > 0 && (
+                      <div style={{ background: '#2A1212', borderBottom: '1px solid #4A2020' }}>
+                        <button onClick={() => setReturnsExpanded(!returnsExpanded)} className="w-full px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <AlertTriangle size={14} style={{ color: '#F87171', flexShrink: 0 }} />
+                            <span className="text-xs font-bold truncate" style={{ color: '#F87171' }}>
+                              {selectedDealReturns.filter(r => !uploadedReturnIds.has(r.id)).length === 0
+                                ? 'All returned documents re-uploaded!'
+                                : `${selectedDealReturns.length} document${selectedDealReturns.length > 1 ? 's' : ''} returned for revision`}
+                            </span>
+                          </div>
+                          {returnsExpanded ? <ChevronUp size={14} style={{ color: '#F87171' }} /> : <ChevronDown size={14} style={{ color: '#F87171' }} />}
+                        </button>
+                        {returnsExpanded && (
+                          <div className="px-4 sm:px-5 pb-3 space-y-2">
+                            {selectedDealReturns.map(ret => (
+                              <div key={ret.id} className="rounded-lg px-3 py-2.5" style={{ background: '#3A1818', border: '1px solid #4A2020' }}>
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold truncate" style={{ color: '#FCA5A5' }}>{ret.deal_documents?.file_name || 'Document'}</p>
+                                    <p className="text-[10px] mt-0.5" style={{ color: '#F87171' }}>Reason: {ret.reason}</p>
+                                  </div>
+                                  {uploadedReturnIds.has(ret.id) ? (
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      <CheckCircle2 size={12} style={{ color: '#5FA873' }} />
+                                      <span className="text-[10px] font-semibold" style={{ color: '#5FA873' }}>Uploaded</span>
+                                    </div>
+                                  ) : (
+                                    <label className="flex items-center gap-1 flex-shrink-0 text-[10px] font-semibold px-2.5 py-1.5 rounded-md cursor-pointer transition-colors"
+                                      style={{ background: '#4A2020', color: '#FCA5A5' }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = '#5A2525'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = '#4A2020'}
+                                    >
+                                      <Upload size={10} />
+                                      {uploadingReturnId === ret.id ? 'Uploading...' : 'Re-upload'}
+                                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="hidden"
+                                        disabled={uploadingReturnId === ret.id}
+                                        onChange={async (e) => {
+                                          const file = e.target.files?.[0]
+                                          if (!file || !selectedDealId) return
+                                          setUploadingReturnId(ret.id)
+                                          try {
+                                            const fd = new FormData()
+                                            fd.append('file', file)
+                                            fd.append('dealId', selectedDealId)
+                                            fd.append('documentType', ret.deal_documents?.document_type || 'other')
+                                            const result = await uploadDocument(fd)
+                                            if (result.success) {
+                                              setUploadedReturnIds(prev => new Set([...prev, ret.id]))
+                                            } else {
+                                              setStatusMessage({ type: 'error', text: result.error || 'Upload failed' })
+                                            }
+                                          } catch { setStatusMessage({ type: 'error', text: 'Upload failed' }) }
+                                          setUploadingReturnId(null)
+                                          e.target.value = ''
+                                        }}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Messages */}
+                    <MessageThread
+                      messages={messages}
+                      viewerRole="agent"
+                      loading={messagesLoading}
+                      emptyMessage="No messages yet — send a message to the Firm Funds team below"
+                    />
+
+                    {/* Input */}
+                    <MessageInput
+                      onSend={handleSend}
+                      placeholder={messages.length > 0 ? 'Type a reply... (Shift+Enter for new line)' : 'Type a message... (Shift+Enter for new line)'}
+                    />
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </main>
     </div>
   )
-}
-
-// ============================================================================
-// Helper: format relative time (e.g., "2h ago", "Yesterday", "Apr 3")
-// ============================================================================
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
 }
