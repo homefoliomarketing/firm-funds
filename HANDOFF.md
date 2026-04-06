@@ -1,4 +1,4 @@
-# Firm Funds — Session 14 Handoff Document
+# Firm Funds — Session 15 Handoff Document
 
 **Date:** April 5, 2026
 **Owner:** Bud (homefoliomarketing@gmail.com)
@@ -34,154 +34,147 @@
 - **Provide git/SQL commands ready to copy-paste.** He runs PowerShell on Windows. Always quote paths with parentheses.
 - **Always provide copyable code.** Never say "run this migration" without pasting the actual SQL. Never say "push the code" without giving the exact git commands.
 - **Commission-advance-startup skill** — There is a custom skill loaded for this project. Use it when Bud asks about business formation, compliance, or operational questions.
+- **He works in Cowork mode** — Claude has browser access via "Claude in Chrome" MCP tools. Bud may ask you to interact with DocuSign, Netlify, Supabase, or other dashboards directly in his browser.
 
 ---
 
-## Session 14 — What Was Completed (Current Session)
+## Session 15 — What Was Completed (Current Session)
 
-This was a continuation of Session 13. Session 13 built the server actions and email templates; Session 14 wired them to the UI and fixed bugs.
+This session focused entirely on **DocuSign e-signature integration** — contract generation, sending for signature, webhook processing, and signed document storage.
 
 ### Migrations Applied
 
 | # | File | Status |
 |---|------|--------|
-| 026 | `026_notification_preferences.sql` — Adds `notification_preferences JSONB` column to user_profiles. | ✅ Applied (Session 13) |
-| 027 | `027_swap_agent_checklist_order.sql` — Swaps sort_order for agent verification checklist items (recovery balance → 3, good standing → 2). | ✅ Applied (Session 13) |
-| 028 | `028_allow_brokerage_admin_messages.sql` — Adds `brokerage_admin` to deal_messages sender_role CHECK constraint. Adds RLS policies for brokerage read/insert on deal_messages. | ✅ Applied (Session 14) |
+| 029 | `029_broker_of_record.sql` — Adds broker_of_record fields to brokerages table. | ✅ Applied (Session 15) |
+| 030 | `030_esignature_envelopes.sql` — Creates `esignature_envelopes` table for tracking DocuSign envelope status per document. | ✅ Applied (Session 15) |
 
 ### Features Completed & Tested
 
-1. **Brokerage Admin Invite Flow (Magic Link)**
-   - Replaced manual password-based brokerage login creation with `inviteBrokerageAdmin` server action
-   - Create Login form now only needs Full Name + Email (no password field)
-   - Button says "Create Login & Send Setup Link" with Mail icon
-   - Sends branded welcome email with magic link — brokerage admin sets their own password
-   - Added `resendBrokerageSetupLink` server action + "Resend Setup Link" button on existing brokerage admins in Manage Logins panel
-   - Helper text: "A branded setup email will be sent with a magic link. They'll set their own password — no credentials to share."
-   - **Files changed:** `app/(dashboard)/admin/brokerages/page.tsx`, `lib/actions/admin-actions.ts`, `lib/email.ts`
+1. **Contract Document Generation (CPA + IDP)**
+   - Built `.docx` contract generator using `docx` npm package
+   - Commission Purchase Agreement (CPA) — multi-section with main body, Schedule A, and signature page
+   - Irrevocable Direction to Pay (IDP) — separate document
+   - **All black text, no color** — removed Word's default blue `HeadingLevel.HEADING_2` theme styling; all headings use manual bold with explicit `color: '000000'`
+   - Removed all table shading/fill colors
+   - Footer on every page: initials line (right-aligned with underline) + hidden DocuSign anchor + page numbers
+   - **File:** `lib/contract-docx.ts`
 
-2. **Settings Pages (All Three Portals)**
-   - Agent settings: password change, display name, email, notification toggles, link to profile
-   - Admin settings: password change, display name, email, notification toggles
-   - Brokerage settings: password change, display name, login email, brokerage contact email, notification toggles
-   - Shared server actions in `lib/actions/settings-actions.ts`
-   - **Files created:** `app/(dashboard)/agent/settings/page.tsx`, `app/(dashboard)/admin/settings/page.tsx`, `app/(dashboard)/brokerage/settings/page.tsx`, `lib/actions/settings-actions.ts`
+2. **DocuSign Anchor Tabs for Signature Placement**
+   - Uses anchor strings: `/sig1/` (signature), `/ini1/` (initials), `/dat1/` (date)
+   - DocuSign scans the rendered PDF for these strings and places interactive fields
+   - **Initials on every page** — achieved by putting `/ini1/` anchor in the page footer (footer repeats on every page). Body content anchors only appear on the last page of each section.
+   - **Hidden anchor technique** — anchor text uses white color (`FFFFFF`) and 2pt font size, making it invisible to humans but still detectable by DocuSign
+   - `makeFooterWithInitials(label)` — used on body/Schedule A pages
+   - `makeFooterNoInitials()` — used on signature pages (signature anchor is in the body)
+   - **File:** `lib/contract-docx.ts`
 
-3. **Admin User Management (Reset Passwords / Change Emails)**
-   - `adminResetUserPassword` — generates temp password, creates magic link, sends reset email
-   - `adminChangeUserEmail` — updates Supabase Auth + user_profiles + agents table, sends notification to old email
-   - Per-agent buttons: KeyRound (reset password), AtSign (change email) with inline email change row
-   - Brokerage admin: same buttons in Manage Logins panel
-   - **Files changed:** `app/(dashboard)/admin/brokerages/page.tsx`, `lib/actions/admin-actions.ts`, `lib/email.ts`
+3. **DocuSign API Integration**
+   - OAuth2 JWT Grant flow for server-to-server auth
+   - Token management with refresh logic in `getValidAccessToken()`
+   - Callback route at `/api/docusign/callback/route.ts` for initial consent flow
+   - `sendForESignature()` server action — generates CPA + IDP docs, creates DocuSign envelope with both as documents (docId 1 = CPA, docId 2 = IDP), sends to agent for signature
+   - Stores envelope tracking records in `esignature_envelopes` table (one per document type per deal)
+   - **Files:** `lib/docusign.ts`, `lib/actions/esign-actions.ts`, `app/api/docusign/callback/route.ts`
 
-4. **Permanent Delete for Archived Agents**
-   - `permanentlyDeleteAgent` server action — only works on archived agents
-   - Deletes user_profile, auth user, and agent record (FK cascades handle deals, transactions, invoices, etc.)
-   - Red "Delete" button with Trash2 icon, double-confirms with scary warning
-   - Visible only when "Show Archived" toggle is on
-   - **Files changed:** `app/(dashboard)/admin/brokerages/page.tsx`, `lib/actions/admin-actions.ts`
+4. **DocuSign Connect Webhook — Signed Document Processing**
+   - Webhook endpoint at `/api/docusign/webhook/route.ts` — receives POST from DocuSign when envelope status changes
+   - **Auth middleware fix** — `/api/docusign/webhook` was being 302 redirected to `/login` because middleware treated it as an unauthenticated request. Fixed by adding it to the exclusion list in `middleware.ts`.
+   - When envelope status is `completed` (signed):
+     1. Gets DocuSign auth token via `getValidAccessToken()`
+     2. Downloads signed PDFs from DocuSign REST API (doc 1 = CPA, doc 2 = IDP)
+     3. Uploads to Supabase storage bucket `deal-documents` with path `{dealId}/{timestamp}_{uuid}.pdf`
+     4. Creates `deal_documents` records with proper types (`commission_agreement` / `direction_to_pay`)
+     5. Finds matching underwriting checklist items via `ilike` pattern match
+     6. Updates checklist: `is_checked: true`, `linked_document_id` set, `checked_at` timestamped
+   - **Critical: `checked_by` must be `null`, not a string** — the column is UUID-typed. Passing `'system'` caused silent update failures. Fixed to use `null` with explanation in `notes` field.
+   - **No fallback checking** — if auth token unavailable or docs can't be downloaded, checklist items are NOT checked off. Must have signed PDFs in hand before funding.
+   - **Error checking** — all Supabase update results are now checked and logged
+   - Always returns 200 to DocuSign to prevent retry loops
+   - **File:** `app/api/docusign/webhook/route.ts`
 
-5. **Notification Badge Improvements**
-   - Admin dashboard: Under Review tab badge now shows actual count (was showing `!`)
-   - Admin dashboard: Tab badges show count exclusively inside red badge OR as grey parenthetical — no more duplicate numbers
-   - Admin dashboard: Messages badge now counts brokerage_admin messages too (was only counting agent messages)
-   - Brokerage portal: Deals tab gets red badge with count of deals missing trade records
-   - Brokerage portal: Messages tab gets red badge with count of unanswered admin messages
-   - Brokerage portal: Inbox data pre-loads on page load so badges show immediately
-   - Badge styling: `h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold animate-pulse` with `#DC2626` background
-   - **Files changed:** `app/(dashboard)/admin/page.tsx`, `app/(dashboard)/brokerage/page.tsx`
+5. **Approval vs Funding Checklist Split**
+   - Changed blocking logic on admin deal page: CPA/IDP signed docs (Firm Fund Documents category) are only required for **funding**, not for **approval**
+   - `approvalItems` = checklist items NOT in 'Firm Fund Documents' category
+   - `allApprovalItemsComplete` gates the Approve button
+   - `allChecklistComplete` (all items including Firm Fund Docs) gates the Fund button
+   - Tooltip shows different messages for approval blocks vs funding blocks
+   - **File:** `app/(dashboard)/admin/deals/[id]/page.tsx`
 
-6. **Brokerage Messaging Fix**
-   - **Root cause:** `deal_messages` table had CHECK constraint `sender_role IN ('admin', 'agent')` — rejected `brokerage_admin`
-   - Migration 028 adds `brokerage_admin` to the constraint + RLS policies
-   - Fixed missing `await` on email notification send (Netlify serverless was killing the function before email went out)
-   - Added error feedback (alert) when message send fails — was silently failing before
-   - **Files changed:** `lib/actions/notification-actions.ts`, `app/(dashboard)/brokerage/page.tsx`
+6. **Brokerage Split Fix**
+   - `brokerage_split_pct` in DB stores the value as a whole number (e.g., `5` for 5%), not a decimal (`0.05`)
+   - Code was multiplying by 100, showing 500%. Fixed by removing the `* 100`.
+   - **File:** `lib/actions/esign-actions.ts`
 
-7. **Underwriting Checklist UI Fixes (Session 13)**
-   - Fixed ugly white/light-mode category headers — now use dark-friendly translucent rgba colors
-   - `CATEGORY_STYLES` updated: Agent Verification (purple), Deal Verification (blue), Firm Fund Documents (green)
-   - Swapped order of Agent Verification items 2 and 3 (recovery balance moved to bottom)
-   - Added collapsible wrapper matching Messages/Audit Trail pattern
-   - **Files changed:** `app/(dashboard)/admin/deals/[id]/page.tsx`
+### Bug Fixes (Session 15)
 
-8. **Brokerage Portal KPI Tiles Removed**
-   - Removed the 4 KPI cards from brokerage dashboard top (matches agent/admin layout)
-   - Same data still available in Referral Fees tab
-   - **File changed:** `app/(dashboard)/brokerage/page.tsx`
+- **Blue headings in contracts** — Word's `HeadingLevel.HEADING_2` applies default blue theme color. Removed `HeadingLevel` entirely; use manual bold styling with explicit `color: '000000'`.
+- **`/ini1/` showing as visible text in contracts** — DocuSign anchor string was rendering visibly. Fixed with white color + 2pt font size (invisible to humans, visible to DocuSign scanner).
+- **Initials only on last page** — When anchor was in body content, it only appeared on the page where that paragraph rendered. Fixed by moving anchor to footer (repeats on every page).
+- **Brokerage split showing 500%** — DB stores `5` not `0.05`; removed `* 100` multiplication.
+- **DocuSign webhook getting 302 redirected to login** — Auth middleware in `middleware.ts` was intercepting the POST. Added `/api/docusign/webhook` to the public route exclusion list.
+- **Checklist items not updating after webhook** — `checked_by: 'system'` failed silently because the column is UUID-typed. Changed to `checked_by: null` with auto-check info in `notes` field.
 
-9. **Password Visibility Toggle on Login**
-   - Eye/EyeOff icon on password field, toggles between text/password input type
-   - Uses `tabIndex={-1}` to not disrupt tab flow, turns green on hover
-   - **File changed:** `app/(auth)/login/page.tsx`
+### DocuSign Configuration (Sandbox)
 
-10. **Enhanced Referral Fee Reporting (Brokerage Portal, Session 13)**
-    - 4-column summary grid (Earned, Pending, Avg Fee/Deal, Combined Total)
-    - Monthly trend bar chart (CSS-only, collapsible, last 12 months)
-    - CSV export button
-    - Monthly summary table with earned/pending/total per month
-    - **File changed:** `app/(dashboard)/brokerage/page.tsx`
-
-11. **Manage Logins Button Styling Fix**
-    - Was greyed out when inactive — now uses `colors.gold` text matching Add Agent button style
-    - Green fill with white text when active/selected
-    - **File changed:** `app/(dashboard)/admin/brokerages/page.tsx`
-
-12. **Change Email Refresh Bug Fix**
-    - Changing a brokerage admin's email showed success but reverted visually
-    - Root cause: handler refreshed `loadBrokerages()` but not `brokerageUserProfiles` state
-    - Now also calls `getBrokerageUserProfiles()` after successful email change
-    - **File changed:** `app/(dashboard)/admin/brokerages/page.tsx`
-
-### Bug Fixes (Session 14)
-
-- **Brokerage messages silently failing** — CHECK constraint on `deal_messages.sender_role` rejected `brokerage_admin`. Fixed with migration 028.
-- **Brokerage message email notification not sending** — `sendBrokerageMessageNotification` was not `await`-ed; Netlify killed the function before Resend sent the email. Added `await`.
-- **Admin unread count missing brokerage messages** — Only counted `sender_role === 'agent'`. Now also counts `brokerage_admin`.
-- **Notification badges showing `!` instead of numbers** — Replaced fallback `!` with actual counts.
-- **Manage Logins appearing greyed out** — Wrong text color (`textMuted` instead of `gold`).
-- **Change Email not persisting visually** — Forgot to refresh `brokerageUserProfiles` state after update.
+- **Account:** bud@firmfunds.ca, Account ID 47005378
+- **App:** Registered in DocuSign Developer portal with JWT Grant consent
+- **Connect Webhook:** "Firm Funds Webhook", Config ID 22115872, Status: Active
+  - URL: `https://firmfunds.ca/api/docusign/webhook`
+  - Data Format: REST v2.1 (JSON)
+  - Events: Envelope completed
+- **Sandbox limitation:** Emails don't deliver to external addresses. Use "Correct" feature to change signer email to bud@firmfunds.ca (sandbox account) for testing.
+- **To resend a webhook:** DocuSign Admin → Connect → Publish tab → check the envelope → Publish → select Firm Funds Webhook → Publish
 
 ---
 
-## Session 13 — What Was Completed (Previous Session)
+## Session 14 — What Was Completed
 
-Settings pages for all portals, admin user management (reset passwords, change emails), underwriting UI fixes, brokerage onboarding flow server actions and email templates, enhanced referral reporting. See Session 14 above for the items that were completed in this session (they span both 13 and 14).
+This was a continuation of Session 13. Session 13 built the server actions and email templates; Session 14 wired them to the UI and fixed bugs.
+
+### Migrations Applied (Session 14)
+
+| # | File | Status |
+|---|------|--------|
+| 026 | `026_notification_preferences.sql` — Adds `notification_preferences JSONB` column to user_profiles. | ✅ Applied (Session 13) |
+| 027 | `027_swap_agent_checklist_order.sql` — Swaps sort_order for agent verification checklist items. | ✅ Applied (Session 13) |
+| 028 | `028_allow_brokerage_admin_messages.sql` — Adds `brokerage_admin` to deal_messages sender_role CHECK constraint. | ✅ Applied (Session 14) |
+
+### Features (Session 14)
+1. Brokerage Admin Invite Flow (Magic Link)
+2. Settings Pages (All Three Portals)
+3. Admin User Management (Reset Passwords / Change Emails)
+4. Permanent Delete for Archived Agents
+5. Notification Badge Improvements
+6. Brokerage Messaging Fix
+7. Underwriting Checklist UI Fixes
+8. Brokerage Portal KPI Tiles Removed
+9. Password Visibility Toggle on Login
+10. Enhanced Referral Fee Reporting
+11. Manage Logins Button Styling Fix
+12. Change Email Refresh Bug Fix
 
 ---
 
 ## Session 12 — What Was Completed
 
-### Migrations Applied (Session 12)
-
-| # | File | Status |
-|---|------|--------|
-| 024 | `024_status_completed_rename.sql` — Updates deals with status 'repaid'/'closed' to 'completed'. | ✅ Applied |
-| 025 | `025_kill_duplicate_checklist_trigger.sql` — Drops old `auto_create_checklist` trigger permanently. | ✅ Applied |
-
-### Features (Session 12)
-1. Status Rename: Repaid/Closed → Completed (single "Completed" status across entire codebase)
-2. Agent Messaging Fix — Agents can now initiate conversations (fixed RLS block + inbox filtering)
-3. Duplicate Checklist Trigger Bug — Permanently killed old trigger
+### Migrations: 024 (status_completed_rename), 025 (kill_duplicate_checklist_trigger)
+### Features:
+1. Status Rename: Repaid/Closed → Completed
+2. Agent Messaging Fix
+3. Duplicate Checklist Trigger killed
 4. Admin Deals Table — Mobile card layout
-5. Agent Deal List — Pagination (10/page)
-6. KYC Polling — Exponential backoff (5s→30s cap, 30min timeout)
+5. Agent Deal List — Pagination
+6. KYC Polling — Exponential backoff
 7. Mobile Scroll-to-Messages Bug Fix
 
 ---
 
 ## Session 11 — What Was Completed
 
-### Migrations Applied (Session 11)
-
-| # | File | Status |
-|---|------|--------|
-| 021 | `021_agent_banking_profile.sql` — Banking fields, preauth form, address fields, storage bucket. | ✅ Applied |
-| 022 | `022_checklist_document_linking.sql` — `linked_document_id` FK on underwriting_checklist. | ✅ Applied |
-| 023 | `023_checklist_auto_check_kyc.sql` — Updated trigger for KYC auto-check on new deals. | ✅ Applied |
-
-### Features (Session 11)
-1. Dashboard KPI Tiles Removed (Agent & Admin Portals)
+### Migrations: 021 (agent_banking_profile), 022 (checklist_document_linking), 023 (checklist_auto_check_kyc)
+### Features:
+1. Dashboard KPI Tiles Removed
 2. Agent Banking & Profile System
 3. Admin Deal Page Complete Overhaul
 4. Drag-and-Drop Documents to Underwriting Checklist
@@ -194,11 +187,8 @@ Settings pages for all portals, admin user management (reset passwords, change e
 
 ## Sessions 9-10 Summary
 
-### Session 10 Migrations: 019 (agent_message_reads), 020 (admin_message_dismissals)
-### Session 10 Features: Agent notifications, admin messages page, dismissal system, email throttling
-
-### Session 9 Migrations: 017 (underwriting_checklist_final), 018 (account_balance_messages_doc_returns)
-### Session 9 Features: Underwriting checklist, messaging system, document returns, late closing interest, deep-linking
+### Session 10: Migrations 019-020. Agent notifications, admin messages page, dismissal system, email throttling.
+### Session 9: Migrations 017-018. Underwriting checklist, messaging system, document returns, late closing interest, deep-linking.
 
 ---
 
@@ -207,73 +197,129 @@ Settings pages for all portals, admin user management (reset passwords, change e
 | File | Purpose |
 |------|---------|
 | `app/(auth)/login/page.tsx` | Login page — rate limiting, password visibility toggle, forgot password |
-| `app/(auth)/setup-account/page.tsx` | Magic link setup page — where invited users set their password |
-| `app/(dashboard)/admin/page.tsx` | Admin dashboard — deal table, notification badges (agents + brokerages), mobile cards |
-| `app/(dashboard)/admin/deals/[id]/page.tsx` | Admin deal detail — underwriting with dark-friendly headers, drag-drop docs, messages, notes |
-| `app/(dashboard)/admin/brokerages/page.tsx` | Brokerages page — agent management, banking entry, Manage Logins (invite + resend), permanent delete |
-| `app/(dashboard)/admin/messages/page.tsx` | Admin messages inbox, dismiss notification, needs reply filter |
-| `app/(dashboard)/admin/settings/page.tsx` | Admin settings — password, display name, email, notifications |
+| `app/(auth)/setup-account/page.tsx` | Magic link setup page |
+| `app/(dashboard)/admin/page.tsx` | Admin dashboard — deal table, notification badges, mobile cards |
+| `app/(dashboard)/admin/deals/[id]/page.tsx` | Admin deal detail — underwriting (approval vs funding split), drag-drop docs, e-sign send, messages |
+| `app/(dashboard)/admin/brokerages/page.tsx` | Brokerages — agent mgmt, banking, Manage Logins, permanent delete |
+| `app/(dashboard)/admin/messages/page.tsx` | Admin messages inbox |
+| `app/(dashboard)/admin/settings/page.tsx` | Admin settings |
 | `app/(dashboard)/admin/reports/page.tsx` | Reports page |
 | `app/(dashboard)/admin/payments/page.tsx` | Payments page |
 | `app/(dashboard)/agent/page.tsx` | Agent dashboard — deal cards, pagination |
-| `app/(dashboard)/agent/deals/[id]/page.tsx` | Agent deal detail — messages, sendAgentReply server action |
+| `app/(dashboard)/agent/deals/[id]/page.tsx` | Agent deal detail — messages |
 | `app/(dashboard)/agent/profile/page.tsx` | Agent profile: personal info, banking, preauth upload |
-| `app/(dashboard)/agent/settings/page.tsx` | Agent settings — password, display name, email, notifications |
+| `app/(dashboard)/agent/settings/page.tsx` | Agent settings |
 | `app/(dashboard)/agent/messages/page.tsx` | Agent messages inbox |
 | `app/(dashboard)/agent/new-deal/page.tsx` | Deal submission form |
-| `app/(dashboard)/brokerage/page.tsx` | Brokerage portal — deals, agents, referrals, payments, messages, notification badges |
-| `app/(dashboard)/brokerage/settings/page.tsx` | Brokerage settings — password, display name, emails, notifications |
-| `lib/actions/admin-actions.ts` | Admin actions — CRUD, inviteBrokerageAdmin, resendBrokerageSetupLink, permanentlyDeleteAgent, resetPassword, changeEmail |
+| `app/(dashboard)/brokerage/page.tsx` | Brokerage portal — deals, agents, referrals, payments, messages |
+| `app/(dashboard)/brokerage/settings/page.tsx` | Brokerage settings |
+| `app/api/docusign/callback/route.ts` | DocuSign OAuth callback — handles consent redirect |
+| `app/api/docusign/webhook/route.ts` | DocuSign Connect webhook — receives signed status, downloads PDFs, stores in Supabase, auto-checks checklist |
+| `app/api/docusign/signing-url/route.ts` | **UNWANTED — DELETE THIS.** Created during debugging, not needed. |
+| `lib/docusign.ts` | DocuSign auth (JWT Grant), token management, `getValidAccessToken()` |
+| `lib/contract-docx.ts` | Contract .docx generator — CPA + IDP with hidden DocuSign anchors, black-only formatting |
+| `lib/actions/esign-actions.ts` | `sendForESignature()` — generates contracts, creates DocuSign envelope, sends to agent |
+| `lib/actions/admin-actions.ts` | Admin CRUD, invites, password resets, email changes, permanent delete |
 | `lib/actions/deal-actions.ts` | Deal CRUD, checklist toggle/NA, linkDocumentToChecklist, status changes |
-| `lib/actions/notification-actions.ts` | Messaging — sendAgentReply, sendAdminMessage, sendBrokerageMessage, getBrokerageInbox |
-| `lib/actions/settings-actions.ts` | Shared settings actions — changePassword, updateDisplayName, updateEmail, notification prefs |
-| `lib/actions/profile-actions.ts` | Agent profile update, admin banking entry, preauth auto-attach |
-| `lib/actions/kyc-actions.ts` | KYC verify/reject, auto-check checklist, auto-attach + auto-link docs |
+| `lib/actions/notification-actions.ts` | Messaging — agent, admin, brokerage message actions |
+| `lib/actions/settings-actions.ts` | Shared settings actions |
+| `lib/actions/profile-actions.ts` | Agent profile update, admin banking entry |
+| `lib/actions/kyc-actions.ts` | KYC verify/reject, auto-check checklist |
 | `lib/actions/account-actions.ts` | Late interest, balance mgmt, invoicing |
 | `lib/actions/report-actions.ts` | Report generation |
-| `lib/email.ts` | All email templates (Resend) — includes sendBrokerageInviteNotification, sendPasswordResetNotification, sendEmailChangeNotification, sendBrokerageMessageNotification |
+| `lib/email.ts` | All email templates (Resend) |
 | `lib/calculations.ts` | Financial calculations |
 | `lib/constants.ts` | Status badges, doc types, financial constants |
 | `lib/theme.ts` | useTheme hook, colors object |
 | `lib/supabase/server.ts` | `createClient()` (async) and `createServiceRoleClient()` (sync, bypasses RLS) |
 | `lib/audit.ts` | Audit logging |
+| `middleware.ts` | Auth middleware — redirects unauthenticated users to login. **Public routes excluded:** `/login`, `/auth`, `/kyc-upload`, `/api/kyc-*`, `/invite`, `/api/magic-link`, `/api/rate-limit`, `/api/docusign/webhook` |
 | `types/database.ts` | TypeScript interfaces |
 | `components/AgentHeader.tsx` | Shared agent header with nav + settings |
 | `components/AgentKycGate.tsx` | KYC upload with exponential backoff polling |
 | `components/SignOutModal.tsx` | Logout confirmation modal |
-| `supabase/migrations/` | Migrations 017-028 are current |
+| `supabase/migrations/` | Migrations 017-030 are current |
 
 ---
 
 ## Planned Next Steps (Priority Order)
 
-### 1. 🔴 E-Signature Integration
-Agents and brokerages need to sign the Commission Purchase Agreement and Irrevocable Direction to Pay digitally before funding. DocuSign or equivalent. This is a gating requirement for processing any advance.
+### 1. 🔴 Cleanup from Session 15
+- **Delete `app/api/docusign/signing-url/route.ts`** — unwanted file created during debugging
+- **Full end-to-end test on a fresh deal** — send contracts → agent signs → webhook fires → docs stored → checklist auto-checked → admin can fund
+- **Send CPA, IDP, and BCA contracts to lawyer for review** (Bud's task, not dev)
 
-### 2. 🔴 Funding Workflow / Commission Calculator
+### 2. 🔴 Admin Notification System for Pending Banking Info Approvals
+Bud mentioned this during Session 15 — "we will get into that in a bit." When agents submit banking info, admins need to be notified so they can review/approve it. Currently there's no notification or indicator.
+
+### 3. 🔴 Funding Workflow / Commission Calculator
 Right now "Funded" is just a status change. Need to build:
 - Commission calculation engine: fee = $0.75 per $1,000/day from funding date to closing date + 10 business days
 - Clear breakdown visible to admin before clicking "Fund": agent receives X, fee is Y, brokerage referral is Z
 - Payment disbursement tracking (even if manual initially — mark when EFT sent, confirmation)
 
-### 3. 🔴 Portfolio / Collections Dashboard
+### 4. 🔴 Portfolio / Collections Dashboard
 Track outstanding advances, aging (days since funding), upcoming closings, and deals at risk. Admin needs a bird's-eye view of capital deployed and expected returns.
 
-### 4. 🟡 White-Label Branding
+### 5. 🟡 White-Label Branding
 Brokerage-specific branding on the agent-facing experience. Each brokerage partner should be able to show their logo/colors. This is the key differentiator of the business model.
 
-### 5. 🟡 Agent-Side Improvements
+### 6. 🟡 Late Closing Interest — Needs Rethinking
+Bud has been putting this off since Session 11. He said "I need to do some more thinking on this part." **ASK BUD what he's decided before touching this.**
+
+### 7. 🟡 Agent-Side Improvements
 - Agent returned docs section design could be improved
-- Consider removing redundant Deal Timeline section (duplicates progress bar)
+- Consider removing redundant Deal Timeline section
 
-### 6. ⚫ NOT DOING: PPSA Registration Tracking
-Bud explicitly decided against this — cost vs. transaction revenue doesn't make sense.
+### 8. ⚫ NOT DOING: PPSA Registration Tracking
+Bud explicitly decided against this.
 
-### 7. ⏳ Business Prerequisites (In Progress, Not Blocking Dev)
-These are in the works on Bud's end and not things the dev agent can help with:
-- Legal contracts (Commission Purchase Agreement, Irrevocable Direction to Pay, Brokerage Cooperation Agreement)
+### 9. ⏳ Business Prerequisites (In Progress, Not Blocking Dev)
+- Legal contracts review by lawyer (CPA, IDP, BCA)
 - FINTRAC registration (4-6 week processing time)
 - Banking with EFT capability
+- DocuSign production account (currently using sandbox)
+
+---
+
+## DocuSign Integration — Technical Reference
+
+### Architecture
+```
+Admin clicks "Send for E-Signature" on deal page
+  → sendForESignature() server action
+    → generates CPA + IDP .docx files via lib/contract-docx.ts
+    → creates DocuSign envelope with both documents
+    → sends to agent's email for signing
+    → stores envelope records in esignature_envelopes table
+
+Agent signs in DocuSign
+  → DocuSign Connect fires webhook POST to /api/docusign/webhook
+    → webhook downloads signed PDFs from DocuSign API
+    → uploads to Supabase storage (deal-documents bucket)
+    → creates deal_documents records
+    → links to underwriting checklist items
+    → auto-checks "Commission Purchase Agreement" and "Irrevocable Direction to Pay"
+
+Admin sees checklist items checked + signed PDFs attached
+  → can now proceed to Fund the deal
+```
+
+### Key Gotchas
+- **DocuSign anchor strings** (`/sig1/`, `/ini1/`, `/dat1/`) must be in the rendered PDF text. Put them in footers for per-page placement. Use white color + 2pt font to hide them.
+- **DocuSign sandbox** doesn't deliver emails to external addresses. Use "Correct" feature to change signer email.
+- **`checked_by` column is UUID** — never pass a plain string. Use `null` for system-initiated checks.
+- **Auth middleware** must exclude webhook routes — DocuSign POSTs without auth cookies.
+- **Always return 200** from webhook — DocuSign retries on non-200 responses.
+- **Document IDs in envelope**: CPA = docId `1`, IDP = docId `2`. These correspond to the order documents are added to the envelope in `sendForESignature()`.
+
+### Environment Variables (Netlify)
+- `DOCUSIGN_INTEGRATION_KEY` — OAuth app client ID
+- `DOCUSIGN_USER_ID` — The impersonated user's GUID
+- `DOCUSIGN_ACCOUNT_ID` — DocuSign account ID
+- `DOCUSIGN_RSA_PRIVATE_KEY` — RSA private key for JWT Grant (newlines as `\n`)
+- `DOCUSIGN_BASE_URL` — `https://demo.docusign.net` (sandbox) or `https://www.docusign.net` (production)
+- `DOCUSIGN_API_BASE_URL` — `https://demo.docusign.net/restapi` (sandbox) or `https://na4.docusign.net/restapi` (production)
 
 ---
 
@@ -293,9 +339,9 @@ These are in the works on Bud's end and not things the dev agent can help with:
 9. Address verification on Google & Street View
 10. Double-check Discount Fee and Referral Fee Calculated Correctly
 
-**Firm Fund Documents:**
-11. Commission Purchase Agreement - Signed and Executed
-12. Irrevocable Direction to Pay - Signed and Executed
+**Firm Fund Documents (required for FUNDING, not approval):**
+11. Commission Purchase Agreement - Signed and Executed — *auto-checked when signed doc received via DocuSign webhook*
+12. Irrevocable Direction to Pay - Signed and Executed — *auto-checked when signed doc received via DocuSign webhook*
 
 **⚠️ DO NOT MODIFY THIS LIST. Migration 017 is the definitive version. Migration 023 updated trigger for auto-check. Migration 025 killed duplicate trigger. Migration 027 swapped sort_order of items 2 and 3.**
 
@@ -310,3 +356,7 @@ These are in the works on Bud's end and not things the dev agent can help with:
 - **deal_messages.sender_role** — CHECK constraint now allows `'admin'`, `'agent'`, `'brokerage_admin'` (migration 028).
 - **Netlify serverless + async** — Always `await` email sends and other async operations. Unawaited promises get killed when the function returns.
 - **Supabase rate limiting** — IP-level, not account-level. Too many auth attempts from one IP locks ALL accounts from that IP for ~10 minutes.
+- **DocuSign webhook auth** — `/api/docusign/webhook` MUST be in middleware's public route exclusion list. DocuSign POSTs without cookies.
+- **DocuSign `checked_by` field** — underwriting_checklist.checked_by is UUID-typed. Passing string `'system'` causes silent update failure. Use `null` for system-initiated checks.
+- **Brokerage split percentage** — `brokerage_split_pct` stores whole number (5 = 5%), NOT decimal (0.05). Do NOT multiply by 100.
+- **Word HeadingLevel blue theme** — `HeadingLevel.HEADING_2` in the `docx` npm package applies Word's default blue theme color. For black-only documents, use manual bold TextRun styling with explicit `color: '000000'` instead.
