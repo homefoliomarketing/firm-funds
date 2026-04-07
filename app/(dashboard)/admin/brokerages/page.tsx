@@ -63,7 +63,7 @@ interface Brokerage {
   address: string | null
   phone: string | null
   email: string
-  status: 'active' | 'suspended' | 'inactive'
+  status: 'active' | 'suspended' | 'inactive' | 'archived'
   referral_fee_percentage: number
   transaction_system: string | null
   notes: string | null
