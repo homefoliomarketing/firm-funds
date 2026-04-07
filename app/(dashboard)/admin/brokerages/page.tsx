@@ -272,7 +272,14 @@ export default function BrokeragesPage() {
           const fileData = await createRosterFile.arrayBuffer()
           const workbook = XLSX.read(fileData, { type: 'array' })
           const sheet = workbook.Sheets[workbook.SheetNames[0]]
-          const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+          // Auto-detect header row (skip branded header rows in premium template)
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+          let headerRowIdx = 0
+          for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+            const rowText = rawRows[i].join(' ').toLowerCase()
+            if (rowText.includes('first') && rowText.includes('email')) { headerRowIdx = i; break }
+          }
+          const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '', range: headerRowIdx })
 
           if (rows.length > 0) {
             const agents = rows.map((row) => {
@@ -287,6 +294,10 @@ export default function BrokeragesPage() {
                 email: find(['email', 'mail']),
                 phone: find(['phone', 'cell', 'mobile', 'tel']) || undefined,
                 recoNumber: find(['reco', 'license', 'licence', 'registration']) || undefined,
+                addressStreet: find(['street', 'addressstreet', 'streetaddress', 'address']) || undefined,
+                addressCity: find(['city', 'addresscity']) || undefined,
+                addressProvince: find(['province', 'addressprovince', 'state', 'prov']) || undefined,
+                addressPostalCode: find(['postal', 'postalcode', 'zip', 'addresspostalcode']) || undefined,
               }
             })
 
@@ -491,7 +502,14 @@ export default function BrokeragesPage() {
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data, { type: 'array' })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      // Auto-detect header row (skip branded header rows in premium template)
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+      let headerRowIdx = 0
+      for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+        const rowText = rawRows[i].join(' ').toLowerCase()
+        if (rowText.includes('first') && rowText.includes('email')) { headerRowIdx = i; break }
+      }
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '', range: headerRowIdx })
 
       if (rows.length === 0) {
         setStatusMessage({ type: 'error', text: 'The file appears to be empty. Make sure row 1 has headers.' })
