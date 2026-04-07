@@ -647,6 +647,7 @@ export default function BrokeragesPage() {
 
   const [resendingAgentId, setResendingAgentId] = useState<string | null>(null)
   const [sendingAllFor, setSendingAllFor] = useState<string | null>(null)
+  const [sendingBrokerageWelcome, setSendingBrokerageWelcome] = useState<string | null>(null)
 
   const handleSendWelcomeToAll = async (brokerageId: string, brokerageName: string) => {
     if (!confirm(`Send welcome emails to ALL active agents at ${brokerageName}? Each agent will receive a magic link to set up their account.`)) return
@@ -728,6 +729,22 @@ export default function BrokeragesPage() {
     }
     setShowUserManagement(brokerageId)
     setLoadingUserProfiles(null)
+  }
+
+  const handleSendBrokerageWelcome = async (brokerage: { id: string; name: string; email: string }) => {
+    if (!confirm(`Send welcome email to ${brokerage.email}? This will create a brokerage admin login for ${brokerage.name}.`)) return
+    setSendingBrokerageWelcome(brokerage.id)
+    const result = await inviteBrokerageAdmin({
+      brokerageId: brokerage.id,
+      fullName: brokerage.name,
+      email: brokerage.email,
+    })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: `Welcome email sent to ${brokerage.email}` })
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to send welcome email' })
+    }
+    setSendingBrokerageWelcome(null)
   }
 
   const handleCreateBrokerageLogin = async (brokerageId: string, brokerageName: string) => {
@@ -1426,6 +1443,24 @@ export default function BrokeragesPage() {
                         ) : (
                           <p className="text-xs text-muted-foreground">No documents uploaded. Upload the signed Brokerage Cooperation Agreement and other onboarding docs here.</p>
                         )}
+                      </div>
+
+                      {/* Brokerage Portal Access */}
+                      <div className="px-6 py-3 border-b border-border/50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Mail size={15} className="text-primary" />
+                            <h4 className="text-sm font-bold text-foreground">Brokerage Portal Access</h4>
+                          </div>
+                          <button
+                            onClick={() => handleSendBrokerageWelcome(brokerage)}
+                            disabled={sendingBrokerageWelcome === brokerage.id}
+                            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors text-primary border border-border hover:bg-muted hover:border-primary disabled:opacity-60"
+                          >
+                            <Mail size={13} />
+                            {sendingBrokerageWelcome === brokerage.id ? 'Sending...' : `Send Welcome Email to ${brokerage.email}`}
+                          </button>
+                        </div>
                       </div>
 
                       {/* Agent Roster */}

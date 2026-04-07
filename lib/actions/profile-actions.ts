@@ -9,11 +9,11 @@ import { sendBankingSubmittedNotification, sendBankingApprovalNotification } fro
 
 export async function updateAgentProfile(data: {
   agentId: string
-  phone: string | null
-  addressStreet: string | null
-  addressCity: string | null
-  addressProvince: string | null
-  addressPostalCode: string | null
+  phone?: string | null
+  addressStreet?: string | null
+  addressCity?: string | null
+  addressProvince?: string | null
+  addressPostalCode?: string | null
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -32,15 +32,17 @@ export async function updateAgentProfile(data: {
 
   const serviceClient = createServiceRoleClient()
 
+  // Only update fields that are explicitly provided (not undefined)
+  const updates: Record<string, string | null> = {}
+  if (data.phone !== undefined) updates.phone = data.phone || null
+  if (data.addressStreet !== undefined) updates.address_street = data.addressStreet || null
+  if (data.addressCity !== undefined) updates.address_city = data.addressCity || null
+  if (data.addressProvince !== undefined) updates.address_province = data.addressProvince || null
+  if (data.addressPostalCode !== undefined) updates.address_postal_code = data.addressPostalCode || null
+
   const { error } = await serviceClient
     .from('agents')
-    .update({
-      phone: data.phone || null,
-      address_street: data.addressStreet || null,
-      address_city: data.addressCity || null,
-      address_province: data.addressProvince || null,
-      address_postal_code: data.addressPostalCode || null,
-    })
+    .update(updates)
     .eq('id', data.agentId)
 
   if (error) {

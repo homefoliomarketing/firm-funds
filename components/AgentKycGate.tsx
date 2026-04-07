@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
+import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail, MapPin, ArrowRight } from 'lucide-react'
 import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
+import { updateAgentProfile } from '@/lib/actions/profile-actions'
 import { createClient } from '@/lib/supabase/client'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeClass } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
@@ -16,6 +17,10 @@ interface AgentKycGateProps {
     last_name: string
     kyc_status: string
     kyc_rejection_reason: string | null
+    address_street: string | null
+    address_city: string | null
+    address_province: string | null
+    address_postal_code: string | null
   }
   onKycSubmitted: () => void
 }
@@ -29,6 +34,18 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const [sendingMobileLink, setSendingMobileLink] = useState(false)
   const [mobileLinkSent, setMobileLinkSent] = useState(false)
   const [mobileLinkEmail, setMobileLinkEmail] = useState<string | null>(null)
+
+  // Address step — skip if agent already has address on file
+  const hasAddress = !!(agent.address_street && agent.address_city && agent.address_postal_code)
+  const [addressComplete, setAddressComplete] = useState(hasAddress)
+  const [addressForm, setAddressForm] = useState({
+    street: agent.address_street || '',
+    city: agent.address_city || '',
+    province: agent.address_province || 'Ontario',
+    postalCode: agent.address_postal_code || '',
+  })
+  const [savingAddress, setSavingAddress] = useState(false)
+  const [addressError, setAddressError] = useState<string | null>(null)
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const elapsedTimeRef = useRef<number>(0)
@@ -174,6 +191,29 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
     setSubmitting(false)
   }
 
+  const handleAddressSave = async () => {
+    if (!addressForm.street.trim() || !addressForm.city.trim() || !addressForm.postalCode.trim()) {
+      setAddressError('Please fill in all address fields.')
+      return
+    }
+    setSavingAddress(true)
+    setAddressError(null)
+    const result = await updateAgentProfile({
+      agentId: agent.id,
+      phone: null, // don't overwrite phone
+      addressStreet: addressForm.street.trim(),
+      addressCity: addressForm.city.trim(),
+      addressProvince: addressForm.province.trim(),
+      addressPostalCode: addressForm.postalCode.trim().toUpperCase(),
+    })
+    if (result.success) {
+      setAddressComplete(true)
+    } else {
+      setAddressError(result.error || 'Failed to save address')
+    }
+    setSavingAddress(false)
+  }
+
   // ---- Status: Submitted (awaiting review) ----
   if (agent.kyc_status === 'submitted') {
     return (
@@ -200,6 +240,100 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   // ---- Status: Rejected (needs re-upload) ----
   const isRejected = agent.kyc_status === 'rejected'
 
+  // ---- Step 1: Collect mailing address ----
+  if (!addressComplete && !isRejected) {
+    return (
+      <div className="max-w-[560px] mx-auto my-10 px-5">
+        <Card className="p-8 border-border/50">
+          <div className="text-center mb-6">
+            <MapPin size={44} className="text-primary mx-auto mb-3" />
+            <h2 className="text-[22px] font-semibold text-foreground mb-2">
+              Welcome to Firm Funds
+            </h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Let&apos;s start by confirming your mailing address. This will be used to verify your identity in the next step.
+            </p>
+          </div>
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 mb-6 px-1">
+            <div className="flex items-center gap-1.5 text-primary text-xs font-semibold">
+              <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-bold">1</div>
+              Address
+            </div>
+            <div className="flex-1 h-px bg-border" />
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <div className="w-5 h-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[11px] font-bold">2</div>
+              Upload ID
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-muted-foreground text-[13px] font-medium mb-1.5">Street Address *</label>
+              <input
+                type="text"
+                value={addressForm.street}
+                onChange={e => setAddressForm(p => ({ ...p, street: e.target.value }))}
+                placeholder="123 Main St, Unit 4"
+                className="w-full px-3 py-2.5 rounded-lg text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-muted-foreground text-[13px] font-medium mb-1.5">City *</label>
+                <input
+                  type="text"
+                  value={addressForm.city}
+                  onChange={e => setAddressForm(p => ({ ...p, city: e.target.value }))}
+                  placeholder="Sault Ste. Marie"
+                  className="w-full px-3 py-2.5 rounded-lg text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground text-[13px] font-medium mb-1.5">Province</label>
+                <input
+                  type="text"
+                  value={addressForm.province}
+                  onChange={e => setAddressForm(p => ({ ...p, province: e.target.value }))}
+                  placeholder="Ontario"
+                  className="w-full px-3 py-2.5 rounded-lg text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+            <div className="w-1/2">
+              <label className="block text-muted-foreground text-[13px] font-medium mb-1.5">Postal Code *</label>
+              <input
+                type="text"
+                value={addressForm.postalCode}
+                onChange={e => setAddressForm(p => ({ ...p, postalCode: e.target.value.toUpperCase() }))}
+                placeholder="P6A 1A1"
+                maxLength={7}
+                className="w-full px-3 py-2.5 rounded-lg text-sm bg-input border border-border text-foreground uppercase focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          </div>
+
+          {addressError && (
+            <div className="flex items-center gap-2 px-3.5 py-2.5 mt-4 rounded-lg bg-red-950/40 border border-red-800/50">
+              <AlertCircle size={16} className="text-red-400 shrink-0" />
+              <span className="text-red-400 text-[13px]">{addressError}</span>
+            </div>
+          )}
+
+          <Button
+            onClick={handleAddressSave}
+            disabled={savingAddress || !addressForm.street.trim() || !addressForm.city.trim() || !addressForm.postalCode.trim()}
+            className="w-full mt-5 flex items-center justify-center gap-2"
+          >
+            {savingAddress ? 'Saving...' : 'Continue to ID Verification'}
+            {!savingAddress && <ArrowRight size={16} />}
+          </Button>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-[560px] mx-auto my-10 px-5">
       <Card className="p-8 border-border/50">
@@ -207,13 +341,31 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
         <div className="text-center mb-6">
           <Shield size={44} className="text-primary mx-auto mb-3" />
           <h2 className="text-[22px] font-semibold text-foreground mb-2">
-            {isRejected ? 'Identity Verification Required' : 'Welcome to Firm Funds'}
+            {isRejected ? 'Identity Verification Required' : 'Upload Your ID'}
           </h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Before you can submit deals, we need to verify your identity per FINTRAC requirements.
-            Please upload a clear copy of a valid government-issued photo ID.
+            {isRejected
+              ? 'Please upload a clear copy of a valid government-issued photo ID.'
+              : 'Almost there! Upload a clear copy of a valid government-issued photo ID to verify your identity per FINTRAC requirements.'}
           </p>
         </div>
+
+        {/* Step indicator */}
+        {!isRejected && (
+          <div className="flex items-center gap-2 mb-6 px-1">
+            <div className="flex items-center gap-1.5 text-primary text-xs font-semibold">
+              <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-bold">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              Address
+            </div>
+            <div className="flex-1 h-px bg-primary/30" />
+            <div className="flex items-center gap-1.5 text-primary text-xs font-semibold">
+              <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-bold">2</div>
+              Upload ID
+            </div>
+          </div>
+        )}
 
         {/* Rejection notice */}
         {isRejected && agent.kyc_rejection_reason && (
