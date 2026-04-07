@@ -1703,18 +1703,19 @@ export default function BrokeragesPage() {
                               </button>
                               <button
                                 onClick={async () => {
-                                  if (brokerage.agents && brokerage.agents.length > 0) {
-                                    const archiveFirst = confirm(`"${brokerage.name}" has ${brokerage.agents.length} agent(s). This will archive the brokerage, deactivate all agents, and then permanently delete it. Continue?`)
-                                    if (!archiveFirst) return
+                                  const agentCount = brokerage.agents?.length || 0
+                                  const confirmed = confirm(`PERMANENTLY DELETE "${brokerage.name}"${agentCount > 0 ? ` and its ${agentCount} agent(s)` : ''}? This cannot be undone.`)
+                                  if (!confirmed) return
+                                  setSubmitting(true)
+                                  // Archive first (required before permanent delete)
+                                  if (brokerage.status !== 'archived') {
                                     const archiveResult = await archiveBrokerage({ brokerageId: brokerage.id })
                                     if (!archiveResult.success) {
                                       setStatusMessage({ type: 'error', text: archiveResult.error || 'Failed to archive brokerage' })
+                                      setSubmitting(false)
                                       return
                                     }
                                   }
-                                  const confirmed = confirm(`PERMANENTLY DELETE "${brokerage.name}"? This cannot be undone. All agents, logins, and brokerage data will be removed.`)
-                                  if (!confirmed) return
-                                  setSubmitting(true)
                                   const result = await permanentlyDeleteBrokerage({ brokerageId: brokerage.id })
                                   if (result.success) {
                                     setStatusMessage({ type: 'success', text: `"${brokerage.name}" has been permanently deleted.` })
