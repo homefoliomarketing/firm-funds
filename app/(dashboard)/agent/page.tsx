@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
+import { markKycModalSeen } from '@/lib/actions/profile-actions'
 import AgentKycGate from '@/components/AgentKycGate'
 import AgentHeader from '@/components/AgentHeader'
 import { Button } from '@/components/ui/button'
@@ -127,16 +128,25 @@ export default function AgentDashboard() {
     }
   }, [deals])
 
-  // Show KYC verified modal once — stored in DB so it persists across browsers/sessions
+  // Show KYC verified modal ONCE — localStorage + DB double-lock
   useEffect(() => {
-    if (agent?.kyc_status === 'verified' && agent?.id && !agent?.kyc_verified_modal_seen) {
-      setShowKycVerifiedModal(true)
-      // Mark as seen in DB (fire-and-forget)
-      void supabase
-        .from('agents')
-        .update({ kyc_verified_modal_seen: true })
-        .eq('id', agent.id)
-    }
+    if (!agent?.id || agent?.kyc_status !== 'verified') return
+
+    // Check localStorage FIRST (instant, same browser)
+    const localKey = `kyc_modal_seen_${agent.id}`
+    if (localStorage.getItem(localKey) === 'true') return
+
+    // Check DB flag (cross-browser persistence)
+    if (agent?.kyc_verified_modal_seen) return
+
+    // Show the modal
+    setShowKycVerifiedModal(true)
+
+    // Lock it in localStorage immediately (prevents repeat on refresh)
+    localStorage.setItem(localKey, 'true')
+
+    // Also persist to DB via server action (bypasses RLS)
+    void markKycModalSeen(agent.id)
   }, [agent?.kyc_status, agent?.id, agent?.kyc_verified_modal_seen])
 
   // KYC status

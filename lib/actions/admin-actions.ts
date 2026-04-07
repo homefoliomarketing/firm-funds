@@ -1903,16 +1903,16 @@ export async function inviteBrokerageAdmin(input: {
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-    // Check if a login already exists for this brokerage
+    // Check if this email already exists as a brokerage admin
     const { data: existingProfile } = await serviceClient
       .from('user_profiles')
       .select('id')
-      .eq('brokerage_id', input.brokerageId)
+      .eq('email', input.email)
       .eq('role', 'brokerage_admin')
       .maybeSingle()
 
     if (existingProfile) {
-      return { success: false, error: 'A brokerage admin login already exists. Use "Manage Logins" to reset their password or resend the setup link.' }
+      return { success: false, error: 'This email already has a brokerage admin account.' }
     }
 
     // Create auth user with temp password (they'll set their own via magic link)

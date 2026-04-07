@@ -1,7 +1,8 @@
 'use server'
 
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
-import { sendBankingSubmittedNotification, sendBankingApprovalNotification } from '@/lib/email'
+import crypto from 'crypto'
+import { sendBankingSubmittedNotification, sendBankingApprovalNotification, sendBrokerageInviteNotification } from '@/lib/email'
 
 // ============================================================================
 // Agent Profile Actions
@@ -50,6 +51,226 @@ export async function updateAgentProfile(data: {
     return { success: false, error: 'Failed to update profile' }
   }
 
+  return { success: true }
+}
+
+// ============================================================================
+// Mark KYC Modal as Seen (uses service role to bypass RLS)
+// ============================================================================
+
+export async function markKycModalSeen(agentId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('agent_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'agent' || profile.agent_id !== agentId) {
+    return { success: false }
+  }
+
+  const serviceClient = createServiceRoleClient()
+  await serviceClient
+    .from('agents')
+    .update({ kyc_verified_modal_seen: true })
+    .eq('id', agentId)
+
+  return { success: true }
+}
+
+// ============================================================================
+// Brokerage Staff Management (callable by brokerage_admin)
+// ============================================================================
+
+/** Get all staff members for the authenticated brokerage admin's brokerage */
+export async function getBrokerageStaff() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('brokerage_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'brokerage_admin' || !profile.brokerage_id) {
+    return { success: false, error: 'Not authorized' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  const { data: staff, error } = await serviceClient
+    .from('user_profiles')
+    .select('id, full_name, email, staff_title, last_login, is_active, created_at')
+    .eq('brokerage_id', profile.brokerage_id)
+    .eq('role', 'brokerage_admin')
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Get brokerage staff error:', error.message)
+    return { success: false, error: 'Failed to load staff' }
+  }
+
+  return { success: true, data: staff || [] }
+}
+
+/** Invite a new staff member to the brokerage (callable by brokerage_admin) */
+export async function inviteBrokerageStaff(input: {
+  fullName: string
+  email: string
+  staffTitle?: string
+}) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('brokerage_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'brokerage_admin' || !profile.brokerage_id) {
+    return { success: false, error: 'Not authorized' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  // Get brokerage info
+  const { data: brokerage } = await serviceClient
+    .from('brokerages')
+    .select('id, name')
+    .eq('id', profile.brokerage_id)
+    .single()
+
+  if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+  // Check if email already has an account
+  const { data: existingProfile } = await serviceClient
+    .from('user_profiles')
+    .select('id')
+    .eq('email', input.email)
+    .maybeSingle()
+
+  if (existingProfile) {
+    return { success: false, error: 'This email already has a Firm Funds account.' }
+  }
+
+  // Create auth user with temp password
+  const tempPassword = crypto.randomBytes(16).toString('hex') + 'A1!'
+
+  const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
+    email: input.email,
+    password: tempPassword,
+    email_confirm: true,
+  })
+
+  if (signUpError || !authData?.user) {
+    return { success: false, error: `Failed to create account: ${signUpError?.message || 'Unknown error'}` }
+  }
+
+  // Create user_profile
+  const { error: profileError } = await serviceClient
+    .from('user_profiles')
+    .insert({
+      id: authData.user.id,
+      email: input.email,
+      role: 'brokerage_admin',
+      full_name: input.fullName,
+      brokerage_id: profile.brokerage_id,
+      staff_title: input.staffTitle || null,
+      is_active: true,
+      must_reset_password: true,
+    })
+
+  if (profileError) {
+    console.error('Staff profile create error:', profileError.message)
+    return { success: false, error: `Account created but profile failed: ${profileError.message}` }
+  }
+
+  // Generate magic link token (72-hour expiry)
+  const inviteToken = crypto.randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+  await serviceClient
+    .from('invite_tokens')
+    .insert({
+      token: inviteToken,
+      user_id: authData.user.id,
+      email: input.email,
+      expires_at: expiresAt,
+    })
+
+  // Send invite email
+  await sendBrokerageInviteNotification({
+    adminName: input.fullName.split(' ')[0],
+    adminEmail: input.email,
+    brokerageName: brokerage.name,
+    inviteToken,
+  })
+
+  // Audit log
+  await serviceClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'brokerage_staff.invite',
+    entity_type: 'user',
+    entity_id: authData.user.id,
+    severity: 'info',
+    actor_email: user.email,
+    actor_role: 'brokerage_admin',
+    metadata: {
+      brokerage_id: profile.brokerage_id,
+      brokerage_name: brokerage.name,
+      staff_name: input.fullName,
+      staff_email: input.email,
+      staff_title: input.staffTitle || null,
+    },
+  })
+
+  return { success: true }
+}
+
+/** Update a staff member's title */
+export async function updateStaffTitle(staffUserId: string, title: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('brokerage_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'brokerage_admin' || !profile.brokerage_id) {
+    return { success: false, error: 'Not authorized' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  // Verify the target user is in the same brokerage
+  const { data: targetProfile } = await serviceClient
+    .from('user_profiles')
+    .select('brokerage_id')
+    .eq('id', staffUserId)
+    .eq('role', 'brokerage_admin')
+    .single()
+
+  if (!targetProfile || targetProfile.brokerage_id !== profile.brokerage_id) {
+    return { success: false, error: 'Staff member not found' }
+  }
+
+  const { error } = await serviceClient
+    .from('user_profiles')
+    .update({ staff_title: title || null })
+    .eq('id', staffUserId)
+
+  if (error) return { success: false, error: 'Failed to update title' }
   return { success: true }
 }
 
