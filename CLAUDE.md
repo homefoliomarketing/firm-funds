@@ -9,6 +9,7 @@
 ## Agent Capabilities — READ THIS FIRST
 
 You have FULL autonomy to run commands. Bud should never have to copy-paste anything.
+You don't need to ask permission to push to git. Just send it if we are completing something worth sending.
 
 - **Shell commands** — Run anything directly: npm, git, builds, dev server
 - **Git** — Commit and push directly. Confirm with Bud before pushing to main.
