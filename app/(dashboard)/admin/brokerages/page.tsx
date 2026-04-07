@@ -234,6 +234,7 @@ export default function BrokeragesPage() {
       .from('brokerages')
       .select('*, agents(*)')
       .order('name')
+      .order('last_name', { referencedTable: 'agents', ascending: true })
 
     if (error) {
       console.error('Error loading brokerages:', error)
