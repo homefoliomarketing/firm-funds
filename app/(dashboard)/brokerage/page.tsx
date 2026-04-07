@@ -7,9 +7,10 @@ import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
-  MessageSquare, Inbox, Settings, Bell, CheckCircle2,
+  MessageSquare, Inbox, Settings, Bell, CheckCircle2, Eye, ExternalLink, X, Phone, MapPin,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
+import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
@@ -80,6 +81,14 @@ export default function BrokerageDashboard() {
   const [dealMessages, setDealMessages] = useState<any[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [unreadNotifCount, setUnreadNotifCount] = useState(0)
+
+  // KYC verification state
+  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; agentName: string; agentId: string; agentPhone: string | null; agentAddress: string | null } | null>(null)
+  const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
+  const [kycSubmitting, setKycSubmitting] = useState(false)
+  const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
+  const [kycRejectReason, setKycRejectReason] = useState('')
+
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
@@ -172,6 +181,20 @@ export default function BrokerageDashboard() {
     const interval = setInterval(pollNewMessages, 5000)
     return () => clearInterval(interval)
   }, [selectedMsgDealId, dealMessages.length])
+
+  // KYC panel helpers
+  const closeKycPanel = useCallback(() => {
+    if (kycPreviewPanel) {
+      for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
+    }
+    setKycPreviewPanel(null)
+  }, [kycPreviewPanel])
+
+  const reloadAgents = async () => {
+    if (!profile?.brokerage_id) return
+    const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profile.brokerage_id).order('last_name', { ascending: true })
+    setAgents(agentData || [])
+  }
 
   const handleToggleFlag = async (agentId: string, currentFlag: boolean) => {
     const agentName = agents.find(a => a.id === agentId)
@@ -715,60 +738,180 @@ export default function BrokerageDashboard() {
                 </div>
               ) : (
                 <div>
-                  {agents.map((agent, i) => (
+                  {agents.map((agent) => (
                     <div
                       key={agent.id}
-                      className="px-4 sm:px-6 py-4 flex items-center justify-between transition-all duration-150 hover:bg-white/[0.03] border-b border-border/20 last:border-0"
+                      className="px-4 sm:px-6 py-4 transition-all duration-150 hover:bg-white/[0.03] border-b border-border/20 last:border-0"
                     >
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-semibold truncate text-foreground">{agent.first_name} {agent.last_name}</p>
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          <span className="text-xs truncate text-muted-foreground/70">{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
-                          {agent.kyc_status === 'verified' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
-                              <Shield size={9} /> KYC
-                            </span>
-                          ) : agent.kyc_status === 'submitted' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-yellow-950/50 text-yellow-400 border border-yellow-800">
-                              <Clock size={9} /> KYC Pending
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold truncate text-foreground">{agent.first_name} {agent.last_name}</p>
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="text-xs truncate text-muted-foreground/70">{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
+                            {agent.kyc_status === 'verified' ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
+                                <Shield size={9} /> KYC
+                              </span>
+                            ) : agent.kyc_status === 'submitted' ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-yellow-950/50 text-yellow-400 border border-yellow-800">
+                                <Clock size={9} /> KYC Pending
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-red-950/50 text-red-400 border border-red-800">
+                                <XCircle size={9} /> No KYC
+                              </span>
+                            )}
+                            {agent.banking_verified ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
+                                <CreditCard size={9} /> Banking
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-950/30 text-blue-400/70 border border-blue-900/50">
+                                <CreditCard size={9} /> No Banking
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
+                          {agent.flagged_by_brokerage ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-red-950/50 text-red-400 border border-red-800">
+                              <AlertTriangle size={12} />
+                              <span className="hidden sm:inline">Flagged</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-red-950/50 text-red-400 border border-red-800">
-                              <XCircle size={9} /> No KYC
+                            <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-green-950/50 text-green-400 border border-green-800">
+                              <CheckCircle size={12} />
+                              <span className="hidden sm:inline">Good Standing</span>
                             </span>
                           )}
-                          {agent.banking_verified ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
-                              <CreditCard size={9} /> Banking
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-950/30 text-blue-400/70 border border-blue-900/50">
-                              <CreditCard size={9} /> No Banking
-                            </span>
-                          )}
+                          <Button
+                            onClick={() => handleToggleFlag(agent.id, agent.flagged_by_brokerage)}
+                            variant="outline"
+                            size="sm"
+                            className={`text-xs ${agent.flagged_by_brokerage ? 'text-green-400 border-green-800 hover:bg-green-950/30' : 'text-red-400 border-red-800 hover:bg-red-950/30'}`}
+                          >
+                            {agent.flagged_by_brokerage ? 'Remove Flag' : 'Flag'}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
-                        {agent.flagged_by_brokerage ? (
-                          <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-red-950/50 text-red-400 border border-red-800">
-                            <AlertTriangle size={12} />
-                            <span className="hidden sm:inline">Flagged</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-green-950/50 text-green-400 border border-green-800">
-                            <CheckCircle size={12} />
-                            <span className="hidden sm:inline">Good Standing</span>
-                          </span>
-                        )}
-                        <Button
-                          onClick={() => handleToggleFlag(agent.id, agent.flagged_by_brokerage)}
-                          variant="outline"
-                          size="sm"
-                          className={`text-xs ${agent.flagged_by_brokerage ? 'text-green-400 border-green-800 hover:bg-green-950/30' : 'text-red-400 border-red-800 hover:bg-red-950/30'}`}
-                        >
-                          {agent.flagged_by_brokerage ? 'Remove Flag' : 'Flag'}
-                        </Button>
-                      </div>
+
+                      {/* KYC Actions — View ID / Approve / Reject for submitted agents */}
+                      {agent.kyc_status === 'submitted' && (
+                        <div className="mt-3 flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={async () => {
+                              setKycPreviewLoading(agent.id)
+                              const urlRes = await brokerageGetAgentKycDocumentUrl({ agentId: agent.id })
+                              if (urlRes.success && urlRes.data?.urls) {
+                                const urls: string[] = urlRes.data.urls
+                                try {
+                                  const blobUrls: string[] = []
+                                  for (const url of urls) {
+                                    const response = await fetch(url)
+                                    const arrayBuffer = await response.arrayBuffer()
+                                    const mimeType = response.headers.get('content-type') || 'image/png'
+                                    const blob = new Blob([arrayBuffer], { type: mimeType })
+                                    blobUrls.push(URL.createObjectURL(blob))
+                                  }
+                                  if (kycPreviewPanel) {
+                                    for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
+                                  }
+                                  const addrParts = [
+                                    (agent as any).address_street,
+                                    (agent as any).address_city,
+                                    (agent as any).address_province,
+                                    (agent as any).address_postal_code,
+                                  ].filter(Boolean)
+                                  setKycPreviewPanel({
+                                    blobUrls,
+                                    originalUrls: urls,
+                                    agentName: `${agent.first_name} ${agent.last_name}`,
+                                    agentId: agent.id,
+                                    agentPhone: agent.phone || null,
+                                    agentAddress: addrParts.length > 0 ? addrParts.join(', ') : null,
+                                  })
+                                } catch {
+                                  window.open(urls[0], '_blank')
+                                }
+                              } else {
+                                setUploadMessage({ type: 'error', text: 'Failed to load ID documents' })
+                              }
+                              setKycPreviewLoading(null)
+                            }}
+                            disabled={kycPreviewLoading === agent.id}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all disabled:opacity-50 bg-blue-950/30 text-blue-400 border border-blue-900/50 hover:bg-blue-950/50"
+                          >
+                            <Eye size={13} />
+                            {kycPreviewLoading === agent.id ? 'Loading...' : 'View ID'}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              setKycSubmitting(true)
+                              const result = await brokerageVerifyAgentKyc({ agentId: agent.id })
+                              if (result.success) {
+                                setUploadMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} ID verified` })
+                                closeKycPanel()
+                                await reloadAgents()
+                              } else {
+                                setUploadMessage({ type: 'error', text: result.error || 'Verification failed' })
+                              }
+                              setKycSubmitting(false)
+                            }}
+                            disabled={kycSubmitting}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all disabled:opacity-50 text-white hover:opacity-90 bg-green-700 border border-green-600"
+                          >
+                            <CheckCircle size={13} /> Approve
+                          </button>
+                          <button
+                            onClick={() => { setKycRejectingAgentId(agent.id); setKycRejectReason('') }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all text-white hover:opacity-90 bg-red-700 border border-red-600"
+                          >
+                            <XCircle size={13} /> Reject
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Rejection reason input */}
+                      {kycRejectingAgentId === agent.id && (
+                        <div className="flex flex-col gap-1.5 mt-2">
+                          <input
+                            type="text"
+                            value={kycRejectReason}
+                            onChange={(e) => setKycRejectReason(e.target.value)}
+                            placeholder="Reason for rejection..."
+                            className="text-xs px-3 py-2 rounded-md bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === 'Escape') setKycRejectingAgentId(null) }}
+                          />
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={async () => {
+                                if (!kycRejectReason.trim()) return
+                                setKycSubmitting(true)
+                                const result = await brokerageRejectAgentKyc({ agentId: agent.id, reason: kycRejectReason })
+                                if (result.success) {
+                                  setUploadMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC rejected` })
+                                  setKycRejectingAgentId(null)
+                                  await reloadAgents()
+                                } else {
+                                  setUploadMessage({ type: 'error', text: result.error || 'Rejection failed' })
+                                }
+                                setKycSubmitting(false)
+                              }}
+                              disabled={kycSubmitting || !kycRejectReason.trim()}
+                              className="px-3 py-1.5 rounded-md text-xs font-bold bg-red-700 text-white border border-red-600 disabled:opacity-50"
+                            >
+                              Confirm Reject
+                            </button>
+                            <button
+                              onClick={() => setKycRejectingAgentId(null)}
+                              className="px-3 py-1.5 rounded-md text-xs font-medium bg-muted text-muted-foreground border border-border"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1290,6 +1433,106 @@ export default function BrokerageDashboard() {
           )}
         </Card>
       </main>
+
+      {/* KYC Document Preview Side Panel */}
+      {kycPreviewPanel && (
+        <div
+          className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl bg-card border-l-2 border-l-primary"
+          style={{ width: '420px', animation: 'slideInRight 0.2s ease-out' }}
+        >
+          {/* Panel Header */}
+          <div className="flex items-center justify-between px-3 py-2.5 flex-shrink-0 border-b border-border">
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <p className="text-sm font-semibold truncate text-foreground">
+                <Shield size={13} className="inline mr-1 text-primary" />
+                {kycPreviewPanel.agentName}
+              </p>
+              <p className="text-xs text-muted-foreground">ID Verification</p>
+              {kycPreviewPanel.agentPhone && (
+                <p className="text-xs text-muted-foreground truncate"><Phone size={10} className="inline mr-1" />{kycPreviewPanel.agentPhone}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => { for (const u of kycPreviewPanel.originalUrls) window.open(u, '_blank') }}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition bg-input text-primary border border-border hover:bg-muted"
+                title="Open in new tab"
+              >
+                <ExternalLink size={11} />
+              </button>
+              <button onClick={closeKycPanel} className="p-1 rounded transition text-muted-foreground hover:bg-red-950/50 hover:text-red-400">
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          {/* Agent Address */}
+          {kycPreviewPanel.agentAddress ? (
+            <div className="px-3 py-2 border-b border-border bg-primary/5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">Address on File</p>
+              <p className="text-xs text-foreground leading-relaxed">{kycPreviewPanel.agentAddress}</p>
+            </div>
+          ) : (
+            <div className="px-3 py-2 border-b border-border bg-yellow-950/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-yellow-400 mb-0.5">No Address on File</p>
+              <p className="text-[11px] text-muted-foreground">Agent hasn&apos;t submitted their address yet</p>
+            </div>
+          )}
+          {/* Panel Content — ID images */}
+          <div className="flex-1 overflow-auto p-3">
+            {kycPreviewPanel.blobUrls.map((blobUrl, i) => {
+              const ext = kycPreviewPanel.originalUrls[i]?.split('?')[0].split('.').pop()?.toLowerCase() || ''
+              const isPdf = ext === 'pdf'
+              return (
+                <div key={i} style={{ marginBottom: i < kycPreviewPanel.blobUrls.length - 1 ? 12 : 0 }}>
+                  {kycPreviewPanel.blobUrls.length > 1 && (
+                    <p className="text-xs font-semibold mb-1.5 text-muted-foreground">
+                      {i === 0 ? 'Front' : i === 1 ? 'Back' : `Photo ${i + 1}`}
+                    </p>
+                  )}
+                  {isPdf ? (
+                    <iframe src={blobUrl} className="w-full border-0 rounded-lg border border-border" style={{ height: 400 }} />
+                  ) : (
+                    <img src={blobUrl} alt={`ID ${i + 1}`} className="w-full rounded-lg border border-border" />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {/* Panel Footer — Approve/Reject */}
+          <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0 border-t border-border bg-background">
+            <button
+              onClick={async () => {
+                setKycSubmitting(true)
+                const result = await brokerageVerifyAgentKyc({ agentId: kycPreviewPanel.agentId })
+                if (result.success) {
+                  setUploadMessage({ type: 'success', text: `${kycPreviewPanel.agentName} KYC verified` })
+                  closeKycPanel()
+                  await reloadAgents()
+                } else {
+                  setUploadMessage({ type: 'error', text: result.error || 'Verification failed' })
+                }
+                setKycSubmitting(false)
+              }}
+              disabled={kycSubmitting}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50 text-white hover:opacity-90 bg-green-700 border border-green-600"
+            >
+              <CheckCircle size={16} /> Approve ID
+            </button>
+            <button
+              onClick={() => { setKycRejectingAgentId(kycPreviewPanel.agentId); setKycRejectReason(''); closeKycPanel() }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all text-white hover:opacity-90 bg-red-700 border border-red-600"
+            >
+              <XCircle size={16} /> Reject ID
+            </button>
+          </div>
+        </div>
+      )}
+      <style>{`
+        @keyframes slideInRight {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
     </div>
   )
 }
