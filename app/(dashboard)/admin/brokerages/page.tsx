@@ -63,7 +63,7 @@ interface Brokerage {
   address: string | null
   phone: string | null
   email: string
-  status: 'active' | 'suspended' | 'inactive' | 'archived'
+  status: 'active' | 'suspended' | 'inactive' | 'archived' | 'archived'
   referral_fee_percentage: number
   transaction_system: string | null
   notes: string | null
@@ -93,7 +93,7 @@ interface BrokerageFormData {
   brokerOfRecordEmail: string
   logoUrl: string
   brandColor: string
-  status?: 'active' | 'suspended' | 'inactive'
+  status?: 'active' | 'suspended' | 'inactive' | 'archived'
 }
 
 interface AgentFormData {
@@ -303,7 +303,7 @@ export default function BrokeragesPage() {
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
     name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873',
   })
-  const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' }>({
+  const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' | 'archived' }>({
     name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
@@ -1346,7 +1346,7 @@ export default function BrokeragesPage() {
                               <label className="block text-sm font-medium mb-2 text-muted-foreground">Status *</label>
                               <select
                                 value={editFormData.status}
-                                onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as 'active' | 'suspended' | 'inactive' })}
+                                onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as 'active' | 'suspended' | 'inactive' | 'archived' })}
                                 className={inputCls}
                               >
                                 <option value="active">Active</option>
