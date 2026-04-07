@@ -589,6 +589,16 @@ export async function permanentlyDeleteAgent(input: {
 
     const serviceClient = createServiceRoleClient()
 
+    // Check for deal history — agents with deals cannot be permanently deleted
+    const { count: dealCount } = await serviceClient
+      .from('deals')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_id', input.agentId)
+
+    if (dealCount && dealCount > 0) {
+      return { success: false, error: 'Cannot permanently delete an agent with deal history. The agent will remain archived.' }
+    }
+
     // Delete any linked user_profile + auth user first
     const { data: profile } = await serviceClient
       .from('user_profiles')
@@ -636,6 +646,194 @@ export async function permanentlyDeleteAgent(input: {
     return { success: true, data: { agentId: input.agentId } }
   } catch (err: any) {
     console.error('Agent permanent delete error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Archive Brokerage: Soft-delete brokerage + deactivate all agents/logins
+// ============================================================================
+
+export async function archiveBrokerage(input: {
+  brokerageId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: brokerage, error: brokerageError } = await supabase
+      .from('brokerages')
+      .select('id, name, email, status')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (brokerage.status === 'archived') return { success: false, error: 'Brokerage is already archived' }
+
+    const serviceClient = createServiceRoleClient()
+
+    // 1. Set brokerage status to archived
+    const { error: updateError } = await serviceClient
+      .from('brokerages')
+      .update({ status: 'archived' })
+      .eq('id', input.brokerageId)
+
+    if (updateError) {
+      console.error('Brokerage archive error:', updateError.message)
+      return { success: false, error: `Failed to archive brokerage: ${updateError.message}` }
+    }
+
+    // 2. Archive all active agents under this brokerage
+    const { data: agents } = await serviceClient
+      .from('agents')
+      .select('id')
+      .eq('brokerage_id', input.brokerageId)
+      .neq('status', 'archived')
+
+    if (agents && agents.length > 0) {
+      await serviceClient
+        .from('agents')
+        .update({ status: 'archived' })
+        .eq('brokerage_id', input.brokerageId)
+        .neq('status', 'archived')
+    }
+
+    // 3. Deactivate all user_profiles linked to this brokerage's agents
+    const { data: agentProfiles } = await serviceClient
+      .from('user_profiles')
+      .select('id')
+      .eq('brokerage_id', input.brokerageId)
+      .eq('is_active', true)
+
+    if (agentProfiles && agentProfiles.length > 0) {
+      const profileIds = agentProfiles.map((p) => p.id)
+      await serviceClient
+        .from('user_profiles')
+        .update({ is_active: false })
+        .in('id', profileIds)
+
+      // Delete auth users to free up emails
+      for (const profile of agentProfiles) {
+        try {
+          await serviceClient.auth.admin.deleteUser(profile.id)
+        } catch {
+          // Non-fatal
+        }
+      }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.archive',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      metadata: {
+        name: brokerage.name,
+        email: brokerage.email,
+        archived_by: user.id,
+        agents_archived: agents?.length ?? 0,
+        logins_deactivated: agentProfiles?.length ?? 0,
+      },
+    })
+
+    return { success: true, data: { brokerageId: input.brokerageId } }
+  } catch (err: any) {
+    console.error('Brokerage archive error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Permanently Delete Brokerage (archived only, no deal history)
+// ============================================================================
+
+export async function permanentlyDeleteBrokerage(input: {
+  brokerageId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: brokerage, error: brokerageError } = await supabase
+      .from('brokerages')
+      .select('id, name, email, status')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (brokerage.status !== 'archived') return { success: false, error: 'Only archived brokerages can be permanently deleted' }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Check for deal history — brokerages with deals cannot be permanently deleted
+    const { count: dealCount } = await serviceClient
+      .from('deals')
+      .select('*', { count: 'exact', head: true })
+      .eq('brokerage_id', input.brokerageId)
+
+    if (dealCount && dealCount > 0) {
+      return { success: false, error: 'Cannot permanently delete a brokerage with deal history. The brokerage will remain archived.' }
+    }
+
+    // Delete all agents first (user_profiles FK requires this order)
+    const { data: agents } = await serviceClient
+      .from('agents')
+      .select('id')
+      .eq('brokerage_id', input.brokerageId)
+
+    if (agents && agents.length > 0) {
+      for (const agent of agents) {
+        const { data: profile } = await serviceClient
+          .from('user_profiles')
+          .select('id')
+          .eq('agent_id', agent.id)
+          .maybeSingle()
+
+        if (profile) {
+          await serviceClient.from('user_profiles').delete().eq('id', profile.id)
+          try { await serviceClient.auth.admin.deleteUser(profile.id) } catch {}
+        }
+      }
+      await serviceClient.from('agents').delete().eq('brokerage_id', input.brokerageId)
+    }
+
+    // Delete brokerage admin user_profiles
+    const { data: brokerageProfiles } = await serviceClient
+      .from('user_profiles')
+      .select('id')
+      .eq('brokerage_id', input.brokerageId)
+
+    if (brokerageProfiles && brokerageProfiles.length > 0) {
+      for (const profile of brokerageProfiles) {
+        await serviceClient.from('user_profiles').delete().eq('id', profile.id)
+        try { await serviceClient.auth.admin.deleteUser(profile.id) } catch {}
+      }
+    }
+
+    // Delete the brokerage record — FK cascades handle brokerage_documents etc.
+    const { error: deleteError } = await serviceClient
+      .from('brokerages')
+      .delete()
+      .eq('id', input.brokerageId)
+
+    if (deleteError) {
+      console.error('Brokerage permanent delete error:', deleteError.message)
+      return { success: false, error: `Failed to delete brokerage: ${deleteError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.permanent_delete',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      metadata: {
+        name: brokerage.name,
+        email: brokerage.email,
+        deleted_by: user.id,
+      },
+    })
+
+    return { success: true, data: { brokerageId: input.brokerageId } }
+  } catch (err: any) {
+    console.error('Brokerage permanent delete error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

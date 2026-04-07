@@ -22,8 +22,8 @@ export type DocumentType =
   | 'id_verification'
   | 'other'
 
-export type BrokerageStatus = 'active' | 'suspended' | 'inactive'
-export type AgentStatus = 'active' | 'suspended' | 'flagged'
+export type BrokerageStatus = 'active' | 'suspended' | 'inactive' | 'archived'
+export type AgentStatus = 'active' | 'suspended' | 'flagged' | 'archived'
 export type UploadSource = 'nexone_auto' | 'manual_upload'
 export type DealSource = 'nexone_auto' | 'manual_portal'
 
