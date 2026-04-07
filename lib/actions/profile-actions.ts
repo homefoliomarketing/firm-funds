@@ -2,7 +2,7 @@
 
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
-import { sendBankingSubmittedNotification, sendBankingApprovalNotification, sendBrokerageInviteNotification } from '@/lib/email'
+import { sendBankingSubmittedNotification, sendBankingApprovalNotification, sendBrokerageInviteNotification, sendKycApprovedNotification } from '@/lib/email'
 
 // ============================================================================
 // Agent Profile Actions
@@ -78,6 +78,172 @@ export async function markKycModalSeen(agentId: string) {
     .eq('id', agentId)
 
   return { success: true }
+}
+
+// ============================================================================
+// Brokerage-Scoped KYC Actions (callable by brokerage_admin for their agents)
+// ============================================================================
+
+/** Helper: verify caller is brokerage_admin and agent belongs to their brokerage */
+async function verifyBrokerageAgentAccess(agentId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Not authenticated' }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('brokerage_id, role, full_name')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.role !== 'brokerage_admin' || !profile.brokerage_id) {
+    return { error: 'Not authorized' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  // Verify agent belongs to this brokerage
+  const { data: agent } = await serviceClient
+    .from('agents')
+    .select('id, first_name, last_name, email, kyc_status, kyc_document_path, kyc_document_type, brokerage_id')
+    .eq('id', agentId)
+    .single()
+
+  if (!agent || agent.brokerage_id !== profile.brokerage_id) {
+    return { error: 'Agent not found in your brokerage' }
+  }
+
+  return { user, profile, agent, serviceClient }
+}
+
+/** Brokerage admin: verify agent KYC */
+export async function brokerageVerifyAgentKyc(input: { agentId: string }) {
+  const access = await verifyBrokerageAgentAccess(input.agentId)
+  if ('error' in access && !('agent' in access)) return { success: false, error: access.error }
+  const { profile, agent, serviceClient } = access as any
+
+  if (agent.kyc_status !== 'submitted') {
+    return { success: false, error: `Cannot verify agent in "${agent.kyc_status}" status.` }
+  }
+
+  const now = new Date().toISOString()
+
+  const { error: updateError } = await serviceClient
+    .from('agents')
+    .update({
+      kyc_status: 'verified',
+      kyc_verified_at: now,
+      kyc_verified_by: profile.full_name || 'Brokerage Admin',
+      kyc_rejection_reason: null,
+    })
+    .eq('id', input.agentId)
+
+  if (updateError) return { success: false, error: `Failed to verify: ${updateError.message}` }
+
+  // Auto-check KYC checklist on agent's deals
+  try {
+    const { data: agentDeals } = await serviceClient
+      .from('deals')
+      .select('id')
+      .eq('agent_id', input.agentId)
+
+    if (agentDeals && agentDeals.length > 0) {
+      await serviceClient
+        .from('underwriting_checklist')
+        .update({
+          is_checked: true,
+          checked_by: `${profile.full_name || 'Brokerage Admin'} (auto)`,
+          checked_at: now,
+          notes: 'Auto-checked: Agent KYC verified by brokerage',
+        })
+        .in('deal_id', agentDeals.map((d: any) => d.id))
+        .eq('checklist_item', 'Agent ID - FINTRAC Verification')
+    }
+  } catch { /* non-fatal */ }
+
+  // Send approval email
+  if (agent.email) {
+    sendKycApprovedNotification({
+      agentEmail: agent.email,
+      agentFirstName: agent.first_name || 'there',
+    }).catch(() => {})
+  }
+
+  // Audit log
+  await serviceClient.from('audit_log').insert({
+    user_id: access.user.id,
+    action: 'agent.kyc_verify_by_brokerage',
+    entity_type: 'agent',
+    entity_id: input.agentId,
+    severity: 'info',
+    actor_email: access.user.email,
+    actor_role: 'brokerage_admin',
+    metadata: { agent_name: `${agent.first_name} ${agent.last_name}`, verified_by: profile.full_name },
+  })
+
+  return { success: true }
+}
+
+/** Brokerage admin: reject agent KYC */
+export async function brokerageRejectAgentKyc(input: { agentId: string; reason: string }) {
+  const access = await verifyBrokerageAgentAccess(input.agentId)
+  if ('error' in access && !('agent' in access)) return { success: false, error: access.error }
+  const { profile, agent, serviceClient } = access as any
+
+  if (agent.kyc_status !== 'submitted') {
+    return { success: false, error: `Cannot reject agent in "${agent.kyc_status}" status.` }
+  }
+
+  const { error: updateError } = await serviceClient
+    .from('agents')
+    .update({
+      kyc_status: 'rejected',
+      kyc_rejection_reason: input.reason,
+    })
+    .eq('id', input.agentId)
+
+  if (updateError) return { success: false, error: `Failed to reject: ${updateError.message}` }
+
+  await serviceClient.from('audit_log').insert({
+    user_id: access.user.id,
+    action: 'agent.kyc_reject_by_brokerage',
+    entity_type: 'agent',
+    entity_id: input.agentId,
+    severity: 'info',
+    actor_email: access.user.email,
+    actor_role: 'brokerage_admin',
+    metadata: { agent_name: `${agent.first_name} ${agent.last_name}`, reason: input.reason, rejected_by: profile.full_name },
+  })
+
+  return { success: true }
+}
+
+/** Brokerage admin: get agent KYC document URLs */
+export async function brokerageGetAgentKycDocumentUrl(input: { agentId: string }) {
+  const access = await verifyBrokerageAgentAccess(input.agentId)
+  if ('error' in access && !('agent' in access)) return { success: false, error: access.error }
+  const { agent, serviceClient } = access as any
+
+  if (!agent.kyc_document_path) {
+    return { success: false, error: 'No KYC document found for this agent' }
+  }
+
+  // Handle multiple files (path may be comma-separated or JSON array)
+  let paths: string[] = []
+  try {
+    paths = JSON.parse(agent.kyc_document_path)
+  } catch {
+    paths = [agent.kyc_document_path]
+  }
+
+  const urls: string[] = []
+  for (const p of paths) {
+    const { data } = await serviceClient.storage.from('agent-kyc').createSignedUrl(p, 600)
+    if (data?.signedUrl) urls.push(data.signedUrl)
+  }
+
+  if (urls.length === 0) return { success: false, error: 'Failed to generate document URLs' }
+  return { success: true, data: { urls } }
 }
 
 // ============================================================================
