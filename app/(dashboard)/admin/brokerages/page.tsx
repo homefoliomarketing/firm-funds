@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone } from 'lucide-react'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
@@ -1700,6 +1700,35 @@ export default function BrokeragesPage() {
                                 title="Manage brokerage admin logins"
                               >
                                 <KeyRound size={13} /> {loadingUserProfiles === brokerage.id ? 'Loading...' : 'Manage Logins'}
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (brokerage.agents && brokerage.agents.length > 0) {
+                                    const archiveFirst = confirm(`"${brokerage.name}" has ${brokerage.agents.length} agent(s). This will archive the brokerage, deactivate all agents, and then permanently delete it. Continue?`)
+                                    if (!archiveFirst) return
+                                    const archiveResult = await archiveBrokerage({ brokerageId: brokerage.id })
+                                    if (!archiveResult.success) {
+                                      setStatusMessage({ type: 'error', text: archiveResult.error || 'Failed to archive brokerage' })
+                                      return
+                                    }
+                                  }
+                                  const confirmed = confirm(`PERMANENTLY DELETE "${brokerage.name}"? This cannot be undone. All agents, logins, and brokerage data will be removed.`)
+                                  if (!confirmed) return
+                                  setSubmitting(true)
+                                  const result = await permanentlyDeleteBrokerage({ brokerageId: brokerage.id })
+                                  if (result.success) {
+                                    setStatusMessage({ type: 'success', text: `"${brokerage.name}" has been permanently deleted.` })
+                                    loadBrokerages()
+                                  } else {
+                                    setStatusMessage({ type: 'error', text: result.error || 'Failed to delete brokerage' })
+                                  }
+                                  setSubmitting(false)
+                                }}
+                                disabled={submitting}
+                                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 bg-red-950/50 text-red-400 border border-red-800 hover:bg-red-950/70"
+                                title="Permanently delete this brokerage and all its data"
+                              >
+                                <Trash2 size={13} /> Delete
                               </button>
                             </div>
                           )}

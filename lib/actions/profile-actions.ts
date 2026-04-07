@@ -173,12 +173,12 @@ export async function brokerageVerifyAgentKyc(input: { agentId: string }) {
 
   // Audit log
   await serviceClient.from('audit_log').insert({
-    user_id: access.user.id,
+    user_id: access.user?.id ?? null,
     action: 'agent.kyc_verify_by_brokerage',
     entity_type: 'agent',
     entity_id: input.agentId,
     severity: 'info',
-    actor_email: access.user.email,
+    actor_email: access.user?.email ?? null,
     actor_role: 'brokerage_admin',
     metadata: { agent_name: `${agent.first_name} ${agent.last_name}`, verified_by: profile.full_name },
   })
@@ -207,12 +207,12 @@ export async function brokerageRejectAgentKyc(input: { agentId: string; reason: 
   if (updateError) return { success: false, error: `Failed to reject: ${updateError.message}` }
 
   await serviceClient.from('audit_log').insert({
-    user_id: access.user.id,
+    user_id: access.user?.id ?? null,
     action: 'agent.kyc_reject_by_brokerage',
     entity_type: 'agent',
     entity_id: input.agentId,
     severity: 'info',
-    actor_email: access.user.email,
+    actor_email: access.user?.email ?? null,
     actor_role: 'brokerage_admin',
     metadata: { agent_name: `${agent.first_name} ${agent.last_name}`, reason: input.reason, rejected_by: profile.full_name },
   })
