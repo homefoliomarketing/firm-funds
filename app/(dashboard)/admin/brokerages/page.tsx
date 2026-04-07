@@ -160,6 +160,7 @@ export default function BrokeragesPage() {
   const [kycRecoNumber, setKycRecoNumber] = useState('')
   const [kycNotes, setKycNotes] = useState('')
   const [kycSubmitting, setKycSubmitting] = useState(false)
+  const [kycChecks, setKycChecks] = useState({ nameMatch: false, addressMatch: false, idValid: false })
   const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
   const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
@@ -1881,6 +1882,7 @@ export default function BrokeragesPage() {
                                                             if (kycPreviewPanel) {
                                                               for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
                                                             }
+                                                            setKycChecks({ nameMatch: false, addressMatch: false, idValid: false })
                                                             setKycPreviewPanel({
                                                               blobUrls,
                                                               originalUrls: urls,
@@ -1903,42 +1905,8 @@ export default function BrokeragesPage() {
                                                       <Eye size={13} />
                                                       {kycPreviewLoading === agent.id ? 'Loading...' : 'View ID'}
                                                     </button>
-                                                    {/* APPROVE / REJECT row */}
-                                                    <div className="flex items-center gap-1.5">
-                                                      <button
-                                                        onClick={async (e) => {
-                                                          e.stopPropagation()
-                                                          setKycSubmitting(true)
-                                                          const result = await verifyAgentKyc({ agentId: agent.id })
-                                                          if (result.success) {
-                                                            setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC verified` })
-                                                            setKycPreviewPanel(null)
-                                                            await loadBrokerages()
-                                                          } else {
-                                                            setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
-                                                          }
-                                                          setKycSubmitting(false)
-                                                        }}
-                                                        disabled={kycSubmitting}
-                                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all disabled:opacity-50 text-white hover:opacity-90"
-                                                        style={{ background: 'var(--action-green)', border: '1px solid var(--action-green-border)' }}
-                                                      >
-                                                        <CheckCircle size={13} />
-                                                        Approve
-                                                      </button>
-                                                      <button
-                                                        onClick={(e) => {
-                                                          e.stopPropagation()
-                                                          setKycRejectingAgentId(agent.id)
-                                                          setKycRejectReason('')
-                                                        }}
-                                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all text-white hover:opacity-90"
-                                                        style={{ background: 'var(--action-red)', border: '1px solid var(--action-red-border)' }}
-                                                      >
-                                                        <XCircle size={13} />
-                                                        Reject
-                                                      </button>
-                                                    </div>
+                                                    {/* Approve/Reject only available through View ID panel (requires verification checklist) */}
+                                                    <p className="text-[10px] text-muted-foreground italic">View ID to approve or reject</p>
                                                   </div>
                                                 )}
                                                 {kycRejectingAgentId === agent.id && (
@@ -2438,6 +2406,25 @@ export default function BrokeragesPage() {
               )
             })}
           </div>
+          {/* Verification checklist */}
+          <div className="px-3 py-2.5 flex-shrink-0 border-t border-border bg-muted/30 space-y-1.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Verification Checklist</p>
+            {([
+              { key: 'nameMatch' as const, label: 'Name matches agent profile' },
+              { key: 'addressMatch' as const, label: 'Address matches records' },
+              { key: 'idValid' as const, label: 'ID is valid and not expired' },
+            ]).map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={kycChecks[key]}
+                  onChange={(e) => setKycChecks(prev => ({ ...prev, [key]: e.target.checked }))}
+                  className="w-4 h-4 rounded border-border accent-[var(--action-green)]"
+                />
+                <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
+              </label>
+            ))}
+          </div>
           {/* Panel Footer — Approve/Reject actions */}
           <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0 border-t border-border bg-background">
             <button
@@ -2453,7 +2440,7 @@ export default function BrokeragesPage() {
                 }
                 setKycSubmitting(false)
               }}
-              disabled={kycSubmitting}
+              disabled={kycSubmitting || !kycChecks.nameMatch || !kycChecks.addressMatch || !kycChecks.idValid}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50 text-white hover:opacity-90"
               style={{ background: 'var(--action-green)', border: '1px solid var(--action-green-border)' }}
             >
