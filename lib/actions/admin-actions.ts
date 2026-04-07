@@ -768,9 +768,16 @@ export async function permanentlyDeleteBrokerage(input: {
       .single()
 
     if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
-    if (brokerage.status !== 'archived') return { success: false, error: 'Only archived brokerages can be permanently deleted' }
 
     const serviceClient = createServiceRoleClient()
+
+    // Auto-archive if not already archived (skip requiring manual archive first)
+    if (brokerage.status !== 'archived') {
+      await serviceClient
+        .from('brokerages')
+        .update({ status: 'archived' })
+        .eq('id', input.brokerageId)
+    }
 
     // Check for deal history — brokerages with deals cannot be permanently deleted
     const { count: dealCount } = await serviceClient
@@ -792,30 +799,63 @@ export async function permanentlyDeleteBrokerage(input: {
       for (const agent of agents) {
         const { data: profile } = await serviceClient
           .from('user_profiles')
-          .select('id')
+          .select('id, email')
           .eq('agent_id', agent.id)
           .maybeSingle()
 
         if (profile) {
           await serviceClient.from('user_profiles').delete().eq('id', profile.id)
-          try { await serviceClient.auth.admin.deleteUser(profile.id) } catch {}
+          try {
+            await serviceClient.auth.admin.deleteUser(profile.id)
+          } catch (authErr: any) {
+            console.warn(`Auth user delete failed for agent profile ${profile.id} (${profile.email}):`, authErr?.message)
+          }
         }
       }
       await serviceClient.from('agents').delete().eq('brokerage_id', input.brokerageId)
     }
 
-    // Delete brokerage admin user_profiles
+    // Delete ALL user_profiles linked to this brokerage (admins, any remaining)
     const { data: brokerageProfiles } = await serviceClient
       .from('user_profiles')
-      .select('id')
+      .select('id, email')
       .eq('brokerage_id', input.brokerageId)
 
     if (brokerageProfiles && brokerageProfiles.length > 0) {
       for (const profile of brokerageProfiles) {
         await serviceClient.from('user_profiles').delete().eq('id', profile.id)
-        try { await serviceClient.auth.admin.deleteUser(profile.id) } catch {}
+        try {
+          await serviceClient.auth.admin.deleteUser(profile.id)
+        } catch (authErr: any) {
+          console.warn(`Auth user delete failed for brokerage profile ${profile.id} (${profile.email}):`, authErr?.message)
+          // Fallback: try to find and delete by email in case profile.id doesn't match auth user
+          if (profile.email) {
+            try {
+              const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
+              const match = users.find((u: any) => u.email === profile.email)
+              if (match) {
+                await serviceClient.auth.admin.deleteUser(match.id)
+                console.log(`Auth user cleaned up via email fallback for ${profile.email}`)
+              }
+            } catch (fallbackErr: any) {
+              console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackErr?.message)
+            }
+          }
+        }
       }
     }
+
+    // Explicitly delete esignature envelopes (belt + suspenders with CASCADE)
+    await serviceClient
+      .from('esignature_envelopes')
+      .delete()
+      .eq('brokerage_id', input.brokerageId)
+
+    // Delete any pending invite tokens for users in this brokerage
+    await serviceClient
+      .from('invite_tokens')
+      .delete()
+      .in('email', (brokerageProfiles ?? []).map(p => p.email).filter(Boolean))
 
     // Delete the brokerage record — FK cascades handle brokerage_documents etc.
     const { error: deleteError } = await serviceClient
@@ -1916,13 +1956,58 @@ export async function inviteBrokerageAdmin(input: {
     }
 
     // Create auth user with temp password (they'll set their own via magic link)
+    //    If the email already exists in Supabase Auth (e.g. previously deleted brokerage
+    //    whose auth user wasn't fully cleaned up), delete the old user and retry
     const tempPassword = generateTempPassword()
 
-    const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
+    let { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
       email: input.email,
       password: tempPassword,
       email_confirm: true,
     })
+
+    if (signUpError && signUpError.message?.includes('already been registered')) {
+      // Email exists in Supabase Auth — clean up the orphaned auth user and retry
+      const { data: oldProfile } = await serviceClient
+        .from('user_profiles')
+        .select('id')
+        .eq('email', input.email)
+        .maybeSingle()
+
+      if (oldProfile?.id) {
+        try {
+          await serviceClient.auth.admin.deleteUser(oldProfile.id)
+        } catch (delErr: any) {
+          console.error('Failed to delete old auth user via admin API:', delErr?.message)
+        }
+        await serviceClient.from('user_profiles').delete().eq('id', oldProfile.id)
+      } else {
+        // No profile found — search auth users by email
+        const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
+        const match = users.find((u: any) => u.email === input.email)
+        if (match) {
+          try {
+            await serviceClient.auth.admin.deleteUser(match.id)
+          } catch (delErr: any) {
+            console.error('Failed to delete orphaned auth user:', delErr?.message)
+          }
+        }
+      }
+
+      // Retry user creation
+      const retry = await serviceClient.auth.admin.createUser({
+        email: input.email,
+        password: tempPassword,
+        email_confirm: true,
+      })
+
+      if (retry.error || !retry.data?.user) {
+        return { success: false, error: `Failed to create login on retry: ${retry.error?.message || 'Unknown error'}` }
+      }
+
+      authData = retry.data
+      signUpError = retry.error
+    }
 
     if (signUpError || !authData?.user) {
       return { success: false, error: `Failed to create login: ${signUpError?.message || 'Unknown error'}` }
