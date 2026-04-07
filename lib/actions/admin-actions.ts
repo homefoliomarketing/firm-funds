@@ -245,6 +245,10 @@ interface BulkAgentRow {
   email: string
   phone?: string
   recoNumber?: string
+  addressStreet?: string
+  addressCity?: string
+  addressProvince?: string
+  addressPostalCode?: string
 }
 
 interface BulkImportResult {
@@ -327,6 +331,10 @@ export async function bulkImportAgents(input: {
           email,
           phone: row.phone?.trim() || null,
           reco_number: row.recoNumber?.trim() || null,
+          address_street: row.addressStreet?.trim() || null,
+          address_city: row.addressCity?.trim() || null,
+          address_province: row.addressProvince?.trim() || null,
+          address_postal_code: row.addressPostalCode?.trim() || null,
           status: 'active',
           flagged_by_brokerage: false,
           outstanding_recovery: 0,

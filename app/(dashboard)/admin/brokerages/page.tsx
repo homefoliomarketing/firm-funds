@@ -513,6 +513,10 @@ export default function BrokeragesPage() {
           email: find(['email', 'mail']),
           phone: find(['phone', 'cell', 'mobile', 'tel']) || undefined,
           recoNumber: find(['reco', 'license', 'licence', 'registration']) || undefined,
+          addressStreet: find(['street', 'addressstreet', 'streetaddress', 'address']) || undefined,
+          addressCity: find(['city', 'addresscity']) || undefined,
+          addressProvince: find(['province', 'addressprovince', 'state', 'prov']) || undefined,
+          addressPostalCode: find(['postal', 'postalcode', 'zip', 'addresspostalcode']) || undefined,
         }
       })
 
@@ -587,15 +591,10 @@ export default function BrokeragesPage() {
   }
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['First Name', 'Last Name', 'Email', 'Phone', 'RECO Number'],
-      ['Jane', 'Smith', 'jane.smith@example.com', '(416) 555-0100', '12345'],
-      ['John', 'Doe', 'john.doe@example.com', '(905) 555-0200', '67890'],
-    ])
-    ws['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 18 }, { wch: 15 }]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Agents')
-    XLSX.writeFile(wb, 'agent-import-template.xlsx')
+    const link = document.createElement('a')
+    link.href = '/firm-funds-agent-import-template.xlsx'
+    link.download = 'firm-funds-agent-import-template.xlsx'
+    link.click()
   }
 
   const handleArchiveAgent = async (agentId: string, agentName: string) => {
