@@ -66,6 +66,7 @@ export const DOCUMENT_TYPES = [
   { value: 'notice_of_fulfillment', label: 'Notice of Fulfillment/Waiver' },
   { value: 'kyc_fintrac', label: 'KYC / FINTRAC Documents' },
   { value: 'id_verification', label: 'Agent ID Verification' },
+  { value: 'brokerage_cooperation_agreement', label: 'Brokerage Cooperation Agreement' },
   { value: 'other', label: 'Other' },
 ] as const
 

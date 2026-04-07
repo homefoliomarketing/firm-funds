@@ -20,6 +20,7 @@ export type DocumentType =
   | 'notice_of_fulfillment'
   | 'kyc_fintrac'
   | 'id_verification'
+  | 'brokerage_cooperation_agreement'
   | 'other'
 
 export type BrokerageStatus = 'active' | 'suspended' | 'inactive' | 'archived'
@@ -60,6 +61,7 @@ export interface Brokerage {
   // Broker of Record (legal authority — signs BCA, receives IDP copies)
   broker_of_record_name: string | null
   broker_of_record_email: string | null
+  bca_signed_at: string | null
   created_at: string
   updated_at: string
 }

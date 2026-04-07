@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
+import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
@@ -68,6 +69,7 @@ interface Brokerage {
   notes: string | null
   broker_of_record_name: string | null
   broker_of_record_email: string | null
+  bca_signed_at: string | null
   logo_url: string | null
   brand_color: string | null
   created_at: string
@@ -116,6 +118,170 @@ function getLocalStatusBadgeClass(status: string): string {
     case 'archived': return 'bg-muted text-muted-foreground border border-border'
     default: return 'bg-muted text-muted-foreground border border-border'
   }
+}
+
+// ============================================================================
+// BCA Status Section (Brokerage Cooperation Agreement)
+// ============================================================================
+
+function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
+  const [bcaLoading, setBcaLoading] = useState(false)
+  const [bcaStatus, setBcaStatus] = useState<string | null>(null)
+  const [bcaEnvelopeId, setBcaEnvelopeId] = useState<string | null>(null)
+  const [bcaError, setBcaError] = useState<string | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [showVoidInput, setShowVoidInput] = useState(false)
+
+  // Fetch BCA status on mount
+  useEffect(() => {
+    async function fetchBcaStatus() {
+      const result = await getBcaSignatureStatus(brokerage.id)
+      if (result.success && result.data && result.data.length > 0) {
+        const latest = result.data[0]
+        setBcaStatus(latest.status)
+        setBcaEnvelopeId(latest.envelope_id)
+      }
+    }
+    fetchBcaStatus()
+  }, [brokerage.id])
+
+  const handleSendBca = async () => {
+    setBcaLoading(true)
+    setBcaError(null)
+    const result = await sendBcaForSignature(brokerage.id)
+    if (result.success) {
+      setBcaStatus('sent')
+      setBcaEnvelopeId(result.data?.envelopeId || null)
+    } else {
+      setBcaError(result.error || 'Failed to send BCA')
+    }
+    setBcaLoading(false)
+  }
+
+  const handleVoidBca = async () => {
+    if (!voidReason.trim()) return
+    setBcaLoading(true)
+    setBcaError(null)
+    const result = await voidBcaEnvelope(brokerage.id, voidReason.trim())
+    if (result.success) {
+      setBcaStatus('voided')
+      setShowVoidInput(false)
+      setVoidReason('')
+    } else {
+      setBcaError(result.error || 'Failed to void BCA')
+    }
+    setBcaLoading(false)
+  }
+
+  const getBcaBadgeClass = (status: string | null) => {
+    switch (status) {
+      case 'signed': return 'bg-green-950/50 text-green-400 border border-green-800'
+      case 'sent':
+      case 'delivered': return 'bg-blue-950/50 text-blue-400 border border-blue-800'
+      case 'declined': return 'bg-red-950/50 text-red-400 border border-red-800'
+      case 'voided': return 'bg-muted text-muted-foreground border border-border'
+      default: return 'bg-yellow-950/50 text-yellow-400 border border-yellow-800'
+    }
+  }
+
+  const displayStatus = brokerage.bca_signed_at ? 'signed' : bcaStatus
+  const canSend = !brokerage.bca_signed_at && (!bcaStatus || bcaStatus === 'voided' || bcaStatus === 'declined')
+  const canVoid = bcaStatus === 'sent' || bcaStatus === 'delivered'
+
+  return (
+    <div className="px-6 py-4 border-b border-border/50">
+      <div className="flex items-center gap-2 mb-3">
+        <FileText size={15} className="text-primary" />
+        <h4 className="text-sm font-bold text-foreground">
+          Brokerage Cooperation Agreement
+        </h4>
+        {displayStatus && (
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getBcaBadgeClass(displayStatus)}`}>
+            {displayStatus === 'signed' && <><CheckCircle size={11} /> Signed</>}
+            {displayStatus === 'sent' && 'Sent — Awaiting Signature'}
+            {displayStatus === 'delivered' && 'Delivered — Awaiting Signature'}
+            {displayStatus === 'declined' && <><XCircle size={11} /> Declined</>}
+            {displayStatus === 'voided' && 'Voided'}
+          </span>
+        )}
+        {!displayStatus && (
+          <span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getBcaBadgeClass(null)}`}>
+            Not Sent
+          </span>
+        )}
+      </div>
+
+      {/* Signed date */}
+      {brokerage.bca_signed_at && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Signed on {new Date(brokerage.bca_signed_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}
+        </p>
+      )}
+
+      {/* Missing BOR warning */}
+      {!brokerage.broker_of_record_email && (
+        <p className="text-xs text-yellow-400 mb-3 flex items-center gap-1.5">
+          <AlertCircle size={12} /> Add a Broker of Record email before sending the BCA.
+        </p>
+      )}
+
+      {/* Error */}
+      {bcaError && (
+        <p className="text-xs text-red-400 mb-3 flex items-center gap-1.5">
+          <AlertCircle size={12} /> {bcaError}
+        </p>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {canSend && brokerage.broker_of_record_email && (
+          <button
+            onClick={handleSendBca}
+            disabled={bcaLoading}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Mail size={12} /> {bcaLoading ? 'Sending...' : (bcaStatus === 'voided' || bcaStatus === 'declined' ? 'Resend BCA' : 'Send BCA')}
+          </button>
+        )}
+
+        {canVoid && !showVoidInput && (
+          <button
+            onClick={() => setShowVoidInput(true)}
+            disabled={bcaLoading}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 bg-red-950/50 text-red-400 border border-red-800 hover:bg-red-900/50"
+          >
+            <XCircle size={12} /> Void
+          </button>
+        )}
+      </div>
+
+      {/* Void reason input */}
+      {showVoidInput && (
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            type="text"
+            value={voidReason}
+            onChange={e => setVoidReason(e.target.value)}
+            placeholder="Reason for voiding..."
+            className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground"
+          />
+          <button
+            onClick={handleVoidBca}
+            disabled={bcaLoading || !voidReason.trim()}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50 bg-red-950/50 text-red-400 border border-red-800 hover:bg-red-900/50"
+          >
+            {bcaLoading ? 'Voiding...' : 'Confirm Void'}
+          </button>
+          <button
+            onClick={() => { setShowVoidInput(false); setVoidReason('') }}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ============================================================================
@@ -1376,6 +1542,9 @@ export default function BrokeragesPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Brokerage Cooperation Agreement (BCA) */}
+                      <BcaStatusSection brokerage={brokerage} />
 
                       {/* Brokerage Documents */}
                       <div className="px-6 py-4 border-b border-border/50">

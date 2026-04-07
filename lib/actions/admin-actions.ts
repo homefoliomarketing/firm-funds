@@ -1981,6 +1981,39 @@ export async function inviteBrokerageAdmin(input: {
       },
     })
 
+    // Auto-send BCA to Broker of Record if BOR info is available
+    // Non-blocking — failure here never prevents the invite from succeeding
+    try {
+      const { data: fullBrokerage } = await serviceClient
+        .from('brokerages')
+        .select('broker_of_record_name, broker_of_record_email, bca_signed_at')
+        .eq('id', input.brokerageId)
+        .single()
+
+      if (fullBrokerage?.broker_of_record_email && fullBrokerage?.broker_of_record_name && !fullBrokerage?.bca_signed_at) {
+        // Check if there's already a pending BCA envelope
+        const { data: existingBca } = await serviceClient
+          .from('esignature_envelopes')
+          .select('id')
+          .eq('brokerage_id', input.brokerageId)
+          .eq('document_type', 'bca')
+          .in('status', ['sent', 'delivered'])
+          .maybeSingle()
+
+        if (!existingBca) {
+          const { sendBcaForSignature } = await import('@/lib/actions/esign-actions')
+          const bcaResult = await sendBcaForSignature(input.brokerageId)
+          if (bcaResult.success) {
+            console.log(`BCA auto-sent to ${fullBrokerage.broker_of_record_email} for brokerage ${brokerage.name}`)
+          } else {
+            console.warn(`BCA auto-send failed for brokerage ${brokerage.name}: ${bcaResult.error}`)
+          }
+        }
+      }
+    } catch (bcaErr: any) {
+      console.warn('BCA auto-send skipped (non-blocking):', bcaErr?.message)
+    }
+
     return { success: true }
   } catch (err: any) {
     console.error('Invite brokerage admin error:', err?.message)

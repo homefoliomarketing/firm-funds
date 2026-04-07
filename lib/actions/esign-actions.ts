@@ -3,7 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
-import { generateCpaDocx, generateIdpDocx } from '@/lib/contract-docx'
+import { generateCpaDocx, generateIdpDocx, generateBcaDocx } from '@/lib/contract-docx'
 
 type ActionResult = { success: boolean; error?: string; data?: any }
 
@@ -142,8 +142,8 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{PURCHASER_BANK_NAME}}': 'On file with Firm Funds',
       '{{PURCHASER_TRANSIT}}': 'On file',
       '{{PURCHASER_ACCOUNT}}': 'On file',
-      // Brokerage Cooperation Agreement date
-      '{{BCA_DATE}}': 'On file',
+      // Brokerage Cooperation Agreement date (dynamic — uses actual signed date if available)
+      '{{BCA_DATE}}': brokerage.bca_signed_at ? formatDate(brokerage.bca_signed_at.split('T')[0]) : 'On file',
       // Property details — some we don't have yet
       '{{BUYER_NAMES}}': 'See APS',
       '{{CLIENT_NAMES}}': 'See APS',
@@ -342,3 +342,221 @@ export async function getDealSignatureStatus(dealId: string): Promise<ActionResu
 }
 
 // Contract generators moved to lib/contract-docx.ts (.docx format with proper page numbers, headers, footers)
+
+// ============================================================================
+// BCA — Send Brokerage Cooperation Agreement for Signature
+// ============================================================================
+
+export async function sendBcaForSignature(brokerageId: string): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    // Check DocuSign connection
+    const connected = await isDocuSignConnected()
+    if (!connected) {
+      return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+    }
+
+    // Fetch brokerage data
+    const { data: brokerage, error: brokErr } = await supabase
+      .from('brokerages')
+      .select('*')
+      .eq('id', brokerageId)
+      .single()
+
+    if (brokErr || !brokerage) {
+      return { success: false, error: 'Brokerage not found' }
+    }
+
+    if (!brokerage.broker_of_record_email) {
+      return { success: false, error: 'Brokerage has no Broker of Record email. Add it first.' }
+    }
+
+    if (!brokerage.broker_of_record_name) {
+      return { success: false, error: 'Brokerage has no Broker of Record name. Add it first.' }
+    }
+
+    // Check for existing unsigned BCA envelopes
+    const { data: existingEnvelopes } = await supabase
+      .from('esignature_envelopes')
+      .select('*')
+      .eq('brokerage_id', brokerageId)
+      .eq('document_type', 'bca')
+      .in('status', ['sent', 'delivered'])
+
+    if (existingEnvelopes && existingEnvelopes.length > 0) {
+      return { success: false, error: 'This brokerage already has a pending BCA signature request. Void it first if you need to resend.' }
+    }
+
+    // Build BCA contract data
+    const today = new Date().toISOString().split('T')[0]
+
+    const contractData: Record<string, string> = {
+      '{{AGREEMENT_DATE}}': formatDate(today),
+      '{{BROKERAGE_LEGAL_NAME}}': brokerage.name,
+      '{{BROKERAGE_ADDRESS}}': brokerage.address || 'On file',
+      '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name,
+      '{{BROKERAGE_EMAIL}}': brokerage.email,
+      '{{BROKERAGE_PHONE}}': brokerage.phone || 'On file',
+      '{{SIGNATURE_DATE}}': '', // DocuSign fills this
+    }
+
+    // Generate BCA .docx
+    const bcaBuffer = await generateBcaDocx(contractData)
+    const bcaBase64 = bcaBuffer.toString('base64')
+
+    // Create envelope — signer is the Broker of Record
+    const result = await createAndSendEnvelope({
+      emailSubject: `Firm Funds — Brokerage Cooperation Agreement: ${brokerage.name}`,
+      documents: [
+        {
+          documentBase64: bcaBase64,
+          name: 'Brokerage Cooperation Agreement',
+          fileExtension: 'docx',
+          documentId: '1',
+        },
+      ],
+      signers: [
+        {
+          email: brokerage.broker_of_record_email,
+          name: brokerage.broker_of_record_name,
+          recipientId: '1',
+          routingOrder: '1',
+          tabs: {
+            signHereTabs: [
+              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+            dateSignedTabs: [
+              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+            initialHereTabs: [
+              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+          },
+        },
+      ],
+      // CC the brokerage admin email + Firm Funds admin
+      ccRecipients: [
+        ...(brokerage.email && brokerage.email !== brokerage.broker_of_record_email ? [{
+          email: brokerage.email,
+          name: brokerage.name + ' (Admin)',
+          recipientId: '2',
+          routingOrder: '2',
+        }] : []),
+      ],
+      status: 'sent',
+    })
+
+    // Save envelope record — uses brokerage_id, NOT deal_id
+    const { error: insertErr } = await supabase
+      .from('esignature_envelopes')
+      .insert({
+        brokerage_id: brokerageId,
+        envelope_id: result.envelopeId,
+        document_type: 'bca' as const,
+        status: 'sent' as const,
+        agent_signer_status: 'sent' as const, // re-used field: tracks BOR signer status
+        sent_by: user.id,
+        envelope_uri: result.uri,
+      })
+
+    if (insertErr) {
+      console.error('Failed to save BCA envelope record:', insertErr.message)
+    }
+
+    await logAuditEvent({
+      action: 'bca.sent',
+      entityType: 'brokerage',
+      entityId: brokerageId,
+      metadata: {
+        envelopeId: result.envelopeId,
+        brokerageName: brokerage.name,
+        brokerOfRecord: brokerage.broker_of_record_name,
+        brokerOfRecordEmail: brokerage.broker_of_record_email,
+      },
+    })
+
+    return { success: true, data: { envelopeId: result.envelopeId } }
+  } catch (err: any) {
+    console.error('sendBcaForSignature error:', err?.message)
+    return { success: false, error: err?.message || 'Failed to send BCA for signature' }
+  }
+}
+
+// ============================================================================
+// BCA — Void Existing BCA Envelope
+// ============================================================================
+
+export async function voidBcaEnvelope(brokerageId: string, reason: string): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: envelopes } = await supabase
+      .from('esignature_envelopes')
+      .select('*')
+      .eq('brokerage_id', brokerageId)
+      .eq('document_type', 'bca')
+      .in('status', ['sent', 'delivered'])
+
+    if (!envelopes || envelopes.length === 0) {
+      return { success: false, error: 'No active BCA envelopes found for this brokerage' }
+    }
+
+    // Void each unique envelope in DocuSign
+    const seen = new Set<string>()
+    for (const env of envelopes) {
+      const eid = (env as { envelope_id: string }).envelope_id
+      if (!seen.has(eid)) {
+        seen.add(eid)
+        await voidEnvelope(eid, reason)
+      }
+    }
+
+    // Update records
+    await supabase
+      .from('esignature_envelopes')
+      .update({
+        status: 'voided',
+        voided_at: new Date().toISOString(),
+        void_reason: reason,
+      })
+      .eq('brokerage_id', brokerageId)
+      .eq('document_type', 'bca')
+      .in('status', ['sent', 'delivered'])
+
+    await logAuditEvent({
+      action: 'bca.voided',
+      entityType: 'brokerage',
+      entityId: brokerageId,
+      metadata: { reason, envelopeIds: Array.from(seen) },
+    })
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('voidBcaEnvelope error:', err?.message)
+    return { success: false, error: err?.message || 'Failed to void BCA envelope' }
+  }
+}
+
+// ============================================================================
+// BCA — Get Signature Status
+// ============================================================================
+
+export async function getBcaSignatureStatus(brokerageId: string): Promise<ActionResult> {
+  const supabase = createServiceRoleClient()
+
+  const { data: envelopes, error } = await supabase
+    .from('esignature_envelopes')
+    .select('*')
+    .eq('brokerage_id', brokerageId)
+    .eq('document_type', 'bca')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: envelopes || [] }
+}

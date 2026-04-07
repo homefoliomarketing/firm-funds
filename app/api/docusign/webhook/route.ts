@@ -101,121 +101,190 @@ export async function POST(request: Request) {
     // SIGNED — Download docs, store them, link to checklist, check off
     // ================================================================
     if (mappedStatus === 'signed') {
-      const dealId = envelopes[0].deal_id
-      console.log(`DocuSign webhook: envelope signed — downloading docs for deal ${dealId}`)
+      // Determine if this is a BCA (brokerage-level) or deal-level envelope
+      const isBca = envelopes[0].document_type === 'bca'
 
-      // Get DocuSign auth token for API calls
-      const auth = await getValidAccessToken()
+      if (isBca) {
+        // ============================================================
+        // BCA ENVELOPE — Brokerage Cooperation Agreement
+        // ============================================================
+        const brokerageId = envelopes[0].brokerage_id
+        console.log(`DocuSign webhook: BCA signed — downloading doc for brokerage ${brokerageId}`)
 
-      if (auth) {
-        // Process each document in the envelope (CPA = docId 1, IDP = docId 2)
-        for (const envelope of envelopes) {
-          const docType = envelope.document_type // 'cpa' or 'idp'
-          const docId = docType === 'cpa' ? '1' : '2'
+        const auth = await getValidAccessToken()
 
+        if (auth && brokerageId) {
           try {
-            // 1. Download the signed PDF from DocuSign
+            // 1. Download signed BCA PDF from DocuSign (documentId '1' — only one doc)
             const docRes = await fetch(
-              `${auth.baseUri}/restapi/v2.1/accounts/${auth.accountId}/envelopes/${envelopeId}/documents/${docId}`,
+              `${auth.baseUri}/restapi/v2.1/accounts/${auth.accountId}/envelopes/${envelopeId}/documents/1`,
               { headers: { 'Authorization': `Bearer ${auth.accessToken}` } }
             )
 
-            if (!docRes.ok) {
-              console.error(`DocuSign webhook: failed to download ${docType} doc: ${docRes.status}`)
-              continue
-            }
+            if (docRes.ok) {
+              const pdfBuffer = await docRes.arrayBuffer()
+              const pdfBytes = new Uint8Array(pdfBuffer)
 
-            const pdfBuffer = await docRes.arrayBuffer()
-            const pdfBytes = new Uint8Array(pdfBuffer)
+              // 2. Upload to Supabase storage (brokerage-level path)
+              const timestamp = Date.now()
+              const randomId = crypto.randomUUID()
+              const storagePath = `brokerage-bca/${brokerageId}/${timestamp}_${randomId}.pdf`
 
-            // 2. Upload to Supabase storage
-            const timestamp = Date.now()
-            const randomId = crypto.randomUUID()
-            const fileName = docType === 'cpa'
-              ? `Commission_Purchase_Agreement_Signed.pdf`
-              : `Irrevocable_Direction_to_Pay_Signed.pdf`
-            const storagePath = `${dealId}/${timestamp}_${randomId}.pdf`
-
-            const { error: uploadErr } = await supabase.storage
-              .from('deal-documents')
-              .upload(storagePath, pdfBytes, {
-                contentType: 'application/pdf',
-                upsert: false,
-              })
-
-            if (uploadErr) {
-              console.error(`DocuSign webhook: failed to upload ${docType} to storage:`, uploadErr.message)
-              continue
-            }
-
-            // 3. Create deal_documents record
-            const dealDocType = docType === 'cpa' ? 'commission_agreement' : 'direction_to_pay'
-
-            const { data: docRecord, error: insertErr } = await supabase
-              .from('deal_documents')
-              .insert({
-                deal_id: dealId,
-                uploaded_by: envelope.sent_by || '00000000-0000-0000-0000-000000000000',
-                document_type: dealDocType,
-                file_name: fileName,
-                file_path: storagePath,
-                file_size: pdfBytes.length,
-                upload_source: 'nexone_auto', // system-uploaded
-                notes: `Signed via DocuSign (envelope ${envelopeId})`,
-              })
-              .select('id')
-              .single()
-
-            if (insertErr || !docRecord) {
-              console.error(`DocuSign webhook: failed to insert ${docType} document record:`, insertErr?.message)
-              continue
-            }
-
-            console.log(`DocuSign webhook: stored signed ${docType} as document ${docRecord.id}`)
-
-            // 4. Link document to the matching checklist item and auto-check it
-            const checklistMatch = docType === 'cpa'
-              ? '%Commission Purchase Agreement%'
-              : '%Irrevocable Direction to Pay%'
-
-            const { data: checklistItem } = await supabase
-              .from('underwriting_checklist')
-              .select('id')
-              .eq('deal_id', dealId)
-              .ilike('checklist_item', checklistMatch)
-              .single()
-
-            if (checklistItem) {
-              const { error: checkErr } = await supabase
-                .from('underwriting_checklist')
-                .update({
-                  is_checked: true,
-                  checked_by: null,
-                  checked_at: new Date().toISOString(),
-                  linked_document_id: docRecord.id,
-                  notes: `Auto-completed by system: Signed document received from DocuSign`,
+              const { error: uploadErr } = await supabase.storage
+                .from('deal-documents')
+                .upload(storagePath, pdfBytes, {
+                  contentType: 'application/pdf',
+                  upsert: false,
                 })
-                .eq('id', checklistItem.id)
 
-              if (checkErr) {
-                console.error(`DocuSign webhook: failed to update checklist item ${checklistItem.id}:`, checkErr.message)
+              if (uploadErr) {
+                console.error('DocuSign webhook: failed to upload BCA to storage:', uploadErr.message)
               } else {
-                console.log(`DocuSign webhook: linked ${docType} to checklist item ${checklistItem.id} and marked complete`)
+                console.log(`DocuSign webhook: stored signed BCA at ${storagePath}`)
               }
+            } else {
+              console.error(`DocuSign webhook: failed to download BCA doc: ${docRes.status}`)
             }
-
           } catch (docErr: any) {
-            console.error(`DocuSign webhook: error processing ${docType} document:`, docErr?.message)
-            // Continue with the next document — don't fail the whole webhook
+            console.error('DocuSign webhook: error processing BCA document:', docErr?.message)
           }
-        }
-      } else {
-        // No auth token — can't download the signed docs, so do NOT check off the items.
-        // The admin will need to re-authorize DocuSign and manually retrieve the documents.
-        console.error(`DocuSign webhook: no valid auth token — cannot download signed docs for deal ${envelopes[0].deal_id}. Checklist items NOT checked. Admin must re-authorize DocuSign.`)
-      }
 
-      console.log(`DocuSign webhook: completed processing for deal ${envelopes[0].deal_id}`)
+          // 3. Update bca_signed_at on the brokerage record
+          const { error: bcaUpdateErr } = await supabase
+            .from('brokerages')
+            .update({ bca_signed_at: new Date().toISOString() })
+            .eq('id', brokerageId)
+
+          if (bcaUpdateErr) {
+            console.error('DocuSign webhook: failed to update bca_signed_at:', bcaUpdateErr.message)
+          } else {
+            console.log(`DocuSign webhook: brokerage ${brokerageId} bca_signed_at updated`)
+          }
+        } else {
+          console.error(`DocuSign webhook: no valid auth token — cannot download signed BCA for brokerage ${brokerageId}`)
+        }
+
+        console.log(`DocuSign webhook: completed BCA processing for brokerage ${brokerageId}`)
+
+      } else {
+        // ============================================================
+        // DEAL ENVELOPE — CPA + IDP (existing logic, unchanged)
+        // ============================================================
+        const dealId = envelopes[0].deal_id
+        console.log(`DocuSign webhook: envelope signed — downloading docs for deal ${dealId}`)
+
+        // Get DocuSign auth token for API calls
+        const auth = await getValidAccessToken()
+
+        if (auth) {
+          // Process each document in the envelope (CPA = docId 1, IDP = docId 2)
+          for (const envelope of envelopes) {
+            const docType = envelope.document_type // 'cpa' or 'idp'
+            const docId = docType === 'cpa' ? '1' : '2'
+
+            try {
+              // 1. Download the signed PDF from DocuSign
+              const docRes = await fetch(
+                `${auth.baseUri}/restapi/v2.1/accounts/${auth.accountId}/envelopes/${envelopeId}/documents/${docId}`,
+                { headers: { 'Authorization': `Bearer ${auth.accessToken}` } }
+              )
+
+              if (!docRes.ok) {
+                console.error(`DocuSign webhook: failed to download ${docType} doc: ${docRes.status}`)
+                continue
+              }
+
+              const pdfBuffer = await docRes.arrayBuffer()
+              const pdfBytes = new Uint8Array(pdfBuffer)
+
+              // 2. Upload to Supabase storage
+              const timestamp = Date.now()
+              const randomId = crypto.randomUUID()
+              const fileName = docType === 'cpa'
+                ? `Commission_Purchase_Agreement_Signed.pdf`
+                : `Irrevocable_Direction_to_Pay_Signed.pdf`
+              const storagePath = `${dealId}/${timestamp}_${randomId}.pdf`
+
+              const { error: uploadErr } = await supabase.storage
+                .from('deal-documents')
+                .upload(storagePath, pdfBytes, {
+                  contentType: 'application/pdf',
+                  upsert: false,
+                })
+
+              if (uploadErr) {
+                console.error(`DocuSign webhook: failed to upload ${docType} to storage:`, uploadErr.message)
+                continue
+              }
+
+              // 3. Create deal_documents record
+              const dealDocType = docType === 'cpa' ? 'commission_agreement' : 'direction_to_pay'
+
+              const { data: docRecord, error: insertErr } = await supabase
+                .from('deal_documents')
+                .insert({
+                  deal_id: dealId,
+                  uploaded_by: envelope.sent_by || '00000000-0000-0000-0000-000000000000',
+                  document_type: dealDocType,
+                  file_name: fileName,
+                  file_path: storagePath,
+                  file_size: pdfBytes.length,
+                  upload_source: 'nexone_auto', // system-uploaded
+                  notes: `Signed via DocuSign (envelope ${envelopeId})`,
+                })
+                .select('id')
+                .single()
+
+              if (insertErr || !docRecord) {
+                console.error(`DocuSign webhook: failed to insert ${docType} document record:`, insertErr?.message)
+                continue
+              }
+
+              console.log(`DocuSign webhook: stored signed ${docType} as document ${docRecord.id}`)
+
+              // 4. Link document to the matching checklist item and auto-check it
+              const checklistMatch = docType === 'cpa'
+                ? '%Commission Purchase Agreement%'
+                : '%Irrevocable Direction to Pay%'
+
+              const { data: checklistItem } = await supabase
+                .from('underwriting_checklist')
+                .select('id')
+                .eq('deal_id', dealId)
+                .ilike('checklist_item', checklistMatch)
+                .single()
+
+              if (checklistItem) {
+                const { error: checkErr } = await supabase
+                  .from('underwriting_checklist')
+                  .update({
+                    is_checked: true,
+                    checked_by: null,
+                    checked_at: new Date().toISOString(),
+                    linked_document_id: docRecord.id,
+                    notes: `Auto-completed by system: Signed document received from DocuSign`,
+                  })
+                  .eq('id', checklistItem.id)
+
+                if (checkErr) {
+                  console.error(`DocuSign webhook: failed to update checklist item ${checklistItem.id}:`, checkErr.message)
+                } else {
+                  console.log(`DocuSign webhook: linked ${docType} to checklist item ${checklistItem.id} and marked complete`)
+                }
+              }
+
+            } catch (docErr: any) {
+              console.error(`DocuSign webhook: error processing ${docType} document:`, docErr?.message)
+              // Continue with the next document — don't fail the whole webhook
+            }
+          }
+        } else {
+          // No auth token — can't download the signed docs, so do NOT check off the items.
+          console.error(`DocuSign webhook: no valid auth token — cannot download signed docs for deal ${envelopes[0].deal_id}. Checklist items NOT checked. Admin must re-authorize DocuSign.`)
+        }
+
+        console.log(`DocuSign webhook: completed processing for deal ${envelopes[0].deal_id}`)
+      }
     }
 
     return new Response('OK', { status: 200 })

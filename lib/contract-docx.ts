@@ -520,3 +520,196 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
   const buffer = await Packer.toBuffer(doc)
   return Buffer.from(buffer)
 }
+
+// ============================================================================
+// BCA Generator — Brokerage Cooperation Agreement
+// ============================================================================
+
+export async function generateBcaDocx(data: Record<string, string>): Promise<Buffer> {
+  const r = (key: string) => data[key] || key
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
+        },
+        headers: { default: makeHeader('Brokerage Cooperation Agreement') },
+        footers: { default: makeFooterWithInitials('Broker of Record Initials') },
+        children: [
+          // Title
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 40 },
+            children: [new TextRun({ text: 'BROKERAGE COOPERATION AGREEMENT', bold: true, font: FONT, size: 36, color: '000000' })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+            children: [new TextRun({ text: '(Commission Advance Program)', font: FONT, size: FONT_SIZE, italics: true })],
+          }),
+
+          // Date and Parties
+          richParagraph([
+            { text: 'Date: ' },
+            { text: r('{{AGREEMENT_DATE}}'), bold: true },
+          ]),
+          emptyLine(),
+
+          body('THIS BROKERAGE COOPERATION AGREEMENT (the "Agreement") is entered into by and between:', { bold: true }),
+          emptyLine(),
+
+          richParagraph([
+            { text: 'FIRM FUNDS INC.', bold: true },
+            { text: ', a corporation incorporated under the laws of Ontario, carrying on business at the address on file (the "Purchaser" or "Firm Funds");' },
+          ]),
+          emptyLine(),
+          body('— AND —', { alignment: AlignmentType.CENTER, bold: true }),
+          emptyLine(),
+          richParagraph([
+            { text: r('{{BROKERAGE_LEGAL_NAME}}'), bold: true },
+            { text: ', a real estate brokerage registered under the ' },
+            { text: 'Trust in Real Estate Services Act, 2002', italic: true },
+            { text: ' (Ontario), with its principal office at ' },
+            { text: r('{{BROKERAGE_ADDRESS}}') },
+            { text: ' (the "Brokerage");' },
+          ]),
+          emptyLine(),
+          richParagraph([
+            { text: 'represented by its Broker of Record, ' },
+            { text: r('{{BROKER_OF_RECORD}}'), bold: true },
+            { text: '.' },
+          ]),
+
+          emptyLine(),
+
+          // Recitals
+          body('RECITALS', { bold: true }),
+          body('WHEREAS Firm Funds operates a commission advance program under which it purchases the right to receive real estate commission receivables from individual real estate agents ("Agents") registered with the Brokerage;'),
+          body('AND WHEREAS the Brokerage acknowledges the value of commission advance services to its Agents, and wishes to cooperate with Firm Funds to facilitate the orderly processing and payment of commission receivables;'),
+          body('AND WHEREAS each commission advance transaction will be governed by a separate Commission Purchase Agreement between Firm Funds and the Agent, and an Irrevocable Direction to Pay issued by the Agent to the Brokerage;'),
+          body('NOW THEREFORE, in consideration of the mutual covenants and agreements hereinafter set forth, and for other good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, the parties agree as follows:'),
+
+          emptyLine(),
+
+          // Article 1: Definitions
+          heading2('ARTICLE 1 — DEFINITIONS'),
+          body('1.1 "Agent" means a real estate salesperson or broker registered under the Brokerage who enters into a Commission Purchase Agreement with Firm Funds.'),
+          body('1.2 "Commission Purchase Agreement" or "CPA" means the agreement between Firm Funds and an Agent pursuant to which Firm Funds purchases the right to receive all or a portion of a commission receivable.'),
+          body('1.3 "Irrevocable Direction to Pay" or "IDP" means an irrevocable written instruction from the Agent directing the Brokerage to remit commission funds to Firm Funds.'),
+          body('1.4 "Commission Receivable" means the amount of real estate commission payable to an Agent through the Brokerage upon the closing of a real estate transaction.'),
+          body('1.5 "Transaction" means a real estate transaction giving rise to a Commission Receivable.'),
+          body('1.6 "Extension Fee" means the fee of $0.75 per $1,000 of face value per day, applicable after the five (5) calendar day grace period following the expected closing date.'),
+
+          // Article 2: Cooperation
+          heading2('ARTICLE 2 — COOPERATION AND ACKNOWLEDGMENT'),
+          body('2.1 The Brokerage agrees to cooperate with Firm Funds in the processing of commission advance transactions involving its Agents. This cooperation includes, without limitation, honouring Irrevocable Directions to Pay and facilitating the timely remittance of commission funds.'),
+          body('2.2 The Brokerage acknowledges that each commission advance transaction constitutes a true sale and purchase of a commission receivable, and not a loan or security interest. The Brokerage acknowledges that upon execution of a CPA and IDP, Firm Funds acquires a property right in the Commission Receivable.'),
+          body('2.3 Nothing in this Agreement creates an obligation on the part of the Brokerage to approve or facilitate any individual Agent\'s participation in the commission advance program. Each Agent\'s participation remains subject to the Agent\'s own independent decision and the Brokerage\'s internal policies.'),
+
+          // Article 3: Irrevocable Direction to Pay
+          heading2('ARTICLE 3 — IRREVOCABLE DIRECTION TO PAY'),
+          body('3.1 Upon receiving a valid Irrevocable Direction to Pay from an Agent, the Brokerage shall honour such direction and remit the directed amount to Firm Funds from the Agent\'s commission upon closing of the Transaction.'),
+          body('3.2 The Brokerage acknowledges that an IDP, once executed by the Agent and delivered to the Brokerage, is irrevocable and may not be cancelled, modified, or overridden except with the express written consent of Firm Funds.'),
+          body('3.3 The Brokerage agrees to process payment to Firm Funds in the same manner and timeframe as it would remit commission funds to the Agent. Payment shall be made within five (5) business days of the Brokerage receiving commission funds from the Transaction.'),
+          body('3.4 In the event of a commission dispute, holdback, or adjustment that affects the amount payable under an IDP, the Brokerage shall promptly notify both the Agent and Firm Funds in writing, and shall not release the directed funds until the dispute is resolved or Firm Funds provides written instructions.'),
+
+          // Article 4: Commission Handling
+          heading2('ARTICLE 4 — COMMISSION HANDLING AND REMITTANCE'),
+          body('4.1 Upon closing of a Transaction, the Brokerage shall remit the IDP-directed amount directly to Firm Funds by electronic funds transfer (EFT) to the account specified in the IDP, or by such other method as Firm Funds may direct in writing.'),
+          body('4.2 Any residual commission amount (i.e., the Agent\'s commission less the IDP-directed amount and any applicable brokerage fees or splits) shall be remitted to the Agent in accordance with the Brokerage\'s standard commission disbursement practices.'),
+          body('4.3 The Brokerage shall provide Firm Funds with reasonable confirmation of payment, including the date of remittance and transaction reference number, within five (5) business days of payment.'),
+
+          // Article 5: Notification Obligations
+          heading2('ARTICLE 5 — NOTIFICATION OBLIGATIONS'),
+          body('5.1 The Brokerage shall promptly notify Firm Funds in writing if it becomes aware of any of the following: (a) a change to the expected closing date of a Transaction subject to an IDP; (b) the termination, collapse, or material amendment of a Transaction; (c) any commission dispute, holdback, or legal proceeding affecting a Commission Receivable; (d) any change in the Agent\'s status, including termination, suspension, or transfer to another brokerage.'),
+          body('5.2 The Brokerage shall provide Firm Funds with such notice within two (2) business days of becoming aware of the applicable event.'),
+
+          // Article 6: Agent Authorization
+          heading2('ARTICLE 6 — AGENT AUTHORIZATION'),
+          body('6.1 The Brokerage confirms that each Agent participating in the commission advance program has been authorized by the Brokerage to enter into a CPA and IDP, or alternatively, that the Brokerage does not restrict its Agents from participating in lawful commission advance arrangements.'),
+          body('6.2 The Brokerage agrees not to take any action to impede, discourage, or penalize an Agent solely for participating in the Firm Funds commission advance program.'),
+
+          // Article 7: Term and Termination
+          heading2('ARTICLE 7 — TERM AND TERMINATION'),
+          body('7.1 This Agreement shall commence on the date first written above and shall continue in force for a period of one (1) year, automatically renewing for successive one-year terms unless either party provides not less than ninety (90) days\' written notice of non-renewal prior to the end of the then-current term.'),
+          body('7.2 Either party may terminate this Agreement for cause upon thirty (30) days\' written notice if the other party commits a material breach and fails to cure such breach within the notice period.'),
+          body('7.3 Termination of this Agreement shall not affect any IDP that has already been executed and delivered prior to termination. All outstanding IDPs shall continue to be honoured by the Brokerage in accordance with their terms until the underlying Transactions have closed and all amounts have been remitted to Firm Funds.'),
+
+          // Article 8: Representations and Warranties
+          heading2('ARTICLE 8 — REPRESENTATIONS AND WARRANTIES'),
+          body('8.1 The Brokerage represents and warrants that: (a) it is a brokerage in good standing registered under the Trust in Real Estate Services Act, 2002 (Ontario); (b) the Broker of Record has full authority to enter into this Agreement on behalf of the Brokerage; (c) entering into this Agreement does not conflict with any other agreement or obligation of the Brokerage; (d) it maintains adequate trust accounting and commission disbursement procedures.'),
+          body('8.2 Firm Funds represents and warrants that: (a) it is a corporation in good standing under the laws of Ontario; (b) it has full authority to enter into this Agreement; (c) it shall comply with all applicable laws, including FINTRAC requirements, in connection with its commission advance operations.'),
+
+          // Article 9: Confidentiality
+          heading2('ARTICLE 9 — CONFIDENTIALITY'),
+          body('9.1 Each party agrees to keep confidential all information received from the other party in connection with this Agreement, including Agent information, transaction details, and financial terms. Such information may be disclosed only: (a) to the extent required by law or regulatory authority; (b) to professional advisors bound by confidentiality obligations; (c) with the prior written consent of the disclosing party.'),
+
+          // Article 10: Indemnification
+          heading2('ARTICLE 10 — INDEMNIFICATION'),
+          body('10.1 The Brokerage shall indemnify and hold harmless Firm Funds from any loss, cost, or expense (including reasonable legal fees) arising from: (a) a breach of this Agreement by the Brokerage; (b) the Brokerage\'s failure to honour a valid IDP; (c) the Brokerage\'s release of directed funds in contravention of an IDP.'),
+          body('10.2 Firm Funds shall indemnify and hold harmless the Brokerage from any loss, cost, or expense (including reasonable legal fees) arising from: (a) a breach of this Agreement by Firm Funds; (b) any claim by a third party relating to Firm Funds\' commission advance activities, to the extent such claim does not arise from the Brokerage\'s own acts or omissions.'),
+
+          // Article 11: General Provisions
+          heading2('ARTICLE 11 — GENERAL PROVISIONS'),
+          body('11.1 Governing Law. This Agreement shall be governed by and construed in accordance with the laws of the Province of Ontario and the federal laws of Canada applicable therein.'),
+          body('11.2 Entire Agreement. This Agreement constitutes the entire agreement between the parties with respect to the subject matter hereof and supersedes all prior negotiations, representations, and agreements.'),
+          body('11.3 Amendments. No amendment to this Agreement shall be effective unless made in writing and signed by both parties.'),
+          body('11.4 Severability. If any provision of this Agreement is held to be invalid or unenforceable, the remaining provisions shall continue in full force and effect.'),
+          body('11.5 Notices. All notices shall be in writing and delivered to the addresses set out above, or to such other address as a party may designate in writing.'),
+          body('11.6 Assignment. Neither party may assign this Agreement without the prior written consent of the other party, except that Firm Funds may assign its rights to an affiliate or in connection with a merger or sale of substantially all of its assets.'),
+          body('11.7 Electronic Execution. This Agreement may be executed by electronic signature in accordance with the Electronic Commerce Act, 2000 (Ontario), and electronic signatures shall be deemed original signatures for all purposes.'),
+        ],
+      },
+      // Signature Page — separate section so it has no initials in footer
+      {
+        properties: {
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
+        },
+        headers: { default: makeHeader('Brokerage Cooperation Agreement') },
+        footers: { default: makeFooterNoInitials() },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 300 },
+            children: [new TextRun({ text: 'SIGNATURE PAGE', bold: true, font: FONT, size: 28 })],
+          }),
+
+          body('IN WITNESS WHEREOF, the parties have executed this Brokerage Cooperation Agreement as of the date first written above.'),
+          emptyLine(),
+          emptyLine(),
+
+          // Firm Funds signature block
+          body('FIRM FUNDS INC.', { bold: true }),
+          emptyLine(),
+          body('Name: Bud Dickie'),
+          body('Title: Principal'),
+          emptyLine(),
+          body('(Signed on behalf of Firm Funds Inc. prior to delivery)'),
+
+          emptyLine(),
+          emptyLine(),
+          emptyLine(),
+
+          // Brokerage signature block — DocuSign places tabs here
+          body('BROKERAGE:', { bold: true }),
+          richParagraph([
+            { text: r('{{BROKERAGE_LEGAL_NAME}}') },
+          ]),
+          emptyLine(),
+          richParagraph([
+            { text: 'Broker of Record: ' },
+            { text: r('{{BROKER_OF_RECORD}}'), bold: true },
+          ]),
+          emptyLine(),
+          emptyLine(),
+          body('Signature: /sig1/', { italic: true }),
+          body('Date Signed: /dat1/', { italic: true }),
+        ],
+      },
+    ],
+  })
+
+  const bcaBuffer = await Packer.toBuffer(doc)
+  return Buffer.from(bcaBuffer)
+}
