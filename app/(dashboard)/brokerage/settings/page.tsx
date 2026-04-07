@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, Building2 } from 'lucide-react'
+import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, Building2, Users, UserPlus, Shield } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,6 +19,7 @@ import {
   updateNotificationPreferences,
   updateBrokerageContactEmail,
 } from '@/lib/actions/settings-actions'
+import { getBrokerageStaff, inviteBrokerageStaff, updateStaffTitle } from '@/lib/actions/profile-actions'
 
 export default function BrokerageSettingsPage() {
   const [profile, setProfile] = useState<any>(null)
@@ -48,6 +49,17 @@ export default function BrokerageSettingsPage() {
     email_document_requests: true,
   })
   const [notifSaving, setNotifSaving] = useState(false)
+
+  // Staff management
+  const [staff, setStaff] = useState<any[]>([])
+  const [staffLoading, setStaffLoading] = useState(false)
+  const [showInviteStaff, setShowInviteStaff] = useState(false)
+  const [inviteName, setInviteName] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteTitle, setInviteTitle] = useState('')
+  const [inviting, setInviting] = useState(false)
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null)
+  const [editTitleValue, setEditTitleValue] = useState('')
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -83,6 +95,12 @@ export default function BrokerageSettingsPage() {
       const prefsResult = await getNotificationPreferences()
       if (prefsResult.success && prefsResult.data) {
         setNotifPrefs(prefsResult.data as Record<string, boolean>)
+      }
+
+      // Load staff
+      const staffResult = await getBrokerageStaff()
+      if (staffResult.success && staffResult.data) {
+        setStaff(staffResult.data)
       }
 
       setLoading(false)
@@ -367,6 +385,162 @@ export default function BrokerageSettingsPage() {
             <p className="text-xs mt-2 text-muted-foreground/70">
               This is the email address that receives deal notifications from Firm Funds. It can be different from your login email.
             </p>
+          </CardContent>
+        </Card>
+
+        {/* STAFF / TEAM */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                <Users size={18} />
+                Team Members
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowInviteStaff(!showInviteStaff)}
+                className="text-xs gap-1"
+              >
+                <UserPlus size={14} />
+                Add Staff
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Invite form */}
+            {showInviteStaff && (
+              <div className="p-4 rounded-lg bg-muted/50 border border-border/50 space-y-3">
+                <p className="text-xs font-semibold text-foreground">Invite a team member</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Full Name</Label>
+                    <Input
+                      value={inviteName}
+                      onChange={(e) => setInviteName(e.target.value)}
+                      placeholder="Jane Smith"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Email</Label>
+                    <Input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="jane@brokerage.com"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Title / Role (optional)</Label>
+                  <Input
+                    value={inviteTitle}
+                    onChange={(e) => setInviteTitle(e.target.value)}
+                    placeholder="e.g. Office Manager, Broker of Record"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={inviting || !inviteName.trim() || !inviteEmail.trim()}
+                    onClick={async () => {
+                      setInviting(true)
+                      const result = await inviteBrokerageStaff({
+                        fullName: inviteName,
+                        email: inviteEmail,
+                        staffTitle: inviteTitle || undefined,
+                      })
+                      if (result.success) {
+                        showMsg('success', `Invite sent to ${inviteEmail}`)
+                        setInviteName(''); setInviteEmail(''); setInviteTitle('')
+                        setShowInviteStaff(false)
+                        // Refresh staff list
+                        const refresh = await getBrokerageStaff()
+                        if (refresh.success && refresh.data) setStaff(refresh.data)
+                      } else {
+                        showMsg('error', result.error || 'Failed to send invite')
+                      }
+                      setInviting(false)
+                    }}
+                  >
+                    {inviting ? 'Sending...' : 'Send Invite'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setShowInviteStaff(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Staff list */}
+            {staff.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">No team members yet. Add staff to give them access to the brokerage portal.</p>
+            ) : (
+              <div className="divide-y divide-border/50">
+                {staff.map((member) => (
+                  <div key={member.id} className="flex items-center justify-between py-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-foreground truncate">{member.full_name}</p>
+                        {member.id === profile?.id && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">You</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                      {editingTitleId === member.id ? (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Input
+                            value={editTitleValue}
+                            onChange={(e) => setEditTitleValue(e.target.value)}
+                            placeholder="e.g. Office Manager"
+                            className="h-7 text-xs max-w-[200px]"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs px-2"
+                            onClick={async () => {
+                              await updateStaffTitle(member.id, editTitleValue)
+                              setEditingTitleId(null)
+                              const refresh = await getBrokerageStaff()
+                              if (refresh.success && refresh.data) setStaff(refresh.data)
+                            }}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs px-2"
+                            onClick={() => setEditingTitleId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <p
+                          className="text-xs text-primary/80 mt-0.5 cursor-pointer hover:underline"
+                          onClick={() => { setEditingTitleId(member.id); setEditTitleValue(member.staff_title || '') }}
+                        >
+                          {member.staff_title || 'Add title...'}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0 ml-3">
+                      {member.last_login ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Last login {new Date(member.last_login).toLocaleDateString('en-CA')}
+                        </p>
+                      ) : (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-status-amber-muted text-status-amber font-medium">
+                          Invite pending
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

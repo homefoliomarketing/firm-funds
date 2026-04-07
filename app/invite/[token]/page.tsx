@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,6 +18,8 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // Validate the token on page load
   useEffect(() => {
@@ -74,6 +78,18 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       const data = await res.json()
 
       if (data.success) {
+        // Auto-login: sign in with the password they just set
+        const supabase = createClient()
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+        if (!signInError) {
+          // Redirect based on role (the middleware will handle routing)
+          window.location.href = '/'
+          return
+        }
+        // If auto-login fails for any reason, fall back to success screen
         setStatus('success')
       } else {
         setError(data.error || 'Failed to set password.')
@@ -204,30 +220,50 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
                 <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider">
                   Password
                 </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError(null) }}
-                  placeholder="Min. 12 chars, upper/lower/number/special"
-                  className="focus-visible:ring-primary"
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setError(null) }}
+                    placeholder="Min. 12 chars, upper/lower/number/special"
+                    className="focus-visible:ring-primary pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword" className="text-xs font-semibold uppercase tracking-wider">
                   Confirm Password
                 </Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
-                  placeholder="Re-enter your password"
-                  className="focus-visible:ring-primary"
-                />
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
+                    placeholder="Re-enter your password"
+                    className="focus-visible:ring-primary pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <Button
@@ -235,7 +271,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
                 disabled={isSubmitting}
                 className="w-full py-3.5 text-sm font-bold uppercase tracking-wider bg-primary hover:bg-primary/90 text-primary-foreground"
               >
-                {isSubmitting ? 'Setting Password...' : 'Set Password & Continue'}
+                {isSubmitting ? 'Setting up your account...' : 'Set Password & Continue'}
               </Button>
             </form>
 

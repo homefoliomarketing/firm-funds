@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail } from 'lucide-react'
+import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail, MapPin, Phone, ChevronRight } from 'lucide-react'
 import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
+import { updateAgentProfile } from '@/lib/actions/profile-actions'
 import { createClient } from '@/lib/supabase/client'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeClass } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 
 interface AgentKycGateProps {
@@ -16,11 +19,28 @@ interface AgentKycGateProps {
     last_name: string
     kyc_status: string
     kyc_rejection_reason: string | null
+    phone: string | null
+    address_street: string | null
+    address_city: string | null
+    address_province: string | null
+    address_postal_code: string | null
   }
   onKycSubmitted: () => void
 }
 
 export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProps) {
+  // Step tracking: 'address' (collect info) or 'kyc' (upload ID)
+  const hasAddress = !!(agent.address_street && agent.address_city && agent.address_postal_code && agent.phone)
+  const [step, setStep] = useState<'address' | 'kyc'>(hasAddress ? 'kyc' : 'address')
+
+  // Address form state
+  const [phone, setPhone] = useState(agent.phone || '')
+  const [addressStreet, setAddressStreet] = useState(agent.address_street || '')
+  const [addressCity, setAddressCity] = useState(agent.address_city || '')
+  const [addressProvince, setAddressProvince] = useState(agent.address_province || 'Ontario')
+  const [addressPostalCode, setAddressPostalCode] = useState(agent.address_postal_code || '')
+  const [addressSaving, setAddressSaving] = useState(false)
+
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [documentType, setDocumentType] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -174,6 +194,140 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
     setSubmitting(false)
   }
 
+  // ---- Address form handler ----
+  const handleSaveAddress = async () => {
+    setError(null)
+    if (!phone.trim()) { setError('Phone number is required.'); return }
+    if (!addressStreet.trim()) { setError('Street address is required.'); return }
+    if (!addressCity.trim()) { setError('City is required.'); return }
+    if (!addressPostalCode.trim()) { setError('Postal code is required.'); return }
+
+    setAddressSaving(true)
+    const result = await updateAgentProfile({
+      agentId: agent.id,
+      phone: phone.trim(),
+      addressStreet: addressStreet.trim(),
+      addressCity: addressCity.trim(),
+      addressProvince: addressProvince.trim() || 'Ontario',
+      addressPostalCode: addressPostalCode.trim().toUpperCase(),
+    })
+
+    if (result.success) {
+      setStep('kyc')
+      setError(null)
+    } else {
+      setError(result.error || 'Failed to save your information. Please try again.')
+    }
+    setAddressSaving(false)
+  }
+
+  // ---- Step 1: Address + Phone collection ----
+  if (step === 'address') {
+    return (
+      <div className="max-w-[560px] mx-auto my-10 px-5">
+        <Card className="p-8 border-border/50">
+          <div className="text-center mb-6">
+            <div className="w-12 h-12 rounded-full mx-auto mb-3 bg-primary/10 border border-primary/30 flex items-center justify-center">
+              <MapPin size={24} className="text-primary" />
+            </div>
+            <h2 className="text-[22px] font-semibold text-foreground mb-2">
+              Welcome to Firm Funds
+            </h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Before we verify your identity, we need a few details. This information will be used to verify your ID.
+            </p>
+            <div className="flex items-center justify-center gap-3 mt-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">1</div>
+                <span className="text-xs font-semibold text-primary">Your Info</span>
+              </div>
+              <div className="w-8 h-px bg-border" />
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground text-xs font-bold flex items-center justify-center">2</div>
+                <span className="text-xs font-semibold text-muted-foreground">Upload ID</span>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 px-3.5 py-2.5 mb-4 rounded-lg bg-red-950/40 border border-red-800/50">
+              <AlertCircle size={16} className="text-red-400 shrink-0" />
+              <span className="text-red-400 text-[13px]">{error}</span>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                <Phone size={12} /> Phone Number
+              </Label>
+              <Input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(416) 555-1234"
+              />
+              <p className="text-[11px] text-muted-foreground/70">Required for future two-factor authentication</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                <MapPin size={12} /> Street Address
+              </Label>
+              <Input
+                type="text"
+                value={addressStreet}
+                onChange={(e) => setAddressStreet(e.target.value)}
+                placeholder="123 Main St, Unit 4"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City</Label>
+                <Input
+                  type="text"
+                  value={addressCity}
+                  onChange={(e) => setAddressCity(e.target.value)}
+                  placeholder="Toronto"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
+                <Input
+                  type="text"
+                  value={addressProvince}
+                  onChange={(e) => setAddressProvince(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code</Label>
+              <Input
+                type="text"
+                value={addressPostalCode}
+                onChange={(e) => setAddressPostalCode(e.target.value)}
+                placeholder="M5V 1A1"
+                maxLength={7}
+                className="max-w-[160px]"
+              />
+            </div>
+          </div>
+
+          <Button
+            onClick={handleSaveAddress}
+            disabled={addressSaving}
+            className="w-full mt-6"
+          >
+            {addressSaving ? 'Saving...' : 'Continue to ID Upload'}
+            {!addressSaving && <ChevronRight size={16} className="ml-1" />}
+          </Button>
+        </Card>
+      </div>
+    )
+  }
+
   // ---- Status: Submitted (awaiting review) ----
   if (agent.kyc_status === 'submitted') {
     return (
@@ -207,12 +361,28 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
         <div className="text-center mb-6">
           <Shield size={44} className="text-primary mx-auto mb-3" />
           <h2 className="text-[22px] font-semibold text-foreground mb-2">
-            {isRejected ? 'Identity Verification Required' : 'Welcome to Firm Funds'}
+            {isRejected ? 'Identity Verification Required' : 'Upload Your ID'}
           </h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Before you can submit deals, we need to verify your identity per FINTRAC requirements.
-            Please upload a clear copy of a valid government-issued photo ID.
+            {isRejected
+              ? 'Please re-upload a valid government-issued photo ID.'
+              : 'Upload a clear copy of a valid government-issued photo ID per FINTRAC requirements.'}
           </p>
+          {!isRejected && (
+            <div className="flex items-center justify-center gap-3 mt-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-bold flex items-center justify-center">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                </div>
+                <span className="text-xs font-semibold text-primary/70">Your Info</span>
+              </div>
+              <div className="w-8 h-px bg-primary/30" />
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">2</div>
+                <span className="text-xs font-semibold text-primary">Upload ID</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Rejection notice */}

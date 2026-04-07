@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone } from 'lucide-react'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
@@ -163,7 +163,7 @@ export default function BrokeragesPage() {
   const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
   const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
-  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; fileName: string; agentName: string; agentId: string } | null>(null)
+  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; fileName: string; agentName: string; agentId: string; agentPhone: string | null; agentAddress: string | null } | null>(null)
   const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
   // Banking state
   const [bankingForm, setBankingForm] = useState<{ transit: string; institution: string; account: string }>({ transit: '', institution: '', account: '' })
@@ -175,6 +175,7 @@ export default function BrokeragesPage() {
   const [bankingRejectReason, setBankingRejectReason] = useState('')
   const [preauthViewingAgentId, setPreauthViewingAgentId] = useState<string | null>(null)
   const [preauthViewUrl, setPreauthViewUrl] = useState<string | null>(null)
+  const [preauthViewType, setPreauthViewType] = useState<'pdf' | 'image'>('pdf')
   // User management state (password reset, email change)
   const [resettingPasswordForUserId, setResettingPasswordForUserId] = useState<string | null>(null)
   const [changingEmailForUserId, setChangingEmailForUserId] = useState<string | null>(null)
@@ -1863,12 +1864,21 @@ export default function BrokeragesPage() {
                                                             if (kycPreviewPanel) {
                                                               for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
                                                             }
+                                                            // Build address string from agent fields
+                                                            const addrParts = [
+                                                              (agent as any).address_street,
+                                                              (agent as any).address_city,
+                                                              (agent as any).address_province,
+                                                              (agent as any).address_postal_code,
+                                                            ].filter(Boolean)
                                                             setKycPreviewPanel({
                                                               blobUrls,
                                                               originalUrls: urls,
                                                               fileName: `${agent.first_name}_${agent.last_name}_ID`,
                                                               agentName: `${agent.first_name} ${agent.last_name}`,
                                                               agentId: agent.id,
+                                                              agentPhone: (agent as any).phone || null,
+                                                              agentAddress: addrParts.length > 0 ? addrParts.join(', ') : null,
                                                             })
                                                           } catch {
                                                             window.open(urls[0], '_blank')
@@ -2083,7 +2093,16 @@ export default function BrokeragesPage() {
                                                           try {
                                                             setPreauthViewingAgentId(agent.id)
                                                             const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path!, 300)
-                                                            if (data?.signedUrl) setPreauthViewUrl(data.signedUrl)
+                                                            if (data?.signedUrl) {
+                                                              // Fetch as blob to bypass content-blocking headers
+                                                              const response = await fetch(data.signedUrl)
+                                                              const arrayBuffer = await response.arrayBuffer()
+                                                              const mimeType = response.headers.get('content-type') || 'application/pdf'
+                                                              const blob = new Blob([arrayBuffer], { type: mimeType })
+                                                              const blobUrl = URL.createObjectURL(blob)
+                                                              setPreauthViewType(mimeType.startsWith('image/') ? 'image' : 'pdf')
+                                                              setPreauthViewUrl(blobUrl)
+                                                            }
                                                           } catch { /* ignore */ }
                                                           setPreauthViewingAgentId(null)
                                                         }}
@@ -2373,6 +2392,9 @@ export default function BrokeragesPage() {
                 {kycPreviewPanel.agentName}
               </p>
               <p className="text-xs text-muted-foreground">ID Verification</p>
+              {kycPreviewPanel.agentPhone && (
+                <p className="text-xs text-muted-foreground truncate"><Phone size={10} className="inline mr-1" />{kycPreviewPanel.agentPhone}</p>
+              )}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
@@ -2390,6 +2412,19 @@ export default function BrokeragesPage() {
               </button>
             </div>
           </div>
+          {/* Agent Address — for cross-referencing with ID */}
+          {kycPreviewPanel.agentAddress && (
+            <div className="px-3 py-2 border-b border-border bg-primary/5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">Address on File</p>
+              <p className="text-xs text-foreground leading-relaxed">{kycPreviewPanel.agentAddress}</p>
+            </div>
+          )}
+          {!kycPreviewPanel.agentAddress && (
+            <div className="px-3 py-2 border-b border-border bg-status-amber-muted/30">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-status-amber mb-0.5">No Address on File</p>
+              <p className="text-[11px] text-muted-foreground">Agent hasn&apos;t submitted their address yet</p>
+            </div>
+          )}
           {/* Panel Content — shows all uploaded ID images */}
           <div className="flex-1 overflow-auto p-3">
             {kycPreviewPanel.blobUrls.map((blobUrl, i) => {
@@ -2460,15 +2495,21 @@ export default function BrokeragesPage() {
       {/* Pre-auth form inline viewer */}
       {preauthViewUrl && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={() => setPreauthViewUrl(null)}>
+          onClick={() => { if (preauthViewUrl) URL.revokeObjectURL(preauthViewUrl); setPreauthViewUrl(null) }}>
           <div className="relative w-full max-w-3xl mx-4 bg-card rounded-xl overflow-hidden border border-border/50" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
               <h3 className="text-sm font-semibold text-foreground">Pre-Authorization Form</h3>
-              <button onClick={() => setPreauthViewUrl(null)} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <button onClick={() => { if (preauthViewUrl) URL.revokeObjectURL(preauthViewUrl); setPreauthViewUrl(null) }} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <X size={16} /> Close
               </button>
             </div>
-            <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 52px)' }} />
+            {preauthViewType === 'image' ? (
+              <div className="w-full overflow-auto p-4" style={{ height: 'calc(80vh - 52px)' }}>
+                <img src={preauthViewUrl} alt="Pre-Authorization Form" className="w-full rounded-lg" />
+              </div>
+            ) : (
+              <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 52px)' }} />
+            )}
           </div>
         </div>
       )}
