@@ -747,7 +747,7 @@ export default function BrokerageDashboard() {
                         <div className="min-w-0">
                           <p className="text-[13px] font-semibold truncate text-foreground">{agent.first_name} {agent.last_name}</p>
                           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            <span className="text-xs truncate text-muted-foreground/70">{agent.email}{agent.phone ? ` | ${agent.phone}` : ''}</span>
+                            <span className="text-xs truncate text-muted-foreground/70">{agent.email || 'No email'}{agent.phone ? ` | ${agent.phone}` : ''}</span>
                             {agent.kyc_status === 'verified' ? (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-green-950/50 text-green-400 border border-green-800">
                                 <Shield size={9} /> KYC

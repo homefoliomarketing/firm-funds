@@ -42,6 +42,9 @@ export interface Brokerage {
   name: string
   brand: string | null
   address: string | null
+  city: string | null
+  province: string | null
+  postal_code: string | null
   phone: string | null
   email: string
   status: BrokerageStatus
@@ -71,7 +74,7 @@ export interface Agent {
   brokerage_id: string
   first_name: string
   last_name: string
-  email: string
+  email: string | null  // ⚠️ TEMPORARY: nullable for testing — revert before go-live
   phone: string | null
   reco_number: string | null
   status: AgentStatus

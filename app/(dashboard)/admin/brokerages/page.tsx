@@ -23,7 +23,7 @@ interface Agent {
   id: string
   first_name: string
   last_name: string
-  email: string
+  email: string | null  // ⚠️ TEMPORARY: nullable for testing — revert before go-live
   phone: string | null
   reco_number: string | null
   status: 'active' | 'suspended' | 'archived'
@@ -61,6 +61,9 @@ interface Brokerage {
   name: string
   brand: string | null
   address: string | null
+  city: string | null
+  province: string | null
+  postal_code: string | null
   phone: string | null
   email: string
   status: 'active' | 'suspended' | 'inactive' | 'archived' | 'archived'
@@ -85,6 +88,9 @@ interface BrokerageFormData {
   email: string
   brand: string
   address: string
+  city: string
+  province: string
+  postalCode: string
   phone: string
   referralFeePercentage: string
   transactionSystem: string
@@ -301,10 +307,10 @@ export default function BrokeragesPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
-    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873',
   })
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' | 'archived' }>({
-    name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', status: 'active',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
@@ -425,6 +431,8 @@ export default function BrokeragesPage() {
     const result = await createBrokerage({
       name: createFormData.name, email: createFormData.email,
       brand: createFormData.brand || undefined, address: createFormData.address || undefined,
+      city: createFormData.city || undefined, province: createFormData.province || undefined,
+      postalCode: createFormData.postalCode || undefined,
       phone: createFormData.phone || undefined,
       referralFeePercentage: parseFloat(createFormData.referralFeePercentage) / 100,
       transactionSystem: createFormData.transactionSystem || undefined, notes: createFormData.notes || undefined,
@@ -488,7 +496,7 @@ export default function BrokeragesPage() {
       }
 
       setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}` })
-      setCreateFormData({ name: '', email: '', brand: '', address: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873' })
+      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873' })
       setCreateRosterFile(null)
       setShowCreateForm(false)
       await loadBrokerages()
@@ -508,6 +516,8 @@ export default function BrokeragesPage() {
     const result = await updateBrokerage({
       id: brokerageId, name: editFormData.name, email: editFormData.email,
       brand: editFormData.brand || undefined, address: editFormData.address || undefined,
+      city: editFormData.city || undefined, province: editFormData.province || undefined,
+      postalCode: editFormData.postalCode || undefined,
       phone: editFormData.phone || undefined,
       referralFeePercentage: parseFloat(editFormData.referralFeePercentage) / 100,
       transactionSystem: editFormData.transactionSystem || undefined, notes: editFormData.notes || undefined,
@@ -529,6 +539,7 @@ export default function BrokeragesPage() {
     setEditFormData({
       name: brokerage.name, email: brokerage.email,
       brand: brokerage.brand || '', address: brokerage.address || '',
+      city: brokerage.city || '', province: brokerage.province || '', postalCode: brokerage.postal_code || '',
       phone: brokerage.phone || '',
       referralFeePercentage: (brokerage.referral_fee_percentage * 100).toString(),
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
@@ -574,12 +585,15 @@ export default function BrokeragesPage() {
   // ---- Agent CRUD ----
   const handleAddAgent = async (e: React.FormEvent, brokerageId: string) => {
     e.preventDefault()
-    if (!agentForm.firstName.trim() || !agentForm.lastName.trim() || !agentForm.email.trim()) {
-      setStatusMessage({ type: 'error', text: 'First name, last name, and email are required' }); return
+    // ⚠️ TEMPORARY: email not required for testing — REVERT BEFORE GO-LIVE
+    if (!agentForm.firstName.trim() || !agentForm.lastName.trim()) {
+      setStatusMessage({ type: 'error', text: 'First name and last name are required' }); return
     }
+    // If invite is on but no email, force "roster only" mode
+    const canInvite = sendInvite && agentForm.email.trim()
     setSubmitting(true)
 
-    if (sendInvite) {
+    if (canInvite) {
       // Create agent record + auth user (no email yet — send in bulk when brokerage is ready)
       const result = await inviteAgent({
         brokerageId,
@@ -608,7 +622,7 @@ export default function BrokeragesPage() {
       const result = await createAgent({
         brokerageId,
         firstName: agentForm.firstName, lastName: agentForm.lastName,
-        email: agentForm.email, phone: agentForm.phone || undefined,
+        email: agentForm.email || undefined, phone: agentForm.phone || undefined,
         recoNumber: agentForm.recoNumber || undefined,
       })
       if (result.success) {
@@ -625,7 +639,7 @@ export default function BrokeragesPage() {
 
   const openEditAgent = (agent: Agent, brokerageId: string) => {
     setEditAgentForm({
-      firstName: agent.first_name, lastName: agent.last_name, email: agent.email,
+      firstName: agent.first_name, lastName: agent.last_name, email: agent.email || '',
       phone: agent.phone || '', recoNumber: agent.reco_number || '',
       status: agent.status, flaggedByBrokerage: agent.flagged_by_brokerage,
       outstandingRecovery: (agent.outstanding_recovery || 0).toString(),
@@ -985,7 +999,7 @@ export default function BrokeragesPage() {
     // Match agent names within this brokerage
     if (b.agents.some(a =>
       `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) ||
-      a.email.toLowerCase().includes(q)
+      (a.email || '').toLowerCase().includes(q)
     )) return true
     return false
   })
@@ -997,7 +1011,7 @@ export default function BrokeragesPage() {
       if (brokerageMatch) return false // don't auto-expand if the brokerage itself matches
       return b.agents.some(a =>
         `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q)
+        (a.email || '').toLowerCase().includes(q)
       )
     })
     .map(b => b.id)
@@ -1154,7 +1168,10 @@ export default function BrokeragesPage() {
                 {renderInput('Email', createFormData.email, (v) => setCreateFormData({ ...createFormData, email: v }), { required: true, placeholder: 'contact@acmerealty.com', type: 'email' })}
                 {renderInput('Brand', createFormData.brand, (v) => setCreateFormData({ ...createFormData, brand: v }), { placeholder: 'e.g., ACME' })}
                 {renderInput('Referral Fee %', createFormData.referralFeePercentage, (v) => setCreateFormData({ ...createFormData, referralFeePercentage: v }), { required: true, placeholder: '20', type: 'number', step: '0.1', min: '0', max: '100' })}
-                {renderInput('Address', createFormData.address, (v) => setCreateFormData({ ...createFormData, address: v }), { placeholder: '123 Main St, Toronto, ON' })}
+                {renderInput('Street Address', createFormData.address, (v) => setCreateFormData({ ...createFormData, address: v }), { placeholder: '123 Main St' })}
+                {renderInput('City', createFormData.city, (v) => setCreateFormData({ ...createFormData, city: v }), { placeholder: 'Toronto' })}
+                {renderInput('Province', createFormData.province, (v) => setCreateFormData({ ...createFormData, province: v }), { placeholder: 'ON' })}
+                {renderInput('Postal Code', createFormData.postalCode, (v) => setCreateFormData({ ...createFormData, postalCode: v }), { placeholder: 'M5V 1A1' })}
                 {renderInput('Phone', createFormData.phone, (v) => setCreateFormData({ ...createFormData, phone: v }), { placeholder: '(416) 555-0123', type: 'tel' })}
                 {renderInput('Transaction System', createFormData.transactionSystem, (v) => setCreateFormData({ ...createFormData, transactionSystem: v }), { placeholder: 'e.g., Nexone' })}
                 {renderInput('Broker of Record', createFormData.brokerOfRecordName, (v) => setCreateFormData({ ...createFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
@@ -1355,7 +1372,10 @@ export default function BrokeragesPage() {
                               </select>
                             </div>
                             {renderInput('Referral Fee %', editFormData.referralFeePercentage, (v) => setEditFormData({ ...editFormData, referralFeePercentage: v }), { required: true, type: 'number', step: '0.1', min: '0', max: '100' })}
-                            {renderInput('Address', editFormData.address, (v) => setEditFormData({ ...editFormData, address: v }))}
+                            {renderInput('Street Address', editFormData.address, (v) => setEditFormData({ ...editFormData, address: v }))}
+                            {renderInput('City', editFormData.city, (v) => setEditFormData({ ...editFormData, city: v }))}
+                            {renderInput('Province', editFormData.province, (v) => setEditFormData({ ...editFormData, province: v }))}
+                            {renderInput('Postal Code', editFormData.postalCode, (v) => setEditFormData({ ...editFormData, postalCode: v }))}
                             {renderInput('Phone', editFormData.phone, (v) => setEditFormData({ ...editFormData, phone: v }), { type: 'tel' })}
                             {renderInput('Transaction System', editFormData.transactionSystem, (v) => setEditFormData({ ...editFormData, transactionSystem: v }))}
                             {renderInput('Broker of Record', editFormData.brokerOfRecordName, (v) => setEditFormData({ ...editFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
@@ -1396,7 +1416,9 @@ export default function BrokeragesPage() {
                         <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm border-b border-border/50">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Address</p>
-                            <p className="text-foreground">{brokerage.address || '—'}</p>
+                            <p className="text-foreground">
+                              {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || '—'}
+                            </p>
                           </div>
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Phone</p>
@@ -1885,7 +1907,7 @@ export default function BrokeragesPage() {
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                               {renderInput('First Name', agentForm.firstName, (v) => setAgentForm({ ...agentForm, firstName: v }), { required: true })}
                               {renderInput('Last Name', agentForm.lastName, (v) => setAgentForm({ ...agentForm, lastName: v }), { required: true })}
-                              {renderInput('Email', agentForm.email, (v) => setAgentForm({ ...agentForm, email: v }), { required: true, type: 'email' })}
+                              {renderInput('Email', agentForm.email, (v) => setAgentForm({ ...agentForm, email: v }), { type: 'email', placeholder: 'Optional for testing' })}
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               {renderInput('Phone', agentForm.phone, (v) => setAgentForm({ ...agentForm, phone: v }), { type: 'tel' })}
@@ -1971,7 +1993,7 @@ export default function BrokeragesPage() {
                                   .map((agent, idx) => {
                                     const isAgentMatch = q && (
                                       `${agent.first_name} ${agent.last_name}`.toLowerCase().includes(q) ||
-                                      agent.email.toLowerCase().includes(q)
+                                      (agent.email || '').toLowerCase().includes(q)
                                     )
                                     const isEditingAgent = editingAgentId === agent.id
 
@@ -2075,7 +2097,7 @@ export default function BrokeragesPage() {
                                             </span>
                                           )}
                                         </td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email || '—'}</td>
                                         <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || '—'}</td>
                                         <td className="px-4 py-3 text-sm text-muted-foreground">{agent.reco_number || '—'}</td>
                                         <td className="px-4 py-3">
@@ -2231,7 +2253,7 @@ export default function BrokeragesPage() {
                                             )}
                                             {agent.status !== 'archived' && (
                                               <button
-                                                onClick={() => { setChangingEmailForUserId(changingEmailForUserId === agent.id ? null : agent.id); setChangeEmailValue(agent.email) }}
+                                                onClick={() => { setChangingEmailForUserId(changingEmailForUserId === agent.id ? null : agent.id); setChangeEmailValue(agent.email || '') }}
                                                 className={`text-xs px-2 py-1 rounded transition-colors ${
                                                   changingEmailForUserId === agent.id ? 'text-primary' : 'text-muted-foreground hover:text-blue-400 hover:bg-blue-950/30'
                                                 }`}
@@ -2279,7 +2301,7 @@ export default function BrokeragesPage() {
                                               />
                                               <button
                                                 onClick={() => handleChangeEmail(agent.id, `${agent.first_name} ${agent.last_name}`)}
-                                                disabled={changingEmailSaving || !changeEmailValue.trim() || changeEmailValue === agent.email}
+                                                disabled={changingEmailSaving || !changeEmailValue.trim() || changeEmailValue === (agent.email || '')}
                                                 className="text-xs font-semibold px-3 py-1 rounded-md disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90"
                                               >
                                                 {changingEmailSaving ? 'Saving...' : 'Save'}

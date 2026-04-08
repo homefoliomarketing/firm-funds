@@ -1726,7 +1726,7 @@ export default function DealDetailPage() {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground leading-tight">{agent.first_name} {agent.last_name}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{agent.email}{agent.phone ? ` · ${agent.phone}` : ''}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{agent.email || 'No email'}{agent.phone ? ` · ${agent.phone}` : ''}</p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {agent.reco_number && <span className="text-[10px] text-muted-foreground/60">RECO {agent.reco_number}</span>}
                 {agent.flagged_by_brokerage && (

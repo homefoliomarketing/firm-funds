@@ -331,7 +331,7 @@ export default function AdminDashboard() {
                       <p className="text-sm font-medium text-foreground">
                         {agent.first_name} {agent.last_name}
                         <span className="text-xs font-normal ml-2 text-muted-foreground">
-                          {agent.brokerages?.name || ''} · {agent.email}
+                          {agent.brokerages?.name || ''} · {agent.email || 'No email'}
                         </span>
                       </p>
                       <div className="flex items-center gap-2 mt-1">
@@ -451,7 +451,7 @@ export default function AdminDashboard() {
                       <p className="text-sm font-medium text-foreground">
                         {agent.first_name} {agent.last_name}
                         <span className="text-xs font-normal ml-2 text-muted-foreground">
-                          {agent.brokerages?.name || ''} · {agent.email}
+                          {agent.brokerages?.name || ''} · {agent.email || 'No email'}
                         </span>
                       </p>
                       {agent.kyc_submitted_at && (

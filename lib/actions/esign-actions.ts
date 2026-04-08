@@ -121,7 +121,7 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{MLS_NUMBER}}': 'See APS',
       '{{EXPECTED_CLOSING_DATE}}': formatDate(deal.closing_date),
       '{{BROKERAGE_LEGAL_NAME}}': brokerage.name,
-      '{{BROKERAGE_ADDRESS}}': brokerage.address || 'On file',
+      '{{BROKERAGE_ADDRESS}}': [brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'On file',
       '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name || 'On file',
       '{{BROKERAGE_REFERRAL_FEE}}': formatCurrency(deal.brokerage_referral_fee),
       '{{BROKERAGE_SPLIT}}': (deal.brokerage_split_pct || 0).toFixed(1),
@@ -395,7 +395,7 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
     const contractData: Record<string, string> = {
       '{{AGREEMENT_DATE}}': formatDate(today),
       '{{BROKERAGE_LEGAL_NAME}}': brokerage.name,
-      '{{BROKERAGE_ADDRESS}}': brokerage.address || 'On file',
+      '{{BROKERAGE_ADDRESS}}': [brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'On file',
       '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name,
       '{{BROKERAGE_EMAIL}}': brokerage.email,
       '{{BROKERAGE_PHONE}}': brokerage.phone || 'On file',

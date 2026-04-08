@@ -32,6 +32,9 @@ export async function createBrokerage(input: {
   email: string
   brand?: string
   address?: string
+  city?: string
+  province?: string
+  postalCode?: string
   phone?: string
   referralFeePercentage: number
   transactionSystem?: string
@@ -58,6 +61,9 @@ export async function createBrokerage(input: {
         email: v.email,
         brand: v.brand || null,
         address: v.address || null,
+        city: v.city || null,
+        province: v.province || null,
+        postal_code: v.postalCode || null,
         phone: v.phone || null,
         referral_fee_percentage: v.referralFeePercentage,
         transaction_system: v.transactionSystem || null,
@@ -96,6 +102,9 @@ export async function updateBrokerage(input: {
   email: string
   brand?: string
   address?: string
+  city?: string
+  province?: string
+  postalCode?: string
   phone?: string
   referralFeePercentage: number
   transactionSystem?: string
@@ -123,6 +132,9 @@ export async function updateBrokerage(input: {
         email: v.email,
         brand: v.brand || null,
         address: v.address || null,
+        city: v.city || null,
+        province: v.province || null,
+        postal_code: v.postalCode || null,
         phone: v.phone || null,
         referral_fee_percentage: v.referralFeePercentage,
         transaction_system: v.transactionSystem || null,
@@ -160,11 +172,13 @@ export async function updateBrokerage(input: {
 // Agent CRUD
 // ============================================================================
 
+// ⚠️ TEMPORARY: email is optional for testing roster uploads without live emails
+// REVERT BEFORE GO-LIVE: make email required again
 export async function createAgent(input: {
   brokerageId: string
   firstName: string
   lastName: string
-  email: string
+  email?: string | null
   phone?: string
   recoNumber?: string
 }): Promise<ActionResult> {
@@ -187,17 +201,19 @@ export async function createAgent(input: {
 
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-    const email = v.email
+    const email = v.email || null
 
-    // Check if agent email already exists (exclude archived agents so emails can be reused)
-    const { data: existingAgent } = await supabase
-      .from('agents')
-      .select('id')
-      .eq('email', email)
-      .neq('status', 'archived')
-      .maybeSingle()
+    // Check if agent email already exists (only if email provided)
+    if (email) {
+      const { data: existingAgent } = await supabase
+        .from('agents')
+        .select('id')
+        .eq('email', email)
+        .neq('status', 'archived')
+        .maybeSingle()
 
-    if (existingAgent) return { success: false, error: 'An agent with this email already exists' }
+      if (existingAgent) return { success: false, error: 'An agent with this email already exists' }
+    }
 
     const serviceClient = createServiceRoleClient()
     const { data: agent, error: insertError } = await serviceClient
@@ -225,7 +241,7 @@ export async function createAgent(input: {
       action: 'agent.create',
       entityType: 'agent',
       entityId: agent.id,
-      metadata: { name: `${v.firstName} ${v.lastName}`, email: v.email, brokerage_id: v.brokerageId },
+      metadata: { name: `${v.firstName} ${v.lastName}`, email: v.email || 'no-email', brokerage_id: v.brokerageId },
     })
 
     return { success: true, data: agent }
@@ -242,7 +258,8 @@ export async function createAgent(input: {
 interface BulkAgentRow {
   firstName: string
   lastName: string
-  email: string
+  // ⚠️ TEMPORARY: email optional for testing — REVERT BEFORE GO-LIVE
+  email?: string
   phone?: string
   recoNumber?: string
   addressStreet?: string
@@ -299,26 +316,29 @@ export async function bulkImportAgents(input: {
       const row = input.agents[i]
       const rowNum = i + 2 // +2 because row 1 is header, data starts row 2
 
-      // Validate required fields
-      if (!row.firstName?.trim() || !row.lastName?.trim() || !row.email?.trim()) {
-        errors.push(`Row ${rowNum}: Missing required field (first name, last name, or email)`)
+      // Validate required fields — only first name + last name required now
+      // ⚠️ TEMPORARY: email not required for testing — REVERT BEFORE GO-LIVE
+      if (!row.firstName?.trim() || !row.lastName?.trim()) {
+        errors.push(`Row ${rowNum}: Missing required field (first name or last name)`)
         skipped++
         continue
       }
 
-      // Basic email validation
-      const email = row.email.trim().toLowerCase()
-      if (!email.includes('@') || !email.includes('.')) {
-        errors.push(`Row ${rowNum}: Invalid email "${row.email}"`)
-        skipped++
-        continue
-      }
+      // Email validation (only if provided)
+      const email = row.email?.trim().toLowerCase() || null
+      if (email) {
+        if (!email.includes('@') || !email.includes('.')) {
+          errors.push(`Row ${rowNum}: Invalid email "${row.email}"`)
+          skipped++
+          continue
+        }
 
-      // Skip duplicates
-      if (existingEmails.has(email)) {
-        errors.push(`Row ${rowNum}: ${row.firstName} ${row.lastName} (${email}) already exists — skipped`)
-        skipped++
-        continue
+        // Skip duplicates (only when email exists)
+        if (existingEmails.has(email)) {
+          errors.push(`Row ${rowNum}: ${row.firstName} ${row.lastName} (${email}) already exists — skipped`)
+          skipped++
+          continue
+        }
       }
 
       const serviceClient = createServiceRoleClient()
@@ -344,7 +364,7 @@ export async function bulkImportAgents(input: {
         errors.push(`Row ${rowNum}: Failed to import ${row.firstName} ${row.lastName} — ${insertError.message}`)
         skipped++
       } else {
-        existingEmails.add(email) // prevent dupes within same batch
+        if (email) existingEmails.add(email) // prevent dupes within same batch
         imported++
       }
     }

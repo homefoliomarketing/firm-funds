@@ -69,6 +69,9 @@ export const CreateBrokerageSchema = z.object({
   email: emailSchema,
   brand: sanitizedString(200).optional().nullable(),
   address: sanitizedString(300).optional().nullable(),
+  city: sanitizedString(100).optional().nullable(),
+  province: sanitizedString(100).optional().nullable(),
+  postalCode: sanitizedString(20).optional().nullable(),
   phone: phoneSchema,
   referralFeePercentage: z.number().min(0).max(1, 'Referral fee must be between 0 and 1'),
   transactionSystem: sanitizedString(100).optional().nullable(),
@@ -88,7 +91,9 @@ export const CreateAgentSchema = z.object({
   brokerageId: z.string().uuid('Invalid brokerage ID'),
   firstName: sanitizedString(100).pipe(z.string().min(1, 'First name is required')),
   lastName: sanitizedString(100).pipe(z.string().min(1, 'Last name is required')),
-  email: emailSchema,
+  // ⚠️ TEMPORARY: email optional for testing roster uploads without live emails
+  // REVERT BEFORE GO-LIVE: change back to `email: emailSchema`
+  email: emailSchema.optional().nullable(),
   phone: phoneSchema,
   recoNumber: sanitizedString(50).optional().nullable(),
 })
