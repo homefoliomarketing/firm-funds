@@ -556,6 +556,10 @@ export default function NewDealPage() {
                     <span className="text-muted-foreground">Settlement Period Fee ($0.75/$1,000/day × 14d)</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.settlementPeriodFee)}</span>
                   </div>
+                  <div className="flex justify-between pt-2 border-t border-border/50">
+                    <span className="font-medium text-foreground">Total Fees</span>
+                    <span className="font-semibold text-destructive">-{formatCurrency(preview.totalFees)}</span>
+                  </div>
                   {preview.outstandingBalance > 0 && (
                     <div className="rounded-lg px-3 py-2 mt-1 bg-destructive/10 border border-destructive/20 text-xs">
                       <p className="font-semibold text-destructive">Outstanding Balance: {formatCurrency(preview.outstandingBalance)}</p>
