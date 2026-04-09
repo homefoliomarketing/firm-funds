@@ -679,7 +679,7 @@ export default function AgentDealDetailPage() {
                 <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</span><span className="font-medium text-destructive">-{formatCurrency(deal.gross_commission - deal.net_commission)}</span></div>
                 <div className="flex justify-between pt-2 border-t border-border"><span className="font-medium text-foreground">Your Net Commission</span><span className="font-semibold text-foreground">{formatCurrency(deal.net_commission)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Discount Fee ({deal.days_until_closing}d)</span><span className="font-medium text-destructive">-{formatCurrency(deal.discount_fee)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Settlement Period Fee (14d)</span><span className="font-medium text-destructive">-{formatCurrency(deal.settlement_period_fee || 0)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Settlement Period Fee</span><span className="font-medium text-destructive">-{formatCurrency(deal.settlement_period_fee || 0)}</span></div>
                 {(deal.balance_deducted || 0) > 0 && (
                   <div className="flex justify-between"><span className="text-muted-foreground">Balance Deducted</span><span className="font-medium text-destructive">-{formatCurrency(deal.balance_deducted)}</span></div>
                 )}

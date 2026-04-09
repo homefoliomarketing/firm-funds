@@ -553,7 +553,7 @@ export default function NewDealPage() {
                     <span className="font-medium text-destructive">-{formatCurrency(preview.discountFee)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Settlement Period Fee ($0.75/$1,000/day × 14d)</span>
+                    <span className="text-muted-foreground">Settlement Period Fee</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.settlementPeriodFee)}</span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-border/50">
