@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail, MapPin, Phone, ChevronRight } from 'lucide-react'
+import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail, MapPin, Phone, ChevronRight, ChevronDown, Landmark } from 'lucide-react'
 import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
-import { updateAgentProfile } from '@/lib/actions/profile-actions'
+import { updateAgentProfile, submitAgentBanking } from '@/lib/actions/profile-actions'
 import { createClient } from '@/lib/supabase/client'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeClass } from '@/lib/constants'
 import { Button } from '@/components/ui/button'
@@ -40,6 +40,12 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const [addressProvince, setAddressProvince] = useState(agent.address_province || 'Ontario')
   const [addressPostalCode, setAddressPostalCode] = useState(agent.address_postal_code || '')
   const [addressSaving, setAddressSaving] = useState(false)
+
+  // Optional banking form state
+  const [showBanking, setShowBanking] = useState(false)
+  const [transitNumber, setTransitNumber] = useState('')
+  const [institutionNumber, setInstitutionNumber] = useState('')
+  const [accountNumber, setAccountNumber] = useState('')
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [documentType, setDocumentType] = useState('')
@@ -202,6 +208,14 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
     if (!addressCity.trim()) { setError('City is required.'); return }
     if (!addressPostalCode.trim()) { setError('Postal code is required.'); return }
 
+    // Validate banking if any field is filled
+    const hasBankingInput = transitNumber.trim() || institutionNumber.trim() || accountNumber.trim()
+    if (hasBankingInput) {
+      if (!/^\d{5}$/.test(transitNumber.trim())) { setError('Transit number must be exactly 5 digits.'); return }
+      if (!/^\d{3}$/.test(institutionNumber.trim())) { setError('Institution number must be exactly 3 digits.'); return }
+      if (!/^\d{7,12}$/.test(accountNumber.trim())) { setError('Account number must be 7-12 digits.'); return }
+    }
+
     setAddressSaving(true)
     const result = await updateAgentProfile({
       agentId: agent.id,
@@ -212,12 +226,31 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
       addressPostalCode: addressPostalCode.trim().toUpperCase(),
     })
 
-    if (result.success) {
-      setStep('kyc')
-      setError(null)
-    } else {
+    if (!result.success) {
       setError(result.error || 'Failed to save your information. Please try again.')
+      setAddressSaving(false)
+      return
     }
+
+    // Submit banking if filled in
+    if (hasBankingInput) {
+      const bankResult = await submitAgentBanking({
+        agentId: agent.id,
+        transitNumber: transitNumber.trim(),
+        institutionNumber: institutionNumber.trim(),
+        accountNumber: accountNumber.trim(),
+      })
+      if (!bankResult.success) {
+        // Address saved but banking failed — still proceed, just warn
+        setError(`Address saved, but banking submission failed: ${bankResult.error}. You can add banking later from your profile.`)
+        setAddressSaving(false)
+        setStep('kyc')
+        return
+      }
+    }
+
+    setStep('kyc')
+    setError(null)
     setAddressSaving(false)
   }
 
@@ -312,6 +345,64 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
                 maxLength={7}
                 className="max-w-[160px]"
               />
+            </div>
+
+            <Separator className="my-2" />
+
+            {/* Optional Banking Section */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowBanking(!showBanking)}
+                className="flex items-center gap-2 w-full text-left py-2 transition-colors hover:text-primary"
+              >
+                <Landmark size={14} className="text-muted-foreground" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Banking Information</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium ml-1">Optional</span>
+                {showBanking ? <ChevronDown size={14} className="ml-auto text-muted-foreground" /> : <ChevronRight size={14} className="ml-auto text-muted-foreground" />}
+              </button>
+              {showBanking && (
+                <div className="space-y-3 mt-2 pl-1">
+                  <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                    Add your banking details now to speed up your first advance, or add them later from your profile.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Transit #</Label>
+                      <Input
+                        type="text"
+                        value={transitNumber}
+                        onChange={(e) => setTransitNumber(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                        placeholder="12345"
+                        maxLength={5}
+                      />
+                      <p className="text-[10px] text-muted-foreground/60">5 digits</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Institution #</Label>
+                      <Input
+                        type="text"
+                        value={institutionNumber}
+                        onChange={(e) => setInstitutionNumber(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                        placeholder="001"
+                        maxLength={3}
+                      />
+                      <p className="text-[10px] text-muted-foreground/60">3 digits</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Account Number</Label>
+                    <Input
+                      type="text"
+                      value={accountNumber}
+                      onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      placeholder="1234567"
+                      maxLength={12}
+                    />
+                    <p className="text-[10px] text-muted-foreground/60">7-12 digits</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

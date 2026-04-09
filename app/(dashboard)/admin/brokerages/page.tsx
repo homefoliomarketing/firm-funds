@@ -2081,6 +2081,12 @@ export default function BrokeragesPage() {
                                             {expandedAgentId === agent.id && <ChevronDown size={14} />}
                                             {expandedAgentId !== agent.id && <ChevronRight size={14} />}
                                           </button>
+                                          {(() => {
+                                            const addr = [(agent as any).address_street, (agent as any).address_city, (agent as any).address_province, (agent as any).address_postal_code].filter(Boolean).join(', ')
+                                            return addr ? (
+                                              <p className="text-[11px] text-muted-foreground/70 mt-0.5 leading-tight">{addr}</p>
+                                            ) : null
+                                          })()}
                                           {agent.flagged_by_brokerage && (
                                             <span className="inline-block text-xs px-1.5 py-0.5 rounded font-semibold mt-1 bg-red-950/50 text-red-400 border border-red-800">
                                               Flagged
