@@ -129,6 +129,11 @@ export interface Deal {
   advance_amount: number
   brokerage_referral_fee: number
   amount_due_from_brokerage: number
+  settlement_period_fee: number
+  due_date: string | null
+  brokerage_referral_pct: number | null
+  balance_deducted: number
+  payment_status: 'pending' | 'paid' | 'overdue' | 'not_applicable'
   funding_date: string | null
   repayment_date: string | null
   repayment_amount: number | null
@@ -191,7 +196,7 @@ export interface AgentAccountTransaction {
   id: string
   agent_id: string
   deal_id: string | null
-  type: 'late_closing_interest' | 'balance_deduction' | 'invoice_payment' | 'adjustment'
+  type: 'late_closing_interest' | 'late_payment_interest' | 'balance_deduction' | 'invoice_payment' | 'adjustment' | 'credit'
   amount: number
   description: string
   reference_id: string | null

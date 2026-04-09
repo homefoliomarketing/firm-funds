@@ -10,7 +10,8 @@ import {
   MAX_GROSS_COMMISSION,
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
-  LATE_CLOSING_GRACE_DAYS,
+  SETTLEMENT_PERIOD_DAYS,
+  LATE_INTEREST_RATE_PER_ANNUM,
   RETURN_PROCESSING_DAYS,
 } from './constants'
 
@@ -19,14 +20,16 @@ export interface DealCalculation {
   brokerageSplitPct: number // e.g., 20 means brokerage keeps 20%, agent keeps 80%
   daysUntilClosing: number
   discountRate?: number
-  brokerageReferralPct?: number
+  brokerageReferralPct?: number // per-deal negotiable (0-1 decimal)
 }
 
 export interface DealResult {
   netCommission: number
   discountFee: number
-  advanceAmount: number
-  brokerageReferralFee: number
+  settlementPeriodFee: number
+  totalFees: number // discountFee + settlementPeriodFee
+  advanceAmount: number // netCommission - totalFees
+  brokerageReferralFee: number // referralPct × discountFee ONLY (not settlement fee)
   firmFundsProfit: number
   amountDueFromBrokerage: number
   eftTransferDays: number
@@ -66,21 +69,27 @@ export function calculateDeal(input: DealCalculation): DealResult {
   // Agent's net commission after brokerage split
   const netCommission = input.grossCommission * (1 - input.brokerageSplitPct / 100)
 
-  // Discount fee: net commission x ($0.75 / $1,000) x days
+  // Discount fee: net commission × ($0.75 / $1,000) × days
   // -1 because: agent receives funds day AFTER funding, and closing day is repayment (not charged)
   // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS
-  // Example: Fund April 6, closing April 16 → 10 days until closing → 10-1 = 9 chargeable days
   const effectiveDays = Math.max(1, input.daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
   const discountFee = netCommission * (rate / 1000) * effectiveDays
 
-  // What the agent receives
-  const advanceAmount = netCommission - discountFee
+  // Settlement Period Fee: same rate × 14 days
+  // This is a flat, non-refundable fee that covers the 14-day brokerage payment window
+  const settlementPeriodFee = netCommission * (rate / 1000) * SETTLEMENT_PERIOD_DAYS
 
-  // Brokerage gets a cut of the discount fee
+  // Total fees charged to the agent
+  const totalFees = discountFee + settlementPeriodFee
+
+  // What the agent receives
+  const advanceAmount = netCommission - totalFees
+
+  // Brokerage gets a cut of the discount fee ONLY (not settlement period fee)
   const brokerageReferralFee = discountFee * referralPct
 
-  // Firm Funds keeps the rest
-  const firmFundsProfit = discountFee - brokerageReferralFee
+  // Firm Funds keeps the rest of the discount fee + all of the settlement period fee
+  const firmFundsProfit = (discountFee - brokerageReferralFee) + settlementPeriodFee
 
   // What brokerage sends to Firm Funds at closing (net commission minus their referral fee)
   const amountDueFromBrokerage = netCommission - brokerageReferralFee
@@ -91,6 +100,8 @@ export function calculateDeal(input: DealCalculation): DealResult {
   return {
     netCommission: roundToCents(netCommission),
     discountFee: roundToCents(discountFee),
+    settlementPeriodFee: roundToCents(settlementPeriodFee),
+    totalFees: roundToCents(totalFees),
     advanceAmount: roundToCents(advanceAmount),
     brokerageReferralFee: roundToCents(brokerageReferralFee),
     firmFundsProfit: roundToCents(firmFundsProfit),
@@ -100,30 +111,38 @@ export function calculateDeal(input: DealCalculation): DealResult {
 }
 
 /**
- * Calculate late closing interest.
- * Same discount rate ($0.75 per $1,000 per day), starting 5 days after expected closing.
+ * Calculate late payment interest.
+ * 24% per annum, charged daily, starting the day after the 14-day settlement period expires.
  * @param advanceAmount - The amount advanced to the agent
- * @param expectedClosingDate - Original closing date (YYYY-MM-DD)
- * @param actualClosingDate - Actual/current date for calculation (YYYY-MM-DD)
- * @returns Interest amount (0 if within grace period)
+ * @param dueDate - Payment due date (closing_date + 14 days) — YYYY-MM-DD
+ * @param currentDate - The date to calculate interest through — YYYY-MM-DD
+ * @returns Interest amount (0 if not yet past due date)
  */
 export function calculateLateInterest(
   advanceAmount: number,
-  expectedClosingDate: string,
-  actualClosingDate: string,
+  dueDate: string,
+  currentDate: string,
 ): number {
-  const expectedMs = new Date(expectedClosingDate + 'T00:00:00Z').getTime()
-  const actualMs = new Date(actualClosingDate + 'T00:00:00Z').getTime()
-  const daysLate = Math.floor((actualMs - expectedMs) / (1000 * 60 * 60 * 24))
+  const dueMs = new Date(dueDate + 'T00:00:00Z').getTime()
+  const currentMs = new Date(currentDate + 'T00:00:00Z').getTime()
+  const daysOverdue = Math.floor((currentMs - dueMs) / (1000 * 60 * 60 * 24))
 
-  // No interest if closed on time or within grace period
-  if (daysLate <= LATE_CLOSING_GRACE_DAYS) return 0
+  // No interest if on or before due date
+  if (daysOverdue <= 0) return 0
 
-  // Interest days = total days late minus grace period
-  const interestDays = daysLate - LATE_CLOSING_GRACE_DAYS
-  const interest = advanceAmount * (DISCOUNT_RATE_PER_1000_PER_DAY / 1000) * interestDays
+  // 24% per annum, simple daily rate
+  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
+  const interest = advanceAmount * dailyRate * daysOverdue
 
   return roundToCents(interest)
+}
+
+/**
+ * Calculate 1 day of late payment interest (for daily cron charging).
+ */
+export function calculateDailyLateInterest(advanceAmount: number): number {
+  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
+  return roundToCents(advanceAmount * dailyRate)
 }
 
 // Format currency for display

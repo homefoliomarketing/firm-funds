@@ -3,8 +3,8 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
-import { calculateLateInterest } from '@/lib/calculations'
-import { DISCOUNT_RATE_PER_1000_PER_DAY, LATE_CLOSING_GRACE_DAYS } from '@/lib/constants'
+import { calculateLateInterest, calculateDailyLateInterest } from '@/lib/calculations'
+import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
   sendDocumentReturnNotification,
   sendDealMessageNotification,
@@ -22,12 +22,13 @@ interface ActionResult {
 }
 
 // ============================================================================
-// Late Closing Interest — Calculate and charge to agent account
+// Late Payment Interest — Manual charge (admin triggers for a specific deal)
+// Uses 24% per annum, starting after the 14-day settlement period (due_date)
 // ============================================================================
 
-export async function chargeLateClosingInterest(input: {
+export async function chargeLatePaymentInterest(input: {
   dealId: string
-  actualClosingDate: string
+  throughDate: string // calculate interest through this date
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -35,25 +36,24 @@ export async function chargeLateClosingInterest(input: {
   const serviceClient = createServiceRoleClient()
 
   try {
-    // Get deal info
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
-      .select('id, agent_id, advance_amount, closing_date, property_address, late_interest_charged')
+      .select('id, agent_id, advance_amount, due_date, property_address, late_interest_charged')
       .eq('id', input.dealId)
       .single()
 
     if (dealErr || !deal) return { success: false, error: 'Deal not found' }
+    if (!deal.due_date) return { success: false, error: 'Deal has no due date set' }
 
-    // Calculate interest
+    // Calculate interest from due_date to throughDate at 24% per annum
     const interest = calculateLateInterest(
       deal.advance_amount,
-      deal.closing_date,
-      input.actualClosingDate,
+      deal.due_date,
+      input.throughDate,
     )
 
-    if (interest <= 0) return { success: false, error: 'No late interest applicable (within grace period)' }
+    if (interest <= 0) return { success: false, error: 'No late interest applicable (not past due date)' }
 
-    // Get current agent balance
     const { data: agent } = await serviceClient
       .from('agents')
       .select('id, account_balance, first_name, last_name')
@@ -64,7 +64,6 @@ export async function chargeLateClosingInterest(input: {
 
     const newBalance = (agent.account_balance || 0) + interest
 
-    // Update agent balance
     const { error: balErr } = await serviceClient
       .from('agents')
       .update({ account_balance: newBalance })
@@ -72,49 +71,136 @@ export async function chargeLateClosingInterest(input: {
 
     if (balErr) return { success: false, error: `Failed to update balance: ${balErr.message}` }
 
-    // Record transaction
     const { error: txErr } = await serviceClient
       .from('agent_transactions')
       .insert({
         agent_id: agent.id,
         deal_id: deal.id,
-        type: 'late_closing_interest',
+        type: 'late_payment_interest',
         amount: interest,
         running_balance: newBalance,
-        description: `Late closing interest for ${deal.property_address} — ${input.actualClosingDate} (expected ${deal.closing_date})`,
+        description: `Late payment interest for ${deal.property_address} — ${input.throughDate} (due ${deal.due_date}), ${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.`,
         created_by: user.id,
       })
 
     if (txErr) return { success: false, error: `Failed to record transaction: ${txErr.message}` }
 
-    // Update deal
     await serviceClient
       .from('deals')
       .update({
-        actual_closing_date: input.actualClosingDate,
         late_interest_charged: (deal.late_interest_charged || 0) + interest,
         late_interest_calculated_at: new Date().toISOString(),
       })
       .eq('id', deal.id)
 
     await logAuditEvent({
-      action: 'account.late_interest',
+      action: 'account.late_payment_interest',
       entityType: 'deal',
       entityId: deal.id,
       metadata: {
         agent_id: agent.id,
         interest_amount: interest,
-        expected_closing: deal.closing_date,
-        actual_closing: input.actualClosingDate,
+        due_date: deal.due_date,
+        through_date: input.throughDate,
+        rate: `${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.`,
         new_balance: newBalance,
       },
     })
 
     return { success: true, data: { interest, newBalance } }
   } catch (err: any) {
-    console.error('Late closing interest error:', err?.message)
+    console.error('Late payment interest error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
+}
+
+// ============================================================================
+// Auto-charge daily late interest (called by cron)
+// Charges 1 day of interest at 24% p.a. on all overdue funded deals
+// ============================================================================
+
+export async function autoChargeDailyLateInterest(): Promise<{
+  charged: number
+  errors: number
+  details: { dealId: string; interest: number }[]
+}> {
+  const serviceClient = createServiceRoleClient()
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+
+  // Find all funded deals that are past their due date
+  const { data: overduDeals } = await serviceClient
+    .from('deals')
+    .select('id, agent_id, advance_amount, due_date, property_address, settlement_period_fee')
+    .eq('status', 'funded')
+    .lt('due_date', today)
+
+  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number }[] }
+
+  if (!overduDeals || overduDeals.length === 0) return result
+
+  for (const deal of overduDeals) {
+    // Skip pre-migration deals (settlement_period_fee would be 0 or null for old deals)
+    // Only auto-charge deals that went through the new fee system
+    if (!deal.settlement_period_fee || deal.settlement_period_fee <= 0) continue
+
+    try {
+      const dailyInterest = calculateDailyLateInterest(deal.advance_amount)
+      if (dailyInterest <= 0) continue
+
+      // Get agent balance
+      const { data: agent } = await serviceClient
+        .from('agents')
+        .select('id, account_balance')
+        .eq('id', deal.agent_id)
+        .single()
+
+      if (!agent) continue
+
+      const newBalance = (agent.account_balance || 0) + dailyInterest
+
+      // Update balance
+      await serviceClient
+        .from('agents')
+        .update({ account_balance: newBalance })
+        .eq('id', agent.id)
+
+      // Record transaction
+      await serviceClient
+        .from('agent_transactions')
+        .insert({
+          agent_id: agent.id,
+          deal_id: deal.id,
+          type: 'late_payment_interest',
+          amount: dailyInterest,
+          running_balance: newBalance,
+          description: `Daily late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.)`,
+        })
+
+      // Update deal cumulative interest — fetch current value first for accurate increment
+      const { data: currentDeal } = await serviceClient
+        .from('deals')
+        .select('late_interest_charged')
+        .eq('id', deal.id)
+        .single()
+
+      await serviceClient
+        .from('deals')
+        .update({
+          late_interest_charged: ((currentDeal?.late_interest_charged as number) || 0) + dailyInterest,
+          late_interest_calculated_at: new Date().toISOString(),
+          payment_status: 'overdue',
+        })
+        .eq('id', deal.id)
+
+      result.charged++
+      result.details.push({ dealId: deal.id, interest: dailyInterest })
+    } catch (err) {
+      console.error(`Auto-charge error for deal ${deal.id}:`, err)
+      result.errors++
+    }
+  }
+
+  return result
 }
 
 // ============================================================================

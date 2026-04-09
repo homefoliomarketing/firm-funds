@@ -110,9 +110,13 @@ export default function NewDealPage() {
     netCommission: number
     daysUntilClosing: number
     discountFee: number
+    settlementPeriodFee: number
+    totalFees: number
     advanceAmount: number
     brokerageReferralFee: number
     amountDueFromBrokerage: number
+    outstandingBalance: number
+    estimatedBalanceDeduction: number
   } | null>(null)
 
   const propertyAddress = [streetAddress.trim(), city.trim(), province.trim(), postalCode.trim().toUpperCase()].filter(Boolean).join(', ')
@@ -156,8 +160,11 @@ export default function NewDealPage() {
       if (result.success && result.data) {
         setPreview({
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
-          discountFee: result.data.discountFee, advanceAmount: result.data.advanceAmount,
+          discountFee: result.data.discountFee, settlementPeriodFee: result.data.settlementPeriodFee,
+          totalFees: result.data.totalFees, advanceAmount: result.data.advanceAmount,
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
+          outstandingBalance: result.data.outstandingBalance || 0,
+          estimatedBalanceDeduction: result.data.estimatedBalanceDeduction || 0,
         })
       } else { setPreview(null) }
     }, 400)
@@ -203,8 +210,11 @@ export default function NewDealPage() {
       if (result.data) {
         setPreview({
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
-          discountFee: result.data.discountFee, advanceAmount: result.data.advanceAmount,
+          discountFee: result.data.discountFee, settlementPeriodFee: result.data.settlementPeriodFee,
+          totalFees: result.data.totalFees, advanceAmount: result.data.advanceAmount,
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
+          outstandingBalance: result.data.outstandingBalance || 0,
+          estimatedBalanceDeduction: result.data.estimatedBalanceDeduction || 0,
         })
       }
 
@@ -539,9 +549,21 @@ export default function NewDealPage() {
                     <span className="font-medium text-foreground">{preview.daysUntilClosing} days</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount Fee ($0.75/$1,000/day × {preview.daysUntilClosing} days)</span>
+                    <span className="text-muted-foreground">Discount Fee ($0.75/$1,000/day × {preview.daysUntilClosing}d)</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.discountFee)}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Settlement Period Fee ($0.75/$1,000/day × 14d)</span>
+                    <span className="font-medium text-destructive">-{formatCurrency(preview.settlementPeriodFee)}</span>
+                  </div>
+                  {preview.outstandingBalance > 0 && (
+                    <div className="rounded-lg px-3 py-2 mt-1 bg-destructive/10 border border-destructive/20 text-xs">
+                      <p className="font-semibold text-destructive">Outstanding Balance: {formatCurrency(preview.outstandingBalance)}</p>
+                      <p className="text-destructive/80 mt-0.5">
+                        {formatCurrency(preview.estimatedBalanceDeduction)} will be deducted from your advance at funding.
+                      </p>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center rounded-xl px-5 py-4 -mx-1 mt-2 bg-primary/8 border border-primary/20">
                     <span className="font-bold text-base text-primary">Your Advance Amount</span>
                     <span className="text-2xl font-bold text-primary tabular-nums">{formatCurrency(preview.advanceAmount)}</span>

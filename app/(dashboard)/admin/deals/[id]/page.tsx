@@ -27,7 +27,7 @@ import {
 import {
   sendDealMessage,
   returnDocument,
-  chargeLateClosingInterest,
+  chargeLatePaymentInterest,
 } from '@/lib/actions/account-actions'
 import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
@@ -335,8 +335,11 @@ interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
   property_address: string; closing_date: string; gross_commission: number
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
-  discount_fee: number; advance_amount: number; brokerage_referral_fee: number
-  amount_due_from_brokerage: number; funding_date: string | null
+  discount_fee: number; settlement_period_fee: number; advance_amount: number
+  brokerage_referral_fee: number; brokerage_referral_pct: number | null
+  amount_due_from_brokerage: number; balance_deducted: number
+  due_date: string | null; payment_status: string
+  funding_date: string | null
   repayment_date: string | null; repayment_amount: number | null
   eft_transfers: { amount: number; date: string; confirmed: boolean; reference?: string }[] | null
   brokerage_payments: { amount: number; date: string; reference?: string; method?: string }[] | null
@@ -709,7 +712,7 @@ export default function DealDetailPage() {
   const handleChargeLateInterest = async () => {
     if (!deal || !actualClosingDate) return
     setLateInterestSaving(true)
-    const result = await chargeLateClosingInterest({ dealId: deal.id, actualClosingDate })
+    const result = await chargeLatePaymentInterest({ dealId: deal.id, throughDate: actualClosingDate })
     if (result.success) {
       setAgentBalance(result.data.newBalance)
       setDeal(prev => prev ? { ...prev, actual_closing_date: actualClosingDate, late_interest_charged: (prev.late_interest_charged || 0) + result.data.interest } : prev)
@@ -1359,12 +1362,16 @@ export default function DealDetailPage() {
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.discountFee)}</td>
                         </tr>
                         <tr>
+                          <td className="py-1.5 text-muted-foreground">Settlement Period Fee (14d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.settlementPeriodFee)}</td>
+                        </tr>
+                        <tr>
                           <td className="py-1.5 font-bold text-primary">Agent Receives</td>
                           <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount)}</td>
                         </tr>
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Brokerage Referral ({(referralPct * 100).toFixed(0)}% of fee)</td>
+                          <td className="py-1.5 text-muted-foreground">Brokerage Referral ({(referralPct * 100).toFixed(0)}% of discount fee)</td>
                           <td className="py-1.5 text-right font-mono text-muted-foreground">{formatCurrency(calc.brokerageReferralFee)}</td>
                         </tr>
                         <tr>
@@ -1832,18 +1839,35 @@ export default function DealDetailPage() {
                 { label: 'Gross Commission', value: formatCurrency(deal.gross_commission) },
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
-                { label: 'Discount Fee', value: formatCurrency(deal.discount_fee) },
-                { label: 'Brokerage Referral Fee', value: formatCurrency(deal.brokerage_referral_fee) },
+                { label: `Discount Fee (${deal.days_until_closing}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
+                { label: 'Settlement Period Fee (14d)', value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
+                { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
                   <span className="text-muted-foreground">{row.label}</span>
-                  <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'}`}>{row.value}</span>
+                  <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'} ${(row as any).color || ''}`}>{row.value}</span>
                 </div>
               ))}
+              {(deal.balance_deducted || 0) > 0 && (
+                <div className="flex justify-between py-1.5 text-xs border-b border-border/20">
+                  <span className="text-muted-foreground">Balance Deducted</span>
+                  <span className="tabular-nums font-medium text-destructive">-{formatCurrency(deal.balance_deducted)}</span>
+                </div>
+              )}
               <div className="flex justify-between py-2 text-sm border-b border-primary/20">
                 <span className="font-semibold text-primary">Advance Amount</span>
                 <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.advance_amount)}</span>
               </div>
+              {deal.due_date && (
+                <div className="flex justify-between py-1.5 text-xs border-b border-border/20">
+                  <span className="text-muted-foreground">Payment Due Date</span>
+                  <span className={`tabular-nums font-medium ${deal.payment_status === 'overdue' ? 'text-destructive' : 'text-foreground'}`}>
+                    {new Date(deal.due_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                    {deal.payment_status === 'overdue' && ' (OVERDUE)'}
+                    {deal.payment_status === 'paid' && ' (PAID)'}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between rounded-lg px-2.5 py-2 text-sm mt-2 bg-primary/10">
                 <span className="font-semibold text-primary">Due from Brokerage</span>
                 <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>

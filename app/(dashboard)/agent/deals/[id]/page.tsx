@@ -30,8 +30,9 @@ interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
   property_address: string; closing_date: string; gross_commission: number
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
-  discount_fee: number; advance_amount: number; brokerage_referral_fee: number
-  amount_due_from_brokerage: number; funding_date: string | null
+  discount_fee: number; settlement_period_fee: number; advance_amount: number; brokerage_referral_fee: number
+  amount_due_from_brokerage: number; balance_deducted: number; due_date: string | null
+  payment_status: string; funding_date: string | null
   repayment_date: string | null; source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
 }
@@ -677,11 +678,23 @@ export default function AgentDealDetailPage() {
                 <div className="flex justify-between"><span className="text-muted-foreground">Gross Commission</span><span className="font-medium text-foreground">{formatCurrency(deal.gross_commission)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</span><span className="font-medium text-destructive">-{formatCurrency(deal.gross_commission - deal.net_commission)}</span></div>
                 <div className="flex justify-between pt-2 border-t border-border"><span className="font-medium text-foreground">Your Net Commission</span><span className="font-semibold text-foreground">{formatCurrency(deal.net_commission)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Discount Fee</span><span className="font-medium text-destructive">-{formatCurrency(deal.discount_fee)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Discount Fee ({deal.days_until_closing}d)</span><span className="font-medium text-destructive">-{formatCurrency(deal.discount_fee)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Settlement Period Fee (14d)</span><span className="font-medium text-destructive">-{formatCurrency(deal.settlement_period_fee || 0)}</span></div>
+                {(deal.balance_deducted || 0) > 0 && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Balance Deducted</span><span className="font-medium text-destructive">-{formatCurrency(deal.balance_deducted)}</span></div>
+                )}
                 <div className="flex justify-between items-center rounded-xl px-4 py-3 -mx-1 mt-2 bg-primary/8 border border-primary/20 shadow-sm shadow-primary/5">
                   <span className="font-bold text-primary">Advance Amount</span>
                   <span className="font-bold text-lg text-primary">{formatCurrency(deal.advance_amount)}</span>
                 </div>
+                {deal.due_date && (
+                  <div className="flex justify-between pt-2 border-t border-border">
+                    <span className="text-muted-foreground">Payment Due Date</span>
+                    <span className={`font-medium ${deal.payment_status === 'overdue' ? 'text-destructive' : 'text-foreground'}`}>
+                      {new Date(deal.due_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

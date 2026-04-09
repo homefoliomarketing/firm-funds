@@ -5,6 +5,7 @@ import { calculateDeal } from '@/lib/calculations'
 import { DealSubmissionSchema, DealStatusChangeSchema } from '@/lib/validations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
+  SETTLEMENT_PERIOD_DAYS,
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
   MAX_UPLOAD_SIZE_BYTES,
@@ -57,10 +58,10 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
       return { success: false, error: `Closing date must be between ${MIN_DAYS_UNTIL_CLOSING} and ${MAX_DAYS_UNTIL_CLOSING} days from today` }
     }
 
-    // Look up the agent's brokerage to get the real referral fee percentage
+    // Look up the agent's brokerage and account balance
     const { data: agentData } = await supabase
       .from('agents')
-      .select('brokerage_id, brokerages(referral_fee_percentage)')
+      .select('brokerage_id, account_balance, brokerages(referral_fee_percentage)')
       .eq('id', input.agentId)
       .single()
 
@@ -79,12 +80,20 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
       brokerageReferralPct: referralPct,
     })
 
+    // Check if agent has outstanding balance that will be deducted at funding
+    const outstandingBalance = agentData?.account_balance || 0
+    const estimatedBalanceDeduction = outstandingBalance > 0
+      ? Math.min(outstandingBalance, result.advanceAmount)
+      : 0
+
     return {
       success: true,
       data: {
         ...result,
         daysUntilClosing,
         brokerageReferralPct: referralPct,
+        outstandingBalance,
+        estimatedBalanceDeduction,
       },
     }
   } catch (err: any) {
@@ -182,11 +191,14 @@ export async function submitDeal(formData: {
         net_commission: calc.netCommission,
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
+        settlement_period_fee: calc.settlementPeriodFee,
         advance_amount: calc.advanceAmount,
         brokerage_referral_fee: calc.brokerageReferralFee,
+        brokerage_referral_pct: referralPct,
         amount_due_from_brokerage: calc.amountDueFromBrokerage,
         source: 'manual_portal',
         notes: noteText,
+        payment_status: 'not_applicable', // not funded yet
       })
       .select()
       .single()
@@ -267,6 +279,7 @@ export async function updateDealStatus(input: {
   newStatus: string
   denialReason?: string
   repaymentAmount?: number
+  brokerageReferralPct?: number // per-deal override (0-1 decimal)
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -344,6 +357,12 @@ export async function updateDealStatus(input: {
     if (deal.status === 'completed' && input.newStatus === 'funded') {
       updateData.repayment_date = null
       updateData.repayment_amount = null
+      updateData.payment_status = 'pending'
+    }
+
+    // Set payment_status for denied/cancelled
+    if (input.newStatus === 'denied' || input.newStatus === 'cancelled') {
+      updateData.payment_status = 'not_applicable'
     }
 
     if (input.newStatus === 'funded') {
@@ -352,14 +371,15 @@ export async function updateDealStatus(input: {
       // Recalculate financials server-side using actual days from today (Eastern Time) to closing
       const actualDays = Math.max(1, calcDaysUntilClosing(deal.closing_date))
 
-      // Fetch brokerage for referral fee
+      // Fetch brokerage for referral fee (default — can be overridden per deal)
       const { data: brokerage } = await supabase
         .from('brokerages')
         .select('referral_fee_percentage')
         .eq('id', deal.brokerage_id)
         .single()
 
-      const referralPct = brokerage?.referral_fee_percentage
+      // Use per-deal override if provided, otherwise brokerage default
+      const referralPct = input.brokerageReferralPct ?? brokerage?.referral_fee_percentage
       if (referralPct === null || referralPct === undefined) {
         return { success: false, error: 'Brokerage referral fee percentage is not configured. Cannot fund deal.' }
       }
@@ -372,15 +392,59 @@ export async function updateDealStatus(input: {
         brokerageReferralPct: referralPct,
       })
 
+      // Calculate due date: closing + 14 calendar days
+      const closingDate = new Date(deal.closing_date + 'T00:00:00Z')
+      const dueDate = new Date(closingDate.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+      const dueDateStr = dueDate.toISOString().split('T')[0]
+
       updateData.days_until_closing = actualDays
       updateData.discount_fee = calc.discountFee
+      updateData.settlement_period_fee = calc.settlementPeriodFee
       updateData.advance_amount = calc.advanceAmount
       updateData.brokerage_referral_fee = calc.brokerageReferralFee
+      updateData.brokerage_referral_pct = referralPct
       updateData.amount_due_from_brokerage = calc.amountDueFromBrokerage
+      updateData.due_date = dueDateStr
+      updateData.payment_status = 'pending'
+
+      // Balance deduction: if agent owes money, deduct from advance
+      const { data: agentForBalance } = await supabase
+        .from('agents')
+        .select('id, account_balance')
+        .eq('id', deal.agent_id)
+        .single()
+
+      const outstandingBalance = agentForBalance?.account_balance || 0
+      if (outstandingBalance > 0 && calc.advanceAmount > 0) {
+        const deductAmount = Math.min(outstandingBalance, calc.advanceAmount)
+        const newBalance = outstandingBalance - deductAmount
+
+        // Update agent balance
+        await supabase
+          .from('agents')
+          .update({ account_balance: newBalance })
+          .eq('id', deal.agent_id)
+
+        // Record deduction in ledger
+        await supabase
+          .from('agent_transactions')
+          .insert({
+            agent_id: deal.agent_id,
+            deal_id: deal.id,
+            type: 'balance_deduction',
+            amount: -deductAmount,
+            running_balance: newBalance,
+            description: `Balance deduction from advance — ${deal.property_address}`,
+            created_by: user.id,
+          })
+
+        updateData.balance_deducted = deductAmount
+      }
     }
 
     if (input.newStatus === 'completed') {
       updateData.repayment_date = new Date().toISOString().split('T')[0]
+      updateData.payment_status = 'paid'
       if (input.repaymentAmount !== undefined) {
         updateData.repayment_amount = input.repaymentAmount
       }
@@ -969,8 +1033,10 @@ export async function updateDealDetails(input: {
         net_commission: calc.netCommission,
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
+        settlement_period_fee: calc.settlementPeriodFee,
         advance_amount: calc.advanceAmount,
         brokerage_referral_fee: calc.brokerageReferralFee,
+        brokerage_referral_pct: referralPct,
         amount_due_from_brokerage: calc.amountDueFromBrokerage,
         notes: input.notes || deal.notes,
       })
@@ -1472,15 +1538,22 @@ export async function updateClosingDate(input: {
       amount_due_from_brokerage: deal.amount_due_from_brokerage,
     }
 
+    // Recalculate due date when closing date changes
+    const newClosingDate = new Date(input.newClosingDate + 'T00:00:00Z')
+    const newDueDate = new Date(newClosingDate.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDateStr = newDueDate.toISOString().split('T')[0]
+
     const { error: updateError } = await supabase
       .from('deals')
       .update({
         closing_date: input.newClosingDate,
         days_until_closing: newDays,
         discount_fee: newCalc.discountFee,
+        settlement_period_fee: newCalc.settlementPeriodFee,
         advance_amount: newCalc.advanceAmount,
         brokerage_referral_fee: newCalc.brokerageReferralFee,
         amount_due_from_brokerage: newCalc.amountDueFromBrokerage,
+        due_date: newDueDateStr,
       })
       .eq('id', input.dealId)
 

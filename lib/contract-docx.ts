@@ -255,9 +255,10 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['"Brokerage"', ' means the real estate brokerage holding the Commission in trust as described in Schedule "A";'],
             ['"Closing Date"', ' means the expected closing date of the APS as set out in Schedule "A", or such earlier or later date as may be mutually agreed in writing by the parties to the APS;'],
             ['"Commission"', ' means the specific commission receivable being purchased, as described in Schedule "A";'],
-            ['"Extension Fee"', ' means the flat per-diem charge applicable if the Real Estate Transaction does not close on or before the Expected Closing Date, calculated in accordance with Article 6;'],
+            ['"Settlement Period Fee"', ' means the non-refundable fee covering the fourteen (14) calendar day settlement period following the Expected Closing Date, during which the Brokerage is required to remit the Commission to the Purchaser, calculated in accordance with Article 3;'],
+            ['"Late Payment Interest"', ' means interest at the rate of twenty-four percent (24%) per annum, calculated daily, applicable to any amounts remaining unpaid after the Payment Due Date, as set out in Article 6;'],
             ['"Face Value"', ' means the net commission payable to the Seller after the Brokerage\'s commission split, as set out in Schedule "A";'],
-            ['"Grace Period"', ' means the five (5) calendar day period immediately following the Expected Closing Date during which no Extension Fee shall accrue;'],
+            ['"Payment Due Date"', ' means the date that is fourteen (14) calendar days following the Expected Closing Date, by which the Brokerage must remit the Commission to the Purchaser;'],
             ['"Irrevocable Direction to Pay"', ' means the irrevocable direction executed by the Seller directing the Brokerage to pay the Commission directly to the Purchaser, in the form attached as Schedule "B";'],
             ['"Purchase Discount"', ' means the fee charged by the Purchaser for this purchase transaction, calculated as set out in Article 3;'],
             ['"Purchase Price"', ' means the amount paid by the Purchaser to the Seller, being the Face Value less the Purchase Discount;'],
@@ -276,9 +277,10 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           // Article 3
           heading2('ARTICLE 3 — PURCHASE PRICE AND PAYMENT'),
           richParagraph([{ text: '3.1 Face Value. ', bold: true }, { text: `The Face Value of the Commission is ${r('{{FACE_VALUE}}')} (the "Face Value"), being the net commission payable to the Seller after the Brokerage's commission split.` }]),
-          richParagraph([{ text: '3.2 Purchase Discount. ', bold: true }, { text: `The Purchase Discount is ${r('{{PURCHASE_DISCOUNT}}')} (the "Purchase Discount"), calculated as follows: $0.75 per $1,000.00 of Face Value per day, for ${r('{{NUMBER_OF_DAYS}}')} days (being the number of calendar days from the date of this Agreement to the Expected Closing Date, plus ten (10) business days).` }]),
-          richParagraph([{ text: '3.3 Purchase Price. ', bold: true }, { text: `The Purchase Price payable to the Seller is ${r('{{PURCHASE_PRICE}}')} (the "Purchase Price"), being the Face Value less the Purchase Discount.` }]),
-          richParagraph([{ text: '3.4 Payment. ', bold: true }, { text: 'The Purchaser shall pay the Purchase Price to the Seller by electronic funds transfer to the account specified in Schedule "C" within two (2) business days of execution of this Agreement and the Irrevocable Direction to Pay.' }]),
+          richParagraph([{ text: '3.2 Purchase Discount. ', bold: true }, { text: `The Purchase Discount is ${r('{{PURCHASE_DISCOUNT}}')} (the "Purchase Discount"), calculated as follows: $0.75 per $1,000.00 of Face Value per day, for ${r('{{NUMBER_OF_DAYS}}')} days (being the number of calendar days from the day following the Funding Date to the Expected Closing Date).` }]),
+          richParagraph([{ text: '3.3 Settlement Period Fee. ', bold: true }, { text: `The Settlement Period Fee is ${r('{{SETTLEMENT_PERIOD_FEE}}')} (the "Settlement Period Fee"), calculated as follows: $0.75 per $1,000.00 of Face Value per day, for fourteen (14) calendar days. This fee covers the settlement period during which the Brokerage is required to remit the Commission to the Purchaser. The Settlement Period Fee is a non-refundable flat fee and is not subject to proration or adjustment regardless of when payment is received.` }]),
+          richParagraph([{ text: '3.4 Purchase Price. ', bold: true }, { text: `The Purchase Price payable to the Seller is ${r('{{PURCHASE_PRICE}}')} (the "Purchase Price"), being the Face Value less the Purchase Discount and the Settlement Period Fee.` }]),
+          richParagraph([{ text: '3.5 Payment. ', bold: true }, { text: 'The Purchaser shall pay the Purchase Price to the Seller by electronic funds transfer to the account specified in Schedule "C" within two (2) business days of execution of this Agreement and the Irrevocable Direction to Pay.' }]),
 
           // Article 4
           heading2('ARTICLE 4 — COLLECTION'),
@@ -292,10 +294,11 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           richParagraph([{ text: '5.3 Limited Remedies. ', bold: true }, { text: 'In the event that the Real Estate Transaction does not close, the Purchaser\'s remedies shall be limited to those set forth in Article 7.' }]),
 
           // Article 6
-          heading2('ARTICLE 6 — EXTENSION FEE'),
-          richParagraph([{ text: '6.1 Grace Period. ', bold: true }, { text: 'If the Real Estate Transaction does not close on or before the Expected Closing Date, no Extension Fee shall accrue during the first five (5) calendar days following the Expected Closing Date (the "Grace Period").' }]),
-          richParagraph([{ text: '6.2 Extension Fee. ', bold: true }, { text: 'If the Real Estate Transaction does not close within the Grace Period, an extension fee shall apply at the rate of $0.75 per $1,000.00 of Face Value per day for each calendar day from the expiry of the Grace Period to the actual Closing Date, inclusive.' }]),
-          richParagraph([{ text: '6.3 Deduction at Collection. ', bold: true }, { text: 'The Extension Fee shall be deducted by the Purchaser from the Commission at the time of collection from the Brokerage.' }]),
+          heading2('ARTICLE 6 — LATE PAYMENT INTEREST'),
+          richParagraph([{ text: '6.1 Payment Due Date. ', bold: true }, { text: `The Brokerage shall remit the Commission to the Purchaser within fourteen (14) calendar days following the Expected Closing Date (the "Payment Due Date"). The Payment Due Date for this transaction is ${r('{{DUE_DATE}}')}.` }]),
+          richParagraph([{ text: '6.2 Late Payment Interest. ', bold: true }, { text: 'If the Commission is not remitted to the Purchaser by the Payment Due Date, Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, calculated daily on the Purchase Price, commencing on the day following the Payment Due Date and continuing until the date the Commission is received by the Purchaser in full.' }]),
+          richParagraph([{ text: '6.3 Responsibility for Late Payment Interest. ', bold: true }, { text: 'The Seller acknowledges and agrees that Late Payment Interest is the sole responsibility of the Seller. Such interest shall be charged to the Seller\'s account with the Purchaser and may be deducted from future commission purchase transactions or invoiced separately at the Purchaser\'s discretion.' }]),
+          richParagraph([{ text: '6.4 No Refund of Settlement Period Fee. ', bold: true }, { text: 'For greater certainty, the Settlement Period Fee set out in Article 3.3 is non-refundable and shall not be credited, prorated, or adjusted in any circumstance, including early payment by the Brokerage.' }]),
 
           // Article 7
           heading2('ARTICLE 7 — NON-CLOSING REMEDIES (LIMITED RECOURSE)'),
@@ -339,14 +342,17 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['Property Address', r('{{PROPERTY_ADDRESS}}')],
             ['MLS Number', r('{{MLS_NUMBER}}')],
             ['Expected Closing Date', r('{{EXPECTED_CLOSING_DATE}}')],
+            ['Payment Due Date', r('{{DUE_DATE}}')],
             ['Gross Commission Amount', r('{{GROSS_COMMISSION_AMOUNT}}')],
             ['Brokerage Commission Split', `${r('{{BROKERAGE_SPLIT}}')}%`],
             ['Net Commission to Seller (Face Value)', r('{{FACE_VALUE}}')],
             ['Discount Rate', '$0.75 per $1,000 per day'],
-            ['Number of Days', r('{{NUMBER_OF_DAYS}}')],
+            ['Number of Days (Discount Period)', r('{{NUMBER_OF_DAYS}}')],
             ['Purchase Discount', r('{{PURCHASE_DISCOUNT}}')],
+            ['Settlement Period Fee (14 days)', r('{{SETTLEMENT_PERIOD_FEE}}')],
             ['Purchase Price (Agent Receives)', r('{{PURCHASE_PRICE}}')],
             ['Brokerage Referral Fee', r('{{BROKERAGE_REFERRAL_FEE}}')],
+            ['Late Payment Interest Rate', `${r('{{LATE_INTEREST_RATE}}')} per annum`],
             ['Brokerage Legal Name', r('{{BROKERAGE_LEGAL_NAME}}')],
             ['Brokerage Address', r('{{BROKERAGE_ADDRESS}}')],
             ['Broker of Record', r('{{BROKER_OF_RECORD}}')],
@@ -485,9 +491,10 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           heading2('BROKERAGE AUTHORIZATION'),
           body('I acknowledge that the Brokerage has entered into a Brokerage Cooperation Agreement with Firm Funds Inc., under which the Brokerage has agreed to honour Irrevocable Directions to Pay. A copy of this Direction will be provided to the Brokerage upon execution.'),
 
-          // Extension Fee
-          heading2('EXTENSION FEE ACKNOWLEDGMENT'),
-          body('I acknowledge that an Extension Fee may apply if the real estate transaction does not close on or before the Expected Closing Date. The Extension Fee applies at the rate of $0.75 per $1,000.00 of Face Value per day, following a five (5) calendar day grace period after the Expected Closing Date.'),
+          // Settlement Period Fee & Late Payment Interest
+          heading2('SETTLEMENT PERIOD FEE AND LATE PAYMENT INTEREST'),
+          body('I acknowledge that a non-refundable Settlement Period Fee has been included in the calculation of the Purchase Price, covering the fourteen (14) calendar day settlement period following the Expected Closing Date during which the Brokerage is required to remit the Commission to the Purchaser.'),
+          body('I further acknowledge that if the Commission is not remitted to the Purchaser by the Payment Due Date (being fourteen (14) calendar days after the Expected Closing Date), Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, calculated daily, and shall be charged to my Firm Funds account. Such interest may be deducted from future commission purchase transactions or invoiced separately.'),
 
           // Notification
           heading2('NOTIFICATION OBLIGATION'),
@@ -599,7 +606,8 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           body('1.3 "Irrevocable Direction to Pay" or "IDP" means an irrevocable written instruction from the Agent directing the Brokerage to remit commission funds to Firm Funds.'),
           body('1.4 "Commission Receivable" means the amount of real estate commission payable to an Agent through the Brokerage upon the closing of a real estate transaction.'),
           body('1.5 "Transaction" means a real estate transaction giving rise to a Commission Receivable.'),
-          body('1.6 "Extension Fee" means the fee of $0.75 per $1,000 of face value per day, applicable after the five (5) calendar day grace period following the expected closing date.'),
+          body('1.6 "Settlement Period Fee" means the non-refundable fee of $0.75 per $1,000 of Face Value per day for fourteen (14) calendar days, covering the settlement period during which the Brokerage is required to remit the Commission to the Purchaser.'),
+          body('1.7 "Late Payment Interest" means interest at the rate of twenty-four percent (24%) per annum, calculated daily, applicable to any amounts remaining unpaid after the Payment Due Date (being fourteen (14) calendar days following the expected closing date).'),
 
           // Article 2: Cooperation
           heading2('ARTICLE 2 — COOPERATION AND ACKNOWLEDGMENT'),

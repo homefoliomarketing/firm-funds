@@ -17,6 +17,12 @@ export const MAX_DAILY_EFT = 25_000
 /** Additional days after closing date for return fund processing (0 = none, adjustable later) */
 export const RETURN_PROCESSING_DAYS = 0
 
+/** Settlement period: 14 calendar days after closing for brokerage to remit payment */
+export const SETTLEMENT_PERIOD_DAYS = 14
+
+/** Late payment interest rate: 24% per annum, charged daily after settlement period expires */
+export const LATE_INTEREST_RATE_PER_ANNUM = 0.24
+
 /** Minimum days until closing for a deal to be eligible (must be ≥2: 1 day to receive funds + 1 chargeable day) */
 export const MIN_DAYS_UNTIL_CLOSING = 2
 
