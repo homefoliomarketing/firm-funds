@@ -1432,9 +1432,30 @@ export default function DealDetailPage() {
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.settlementPeriodFee)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 font-bold text-primary">Agent Receives</td>
-                          <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount)}</td>
+                          <td className="py-1.5 font-semibold text-foreground">Gross Advance</td>
+                          <td className="py-1.5 text-right font-mono font-semibold text-foreground">{formatCurrency(calc.advanceAmount)}</td>
                         </tr>
+                        {agentBalance > 0 && (() => {
+                          const deduction = Math.min(agentBalance, calc.advanceAmount)
+                          return (
+                            <>
+                              <tr>
+                                <td className="py-1.5 text-muted-foreground">Outstanding Balance Deduction</td>
+                                <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(deduction)}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1.5 font-bold text-primary">Agent Receives (EFT)</td>
+                                <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount - deduction)}</td>
+                              </tr>
+                            </>
+                          )
+                        })()}
+                        {agentBalance <= 0 && (
+                          <tr>
+                            <td className="py-1.5 font-bold text-primary">Agent Receives (EFT)</td>
+                            <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount)}</td>
+                          </tr>
+                        )}
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
                           <td className="py-1.5 text-muted-foreground">

@@ -571,9 +571,17 @@ export default function NewDealPage() {
                       </p>
                     </div>
                   )}
-                  <div className="flex justify-between items-center rounded-xl px-5 py-4 -mx-1 mt-2 bg-primary/8 border border-primary/20">
-                    <span className="font-bold text-base text-primary">Your Advance Amount</span>
-                    <span className="text-2xl font-bold text-primary tabular-nums">{formatCurrency(preview.advanceAmount)}</span>
+                  <div className="rounded-xl px-5 py-4 -mx-1 mt-2 bg-primary/8 border border-primary/20">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-base text-primary">Your Advance Amount</span>
+                      <span className="text-2xl font-bold text-primary tabular-nums">{formatCurrency(preview.advanceAmount)}</span>
+                    </div>
+                    {preview.estimatedBalanceDeduction > 0 && (
+                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-primary/20">
+                        <span className="text-xs font-medium text-muted-foreground">After balance deduction, deposited to your bank</span>
+                        <span className="text-base font-bold text-primary tabular-nums">{formatCurrency(preview.advanceAmount - preview.estimatedBalanceDeduction)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -756,6 +764,12 @@ export default function NewDealPage() {
                       <span className="font-bold text-primary">Your Advance Amount</span>
                       <span className="font-black text-lg text-primary">{formatCurrency(preview.advanceAmount)}</span>
                     </div>
+                    {preview.estimatedBalanceDeduction > 0 && (
+                      <div className="flex justify-between pt-1.5 border-t border-border/50">
+                        <span className="text-xs text-muted-foreground">After balance deduction, to your bank</span>
+                        <span className="text-sm font-semibold text-primary">{formatCurrency(preview.advanceAmount - preview.estimatedBalanceDeduction)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
