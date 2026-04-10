@@ -741,6 +741,109 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
 export async function generateCpaAmendmentDocx(data: Record<string, string>): Promise<Buffer> {
   const r = (key: string) => data[key] || key
 
+  // Determine scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier'
+  const scenario = data['{{SCENARIO}}'] || 'approved_recalc'
+  const isFunded = scenario === 'funded_extended' || scenario === 'funded_earlier'
+  const isExtended = scenario === 'funded_extended'
+
+  // Build Article 1 clauses based on scenario
+  const article1Clauses = isFunded
+    ? [
+        // FUNDED: Purchase Price is LOCKED
+        richParagraph([
+          { text: '1.1 Expected Closing Date. ', bold: true },
+          { text: `The Expected Closing Date is amended from ${r('{{OLD_CLOSING_DATE}}')} to ${r('{{NEW_CLOSING_DATE}}')}.` },
+        ]),
+        richParagraph([
+          { text: '1.2 Payment Due Date. ', bold: true },
+          { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being fourteen (14) calendar days following the new Expected Closing Date.` },
+        ]),
+        richParagraph([
+          { text: '1.3 Face Value, Settlement Period Fee, and Purchase Price Unchanged. ', bold: true },
+          { text: `The Parties acknowledge that the Purchaser has already paid the original Purchase Price to the Seller. Accordingly, the Face Value, Settlement Period Fee, and Purchase Price set out in the Original Agreement shall remain unchanged and are not amended by this Amendment.` },
+        ]),
+      ]
+    : [
+        // APPROVED (not yet funded): full recalculation
+        richParagraph([
+          { text: '1.1 Expected Closing Date. ', bold: true },
+          { text: `The Expected Closing Date is amended from ${r('{{OLD_CLOSING_DATE}}')} to ${r('{{NEW_CLOSING_DATE}}')}.` },
+        ]),
+        richParagraph([
+          { text: '1.2 Purchase Discount. ', bold: true },
+          { text: `The Purchase Discount is amended from ${r('{{OLD_PURCHASE_DISCOUNT}}')} to ${r('{{NEW_PURCHASE_DISCOUNT}}')}, calculated at $0.75 per $1,000.00 of Face Value per day for ${r('{{NEW_NUMBER_OF_DAYS}}')} days.` },
+        ]),
+        richParagraph([
+          { text: '1.3 Purchase Price. ', bold: true },
+          { text: `The Purchase Price is amended from ${r('{{OLD_PURCHASE_PRICE}}')} to ${r('{{NEW_PURCHASE_PRICE}}')}, being the Face Value less the amended Purchase Discount and the Settlement Period Fee.` },
+        ]),
+        richParagraph([
+          { text: '1.4 Payment Due Date. ', bold: true },
+          { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being fourteen (14) calendar days following the new Expected Closing Date.` },
+        ]),
+      ]
+
+  // Build Article 2 (Financial Adjustment) based on scenario
+  const article2Clauses = isFunded
+    ? (isExtended
+      ? [
+          // FUNDED EXTENDED: agent owes additional discount fee
+          body('2.1 Additional Discount Fee. The Parties acknowledge that the change in the Expected Closing Date extends the period during which the Purchaser has carried the advance. For each additional calendar day between the original Expected Closing Date and the amended Expected Closing Date, an additional Purchase Discount charge shall accrue at $0.75 per $1,000.00 of Face Value per day.'),
+          richParagraph([
+            { text: '2.2 Additional Charge. ', bold: true },
+            { text: `The total additional Purchase Discount resulting from this Amendment is ${r('{{FEE_ADJUSTMENT_DISPLAY}}')}. This amount shall be charged to the Seller's Firm Funds account as a balance owing, effective upon the execution of this Amendment. The outstanding balance may be deducted from future commission purchase transactions, invoiced separately, or demanded by the Purchaser at any time.` },
+          ]),
+          body('2.3 Settlement Period Fee Unchanged. For greater certainty, the Settlement Period Fee set out in the Original Agreement is not amended or increased by this Amendment.'),
+        ]
+      : [
+          // FUNDED EARLIER: agent gets credit
+          body('2.1 Reduction in Purchase Discount. The Parties acknowledge that the earlier Expected Closing Date reduces the period during which the Purchaser carries the advance. The Purchase Discount under the Original Agreement shall be reduced by $0.75 per $1,000.00 of Face Value per day for each calendar day between the amended Expected Closing Date and the original Expected Closing Date.'),
+          richParagraph([
+            { text: '2.2 Credit to Seller. ', bold: true },
+            { text: `The total reduction in the Purchase Discount resulting from this Amendment is ${r('{{FEE_ADJUSTMENT_DISPLAY}}')}. This amount shall be credited to the Seller's Firm Funds account. Following the closing of the Real Estate Transaction, any net credit balance owing to the Seller shall be refunded by the Purchaser by electronic funds transfer.` },
+          ]),
+          body('2.3 Settlement Period Fee Non-Refundable. For greater certainty, the Settlement Period Fee set out in the Original Agreement is non-refundable and shall not be credited, prorated, or adjusted as a result of this Amendment.'),
+        ])
+    : [
+        // APPROVED (not yet funded): purchase price adjustment handled at funding
+        body('2.1 The Parties acknowledge that the amended Purchase Price set out in Article 1.3 shall be paid by the Purchaser to the Seller at the time of funding in accordance with the Original Agreement.'),
+      ]
+
+  // Build schedule rows based on scenario
+  const scheduleRows: [string, string][] = isFunded
+    ? [
+        ['Property Address', r('{{PROPERTY_ADDRESS}}')],
+        ['Original Closing Date', r('{{OLD_CLOSING_DATE}}')],
+        ['Amended Closing Date', r('{{NEW_CLOSING_DATE}}')],
+        ['Original Payment Due Date', r('{{OLD_DUE_DATE}}')],
+        ['Amended Payment Due Date', r('{{NEW_DUE_DATE}}')],
+        ['Face Value (Unchanged)', r('{{FACE_VALUE}}')],
+        ['Settlement Period Fee (Unchanged)', r('{{OLD_SETTLEMENT_PERIOD_FEE}}')],
+        ['Purchase Price (Unchanged)', r('{{OLD_PURCHASE_PRICE}}')],
+        [
+          isExtended ? 'Additional Purchase Discount' : 'Purchase Discount Credit',
+          r('{{FEE_ADJUSTMENT_DISPLAY}}'),
+        ],
+      ]
+    : [
+        ['Property Address', r('{{PROPERTY_ADDRESS}}')],
+        ['Original Closing Date', r('{{OLD_CLOSING_DATE}}')],
+        ['Amended Closing Date', r('{{NEW_CLOSING_DATE}}')],
+        ['Original Payment Due Date', r('{{OLD_DUE_DATE}}')],
+        ['Amended Payment Due Date', r('{{NEW_DUE_DATE}}')],
+        ['Face Value', r('{{FACE_VALUE}}')],
+        ['Original Purchase Discount', r('{{OLD_PURCHASE_DISCOUNT}}')],
+        ['Amended Purchase Discount', r('{{NEW_PURCHASE_DISCOUNT}}')],
+        ['Settlement Period Fee', r('{{OLD_SETTLEMENT_PERIOD_FEE}}')],
+        ['Original Purchase Price', r('{{OLD_PURCHASE_PRICE}}')],
+        ['Amended Purchase Price', r('{{NEW_PURCHASE_PRICE}}')],
+      ]
+
+  // Recital about what's being amended
+  const recitalText = isFunded
+    ? 'the Parties wish to amend the Original Agreement to reflect the new Expected Closing Date and the corresponding adjustment to the Payment Due Date. The Parties acknowledge that the Purchase Price has already been paid and remains unchanged.'
+    : 'the Parties wish to amend the Original Agreement to reflect the new Expected Closing Date and the corresponding adjustments to the Purchase Discount, Purchase Price, and Payment Due Date.'
+
   const doc = new Document({
     sections: [
       {
@@ -792,7 +895,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
           ], { indent: 300 }),
           richParagraph([
             { text: 'AND WHEREAS ', bold: true },
-            { text: 'the Parties wish to amend the Original Agreement to reflect the new Expected Closing Date and the corresponding adjustments to the Purchase Discount, Settlement Period Fee, Purchase Price, and Payment Due Date;' },
+            { text: recitalText },
           ], { indent: 300 }),
           emptyLine(),
           richParagraph([
@@ -803,31 +906,11 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
 
           // Article 1 — Amendments
           heading2('ARTICLE 1 — AMENDMENTS TO ORIGINAL AGREEMENT'),
-          richParagraph([
-            { text: '1.1 Expected Closing Date. ', bold: true },
-            { text: `The Expected Closing Date is amended from ${r('{{OLD_CLOSING_DATE}}')} to ${r('{{NEW_CLOSING_DATE}}')}.` },
-          ]),
-          richParagraph([
-            { text: '1.2 Purchase Discount. ', bold: true },
-            { text: `The Purchase Discount is amended from ${r('{{OLD_PURCHASE_DISCOUNT}}')} to ${r('{{NEW_PURCHASE_DISCOUNT}}')}, calculated at $0.75 per $1,000.00 of Face Value per day for ${r('{{NEW_NUMBER_OF_DAYS}}')} days.` },
-          ]),
-          richParagraph([
-            { text: '1.3 Settlement Period Fee. ', bold: true },
-            { text: `The Settlement Period Fee is amended from ${r('{{OLD_SETTLEMENT_PERIOD_FEE}}')} to ${r('{{NEW_SETTLEMENT_PERIOD_FEE}}')}, calculated at $0.75 per $1,000.00 of Face Value per day for fourteen (14) calendar days.` },
-          ]),
-          richParagraph([
-            { text: '1.4 Purchase Price. ', bold: true },
-            { text: `The Purchase Price is amended from ${r('{{OLD_PURCHASE_PRICE}}')} to ${r('{{NEW_PURCHASE_PRICE}}')}, being the Face Value less the amended Purchase Discount and Settlement Period Fee.` },
-          ]),
-          richParagraph([
-            { text: '1.5 Payment Due Date. ', bold: true },
-            { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being fourteen (14) calendar days following the new Expected Closing Date.` },
-          ]),
+          ...article1Clauses,
 
-          // Article 2 — Adjustment
+          // Article 2 — Financial Adjustment
           heading2('ARTICLE 2 — FINANCIAL ADJUSTMENT'),
-          body('2.1 If the original Purchase Price has already been paid to the Seller, the Seller shall pay to the Purchaser the difference between the original Purchase Price and the amended Purchase Price set out in Article 1.4. Such amount shall be charged to the Seller\'s Firm Funds account as a balance owing and may be deducted from future commission purchase transactions, invoiced separately, or demanded by the Purchaser at any time.'),
-          body('2.2 If the original Purchase Price has not yet been paid to the Seller, the Purchaser shall pay the amended Purchase Price to the Seller in accordance with the Original Agreement.'),
+          ...article2Clauses,
 
           // Article 3 — Confirmation
           heading2('ARTICLE 3 — CONFIRMATION OF ORIGINAL AGREEMENT'),
@@ -838,20 +921,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
           // Amendment Summary Table
           emptyLine(),
           heading2('SCHEDULE — AMENDED TERMS SUMMARY'),
-          scheduleTable([
-            ['Property Address', r('{{PROPERTY_ADDRESS}}')],
-            ['Original Closing Date', r('{{OLD_CLOSING_DATE}}')],
-            ['Amended Closing Date', r('{{NEW_CLOSING_DATE}}')],
-            ['Original Payment Due Date', r('{{OLD_DUE_DATE}}')],
-            ['Amended Payment Due Date', r('{{NEW_DUE_DATE}}')],
-            ['Face Value', r('{{FACE_VALUE}}')],
-            ['Original Purchase Discount', r('{{OLD_PURCHASE_DISCOUNT}}')],
-            ['Amended Purchase Discount', r('{{NEW_PURCHASE_DISCOUNT}}')],
-            ['Original Settlement Period Fee', r('{{OLD_SETTLEMENT_PERIOD_FEE}}')],
-            ['Amended Settlement Period Fee', r('{{NEW_SETTLEMENT_PERIOD_FEE}}')],
-            ['Original Purchase Price', r('{{OLD_PURCHASE_PRICE}}')],
-            ['Amended Purchase Price', r('{{NEW_PURCHASE_PRICE}}')],
-          ]),
+          scheduleTable(scheduleRows),
         ],
       },
 

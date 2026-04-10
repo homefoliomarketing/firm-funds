@@ -963,8 +963,13 @@ export default function AgentDealDetailPage() {
 
               <div className="rounded-lg px-3 py-2 bg-blue-500/10 border border-blue-500/20 text-xs">
                 <p className="text-blue-400 leading-relaxed">
-                  <strong>What happens next:</strong> Admin will review your request and the uploaded amendment. Once approved, your fees will be recalculated and you'll receive a new DocuSign email to sign the amended CPA.
+                  <strong>What happens next:</strong> Admin will review your request and the uploaded amendment. Once approved, you'll receive a new DocuSign email to sign the amended CPA.
                 </p>
+                {deal.status === 'funded' && (
+                  <p className="text-blue-400 leading-relaxed mt-2">
+                    <strong>Note:</strong> Because this deal has already been funded, your Purchase Price stays the same. If the new closing date is <em>later</em>, the additional discount fee will be charged to your Firm Funds account. If the new closing date is <em>earlier</em>, the unused discount fee will be credited to your account and refunded via EFT after closing. The Settlement Period Fee is non-refundable.
+                  </p>
+                )}
               </div>
 
               {amendError && (

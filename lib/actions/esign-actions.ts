@@ -612,6 +612,8 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
     const oldPurchasePrice = amendment.old_advance_amount || 0
     const oldDiscount = amendment.old_discount_fee || 0
     const oldSettlementFee = amendment.old_settlement_period_fee || 0
+    const feeAdjustment = amendment.fee_adjustment_amount || 0
+    const scenario = amendment.adjustment_scenario || 'approved_recalc'
 
     const fundingDate = deal.funding_date || new Date().toISOString().split('T')[0]
     const newDaysNum = Math.ceil((new Date(amendment.new_closing_date + 'T00:00:00Z').getTime() - new Date(fundingDate + 'T00:00:00Z').getTime()) / (1000 * 60 * 60 * 24))
@@ -634,6 +636,8 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
       '{{OLD_PURCHASE_PRICE}}': formatCurrency(oldPurchasePrice),
       '{{NEW_PURCHASE_PRICE}}': formatCurrency(newPurchasePrice),
       '{{NEW_NUMBER_OF_DAYS}}': newDaysNum.toString(),
+      '{{SCENARIO}}': scenario,
+      '{{FEE_ADJUSTMENT_DISPLAY}}': formatCurrency(Math.abs(feeAdjustment)),
     }
 
     const amendmentBuffer = await generateCpaAmendmentDocx(contractData)

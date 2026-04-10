@@ -142,7 +142,7 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
       return { success: false, error: 'Failed to save document record' }
     }
 
-    // Calculate what the new fees would be (preview only, not stored yet)
+    // Calculate what the new fees would be
     const referralPct = deal.brokerage_referral_pct || 0.20
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
@@ -156,6 +156,21 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
     const newClosingDateObj = new Date(newClosingDate + 'T00:00:00Z')
     const newDueDate = new Date(newClosingDateObj.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
+
+    // Determine scenario and fee adjustment
+    // For APPROVED deals: fully recalculate, no adjustment to agent account
+    // For FUNDED deals: fees are LOCKED, only closing_date/due_date change,
+    //   discount fee delta is charged to (extended) or credited from (earlier) the agent's account
+    let scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' = 'approved_recalc'
+    let feeAdjustment = 0
+
+    if (deal.status === 'funded') {
+      // Calculate the difference between what the new discount fee WOULD be and the original
+      const oldDiscountFee = deal.discount_fee || 0
+      feeAdjustment = newCalc.discountFee - oldDiscountFee
+      // Positive = extra charge to agent (extended closing), negative = credit (earlier closing)
+      scenario = feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier'
+    }
 
     // Create amendment request record
     const { data: amendment, error: amendError } = await serviceClient
@@ -175,6 +190,8 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
         new_advance_amount: newCalc.advanceAmount,
         old_due_date: deal.due_date,
         new_due_date: newDueDateStr,
+        fee_adjustment_amount: feeAdjustment,
+        adjustment_scenario: scenario,
       })
       .select()
       .single()
@@ -251,7 +268,7 @@ export async function approveClosingDateAmendment(input: {
     const deal = amendment.deals as any
     if (!deal) return { success: false, error: 'Deal not found' }
 
-    // Recalculate fees with new closing date
+    // Recalculate what fees WOULD be with the new closing date
     const newDays = calcDaysUntilClosing(amendment.new_closing_date)
     const referralPct = deal.brokerage_referral_pct || 0.20
 
@@ -268,39 +285,116 @@ export async function approveClosingDateAmendment(input: {
     const newDueDate = new Date(newClosingDateObj.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
 
-    // Update deal with new values
-    const { error: updateError } = await serviceClient
-      .from('deals')
-      .update({
-        closing_date: amendment.new_closing_date,
-        days_until_closing: newDays,
-        discount_fee: newCalc.discountFee,
-        settlement_period_fee: newCalc.settlementPeriodFee,
-        advance_amount: newCalc.advanceAmount,
-        brokerage_referral_fee: newCalc.brokerageReferralFee,
-        amount_due_from_brokerage: newCalc.amountDueFromBrokerage,
-        due_date: newDueDateStr,
-      })
-      .eq('id', deal.id)
+    // Branch: approved deal (full recalc) vs funded deal (lock fees, adjust balance)
+    const isFunded = deal.status === 'funded'
 
-    if (updateError) {
-      console.error('Deal update error on amendment approve:', updateError.message)
-      return { success: false, error: 'Failed to update deal' }
+    if (isFunded) {
+      // FUNDED: keep original Face Value, Purchase Price, and fees on the deal.
+      // Only update closing_date, days_until_closing, and due_date.
+      // Charge or credit the agent's account balance for the discount fee delta.
+      const oldDiscountFee = deal.discount_fee || 0
+      const feeAdjustment = newCalc.discountFee - oldDiscountFee
+      // Positive = charge (extended closing, agent owes more)
+      // Negative = credit (earlier closing, agent gets refund after close)
+
+      const { error: updateError } = await serviceClient
+        .from('deals')
+        .update({
+          closing_date: amendment.new_closing_date,
+          days_until_closing: newDays,
+          due_date: newDueDateStr,
+        })
+        .eq('id', deal.id)
+
+      if (updateError) {
+        console.error('Deal update error on funded amendment approve:', updateError.message)
+        return { success: false, error: 'Failed to update deal' }
+      }
+
+      // Apply adjustment to agent's Firm Funds account
+      if (Math.abs(feeAdjustment) > 0.005) {
+        const { data: agent } = await serviceClient
+          .from('agents')
+          .select('id, account_balance')
+          .eq('id', deal.agent_id)
+          .single()
+
+        if (agent) {
+          const currentBalance = agent.account_balance || 0
+          const newBalance = currentBalance + feeAdjustment
+
+          await serviceClient
+            .from('agents')
+            .update({ account_balance: newBalance })
+            .eq('id', agent.id)
+
+          await serviceClient
+            .from('agent_transactions')
+            .insert({
+              agent_id: agent.id,
+              deal_id: deal.id,
+              type: feeAdjustment > 0 ? 'adjustment' : 'credit',
+              amount: feeAdjustment,
+              running_balance: newBalance,
+              description: feeAdjustment > 0
+                ? `Closing date extension — additional discount fee (${deal.property_address}, new closing ${amendment.new_closing_date})`
+                : `Closing date moved earlier — discount fee credit (${deal.property_address}, new closing ${amendment.new_closing_date})`,
+              created_by: user.id,
+            })
+        }
+      }
+
+      // Mark amendment as approved (store what the new fees WOULD be plus the adjustment)
+      await serviceClient
+        .from('closing_date_amendments')
+        .update({
+          status: 'approved',
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+          new_discount_fee: newCalc.discountFee,
+          new_settlement_period_fee: deal.settlement_period_fee || 0, // locked, not recalculated
+          new_advance_amount: deal.advance_amount, // locked
+          new_due_date: newDueDateStr,
+          fee_adjustment_amount: feeAdjustment,
+          adjustment_scenario: feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier',
+        })
+        .eq('id', input.amendmentId)
+    } else {
+      // APPROVED (not yet funded): full recalculation, no account balance adjustment
+      const { error: updateError } = await serviceClient
+        .from('deals')
+        .update({
+          closing_date: amendment.new_closing_date,
+          days_until_closing: newDays,
+          discount_fee: newCalc.discountFee,
+          settlement_period_fee: newCalc.settlementPeriodFee,
+          advance_amount: newCalc.advanceAmount,
+          brokerage_referral_fee: newCalc.brokerageReferralFee,
+          amount_due_from_brokerage: newCalc.amountDueFromBrokerage,
+          due_date: newDueDateStr,
+        })
+        .eq('id', deal.id)
+
+      if (updateError) {
+        console.error('Deal update error on approved amendment approve:', updateError.message)
+        return { success: false, error: 'Failed to update deal' }
+      }
+
+      await serviceClient
+        .from('closing_date_amendments')
+        .update({
+          status: 'approved',
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+          new_discount_fee: newCalc.discountFee,
+          new_settlement_period_fee: newCalc.settlementPeriodFee,
+          new_advance_amount: newCalc.advanceAmount,
+          new_due_date: newDueDateStr,
+          fee_adjustment_amount: 0,
+          adjustment_scenario: 'approved_recalc',
+        })
+        .eq('id', input.amendmentId)
     }
-
-    // Mark amendment as approved
-    await serviceClient
-      .from('closing_date_amendments')
-      .update({
-        status: 'approved',
-        reviewed_by: user.id,
-        reviewed_at: new Date().toISOString(),
-        new_discount_fee: newCalc.discountFee,
-        new_settlement_period_fee: newCalc.settlementPeriodFee,
-        new_advance_amount: newCalc.advanceAmount,
-        new_due_date: newDueDateStr,
-      })
-      .eq('id', input.amendmentId)
 
     // Generate and send amended CPA via DocuSign
     let envelopeId: string | null = null
@@ -332,6 +426,8 @@ export async function approveClosingDateAmendment(input: {
     })
 
     // Notify agent
+    // For funded deals, the advance amount is locked, so show the original
+    const displayAdvance = isFunded ? (deal.advance_amount || 0) : newCalc.advanceAmount
     const agent = deal.agents
     if (agent?.email) {
       sendAmendmentApprovedNotification({
@@ -340,7 +436,7 @@ export async function approveClosingDateAmendment(input: {
         agentEmail: agent.email,
         agentFirstName: agent.first_name,
         newClosingDate: amendment.new_closing_date,
-        newAdvanceAmount: newCalc.advanceAmount,
+        newAdvanceAmount: displayAdvance,
       })
     }
 

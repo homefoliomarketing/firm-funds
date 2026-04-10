@@ -1882,12 +1882,22 @@ export default function DealDetailPage() {
                   const docLink = am.amendment_document_id
                     ? documents.find((d: any) => d.id === am.amendment_document_id)
                     : null
+                  const scenario = am.adjustment_scenario || 'approved_recalc'
+                  const feeAdj = am.fee_adjustment_amount || 0
+                  const isFundedScenario = scenario === 'funded_extended' || scenario === 'funded_earlier'
                   return (
                     <div key={am.id} className={`rounded-lg p-3 border text-xs ${isPending ? 'bg-amber-500/5 border-amber-500/30' : isApproved ? 'bg-green-500/5 border-green-500/30' : 'bg-destructive/5 border-destructive/30'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <span className={`font-bold uppercase tracking-wider ${isPending ? 'text-amber-400' : isApproved ? 'text-green-400' : 'text-destructive'}`}>
-                          {am.status}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-bold uppercase tracking-wider ${isPending ? 'text-amber-400' : isApproved ? 'text-green-400' : 'text-destructive'}`}>
+                            {am.status}
+                          </span>
+                          {isFundedScenario && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 font-semibold uppercase">
+                              Funded — {scenario === 'funded_extended' ? 'Extended' : 'Earlier'}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-muted-foreground">{new Date(am.created_at).toLocaleString('en-CA')}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
@@ -1899,14 +1909,31 @@ export default function DealDetailPage() {
                           <p className="text-muted-foreground">New Closing Date</p>
                           <p className="font-semibold text-foreground">{new Date(am.new_closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
                         </div>
-                        <div>
-                          <p className="text-muted-foreground">Old Advance</p>
-                          <p className="font-semibold text-foreground">{formatCurrency(am.old_advance_amount || 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">New Advance</p>
-                          <p className="font-semibold text-foreground">{formatCurrency(am.new_advance_amount || 0)}</p>
-                        </div>
+                        {isFundedScenario ? (
+                          <>
+                            <div>
+                              <p className="text-muted-foreground">Advance (Locked)</p>
+                              <p className="font-semibold text-foreground">{formatCurrency(am.old_advance_amount || 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">{scenario === 'funded_extended' ? 'Additional Charge' : 'Credit to Agent'}</p>
+                              <p className={`font-semibold ${scenario === 'funded_extended' ? 'text-destructive' : 'text-green-400'}`}>
+                                {scenario === 'funded_extended' ? '+' : '-'}{formatCurrency(Math.abs(feeAdj))}
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <p className="text-muted-foreground">Old Advance</p>
+                              <p className="font-semibold text-foreground">{formatCurrency(am.old_advance_amount || 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">New Advance</p>
+                              <p className="font-semibold text-foreground">{formatCurrency(am.new_advance_amount || 0)}</p>
+                            </div>
+                          </>
+                        )}
                       </div>
                       {docLink && (
                         <div className="mb-2">
