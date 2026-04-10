@@ -19,6 +19,8 @@ import {
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
 import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
+import { submitClosingDateAmendment, getDealAmendments } from '@/lib/actions/amendment-actions'
+import { CalendarClock } from 'lucide-react'
 import { AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -89,6 +91,13 @@ export default function AgentDealDetailPage() {
   const [editGrossCommission, setEditGrossCommission] = useState('')
   const [editBrokerageSplitPct, setEditBrokerageSplitPct] = useState('')
   const [cancelling, setCancelling] = useState(false)
+  // Closing date amendment state
+  const [showAmendmentModal, setShowAmendmentModal] = useState(false)
+  const [amendNewClosingDate, setAmendNewClosingDate] = useState('')
+  const [amendFile, setAmendFile] = useState<File | null>(null)
+  const [amendSubmitting, setAmendSubmitting] = useState(false)
+  const [amendError, setAmendError] = useState<string | null>(null)
+  const [amendments, setAmendments] = useState<any[]>([])
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -169,7 +178,36 @@ export default function AgentDealDetailPage() {
     setDocReturns(returnsData || [])
     const { data: messagesData } = await supabase.from('deal_messages').select('*').eq('deal_id', dealId).order('created_at', { ascending: true })
     setDealMessages(messagesData || [])
+    // Load amendments for this deal
+    const amendResult = await getDealAmendments(dealId)
+    if (amendResult.success) setAmendments(amendResult.data || [])
     setLoading(false)
+  }
+
+  const handleSubmitAmendment = async () => {
+    if (!deal || !amendNewClosingDate || !amendFile) {
+      setAmendError('Please fill in all fields and upload the executed amendment.')
+      return
+    }
+    setAmendSubmitting(true)
+    setAmendError(null)
+    const formData = new FormData()
+    formData.append('dealId', deal.id)
+    formData.append('newClosingDate', amendNewClosingDate)
+    formData.append('file', amendFile)
+    const result = await submitClosingDateAmendment(formData)
+    if (result.success) {
+      setShowAmendmentModal(false)
+      setAmendNewClosingDate('')
+      setAmendFile(null)
+      setStatusMessage({ type: 'success', text: 'Amendment request submitted. Admin will review and approve.' })
+      // Reload amendments
+      const amendResult = await getDealAmendments(deal.id)
+      if (amendResult.success) setAmendments(amendResult.data || [])
+    } else {
+      setAmendError(result.error || 'Failed to submit amendment')
+    }
+    setAmendSubmitting(false)
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -695,6 +733,29 @@ export default function AgentDealDetailPage() {
                     </span>
                   </div>
                 )}
+                {['approved', 'funded'].includes(deal.status) && (
+                  <div className="pt-3 mt-1 border-t border-border">
+                    {amendments.some(a => a.status === 'pending') ? (
+                      <div className="rounded-lg px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-xs">
+                        <div className="flex items-center gap-1.5 font-semibold text-amber-500 mb-0.5">
+                          <Clock size={12} />
+                          Amendment Pending Review
+                        </div>
+                        <p className="text-muted-foreground">An admin is reviewing your closing date amendment request.</p>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setShowAmendmentModal(true)}
+                      >
+                        <CalendarClock size={14} className="mr-1.5" />
+                        Amend Closing Date
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -862,6 +923,75 @@ export default function AgentDealDetailPage() {
           </div>
         </div>
       </main>
+
+      {/* Closing Date Amendment Modal */}
+      {showAmendmentModal && deal && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => !amendSubmitting && setShowAmendmentModal(false)}>
+          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="border-b border-border">
+              <CardTitle className="flex items-center gap-2 text-primary">
+                <CalendarClock size={18} />
+                Amend Closing Date
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              <div className="rounded-lg p-3 bg-muted/30 border border-border text-xs space-y-1">
+                <p><span className="text-muted-foreground">Current closing date:</span> <span className="font-semibold text-foreground">{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}</span></p>
+                <p><span className="text-muted-foreground">Current advance:</span> <span className="font-semibold text-foreground">{formatCurrency(deal.advance_amount)}</span></p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New Closing Date</Label>
+                <Input
+                  type="date"
+                  value={amendNewClosingDate}
+                  onChange={(e) => setAmendNewClosingDate(e.target.value)}
+                  disabled={amendSubmitting}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Executed Amendment Document</Label>
+                <Input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                  onChange={(e) => setAmendFile(e.target.files?.[0] || null)}
+                  disabled={amendSubmitting}
+                />
+                <p className="text-[11px] text-muted-foreground/70">Upload the fully executed amendment to the Agreement of Purchase and Sale. PDF preferred.</p>
+              </div>
+
+              <div className="rounded-lg px-3 py-2 bg-blue-500/10 border border-blue-500/20 text-xs">
+                <p className="text-blue-400 leading-relaxed">
+                  <strong>What happens next:</strong> Admin will review your request and the uploaded amendment. Once approved, your fees will be recalculated and you'll receive a new DocuSign email to sign the amended CPA.
+                </p>
+              </div>
+
+              {amendError && (
+                <div className="rounded-lg px-3 py-2 bg-destructive/10 border border-destructive/30 text-xs text-destructive">
+                  {amendError}
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-end pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAmendmentModal(false)}
+                  disabled={amendSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSubmitAmendment}
+                  disabled={amendSubmitting || !amendNewClosingDate || !amendFile}
+                >
+                  {amendSubmitting ? 'Submitting...' : 'Submit Request'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

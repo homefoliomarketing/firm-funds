@@ -32,6 +32,7 @@ import {
 import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
+import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, RETURN_PROCESSING_DAYS } from '@/lib/constants'
 import { calculateDeal } from '@/lib/calculations'
@@ -515,6 +516,11 @@ export default function DealDetailPage() {
   const [esignEnvelopes, setEsignEnvelopes] = useState<EsignatureEnvelope[]>([])
   const [sendingForSignature, setSendingForSignature] = useState(false)
   const [voidingEnvelopes, setVoidingEnvelopes] = useState(false)
+  // Closing date amendment state
+  const [amendments, setAmendments] = useState<any[]>([])
+  const [amendmentProcessing, setAmendmentProcessing] = useState<string | null>(null)
+  const [rejectingAmendment, setRejectingAmendment] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
   const [underwritingExpanded, setUnderwritingExpanded] = useState(true)
   const [checklistExpanded, setChecklistExpanded] = useState(true)
   const [docsExpanded, setDocsExpanded] = useState(true)
@@ -637,6 +643,9 @@ export default function DealDetailPage() {
     setDocReturns(returnsData || [])
     const esignResult = await getDealSignatureStatus(dealId)
     if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
+    // Load amendments
+    const amendResult = await getDealAmendments(dealId)
+    if (amendResult.success) setAmendments(amendResult.data || [])
     setLoading(false)
 
     // After ALL data is loaded, handle auto-expand + scroll for #messages hash or unread messages
@@ -786,6 +795,36 @@ export default function DealDetailPage() {
   const isBackwardTransition = (newStatus: string) => {
     if (!deal) return false
     return (BACKWARD_STATUSES[deal.status] || []).includes(newStatus)
+  }
+
+  const handleApproveAmendment = async (amendmentId: string) => {
+    setAmendmentProcessing(amendmentId)
+    const result = await approveClosingDateAmendment({ amendmentId })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Amendment approved. Deal updated and amended CPA sent for signing.' })
+      await loadDealData()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to approve amendment' })
+    }
+    setAmendmentProcessing(null)
+  }
+
+  const handleRejectAmendment = async (amendmentId: string) => {
+    if (!rejectReason.trim()) {
+      setStatusMessage({ type: 'error', text: 'Rejection reason is required' })
+      return
+    }
+    setAmendmentProcessing(amendmentId)
+    const result = await rejectClosingDateAmendment({ amendmentId, reason: rejectReason.trim() })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Amendment rejected. Agent notified.' })
+      setRejectingAmendment(null)
+      setRejectReason('')
+      await loadDealData()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to reject amendment' })
+    }
+    setAmendmentProcessing(null)
   }
 
   const handleStatusChange = async (newStatus: string) => {
@@ -1827,6 +1866,120 @@ export default function DealDetailPage() {
               </div>
             )}
           </div>
+
+          {/* CLOSING DATE AMENDMENTS */}
+          {amendments.length > 0 && (
+            <div className="rounded-xl px-4 py-3 mb-3 bg-card border border-border/50 ff-card-elevated">
+              <h2 className="text-xs font-bold mb-3 flex items-center gap-1.5 uppercase tracking-wider text-amber-400">
+                <Clock className="w-3.5 h-3.5" />
+                Closing Date Amendments
+              </h2>
+              <div className="space-y-3">
+                {amendments.map((am) => {
+                  const isPending = am.status === 'pending'
+                  const isApproved = am.status === 'approved'
+                  const isRejected = am.status === 'rejected'
+                  const docLink = am.amendment_document_id
+                    ? documents.find((d: any) => d.id === am.amendment_document_id)
+                    : null
+                  return (
+                    <div key={am.id} className={`rounded-lg p-3 border text-xs ${isPending ? 'bg-amber-500/5 border-amber-500/30' : isApproved ? 'bg-green-500/5 border-green-500/30' : 'bg-destructive/5 border-destructive/30'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`font-bold uppercase tracking-wider ${isPending ? 'text-amber-400' : isApproved ? 'text-green-400' : 'text-destructive'}`}>
+                          {am.status}
+                        </span>
+                        <span className="text-muted-foreground">{new Date(am.created_at).toLocaleString('en-CA')}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
+                        <div>
+                          <p className="text-muted-foreground">Old Closing Date</p>
+                          <p className="font-semibold text-foreground">{new Date(am.old_closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">New Closing Date</p>
+                          <p className="font-semibold text-foreground">{new Date(am.new_closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Old Advance</p>
+                          <p className="font-semibold text-foreground">{formatCurrency(am.old_advance_amount || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">New Advance</p>
+                          <p className="font-semibold text-foreground">{formatCurrency(am.new_advance_amount || 0)}</p>
+                        </div>
+                      </div>
+                      {docLink && (
+                        <div className="mb-2">
+                          <p className="text-muted-foreground mb-1">Uploaded Amendment:</p>
+                          <button
+                            onClick={async () => {
+                              const { data } = await supabase.storage.from('deal-documents').createSignedUrl(docLink.file_path, 3600)
+                              if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                            }}
+                            className="text-primary hover:underline font-medium"
+                          >
+                            {docLink.file_name}
+                          </button>
+                        </div>
+                      )}
+                      {isRejected && am.rejection_reason && (
+                        <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20">
+                          <p className="text-destructive"><strong>Rejected:</strong> {am.rejection_reason}</p>
+                        </div>
+                      )}
+                      {isPending && (
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          {rejectingAmendment === am.id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={rejectReason}
+                                onChange={(e) => setRejectReason(e.target.value)}
+                                placeholder="Reason for rejection..."
+                                rows={2}
+                                className="w-full px-2 py-1.5 rounded border border-border bg-background text-foreground text-xs"
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button
+                                  onClick={() => { setRejectingAmendment(null); setRejectReason('') }}
+                                  className="px-3 py-1.5 rounded text-[11px] font-medium bg-muted text-foreground hover:bg-muted/70"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => handleRejectAmendment(am.id)}
+                                  disabled={amendmentProcessing === am.id || !rejectReason.trim()}
+                                  className="px-3 py-1.5 rounded text-[11px] font-medium bg-destructive text-white hover:bg-destructive/80 disabled:opacity-50"
+                                >
+                                  Confirm Reject
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2 justify-end">
+                              <button
+                                onClick={() => setRejectingAmendment(am.id)}
+                                disabled={amendmentProcessing === am.id}
+                                className="px-3 py-1.5 rounded text-[11px] font-medium bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => handleApproveAmendment(am.id)}
+                                disabled={amendmentProcessing === am.id}
+                                className="px-3 py-1.5 rounded text-[11px] font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                              >
+                                {amendmentProcessing === am.id ? 'Approving...' : 'Approve & Send Amended CPA'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* FINANCIAL BREAKDOWN */}
           <div className="rounded-xl px-4 py-3 bg-card border border-border/50 ff-card-elevated">

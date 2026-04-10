@@ -1558,3 +1558,162 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
     }
   }
 }
+
+// ============================================================================
+// Closing Date Amendment Notifications
+// ============================================================================
+
+/** Notify admin that an agent has requested a closing date amendment */
+export async function sendAmendmentRequestedNotification(params: {
+  dealId: string
+  propertyAddress: string
+  agentName: string
+  oldClosingDate: string
+  newClosingDate: string
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `Closing Date Amendment Requested — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
+          Closing Date Amendment Requested
+        </h2>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+          <strong style="color:#7B9FE0;">${params.agentName}</strong> has requested a closing date amendment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
+          <tr>
+            <td style="padding:16px;">
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Original Closing Date</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:16px; font-weight:600;">${formatReminderDate(params.oldClosingDate)}</p>
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Proposed New Closing Date</p>
+              <p style="margin:0; color:#5FA873; font-size:16px; font-weight:600;">${formatReminderDate(params.newClosingDate)}</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
+          The agent has uploaded the executed amendment document. Please review and approve or reject the request.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/admin/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                Review Amendment
+              </a>
+            </td>
+          </tr>
+        </table>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send amendment requested notification:', err)
+  }
+}
+
+/** Notify agent that their closing date amendment was approved */
+export async function sendAmendmentApprovedNotification(params: {
+  dealId: string
+  propertyAddress: string
+  agentEmail: string
+  agentFirstName: string
+  newClosingDate: string
+  newAdvanceAmount: number
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Amendment Approved — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
+          Closing Date Amendment Approved
+        </h2>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+          Hi ${params.agentFirstName}, your closing date amendment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> has been approved.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
+          <tr>
+            <td style="padding:16px;">
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">New Closing Date</p>
+              <p style="margin:0 0 12px; color:#5FA873; font-size:16px; font-weight:600;">${formatReminderDate(params.newClosingDate)}</p>
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Updated Advance Amount</p>
+              <p style="margin:0; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.newAdvanceAmount)}</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
+          You will receive a separate email from DocuSign with an Amendment to the Commission Purchase Agreement. Please review and sign it to finalize the amendment.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                View Deal
+              </a>
+            </td>
+          </tr>
+        </table>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send amendment approved notification:', err)
+  }
+}
+
+/** Notify agent that their closing date amendment was rejected */
+export async function sendAmendmentRejectedNotification(params: {
+  dealId: string
+  propertyAddress: string
+  agentEmail: string
+  agentFirstName: string
+  reason: string
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Amendment Rejected — ${params.propertyAddress}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
+          Closing Date Amendment Rejected
+        </h2>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+          Hi ${params.agentFirstName}, your closing date amendment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> was not approved.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:8px;">
+          <tr>
+            <td style="padding:16px;">
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Reason</p>
+              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5;">${params.reason}</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
+          If you have any questions, please contact us or reply to this email.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                View Deal
+              </a>
+            </td>
+          </tr>
+        </table>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send amendment rejected notification:', err)
+  }
+}

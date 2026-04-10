@@ -3,7 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
-import { generateCpaDocx, generateIdpDocx, generateBcaDocx } from '@/lib/contract-docx'
+import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx } from '@/lib/contract-docx'
 
 type ActionResult = { success: boolean; error?: string; data?: any }
 
@@ -397,6 +397,11 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
     // Build BCA contract data
     const today = new Date().toISOString().split('T')[0]
 
+    const referralPct = brokerage.referral_fee_percentage
+    const referralDisplay = referralPct !== null && referralPct !== undefined
+      ? `${(referralPct * 100).toFixed(0)}%`
+      : '20%'
+
     const contractData: Record<string, string> = {
       '{{AGREEMENT_DATE}}': formatDate(today),
       '{{BROKERAGE_LEGAL_NAME}}': brokerage.name,
@@ -404,6 +409,7 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
       '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name,
       '{{BROKERAGE_EMAIL}}': brokerage.email,
       '{{BROKERAGE_PHONE}}': brokerage.phone || 'On file',
+      '{{REFERRAL_FEE_PCT}}': referralDisplay,
       '{{SIGNATURE_DATE}}': '', // DocuSign fills this
     }
 
@@ -564,4 +570,141 @@ export async function getBcaSignatureStatus(brokerageId: string): Promise<Action
   }
 
   return { success: true, data: envelopes || [] }
+}
+
+// ============================================================================
+// Send Amended CPA for Signature (after closing date amendment approved)
+// ============================================================================
+
+export async function sendAmendedCpaForSignature(dealId: string, amendmentId: string): Promise<ActionResult> {
+  const supabase = createServiceRoleClient()
+
+  try {
+    const connected = await isDocuSignConnected()
+    if (!connected) {
+      return { success: false, error: 'DocuSign is not connected' }
+    }
+
+    const { data: deal } = await supabase
+      .from('deals')
+      .select('*, agent:agents(*, brokerage:brokerages(*))')
+      .eq('id', dealId)
+      .single()
+
+    if (!deal) return { success: false, error: 'Deal not found' }
+
+    const { data: amendment } = await supabase
+      .from('closing_date_amendments')
+      .select('*')
+      .eq('id', amendmentId)
+      .single()
+
+    if (!amendment) return { success: false, error: 'Amendment not found' }
+
+    const agent = deal.agent
+    if (!agent?.email) return { success: false, error: 'Agent has no email address' }
+
+    const agentName = `${agent.first_name} ${agent.last_name}`
+
+    const newDiscount = amendment.new_discount_fee || 0
+    const newSettlementFee = amendment.new_settlement_period_fee || 0
+    const newPurchasePrice = amendment.new_advance_amount || 0
+    const oldPurchasePrice = amendment.old_advance_amount || 0
+    const oldDiscount = amendment.old_discount_fee || 0
+    const oldSettlementFee = amendment.old_settlement_period_fee || 0
+
+    const fundingDate = deal.funding_date || new Date().toISOString().split('T')[0]
+    const newDaysNum = Math.ceil((new Date(amendment.new_closing_date + 'T00:00:00Z').getTime() - new Date(fundingDate + 'T00:00:00Z').getTime()) / (1000 * 60 * 60 * 24))
+
+    const contractData: Record<string, string> = {
+      '{{AMENDMENT_DATE}}': formatDate(new Date().toISOString().split('T')[0]),
+      '{{AGENT_FULL_LEGAL_NAME}}': agentName,
+      '{{RECO_REGISTRATION_NUMBER}}': agent.reco_number || 'On file',
+      '{{PROPERTY_ADDRESS}}': deal.property_address,
+      '{{ORIGINAL_CPA_DATE}}': deal.funding_date ? formatDate(deal.funding_date) : 'original date',
+      '{{OLD_CLOSING_DATE}}': formatDate(amendment.old_closing_date),
+      '{{NEW_CLOSING_DATE}}': formatDate(amendment.new_closing_date),
+      '{{OLD_DUE_DATE}}': amendment.old_due_date ? formatDate(amendment.old_due_date) : 'N/A',
+      '{{NEW_DUE_DATE}}': amendment.new_due_date ? formatDate(amendment.new_due_date) : 'N/A',
+      '{{FACE_VALUE}}': formatCurrency(deal.net_commission),
+      '{{OLD_PURCHASE_DISCOUNT}}': formatCurrency(oldDiscount),
+      '{{NEW_PURCHASE_DISCOUNT}}': formatCurrency(newDiscount),
+      '{{OLD_SETTLEMENT_PERIOD_FEE}}': formatCurrency(oldSettlementFee),
+      '{{NEW_SETTLEMENT_PERIOD_FEE}}': formatCurrency(newSettlementFee),
+      '{{OLD_PURCHASE_PRICE}}': formatCurrency(oldPurchasePrice),
+      '{{NEW_PURCHASE_PRICE}}': formatCurrency(newPurchasePrice),
+      '{{NEW_NUMBER_OF_DAYS}}': newDaysNum.toString(),
+    }
+
+    const amendmentBuffer = await generateCpaAmendmentDocx(contractData)
+    const amendmentBase64 = amendmentBuffer.toString('base64')
+
+    const brokerage = agent.brokerage
+
+    const result = await createAndSendEnvelope({
+      emailSubject: `Firm Funds — Closing Date Amendment Signature Required: ${deal.property_address}`,
+      documents: [
+        {
+          documentBase64: amendmentBase64,
+          name: 'CPA Amendment — Closing Date Change',
+          fileExtension: 'docx',
+          documentId: '1',
+        },
+      ],
+      signers: [
+        {
+          email: agent.email,
+          name: agentName,
+          recipientId: '1',
+          routingOrder: '1',
+          tabs: {
+            signHereTabs: [
+              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+            dateSignedTabs: [
+              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+            initialHereTabs: [
+              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+          },
+        },
+      ],
+      ccRecipients: [
+        ...(brokerage?.broker_of_record_email ? [{
+          email: brokerage.broker_of_record_email,
+          name: brokerage.broker_of_record_name || brokerage.name,
+          recipientId: '2',
+          routingOrder: '2',
+        }] : []),
+      ],
+      status: 'sent',
+    })
+
+    await supabase
+      .from('esignature_envelopes')
+      .insert({
+        deal_id: dealId,
+        envelope_id: result.envelopeId,
+        document_type: 'cpa' as const,
+        status: 'sent' as const,
+        agent_signer_status: 'sent' as const,
+        envelope_uri: result.uri,
+      })
+
+    await logAuditEvent({
+      action: 'amendment.envelope_sent',
+      entityType: 'deal',
+      entityId: dealId,
+      metadata: {
+        envelope_id: result.envelopeId,
+        amendment_id: amendmentId,
+      },
+    })
+
+    return { success: true, data: { envelopeId: result.envelopeId } }
+  } catch (err: any) {
+    console.error('Send amended CPA error:', err?.message)
+    return { success: false, error: err?.message || 'Failed to send amended CPA' }
+  }
 }
