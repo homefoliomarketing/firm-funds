@@ -511,6 +511,8 @@ export default function DealDetailPage() {
   const [showDenialInput, setShowDenialInput] = useState(false)
   const [pendingBackward, setPendingBackward] = useState<string | null>(null)
   const [showFundingConfirmation, setShowFundingConfirmation] = useState(false)
+  // Per-deal brokerage referral override entered at funding time (percentage as a string, e.g. "20" for 20%)
+  const [fundingReferralPctInput, setFundingReferralPctInput] = useState<string>('')
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   // E-Signature state
   const [esignEnvelopes, setEsignEnvelopes] = useState<EsignatureEnvelope[]>([])
@@ -830,7 +832,13 @@ export default function DealDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
-    if (newStatus === 'funded' && !showFundingConfirmation) { setShowFundingConfirmation(true); return }
+    if (newStatus === 'funded' && !showFundingConfirmation) {
+      // Initialize the referral override input from the brokerage default
+      const defaultPct = brokerage?.referral_fee_percentage ?? 0.20
+      setFundingReferralPctInput((defaultPct * 100).toFixed(2).replace(/\.?0+$/, ''))
+      setShowFundingConfirmation(true)
+      return
+    }
     setShowFundingConfirmation(false)
     if (isBackwardTransition(newStatus) && pendingBackward !== newStatus) {
       setPendingBackward(newStatus)
@@ -838,9 +846,18 @@ export default function DealDetailPage() {
     }
     setPendingBackward(null)
     setUpdating(true); setStatusMessage(null)
+    // Parse referral override only when funding
+    let referralOverride: number | undefined
+    if (newStatus === 'funded') {
+      const parsed = parseFloat(fundingReferralPctInput)
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+        referralOverride = parsed / 100
+      }
+    }
     const result = await updateDealStatus({
       dealId: deal.id, newStatus,
       denialReason: newStatus === 'denied' ? denialReason.trim() : undefined,
+      brokerageReferralPct: referralOverride,
     })
     if (!result.success) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update deal status' })
@@ -1343,7 +1360,11 @@ export default function DealDetailPage() {
           {/* FUNDING CONFIRMATION */}
           {showFundingConfirmation && deal && (() => {
             const daysUntilClosing = Math.max(1, calcDaysUntilClosing(deal.closing_date))
-            const referralPct = brokerage?.referral_fee_percentage ?? 0.20
+            const brokerageDefaultPct = brokerage?.referral_fee_percentage ?? 0.20
+            const parsedOverride = parseFloat(fundingReferralPctInput)
+            const overrideValid = !isNaN(parsedOverride) && parsedOverride >= 0 && parsedOverride <= 100
+            const referralPct = overrideValid ? parsedOverride / 100 : brokerageDefaultPct
+            const referralPctOverridden = overrideValid && Math.abs(referralPct - brokerageDefaultPct) > 1e-9
             const calc = calculateDeal({
               grossCommission: deal.gross_commission,
               brokerageSplitPct: deal.brokerage_split_pct,
@@ -1355,6 +1376,8 @@ export default function DealDetailPage() {
             const today = new Date()
             const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
             const closingDate = new Date(deal.closing_date + 'T00:00:00')
+            // Due date = closing + 14 calendar days (matches server calculation)
+            const dueDate = new Date(closingDate.getTime() + 14 * 24 * 60 * 60 * 1000)
             const fmtDate = (d: Date) => d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
             return (
               <div className="mt-4 pt-4 border-t border-border/50">
@@ -1377,6 +1400,10 @@ export default function DealDetailPage() {
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Closing Date</td>
                           <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(closingDate)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 text-muted-foreground">Payment Due Date <span className="text-[10px] text-muted-foreground/70">(+14d)</span></td>
+                          <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(dueDate)}</td>
                         </tr>
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Days Charged</td>
@@ -1410,7 +1437,28 @@ export default function DealDetailPage() {
                         </tr>
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Brokerage Referral ({(referralPct * 100).toFixed(0)}% of discount fee)</td>
+                          <td className="py-1.5 text-muted-foreground">
+                            <div className="flex items-center gap-2">
+                              <span>Brokerage Referral</span>
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step="0.01"
+                                  value={fundingReferralPctInput}
+                                  onChange={(e) => setFundingReferralPctInput(e.target.value)}
+                                  aria-label="Brokerage referral percentage override"
+                                  className={`w-14 px-1.5 py-0.5 rounded border text-xs text-right font-mono tabular-nums bg-background ${overrideValid ? 'border-border text-foreground' : 'border-destructive text-destructive'}`}
+                                />
+                                <span>%</span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground/70">of discount fee</span>
+                              {referralPctOverridden && (
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">override</span>
+                              )}
+                            </div>
+                          </td>
                           <td className="py-1.5 text-right font-mono text-muted-foreground">{formatCurrency(calc.brokerageReferralFee)}</td>
                         </tr>
                         <tr>
@@ -1431,7 +1479,7 @@ export default function DealDetailPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleStatusChange('funded')}
-                      disabled={updating}
+                      disabled={updating || !overrideValid}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-purple-700 hover:bg-purple-800"
                     >
                       <Banknote className="w-4 h-4" />
