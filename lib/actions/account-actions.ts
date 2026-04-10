@@ -3,7 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
-import { calculateLateInterest, calculateDailyLateInterest } from '@/lib/calculations'
+import { calculateLateInterest } from '@/lib/calculations'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
   sendDocumentReturnNotification,
@@ -130,7 +130,7 @@ export async function autoChargeDailyLateInterest(): Promise<{
   // Find all funded deals that are past their due date
   const { data: overduDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, advance_amount, due_date, property_address, settlement_period_fee')
+    .select('id, agent_id, advance_amount, due_date, property_address, settlement_period_fee, late_interest_charged')
     .eq('status', 'funded')
     .lt('due_date', today)
 
@@ -144,8 +144,19 @@ export async function autoChargeDailyLateInterest(): Promise<{
     if (!deal.settlement_period_fee || deal.settlement_period_fee <= 0) continue
 
     try {
-      const dailyInterest = calculateDailyLateInterest(deal.advance_amount)
-      if (dailyInterest <= 0) continue
+      // Total interest owed from due_date to today (idempotent across multiple cron runs
+      // in the same day and resilient to missed runs)
+      const dueDateStr = typeof deal.due_date === 'string'
+        ? deal.due_date.slice(0, 10)
+        : new Date(deal.due_date as any).toISOString().slice(0, 10)
+
+      const totalInterestOwed = calculateLateInterest(deal.advance_amount, dueDateStr, today)
+      const alreadyCharged = (deal.late_interest_charged as number) || 0
+      const interestToCharge = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
+
+      // Nothing to charge: either not overdue yet (calculateLateInterest returns 0),
+      // already fully charged for today, or a previous run overshot
+      if (interestToCharge < 0.005) continue
 
       // Get agent balance
       const { data: agent } = await serviceClient
@@ -156,7 +167,7 @@ export async function autoChargeDailyLateInterest(): Promise<{
 
       if (!agent) continue
 
-      const newBalance = (agent.account_balance || 0) + dailyInterest
+      const newBalance = (agent.account_balance || 0) + interestToCharge
 
       // Update balance
       await serviceClient
@@ -171,29 +182,22 @@ export async function autoChargeDailyLateInterest(): Promise<{
           agent_id: agent.id,
           deal_id: deal.id,
           type: 'late_payment_interest',
-          amount: dailyInterest,
+          amount: interestToCharge,
           running_balance: newBalance,
-          description: `Daily late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.)`,
+          description: `Late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.)`,
         })
-
-      // Update deal cumulative interest — fetch current value first for accurate increment
-      const { data: currentDeal } = await serviceClient
-        .from('deals')
-        .select('late_interest_charged')
-        .eq('id', deal.id)
-        .single()
 
       await serviceClient
         .from('deals')
         .update({
-          late_interest_charged: ((currentDeal?.late_interest_charged as number) || 0) + dailyInterest,
+          late_interest_charged: totalInterestOwed,
           late_interest_calculated_at: new Date().toISOString(),
           payment_status: 'overdue',
         })
         .eq('id', deal.id)
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: dailyInterest })
+      result.details.push({ dealId: deal.id, interest: interestToCharge })
     } catch (err) {
       console.error(`Auto-charge error for deal ${deal.id}:`, err)
       result.errors++
