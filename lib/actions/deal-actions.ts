@@ -256,12 +256,10 @@ export async function submitDeal(formData: {
       success: true,
       data: {
         dealId: newDeal.id,
-        advanceAmount: calc.advanceAmount,
-        netCommission: calc.netCommission,
-        discountFee: calc.discountFee,
+        ...calc,
         daysUntilClosing,
-        brokerageReferralFee: calc.brokerageReferralFee,
-        amountDueFromBrokerage: calc.amountDueFromBrokerage,
+        outstandingBalance: 0,
+        estimatedBalanceDeduction: 0,
       },
     }
   } catch (err: any) {

@@ -109,6 +109,7 @@ export default function NewDealPage() {
   const [preview, setPreview] = useState<{
     netCommission: number
     daysUntilClosing: number
+    effectiveDays: number
     discountFee: number
     settlementPeriodFee: number
     totalFees: number
@@ -160,6 +161,7 @@ export default function NewDealPage() {
       if (result.success && result.data) {
         setPreview({
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
+          effectiveDays: result.data.effectiveDays,
           discountFee: result.data.discountFee, settlementPeriodFee: result.data.settlementPeriodFee,
           totalFees: result.data.totalFees, advanceAmount: result.data.advanceAmount,
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
@@ -210,6 +212,7 @@ export default function NewDealPage() {
       if (result.data) {
         setPreview({
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
+          effectiveDays: result.data.effectiveDays,
           discountFee: result.data.discountFee, settlementPeriodFee: result.data.settlementPeriodFee,
           totalFees: result.data.totalFees, advanceAmount: result.data.advanceAmount,
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
@@ -549,7 +552,7 @@ export default function NewDealPage() {
                     <span className="font-medium text-foreground">{preview.daysUntilClosing} days</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount Fee ($0.75/$1,000/day × {preview.daysUntilClosing}d)</span>
+                    <span className="text-muted-foreground">Discount Fee ($0.75/$1,000/day × {preview.effectiveDays}d)</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.discountFee)}</span>
                   </div>
                   <div className="flex justify-between">
@@ -746,7 +749,7 @@ export default function NewDealPage() {
                       <span className="font-medium text-foreground">{formatCurrency(preview.netCommission)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Discount Fee ({preview.daysUntilClosing} days)</span>
+                      <span className="text-muted-foreground">Discount Fee ({preview.effectiveDays} days)</span>
                       <span className="font-medium text-destructive">-{formatCurrency(preview.discountFee)}</span>
                     </div>
                     <div className="flex justify-between pt-2.5 border-t border-border">

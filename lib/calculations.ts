@@ -33,11 +33,22 @@ export interface DealResult {
   firmFundsProfit: number
   amountDueFromBrokerage: number
   eftTransferDays: number
+  effectiveDays: number // the actual chargeable days used for the discount fee
 }
 
 /** Round to cents using integer math to avoid floating-point errors */
 function roundToCents(value: number): number {
   return Math.round(value * 100) / 100
+}
+
+/**
+ * Returns the number of chargeable days used for the discount fee, given
+ * days-until-closing. Funds arrive the day AFTER funding and closing day
+ * itself isn't charged, so effective days = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS.
+ * Minimum of 1 to prevent zero/negative charges.
+ */
+export function getChargeDays(daysUntilClosing: number): number {
+  return Math.max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
 }
 
 /** Validate deal calculation inputs. Throws if invalid. */
@@ -71,8 +82,8 @@ export function calculateDeal(input: DealCalculation): DealResult {
 
   // Discount fee: net commission × ($0.75 / $1,000) × days
   // -1 because: agent receives funds day AFTER funding, and closing day is repayment (not charged)
-  // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS
-  const effectiveDays = Math.max(1, input.daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
+  // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS (see getChargeDays)
+  const effectiveDays = getChargeDays(input.daysUntilClosing)
   const discountFee = netCommission * (rate / 1000) * effectiveDays
 
   // Settlement Period Fee: same rate × 14 days
@@ -107,6 +118,7 @@ export function calculateDeal(input: DealCalculation): DealResult {
     firmFundsProfit: roundToCents(firmFundsProfit),
     amountDueFromBrokerage: roundToCents(amountDueFromBrokerage),
     eftTransferDays,
+    effectiveDays,
   }
 }
 

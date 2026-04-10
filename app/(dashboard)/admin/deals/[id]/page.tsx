@@ -34,8 +34,8 @@ import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokera
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, RETURN_PROCESSING_DAYS } from '@/lib/constants'
-import { calculateDeal } from '@/lib/calculations'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT } from '@/lib/constants'
+import { calculateDeal, getChargeDays } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
 import { Button } from '@/components/ui/button'
@@ -1351,7 +1351,7 @@ export default function DealDetailPage() {
               discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
               brokerageReferralPct: referralPct,
             })
-            const chargeDays = Math.max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
+            const chargeDays = getChargeDays(daysUntilClosing)
             const today = new Date()
             const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
             const closingDate = new Date(deal.closing_date + 'T00:00:00')
@@ -2019,7 +2019,7 @@ export default function DealDetailPage() {
                 { label: 'Gross Commission', value: formatCurrency(deal.gross_commission) },
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
-                { label: `Discount Fee (${deal.days_until_closing}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
+                { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
                 { label: 'Settlement Period Fee (14d)', value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
                 { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
               ].map((row) => (
