@@ -565,9 +565,8 @@ export default function NewDealPage() {
                   </div>
                   {preview.outstandingBalance > 0 && (
                     <div className="rounded-lg px-3 py-2 mt-1 bg-destructive/10 border border-destructive/20 text-xs">
-                      <p className="font-semibold text-destructive">Outstanding Balance: {formatCurrency(preview.outstandingBalance)}</p>
-                      <p className="text-destructive/80 mt-0.5">
-                        {formatCurrency(preview.estimatedBalanceDeduction)} will be deducted from your advance at funding.
+                      <p className="text-destructive">
+                        Your Firm Funds account has an outstanding balance of <span className="font-semibold">{formatCurrency(preview.outstandingBalance)}</span>, which will be deducted from this advance before processing.
                       </p>
                     </div>
                   )}
@@ -578,7 +577,7 @@ export default function NewDealPage() {
                     </div>
                     {preview.estimatedBalanceDeduction > 0 && (
                       <div className="flex justify-between items-center mt-2 pt-2 border-t border-primary/20">
-                        <span className="text-xs font-medium text-muted-foreground">After balance deduction, deposited to your bank</span>
+                        <span className="text-xs font-medium text-muted-foreground">After outstanding balance deducted, deposited to your bank</span>
                         <span className="text-base font-bold text-primary tabular-nums">{formatCurrency(preview.advanceAmount - preview.estimatedBalanceDeduction)}</span>
                       </div>
                     )}
@@ -766,7 +765,7 @@ export default function NewDealPage() {
                     </div>
                     {preview.estimatedBalanceDeduction > 0 && (
                       <div className="flex justify-between pt-1.5 border-t border-border/50">
-                        <span className="text-xs text-muted-foreground">After balance deduction, to your bank</span>
+                        <span className="text-xs text-muted-foreground">After outstanding balance deducted, to your bank</span>
                         <span className="text-sm font-semibold text-primary">{formatCurrency(preview.advanceAmount - preview.estimatedBalanceDeduction)}</span>
                       </div>
                     )}
