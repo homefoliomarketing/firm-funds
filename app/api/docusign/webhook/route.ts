@@ -21,7 +21,25 @@ export async function POST(request: Request) {
     }
 
     const envelopeId = payload?.envelopeId || payload?.data?.envelopeId || payload?.EnvelopeStatus?.EnvelopeID
-    const envelopeStatus = payload?.status || payload?.data?.envelopeSummary?.status || payload?.EnvelopeStatus?.Status
+
+    // DocuSign Connect (REST v2.1, aggregate mode) sends status via the `event` field
+    // (e.g. "envelope-sent", "envelope-completed"), not via a top-level `status` field.
+    // Fall back through the older XML/SOAP shapes for safety, but the event name is the
+    // authoritative source on the current configuration.
+    const eventName: string | undefined = payload?.event
+    const eventToStatus: Record<string, string> = {
+      'envelope-sent': 'sent',
+      'envelope-delivered': 'delivered',
+      'envelope-completed': 'completed',
+      'envelope-declined': 'declined',
+      'envelope-voided': 'voided',
+      'recipient-completed': 'completed',
+    }
+    const envelopeStatus =
+      payload?.status ||
+      payload?.data?.envelopeSummary?.status ||
+      payload?.EnvelopeStatus?.Status ||
+      (eventName ? eventToStatus[eventName] : undefined)
 
     if (!envelopeId) {
       console.error('DocuSign webhook: no envelopeId in payload')
