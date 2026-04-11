@@ -1,10 +1,98 @@
 {
   "permissions": {
     "allow": [
-      "mcp__Claude_Preview__preview_start",
       "Bash(npx tsc:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx supabase:*)",
+      "Bash(npx supabase db query:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npx vitest:*)",
+
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm outdated:*)",
+
+      "Bash(node -e:*)",
+      "Bash(node --version)",
+      "Bash(node:*)",
+
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git worktree:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git config --get:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh run:*)",
+      "Bash(gh api:*)",
+
+      "Bash(ls:*)",
+      "Bash(pwd)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(file:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(which:*)",
+      "Bash(where:*)",
+      "Bash(env)",
+
+      "Bash(python -c:*)",
+      "Bash(python -:*)",
+      "Bash(python3 -c:*)",
+      "Bash(python3 -:*)",
+
+      "Bash(curl:*)",
+
+      "Bash(DBURL=*)",
+      "Bash(SRK=*)",
+
+      "Read(//c/Users/randi/Dev/firm-funds/**)",
+      "Read(//c/Users/randi/.claude/**)",
+
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Claude_Preview__preview_stop",
+      "mcp__Claude_Preview__preview_list",
+      "mcp__Claude_Preview__preview_logs",
+      "mcp__Claude_Preview__preview_console_logs",
+      "mcp__Claude_Preview__preview_network",
+      "mcp__Claude_Preview__preview_screenshot",
+      "mcp__Claude_Preview__preview_snapshot",
+      "mcp__Claude_Preview__preview_eval",
+      "mcp__Claude_Preview__preview_click",
+      "mcp__Claude_Preview__preview_fill",
+      "mcp__Claude_Preview__preview_inspect",
+      "mcp__Claude_Preview__preview_resize"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git commit --amend:*)",
+      "Bash(git rebase:*)"
     ]
   }
 }
