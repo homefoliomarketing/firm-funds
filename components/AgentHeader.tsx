@@ -200,7 +200,7 @@ export default function AgentHeader({
                   </button>
                   <button onClick={() => router.push('/agent/account')} className={navBtnClass(isAccountPage)}>
                     <Wallet size={14} />
-                    Account
+                    Account Balance
                   </button>
                   <button onClick={() => router.push('/agent/profile')} className={navBtnClass(isProfilePage)}>
                     <User size={14} />

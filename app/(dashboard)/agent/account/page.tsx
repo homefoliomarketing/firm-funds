@@ -116,7 +116,7 @@ export default function AgentAccountPage() {
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {currentBalance > 0
-                      ? 'This balance will be deducted from your next advance.'
+                      ? 'This balance is due immediately.'
                       : 'You have no outstanding charges.'
                     }
                   </p>
