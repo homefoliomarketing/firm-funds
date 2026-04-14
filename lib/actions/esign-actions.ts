@@ -167,8 +167,10 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
     const idpBase64 = idpBuffer.toString('base64')
 
     // Create envelope with both documents
+    const agentFirstName = agent.first_name || 'there'
     const result = await createAndSendEnvelope({
       emailSubject: `Firm Funds — Signature Required: ${deal.property_address}`,
+      emailBlurb: `Hi ${agentFirstName},\n\nFirm Funds Inc. has prepared your Commission Purchase Agreement and Irrevocable Direction to Pay for the property at ${deal.property_address}.\n\nPlease review and sign both documents at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you for choosing Firm Funds.\n\n— The Firm Funds Team`,
       documents: [
         {
           documentBase64: cpaBase64,
@@ -418,8 +420,10 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
     const bcaBase64 = bcaBuffer.toString('base64')
 
     // Create envelope — signer is the Broker of Record
+    const borFirstName = brokerage.broker_of_record_name?.split(' ')[0] || 'there'
     const result = await createAndSendEnvelope({
       emailSubject: `Firm Funds — Brokerage Cooperation Agreement: ${brokerage.name}`,
+      emailBlurb: `Hi ${borFirstName},\n\nFirm Funds Inc. has prepared a Brokerage Cooperation Agreement for ${brokerage.name}. This agreement establishes the partnership between your brokerage and Firm Funds for our Commission Purchase Program.\n\nPlease review and sign at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
       documents: [
         {
           documentBase64: bcaBase64,
@@ -647,6 +651,7 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
 
     const result = await createAndSendEnvelope({
       emailSubject: `Firm Funds — Closing Date Amendment Signature Required: ${deal.property_address}`,
+      emailBlurb: `Hi ${agent.first_name || 'there'},\n\nThe closing date for your deal at ${deal.property_address} has been updated. Firm Funds Inc. has prepared a Commission Purchase Agreement Amendment that reflects the new terms.\n\nPlease review and sign at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
       documents: [
         {
           documentBase64: amendmentBase64,

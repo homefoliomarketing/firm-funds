@@ -228,6 +228,7 @@ interface EnvelopeDocument {
 
 export async function createAndSendEnvelope(params: {
   emailSubject: string
+  emailBlurb?: string  // Body text shown in the signing email
   documents: EnvelopeDocument[]
   signers: EnvelopeRecipient[]
   ccRecipients?: { email: string; name: string; recipientId: string; routingOrder: string }[]
@@ -240,6 +241,7 @@ export async function createAndSendEnvelope(params: {
 
   const envelopeDefinition = {
     emailSubject: params.emailSubject,
+    ...(params.emailBlurb ? { emailBlurb: params.emailBlurb } : {}),
     documents: params.documents,
     recipients: {
       signers: params.signers,
