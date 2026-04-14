@@ -74,6 +74,7 @@ export const DOCUMENT_TYPES = [
   { value: 'id_verification', label: 'Agent ID Verification' },
   { value: 'brokerage_cooperation_agreement', label: 'Brokerage Cooperation Agreement' },
   { value: 'closing_date_amendment', label: 'Closing Date Amendment (Executed)' },
+  { value: 'banking_info', label: 'Banking Information (Void Cheque / Direct Deposit)' },
   { value: 'other', label: 'Other' },
 ] as const
 
