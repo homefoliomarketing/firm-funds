@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Bell, MessageSquare, Home, ArrowLeft, User, Settings } from 'lucide-react'
+import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
@@ -112,6 +112,7 @@ export default function AgentHeader({
 
   const isMessagesPage = pathname === '/agent/messages'
   const isDashboard = pathname === '/agent'
+  const isAccountPage = pathname === '/agent/account'
   const isProfilePage = pathname === '/agent/profile'
   const isSettingsPage = pathname === '/agent/settings'
 
@@ -196,6 +197,10 @@ export default function AgentHeader({
                         <NotificationBadge count={totalNotifications} />
                       </span>
                     )}
+                  </button>
+                  <button onClick={() => router.push('/agent/account')} className={navBtnClass(isAccountPage)}>
+                    <Wallet size={14} />
+                    Account
                   </button>
                   <button onClick={() => router.push('/agent/profile')} className={navBtnClass(isProfilePage)}>
                     <User size={14} />

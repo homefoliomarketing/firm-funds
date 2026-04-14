@@ -695,6 +695,87 @@ export async function returnDocument(input: {
 }
 
 // ============================================================================
+// Fetch Agent Transactions — used by both agent portal (own) and admin portal
+// ============================================================================
+
+export async function getAgentTransactions(agentId: string): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  // If agent role, verify they can only access their own transactions
+  if (profile?.role === 'agent' && profile?.agent_id !== agentId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  try {
+    const { data: transactions, error } = await serviceClient
+      .from('agent_transactions')
+      .select('id, agent_id, deal_id, type, amount, running_balance, description, reference_id, created_by, created_at')
+      .eq('agent_id', agentId)
+      .order('created_at', { ascending: false })
+
+    if (error) return { success: false, error: error.message }
+
+    // Also fetch the agent's current balance
+    const { data: agent } = await serviceClient
+      .from('agents')
+      .select('account_balance')
+      .eq('id', agentId)
+      .single()
+
+    return {
+      success: true,
+      data: {
+        transactions: transactions || [],
+        currentBalance: agent?.account_balance ?? 0,
+      },
+    }
+  } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Fetch Agent Balance Summary — lightweight call for dashboard widgets
+// ============================================================================
+
+export async function getAgentBalanceSummary(agentId: string): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (profile?.role === 'agent' && profile?.agent_id !== agentId) {
+    return { success: false, error: 'Access denied' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data: agent } = await serviceClient
+      .from('agents')
+      .select('account_balance')
+      .eq('id', agentId)
+      .single()
+
+    const { count } = await serviceClient
+      .from('agent_transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('agent_id', agentId)
+
+    return {
+      success: true,
+      data: {
+        balance: agent?.account_balance ?? 0,
+        transactionCount: count ?? 0,
+      },
+    }
+  } catch (err: any) {
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Resolve Document Return (when agent uploads replacement)
 // ============================================================================
 

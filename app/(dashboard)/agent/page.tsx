@@ -6,10 +6,12 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Clock, TrendingUp, CheckCircle2, DollarSign,
   PlusCircle, Search, Calendar, ChevronRight, ChevronLeft, CreditCard,
+  AlertTriangle,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { markKycModalSeen } from '@/lib/actions/profile-actions'
+import { getAgentBalanceSummary } from '@/lib/actions/account-actions'
 import AgentKycGate from '@/components/AgentKycGate'
 import AgentHeader from '@/components/AgentHeader'
 import { Button } from '@/components/ui/button'
@@ -42,6 +44,7 @@ export default function AgentDashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [showKycVerifiedModal, setShowKycVerifiedModal] = useState(false)
+  const [accountBalance, setAccountBalance] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -77,6 +80,12 @@ export default function AgentDashboard() {
           .eq('agent_id', profile.agent_id)
           .order('created_at', { ascending: false })
         setDeals(dealData || [])
+
+        // Fetch account balance
+        const balanceResult = await getAgentBalanceSummary(profile.agent_id)
+        if (balanceResult.success && balanceResult.data) {
+          setAccountBalance(balanceResult.data.balance)
+        }
       }
 
       setLoading(false)
@@ -266,6 +275,28 @@ export default function AgentDashboard() {
               <p className="text-sm font-medium text-status-blue">Banking info under review</p>
               <p className="text-xs mt-0.5 text-status-blue/60">Your pre-authorized debit form has been uploaded and is being reviewed. You can submit deals in the meantime.</p>
             </div>
+          </div>
+        )}
+
+        {/* Account balance warning — show when agent owes money */}
+        {accountBalance > 0 && (
+          <div className="mb-6 rounded-xl p-4 flex items-center justify-between gap-3 bg-status-amber-muted/60 border border-status-amber-border/60" role="alert">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={18} className="text-status-amber shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-status-amber">Outstanding balance: {formatCurrency(accountBalance)}</p>
+                <p className="text-xs mt-0.5 text-status-amber/60">This amount will be deducted from your next advance. View your transaction history for details.</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push('/agent/account')}
+              className="shrink-0 whitespace-nowrap border-status-amber-border text-status-amber hover:bg-status-amber-muted hover:text-status-amber"
+            >
+              View Ledger
+              <ChevronRight size={14} />
+            </Button>
           </div>
         )}
         </section>

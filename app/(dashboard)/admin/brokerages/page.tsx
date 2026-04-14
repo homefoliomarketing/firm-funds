@@ -3,8 +3,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
+import { formatCurrency } from '@/lib/formatting'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
+import { getAgentTransactions } from '@/lib/actions/account-actions'
+import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
@@ -29,6 +32,7 @@ interface Agent {
   status: 'active' | 'suspended' | 'archived'
   flagged_by_brokerage: boolean
   outstanding_recovery: number
+  account_balance: number
   kyc_status: 'pending' | 'submitted' | 'verified' | 'rejected'
   // Banking fields
   bank_transit_number: string | null
@@ -322,6 +326,7 @@ export default function BrokeragesPage() {
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null)
   const [agentDeals, setAgentDeals] = useState<Record<string, Deal[]>>({})
+  const [agentTransactions, setAgentTransactions] = useState<Record<string, AgentAccountTransaction[]>>({})
   const [editAgentForm, setEditAgentForm] = useState<AgentFormData & { status: string; flaggedByBrokerage: boolean; outstandingRecovery: string }>(
     { firstName: '', lastName: '', email: '', phone: '', recoNumber: '', status: 'active', flaggedByBrokerage: false, outstandingRecovery: '0' }
   )
@@ -986,6 +991,13 @@ export default function BrokeragesPage() {
     }
 
     setAgentDeals({ ...agentDeals, [agentId]: data || [] })
+
+    // Fetch transactions for this agent
+    const txResult = await getAgentTransactions(agentId)
+    if (txResult.success && txResult.data) {
+      setAgentTransactions(prev => ({ ...prev, [agentId]: txResult.data.transactions }))
+    }
+
     setExpandedAgentId(agentId)
   }
 
@@ -1983,6 +1995,7 @@ export default function BrokeragesPage() {
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Phone</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">RECO #</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</th>
+                                  <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Balance</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">KYC</th>
                                   <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground"></th>
                                 </tr>
@@ -2000,7 +2013,7 @@ export default function BrokeragesPage() {
                                     if (isEditingAgent) {
                                       return (
                                         <tr key={agent.id} className="bg-primary/5 border-b border-border">
-                                          <td className="px-3 py-2" colSpan={7}>
+                                          <td className="px-3 py-2" colSpan={8}>
                                             <form onSubmit={(e) => handleEditAgentSubmit(e, agent.id, brokerage.id)} className="space-y-3">
                                               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                                                 <div>
@@ -2110,6 +2123,16 @@ export default function BrokeragesPage() {
                                           <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded ${getLocalStatusBadgeClass(agent.status)}`}>
                                             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
                                           </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                          {(agent.account_balance || 0) > 0 ? (
+                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-status-amber tabular-nums">
+                                              <DollarSign size={11} />
+                                              {formatCurrency(agent.account_balance)}
+                                            </span>
+                                          ) : (
+                                            <span className="text-xs text-muted-foreground/50">—</span>
+                                          )}
                                         </td>
                                         <td className="px-4 py-3">
                                           {(() => {
@@ -2294,7 +2317,7 @@ export default function BrokeragesPage() {
                                       // Inline email change row
                                       changingEmailForUserId === agent.id && (
                                         <tr key={`email-${agent.id}`} className="bg-blue-950/20 border-b border-border">
-                                          <td colSpan={7} className="px-4 py-2">
+                                          <td colSpan={8} className="px-4 py-2">
                                             <div className="flex items-center gap-2 flex-wrap">
                                               <AtSign size={14} className="text-blue-400" />
                                               <span className="text-xs font-semibold text-blue-400">Change login email for {agent.first_name} {agent.last_name}:</span>
@@ -2325,7 +2348,7 @@ export default function BrokeragesPage() {
                                       // Expanded deals row
                                       expandedAgentId === agent.id && (
                                         <tr key={`deals-${agent.id}`} className={`bg-card ${idx < agentCount - 1 ? 'border-b border-border' : ''}`}>
-                                          <td colSpan={7} className="px-4 py-4">
+                                          <td colSpan={8} className="px-4 py-4">
                                             <div style={{ marginLeft: '20px' }}>
                                               {/* Banking Information */}
                                               <div className="mb-5 p-3 rounded-lg bg-muted/20 border border-border">
@@ -2572,6 +2595,47 @@ export default function BrokeragesPage() {
                                                   </div>
                                                 )}
                                               </div>
+
+                                              {/* Account Balance & Transactions */}
+                                              {((agent.account_balance || 0) > 0 || (agentTransactions[agent.id]?.length ?? 0) > 0) && (
+                                                <div className="mb-5 p-3 rounded-lg bg-muted/20 border border-border">
+                                                  <div className="flex items-center justify-between mb-2">
+                                                    <h4 className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+                                                      <DollarSign size={13} className="text-status-amber" />
+                                                      Account Balance
+                                                    </h4>
+                                                    <span className={`text-sm font-bold tabular-nums ${(agent.account_balance || 0) > 0 ? 'text-status-amber' : 'text-status-teal'}`}>
+                                                      {formatCurrency(agent.account_balance || 0)}
+                                                    </span>
+                                                  </div>
+                                                  {(agentTransactions[agent.id]?.length ?? 0) > 0 && (
+                                                    <div className="space-y-1.5">
+                                                      {agentTransactions[agent.id]?.map((tx) => {
+                                                        const isDebit = tx.amount > 0
+                                                        return (
+                                                          <div key={tx.id} className="flex items-center justify-between p-2 rounded bg-card/60 border border-border/30">
+                                                            <div className="flex-1 min-w-0">
+                                                              <p className="text-xs text-foreground truncate">{tx.description}</p>
+                                                              <p className="text-[10px] text-muted-foreground/60 tabular-nums mt-0.5">
+                                                                {new Date(tx.created_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                                                {' · '}{tx.type.replace(/_/g, ' ')}
+                                                              </p>
+                                                            </div>
+                                                            <div className="text-right shrink-0 ml-3">
+                                                              <p className={`text-xs font-semibold tabular-nums ${isDebit ? 'text-status-amber' : 'text-status-teal'}`}>
+                                                                {isDebit ? '+' : ''}{formatCurrency(tx.amount)}
+                                                              </p>
+                                                              <p className="text-[10px] text-muted-foreground/60 tabular-nums">
+                                                                Bal: {formatCurrency(tx.running_balance)}
+                                                              </p>
+                                                            </div>
+                                                          </div>
+                                                        )
+                                                      })}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
 
                                               <h4 className="text-xs font-semibold mb-3 text-foreground">Deal History</h4>
                                               {(agentDeals[agent.id]?.length ?? 0) === 0 ? (

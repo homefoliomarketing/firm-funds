@@ -66,23 +66,24 @@ function makeHeader(title: string): Header {
   })
 }
 
-/** Footer WITH initials — used on every page except the signature page.
- *  The visible line shows "Initials: ___________" right-aligned.
- *  A hidden /ini1/ anchor (white, 2pt) lets DocuSign place an initials tab on every page. */
+/** Footer WITH visible initials line but NO DocuSign anchor.
+ *
+ *  The /ini1/ anchor was previously in the footer, but the docx library generates
+ *  duplicate footer XML entries (default + first-page) causing DocuSign to find the
+ *  anchor twice per page and stack duplicate initials tabs (double-sign bug).
+ *
+ *  Fix: anchor moved to the body text via initialsAnchor() helper. Footer only has
+ *  the visible "Initials: ___________" line and page numbers. */
 function makeFooterWithInitials(initialsLabel: string): Footer {
   return new Footer({
     children: [
-      // Initials line — right-aligned, visible underline for agent to initial
       new Paragraph({
         alignment: AlignmentType.RIGHT,
         spacing: { before: 120, after: 60 },
         children: [
           new TextRun({ text: `${initialsLabel}:  ___________`, font: FONT, size: 20 }),
-          // Hidden anchor — DocuSign finds /ini1/ here on every page and places the initials tab
-          new TextRun({ text: '  /ini1/', font: FONT, size: 2, color: 'FFFFFF' }),
         ],
       }),
-      // Page number + confidential line
       new Paragraph({
         border: { top: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
         spacing: { before: 40 },
@@ -98,6 +99,19 @@ function makeFooterWithInitials(initialsLabel: string): Footer {
           new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONT, size: SMALL_SIZE }),
         ],
       }),
+    ],
+  })
+}
+
+/** Hidden /ini1/ anchor paragraph — add to the END of each section's body children.
+ *  DocuSign finds this once per section and places an initials tab.
+ *  White text, 1pt, right-aligned to sit near the footer initials line. */
+function initialsAnchor(): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing: { before: 0, after: 0 },
+    children: [
+      new TextRun({ text: '/ini1/', font: FONT, size: 2, color: 'FFFFFF' }),
     ],
   })
 }
@@ -324,6 +338,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
 
           heading2('ARTICLE 12 — GENERAL PROVISIONS'),
           body('Governed by the laws of Ontario. Electronic signatures valid under the Electronic Commerce Act, 2000 (Ontario). Each Party has been advised to obtain independent legal advice.'),
+          initialsAnchor(),
         ],
       },
 
@@ -359,6 +374,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['Brokerage Address', r('{{BROKERAGE_ADDRESS}}')],
             ['Broker of Record', r('{{BROKER_OF_RECORD}}')],
           ]),
+          initialsAnchor(),
         ],
       },
 
@@ -515,6 +531,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           heading2('ELECTRONIC SIGNATURE'),
           body('This Direction may be executed by electronic signature in accordance with the Electronic Commerce Act, 2000 (Ontario).'),
 
+          initialsAnchor(),
           emptyLine(),
           emptyLine(),
 
@@ -679,6 +696,7 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           body('11.5 Notices. All notices shall be in writing and delivered to the addresses set out above, or to such other address as a party may designate in writing.'),
           body('11.6 Assignment. Neither party may assign this Agreement without the prior written consent of the other party, except that Firm Funds may assign its rights to an affiliate or in connection with a merger or sale of substantially all of its assets.'),
           body('11.7 Electronic Execution. This Agreement may be executed by electronic signature in accordance with the Electronic Commerce Act, 2000 (Ontario), and electronic signatures shall be deemed original signatures for all purposes.'),
+          initialsAnchor(),
         ],
       },
       // Signature Page — separate section so it has no initials in footer
@@ -922,6 +940,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
           emptyLine(),
           heading2('SCHEDULE — AMENDED TERMS SUMMARY'),
           scheduleTable(scheduleRows),
+          initialsAnchor(),
         ],
       },
 

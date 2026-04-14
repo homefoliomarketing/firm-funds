@@ -198,8 +198,10 @@ export interface AgentAccountTransaction {
   deal_id: string | null
   type: 'late_closing_interest' | 'late_payment_interest' | 'balance_deduction' | 'invoice_payment' | 'adjustment' | 'credit'
   amount: number
+  running_balance: number
   description: string
   reference_id: string | null
+  created_by: string | null
   created_at: string
 }
 
