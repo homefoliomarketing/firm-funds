@@ -441,12 +441,73 @@ export default function BrokerageDashboard() {
 
       <main id="main-content" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Welcome */}
-        <section aria-label="Welcome" className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Welcome back, {profile?.full_name?.split(' ')[0]}
-          </h1>
-          <p className="text-sm mt-1 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
+        <section aria-label="Welcome" className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Welcome back, {profile?.full_name?.split(' ')[0]}
+            </h1>
+            <p className="text-sm mt-1 text-muted-foreground">Manage your brokerage&apos;s commission advance activity.</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" onClick={() => router.push('/brokerage/agents')} className="h-9">
+              <Users size={14} className="mr-1.5" /> Manage agents
+            </Button>
+            {brokerage?.is_white_label_partner && (
+              <Button onClick={() => router.push('/brokerage/deals/new')} className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
+                <Send size={14} className="mr-1.5" /> Submit advance request
+              </Button>
+            )}
+          </div>
         </section>
+
+        {/* White-Label Revenue Tracker — only for white-label partner brokerages */}
+        {brokerage?.is_white_label_partner && (
+          <section aria-label="White-label revenue tracker" className="mb-6">
+            <Card className="border-primary/30 bg-gradient-to-br from-primary/[0.06] to-primary/[0.02]">
+              <CardContent className="p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">White-Label Partner</p>
+                    <p className="text-sm text-muted-foreground">
+                      Your share of the advance discount fee on every funded deal:&nbsp;
+                      <span className="text-foreground font-bold">{Number(brokerage.profit_share_pct ?? 0).toFixed(1)}%</span>
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-right">
+                    {(() => {
+                      const now = new Date()
+                      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+                      const fundedDeals = deals.filter(d => ['funded', 'completed'].includes(d.status) && (d as any).broker_share_amount)
+                      const mtd = fundedDeals
+                        .filter(d => new Date((d as any).funding_date || d.created_at) >= monthStart)
+                        .reduce((s, d) => s + Number((d as any).broker_share_amount || 0), 0)
+                      const allTime = fundedDeals.reduce((s, d) => s + Number((d as any).broker_share_amount || 0), 0)
+                      const unremitted = fundedDeals
+                        .filter(d => !(d as any).broker_share_remitted)
+                        .reduce((s, d) => s + Number((d as any).broker_share_amount || 0), 0)
+                      return (
+                        <>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">MTD earned</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">{formatCurrency(mtd)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">All-time</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">{formatCurrency(allTime)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Pending remit.</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">{formatCurrency(unremitted)}</p>
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* KPI Summary */}
         {deals.length > 0 && (
@@ -728,6 +789,15 @@ export default function BrokerageDashboard() {
           {/* ================================================================ */}
           {activeTab === 'agents' && (
             <section role="tabpanel" id="tabpanel-agents" aria-labelledby="tab-agents">
+              <div className="px-4 sm:px-6 py-3 border-b border-border/30 bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  Need to add an agent or send welcome emails? Use the dedicated roster page.
+                </p>
+                <Button size="sm" variant="outline" onClick={() => router.push('/brokerage/agents')}>
+                  Manage roster
+                  <ChevronRight size={14} className="ml-1" />
+                </Button>
+              </div>
               {agents.length === 0 ? (
                 <div className="px-6 py-20 text-center">
                   <div className="w-16 h-16 rounded-2xl bg-secondary/80 flex items-center justify-center mx-auto mb-5">

@@ -29,7 +29,35 @@ const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
 // Branded HTML wrapper
 // ============================================================================
 
-function wrap(body: string): string {
+interface BrokerageBranding {
+  logoUrl: string | null
+  name: string
+}
+
+function brandHeader(branding?: BrokerageBranding | null): string {
+  if (branding?.logoUrl) {
+    // White-label header: brokerage logo + "Powered by Firm Funds"
+    return `
+      <td style="padding:0 0 32px; text-align:center;">
+        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}" height="44" style="height:44px; width:auto; max-width:240px;" />
+        <div style="margin-top:10px;">
+          <span style="color:#737373; font-size:10px; letter-spacing:0.05em; text-transform:uppercase;">Powered by</span>
+          <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="12" style="height:12px; width:auto; vertical-align:middle; margin-left:6px;" />
+        </div>
+      </td>`
+  }
+  // Default: Firm Funds-only header
+  return `
+      <td style="padding:0 0 32px; text-align:center;">
+        <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="36" style="height:36px; width:auto;" />
+      </td>`
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function wrap(body: string, branding?: BrokerageBranding | null): string {
   return `
 <!DOCTYPE html>
 <html>
@@ -44,9 +72,7 @@ function wrap(body: string): string {
         <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px; width:100%;">
           <!-- Logo -->
           <tr>
-            <td style="padding:0 0 32px; text-align:center;">
-              <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="36" style="height:36px; width:auto;" />
-            </td>
+            ${brandHeader(branding)}
           </tr>
           <!-- Main Card -->
           <tr>
@@ -63,7 +89,7 @@ function wrap(body: string): string {
           <tr>
             <td style="padding:28px 36px 0; text-align:center;">
               <p style="margin:0 0 6px; color:#525252; font-size:11px; letter-spacing:0.03em;">
-                Firm Funds Incorporated &bull; Ontario, Canada
+                ${branding?.name ? escapeHtml(branding.name) + ' &bull; powered by Firm Funds Inc.' : 'Firm Funds Incorporated &bull; Ontario, Canada'}
               </p>
               <a href="${APP_URL}" style="color:#5FA873; text-decoration:none; font-size:11px; letter-spacing:0.03em;">firmfunds.ca</a>
             </td>
@@ -377,11 +403,16 @@ export async function sendAgentInviteNotification(params: {
   agentFirstName: string
   agentEmail: string
   brokerageName: string
+  brokerageLogoUrl?: string | null
   tempPassword?: string  // DEPRECATED — kept for backward compat, prefer inviteToken
   inviteToken?: string
 }): Promise<void> {
   const resend = getResend()
   if (!resend) return
+
+  const branding: BrokerageBranding | null = params.brokerageLogoUrl
+    ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
+    : null
 
   // Magic link invite (new flow) — no temp password in email
   if (params.inviteToken) {
@@ -390,11 +421,11 @@ export async function sendAgentInviteNotification(params: {
       await resend.emails.send({
         from: FROM_ADDRESS,
         to: params.agentEmail,
-        subject: `Welcome to Firm Funds — Set Up Your Account`,
+        subject: `Welcome to ${params.brokerageName} — Set Up Your Account`,
         html: wrap(`
-          <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to Firm Funds!</h2>
+          <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to ${escapeHtml(params.brokerageName)}!</h2>
           <p style="margin:0 0 20px; color:#E5E5E5;">
-            Hi ${params.agentFirstName}, your Firm Funds portal account has been created. You can now submit commission advance requests online.
+            Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf — powered by Firm Funds.
           </p>
           <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
             <tr>
@@ -402,28 +433,28 @@ export async function sendAgentInviteNotification(params: {
                 <table width="100%" cellpadding="0" cellspacing="0">
                   <tr>
                     <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Brokerage</td>
-                    <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.brokerageName}</td>
+                    <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName)}</td>
                   </tr>
                   <tr>
                     <td style="padding:8px 0; color:#737373; font-size:13px;">Email</td>
-                    <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.agentEmail}</td>
+                    <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentEmail)}</td>
                   </tr>
                 </table>
               </td>
             </tr>
           </table>
           <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-            Click the button below to set your password and get started. This link expires in 72 hours.
+            Click the button below to set your password and finish setup (ID verification + banking). This link expires in 72 hours.
           </p>
           <div style="text-align:center; margin:28px 0;">
             <a href="${inviteUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
-              Set Up My Account
+              Activate My Account
             </a>
           </div>
           <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
             <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
           </p>
-        `),
+        `, branding),
       })
     } catch (err) {
       console.error('[email] Failed to send agent invite notification:', err)
@@ -468,7 +499,7 @@ export async function sendAgentInviteNotification(params: {
         <a href="${APP_URL}/login" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
           Log In to Firm Funds
         </a>
-      `),
+      `, branding),
     })
   } catch (err) {
     console.error('[email] Failed to send agent invite notification:', err)
@@ -1665,6 +1696,101 @@ export async function sendAmendmentApprovedNotification(params: {
     })
   } catch (err) {
     console.error('[email] Failed to send amendment approved notification:', err)
+  }
+}
+
+// ============================================================================
+// Monthly white-label profit-share statement → Brokerage (Session 34)
+// ============================================================================
+
+export async function sendMonthlyBrokerStatement(params: {
+  toEmail: string
+  brokerageName: string
+  brokerageLogoUrl?: string | null
+  periodLabel: string  // e.g. "April 2026"
+  rows: Array<{
+    propertyAddress: string
+    agentName: string
+    fundingDate: string | null
+    discountFee: number
+    pct: number
+    brokerShare: number
+    remitted: boolean
+  }>
+  totalEarned: number
+  totalUnremitted: number
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const branding: BrokerageBranding | null = params.brokerageLogoUrl
+    ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
+    : null
+
+  const rowsHtml = params.rows.length === 0
+    ? `<tr><td colspan="6" style="padding:18px; color:#737373; font-size:13px; text-align:center;">No funded or completed deals this period.</td></tr>`
+    : params.rows.map(r => `
+      <tr>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.propertyAddress)}</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.agentName)}</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${r.fundingDate || '—'}</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${formatCurrency(r.discountFee)}</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${r.pct.toFixed(1)}%</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:${r.remitted ? '#888' : '#5FA873'}; font-size:13px; text-align:right; font-weight:600;">
+          ${formatCurrency(r.brokerShare)}${r.remitted ? '' : ' *'}
+        </td>
+      </tr>`).join('')
+
+  const body = `
+    <h2 style="margin:0 0 8px; color:#5FA873; font-size:22px; font-weight:700;">Monthly Profit-Share Statement</h2>
+    <p style="margin:0 0 24px; color:#E5E5E5;">${escapeHtml(params.brokerageName)} — ${escapeHtml(params.periodLabel)}</p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
+      <tr>
+        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Property</td>
+        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Agent</td>
+        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Funded</td>
+        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:right;">Discount&nbsp;Fee</td>
+        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:right;">Share&nbsp;%</td>
+        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:right;">Your&nbsp;Share</td>
+      </tr>
+      ${rowsHtml}
+    </table>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+      <tr>
+        <td style="padding:14px 18px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="color:#737373; font-size:12px;">Total earned this period</td>
+              <td style="color:#E5E5E5; font-size:18px; font-weight:700; text-align:right;">${formatCurrency(params.totalEarned)}</td>
+            </tr>
+            <tr>
+              <td style="color:#737373; font-size:12px; padding-top:6px;">Pending remittance (kept from commission)</td>
+              <td style="color:#5FA873; font-size:14px; font-weight:600; text-align:right; padding-top:6px;">${formatCurrency(params.totalUnremitted)}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 16px; color:#737373; font-size:12px; line-height:1.6;">
+      * Pending remittance: this share has not yet been formally reconciled with Firm Funds. Per your white-label agreement, you retain this share from the commission you control at closing — there is no separate payment.
+    </p>
+    <a href="${APP_URL}/brokerage" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px;">
+      View dashboard
+    </a>
+  `
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.toEmail,
+      subject: `${params.brokerageName} — Profit-Share Statement (${params.periodLabel})`,
+      html: wrap(body, branding),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send monthly broker statement:', err)
   }
 }
 
