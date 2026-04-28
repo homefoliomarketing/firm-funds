@@ -45,7 +45,7 @@ If you create API routes that accept external POSTs (webhooks, callbacks), add t
 - **Don't over-explain.** Give him files and short summaries.
 - **Walk through features ONE AT A TIME** for testing. Don't dump lists.
 - **Run commands yourself.** He should never have to copy-paste into PowerShell.
-- **Still paste SQL in chat** so he can see what's happening to his database.
+- **Still paste SQL in chat** so he can see what's happening to his database but do not ask for permissions each time to run it.
 - He works on Windows/PowerShell from `C:\Users\randi\Dev\firm-funds`.
 - **commission-advance-startup skill** — Use when he asks about business formation, compliance, or operational questions.
 
