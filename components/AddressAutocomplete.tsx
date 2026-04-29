@@ -95,7 +95,12 @@ export default function AddressAutocomplete({
           const place = autoRef.current?.getPlace()
           if (!place?.address_components) return
           const parts = parsePlace(place)
-          if (parts.street) onChangeRef.current(parts)
+          if (!parts.street) return
+          onChangeRef.current(parts)
+          // Sync the visible search input to the parsed street so the user
+          // sees what they picked (Google sets the value to the formatted
+          // address; we want the just-the-street version that lives in state).
+          if (inputRef.current) inputRef.current.value = parts.street
         })
         setLoaded(true)
       })
@@ -106,6 +111,38 @@ export default function AddressAutocomplete({
       })
     return () => { cancelled = true }
   }, [apiKey, country])
+
+  // Defensive: Google's pac-container (suggestion dropdown) renders at the
+  // document body and z-indexes above modals on its own, but it inherits
+  // light colors. Make it readable on our dark theme.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const id = 'pac-dark-style'
+    if (document.getElementById(id)) return
+    const style = document.createElement('style')
+    style.id = id
+    style.textContent = `
+      .pac-container {
+        background: var(--card, #141418);
+        border: 1px solid var(--border, rgba(255,255,255,0.08));
+        border-radius: 8px;
+        margin-top: 4px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        font-family: inherit;
+      }
+      .pac-item, .pac-item-query {
+        color: var(--foreground, #EAEAEF);
+        border-top-color: var(--border, rgba(255,255,255,0.05));
+        padding: 8px 12px;
+      }
+      .pac-item:hover, .pac-item-selected, .pac-item-selected:hover {
+        background: var(--secondary, #1E1E24);
+      }
+      .pac-matched { color: var(--primary, #5FA873); }
+      .pac-icon { filter: invert(0.8); }
+    `
+    document.head.appendChild(style)
+  }, [])
 
   // Single search input + revealed parts (parts are still editable in case Google misses something)
   return (

@@ -396,7 +396,11 @@ export async function submitDealAsBrokerage(formData: {
 
     const noteText = `Submitted by brokerage admin (${profile.full_name || profile.email}) — Transaction type: ${formData.transactionType}${formData.notes?.trim() ? '\n' + formData.notes.trim() : ''}`
 
-    const { data: newDeal, error: insertError } = await supabase
+    // Use service-role client for the INSERT — there is no RLS policy allowing
+    // brokerage_admin role to write to `deals`. Auth + ownership checks above
+    // already gate this path; we trust the verified inputs.
+    const adminSupabase = createServiceRoleClient()
+    const { data: newDeal, error: insertError } = await adminSupabase
       .from('deals')
       .insert({
         agent_id: agentData.id,

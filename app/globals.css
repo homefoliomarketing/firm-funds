@@ -428,6 +428,29 @@ select:focus {
   box-shadow: 0 0 0 2px rgba(95, 168, 115, 0.1);
 }
 
+/* ---- Native <select> option list — force dark on every platform ----
+   color-scheme: dark on :root tells the browser to use a dark variant for
+   native popups, but Chrome on Windows still renders <option> lists light
+   when the OS isn't in dark mode. These rules force a dark rendering
+   wherever the browser respects styled <option> elements (Firefox, recent
+   Chromium with `appearance: base-select`, Safari). */
+select {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+select option,
+select optgroup {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+select option:checked,
+select option:hover {
+  background-color: var(--secondary);
+  color: var(--foreground);
+}
+
 /* ---- Scrollbar styling (premium touch) ---- */
 ::-webkit-scrollbar {
   width: 6px;
