@@ -61,6 +61,9 @@ export interface Brokerage {
   // White-label branding
   logo_url: string | null
   brand_color: string | null
+  // White-label partner — Session 34
+  is_white_label_partner: boolean
+  profit_share_pct: number  // Negotiated %, per-brokerage. Whole numbers (20.00 = 20%). Never hardcoded.
   // Broker of Record (legal authority — signs BCA, receives IDP copies)
   broker_of_record_name: string | null
   broker_of_record_email: string | null
@@ -110,6 +113,9 @@ export interface Agent {
   address_city: string | null
   address_province: string | null
   address_postal_code: string | null
+  // White-label activation tracking — Session 34
+  welcome_email_sent_at: string | null
+  account_activated_at: string | null  // Auto-set by trigger when kyc_status=verified AND banking_approval_status=approved
   created_at: string
   updated_at: string
 }
@@ -143,6 +149,10 @@ export interface Deal {
   source: DealSource
   denial_reason: string | null
   notes: string | null
+  // White-label broker share — Session 34
+  broker_share_pct_at_funding: number | null  // Snapshot at funding so historical deals don't change if pct is renegotiated
+  broker_share_amount: number | null  // discount_fee * broker_share_pct_at_funding / 100, calculated at completion
+  broker_share_remitted: boolean
   created_at: string
   updated_at: string
   // Joined data

@@ -80,6 +80,8 @@ export const CreateBrokerageSchema = z.object({
   brokerOfRecordEmail: emailSchema.optional().nullable(),
   logoUrl: z.string().url().max(2000).optional().nullable(),
   brandColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color').optional().nullable(),
+  isWhiteLabelPartner: z.boolean().optional().default(false),
+  profitSharePct: z.number().min(0, 'Profit share must be 0 or greater').max(100, 'Profit share cannot exceed 100%').optional().default(0),
 })
 
 export const UpdateBrokerageSchema = CreateBrokerageSchema.extend({

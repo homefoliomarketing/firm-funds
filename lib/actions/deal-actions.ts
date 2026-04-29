@@ -269,6 +269,200 @@ export async function submitDeal(formData: {
 }
 
 // ============================================================================
+// Server Action: Calculate deal preview as brokerage admin (Session 34)
+// ============================================================================
+
+export async function calculateDealPreviewForBrokerage(input: DealPreviewInput): Promise<ActionResult> {
+  const { error: authErr, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const daysUntilClosing = calcDaysUntilClosing(input.closingDate)
+    if (daysUntilClosing < MIN_DAYS_UNTIL_CLOSING || daysUntilClosing > MAX_DAYS_UNTIL_CLOSING) {
+      return { success: false, error: `Closing date must be between ${MIN_DAYS_UNTIL_CLOSING} and ${MAX_DAYS_UNTIL_CLOSING} days from today` }
+    }
+
+    const { data: agentData } = await supabase
+      .from('agents')
+      .select('brokerage_id, account_balance, account_activated_at, brokerages(referral_fee_percentage)')
+      .eq('id', input.agentId)
+      .single()
+
+    if (!agentData) return { success: false, error: 'Agent not found' }
+    if (agentData.brokerage_id !== profile.brokerage_id) {
+      return { success: false, error: 'Agent does not belong to your brokerage' }
+    }
+
+    const brokerage = (agentData as any).brokerages
+    const referralPct = brokerage?.referral_fee_percentage
+    if (referralPct === null || referralPct === undefined) {
+      return { success: false, error: 'Brokerage referral fee not configured.' }
+    }
+
+    const result = calculateDeal({
+      grossCommission: input.grossCommission,
+      brokerageSplitPct: input.brokerageSplitPct,
+      daysUntilClosing,
+      discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
+      brokerageReferralPct: referralPct,
+    })
+
+    const outstandingBalance = agentData.account_balance || 0
+    const estimatedBalanceDeduction = outstandingBalance > 0
+      ? Math.min(outstandingBalance, result.advanceAmount)
+      : 0
+
+    return {
+      success: true,
+      data: {
+        ...result,
+        daysUntilClosing,
+        brokerageReferralPct: referralPct,
+        outstandingBalance,
+        estimatedBalanceDeduction,
+        agentActivated: !!agentData.account_activated_at,
+      },
+    }
+  } catch (err: any) {
+    console.error('Brokerage deal preview error:', err?.message)
+    return { success: false, error: 'Failed to calculate deal preview.' }
+  }
+}
+
+// ============================================================================
+// Server Action: Submit a new deal as brokerage admin on behalf of an agent
+// ============================================================================
+
+export async function submitDealAsBrokerage(formData: {
+  agentId: string
+  propertyAddress: string
+  closingDate: string
+  grossCommission: number
+  brokerageSplitPct: number
+  transactionType: string
+  notes?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!profile.brokerage_id) {
+    return { success: false, error: 'Your account is not linked to a brokerage' }
+  }
+
+  // Validate the deal-form portion of the input
+  const validation = DealSubmissionSchema.safeParse({
+    propertyAddress: formData.propertyAddress,
+    closingDate: formData.closingDate,
+    grossCommission: formData.grossCommission,
+    brokerageSplitPct: formData.brokerageSplitPct,
+    notes: formData.notes,
+  })
+  if (!validation.success) {
+    return { success: false, error: validation.error.issues[0]?.message || 'Invalid input' }
+  }
+
+  try {
+    const { data: agentData, error: agentError } = await supabase
+      .from('agents')
+      .select('*, brokerages(*)')
+      .eq('id', formData.agentId)
+      .single()
+
+    if (agentError || !agentData) return { success: false, error: 'Agent not found' }
+    if (agentData.brokerage_id !== profile.brokerage_id) {
+      return { success: false, error: 'Agent does not belong to your brokerage' }
+    }
+    if (!agentData.account_activated_at) {
+      return { success: false, error: `${agentData.first_name} ${agentData.last_name} hasn't activated their account yet. Trigger the welcome email and have them complete setup before submitting a deal.` }
+    }
+
+    const brokerage = (agentData as any).brokerages
+    const referralPct = brokerage?.referral_fee_percentage
+    if (referralPct === null || referralPct === undefined) {
+      return { success: false, error: 'Brokerage referral fee not configured.' }
+    }
+
+    const daysUntilClosing = calcDaysUntilClosing(formData.closingDate)
+    const calc = calculateDeal({
+      grossCommission: formData.grossCommission,
+      brokerageSplitPct: formData.brokerageSplitPct,
+      daysUntilClosing,
+      discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
+      brokerageReferralPct: referralPct,
+    })
+    if (calc.advanceAmount <= 0) {
+      return { success: false, error: 'The discount fee exceeds the net commission. This deal cannot be advanced.' }
+    }
+
+    const noteText = `Submitted by brokerage admin (${profile.full_name || profile.email}) — Transaction type: ${formData.transactionType}${formData.notes?.trim() ? '\n' + formData.notes.trim() : ''}`
+
+    const { data: newDeal, error: insertError } = await supabase
+      .from('deals')
+      .insert({
+        agent_id: agentData.id,
+        brokerage_id: agentData.brokerage_id,
+        status: 'under_review',
+        property_address: validation.data.propertyAddress,
+        closing_date: formData.closingDate,
+        gross_commission: formData.grossCommission,
+        brokerage_split_pct: formData.brokerageSplitPct,
+        net_commission: calc.netCommission,
+        days_until_closing: daysUntilClosing,
+        discount_fee: calc.discountFee,
+        settlement_period_fee: calc.settlementPeriodFee,
+        advance_amount: calc.advanceAmount,
+        brokerage_referral_fee: calc.brokerageReferralFee,
+        brokerage_referral_pct: referralPct,
+        amount_due_from_brokerage: calc.amountDueFromBrokerage,
+        source: 'manual_portal',
+        notes: noteText,
+        payment_status: 'not_applicable',
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Brokerage deal insert error:', insertError.message)
+      return { success: false, error: `Failed to submit deal: ${insertError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'deal.submit_by_brokerage',
+      entityType: 'deal',
+      entityId: newDeal.id,
+      metadata: {
+        property_address: validation.data.propertyAddress,
+        advance_amount: calc.advanceAmount,
+        agent_id: agentData.id,
+        brokerage_id: agentData.brokerage_id,
+        submitted_by_user_id: user.id,
+      },
+    })
+
+    // Notify Firm Funds admin
+    await sendNewDealNotification({
+      dealId: newDeal.id,
+      propertyAddress: validation.data.propertyAddress,
+      advanceAmount: calc.advanceAmount,
+      agentName: `${agentData.first_name} ${agentData.last_name}`,
+      brokerageName: brokerage?.name || 'Unknown Brokerage',
+    })
+
+    return {
+      success: true,
+      data: {
+        dealId: newDeal.id,
+        ...calc,
+        daysUntilClosing,
+      },
+    }
+  } catch (err: any) {
+    console.error('Brokerage deal submission error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
 // Server Action: Update deal status (admin only)
 // ============================================================================
 
@@ -369,15 +563,22 @@ export async function updateDealStatus(input: {
       // Recalculate financials server-side using actual days from today (Eastern Time) to closing
       const actualDays = Math.max(1, calcDaysUntilClosing(deal.closing_date))
 
-      // Fetch brokerage for referral fee (default — can be overridden per deal)
+      // Fetch brokerage incl. profit_share_pct (every onboarded brokerage is white-label;
+      // profit_share_pct == 0 means no profit-share arrangement)
       const { data: brokerage } = await supabase
         .from('brokerages')
-        .select('referral_fee_percentage')
+        .select('referral_fee_percentage, profit_share_pct')
         .eq('id', deal.brokerage_id)
         .single()
 
-      // Use per-deal override if provided, otherwise brokerage default
-      const referralPct = input.brokerageReferralPct ?? brokerage?.referral_fee_percentage
+      // When the brokerage has a configured profit_share_pct (>0), it governs both the
+      // brokerage's keep AND the historical broker_share snapshot. Per-deal override still wins.
+      const profitSharePct = Number(brokerage?.profit_share_pct ?? 0)
+      const profitShareDecimal = profitSharePct > 0 ? profitSharePct / 100 : null
+
+      const referralPct = input.brokerageReferralPct
+        ?? profitShareDecimal
+        ?? brokerage?.referral_fee_percentage
       if (referralPct === null || referralPct === undefined) {
         return { success: false, error: 'Brokerage referral fee percentage is not configured. Cannot fund deal.' }
       }
@@ -389,6 +590,12 @@ export async function updateDealStatus(input: {
         discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
         brokerageReferralPct: referralPct,
       })
+
+      // Snapshot the profit share (whole pct) at funding so historical deals are
+      // unaffected by future renegotiations. Only snapshot when there is a share arrangement.
+      if (profitSharePct > 0) {
+        updateData.broker_share_pct_at_funding = profitSharePct
+      }
 
       // Calculate due date: closing + 14 calendar days
       const closingDate = new Date(deal.closing_date + 'T00:00:00Z')
@@ -445,6 +652,14 @@ export async function updateDealStatus(input: {
       updateData.payment_status = 'paid'
       if (input.repaymentAmount !== undefined) {
         updateData.repayment_amount = input.repaymentAmount
+      }
+      // White-label: calculate broker_share_amount from the snapshotted pct + actual discount fee.
+      // This is the canonical white-label "amount kept by brokerage from the discount fee" record,
+      // used for monthly statements and audit. Only set if a snapshot exists (i.e. funded as white-label).
+      if (deal.broker_share_pct_at_funding != null && deal.discount_fee != null) {
+        const pct = Number(deal.broker_share_pct_at_funding)
+        const fee = Number(deal.discount_fee)
+        updateData.broker_share_amount = Math.round(fee * pct) / 100
       }
     }
 

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Clock, TrendingUp, CheckCircle2, DollarSign,
   PlusCircle, Search, Calendar, ChevronRight, ChevronLeft, CreditCard,
-  AlertTriangle,
+  AlertTriangle, Shield,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
@@ -164,6 +164,9 @@ export default function AgentDashboard() {
   const kycRejected = agent && agent.kyc_status === 'rejected'
   const kycNotVerified = agent && agent.kyc_status !== 'verified'
 
+  // Account activation status (Session 34 — white-label flow)
+  const notActivated = agent && !agent.account_activated_at
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background" role="status" aria-label="Loading deals">
@@ -231,11 +234,33 @@ export default function AgentDashboard() {
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* KYC / Banking status banners */}
         <section aria-label="Account status notifications">
-          {/* KYC Banner */}
-          {(kycPending || kycRejected) && (
+          {/* Activation CTA — single entry point to the setup wizard */}
+          {notActivated && (
+            <div className="mb-6 rounded-xl p-5 flex items-center justify-between gap-4 bg-primary/10 border border-primary/30">
+              <div className="flex items-center gap-3">
+                <Shield size={20} className="text-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Activate your account</p>
+                  <p className="text-xs mt-0.5 text-muted-foreground">
+                    Verify your identity and add banking info so {agent?.brokerages?.name || 'your brokerage'} can submit advance requests on your behalf.
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() => router.push('/agent/setup')}
+                className="shrink-0 whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Continue setup
+                <ChevronRight size={14} />
+              </Button>
+            </div>
+          )}
+
+          {/* KYC Banner — only show when activated but somehow KYC issue (rare edge case) */}
+          {!notActivated && (kycPending || kycRejected) && (
             <AgentKycGate agent={agent} onKycSubmitted={() => window.location.reload()} />
           )}
-          {kycSubmitted && (
+          {!notActivated && kycSubmitted && (
             <div className="mb-6 rounded-xl p-4 flex items-center gap-3 bg-status-blue-muted/60 border border-status-blue-border/60" role="status">
               <Clock size={18} className="text-status-blue shrink-0" aria-hidden="true" />
               <div>
@@ -245,8 +270,8 @@ export default function AgentDashboard() {
             </div>
           )}
 
-          {/* Banking nudge — show after KYC verified but no banking on file */}
-          {agent?.kyc_status === 'verified' && !agent?.banking_verified && !agent?.preauth_form_path && (
+          {/* Banking nudge — show after KYC verified but no banking on file (only when activated) */}
+          {!notActivated && agent?.kyc_status === 'verified' && !agent?.banking_verified && !agent?.preauth_form_path && (
           <div className="mb-6 rounded-xl p-4 flex items-center justify-between gap-3 bg-status-amber-muted/60 border border-status-amber-border/60">
             <div className="flex items-center gap-3">
               <CreditCard size={18} className="text-status-amber shrink-0" />
@@ -268,7 +293,7 @@ export default function AgentDashboard() {
         )}
 
         {/* Banking submitted but not yet verified */}
-        {agent?.kyc_status === 'verified' && !agent?.banking_verified && agent?.preauth_form_path && (
+        {!notActivated && agent?.kyc_status === 'verified' && !agent?.banking_verified && agent?.preauth_form_path && (
           <div className="mb-6 rounded-xl p-4 flex items-center gap-3 bg-status-blue-muted/60 border border-status-blue-border/60" role="status">
             <Clock size={18} className="text-status-blue shrink-0" aria-hidden="true" />
             <div>

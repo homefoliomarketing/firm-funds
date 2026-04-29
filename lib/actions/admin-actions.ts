@@ -43,6 +43,8 @@ export async function createBrokerage(input: {
   brokerOfRecordEmail?: string
   logoUrl?: string
   brandColor?: string
+  isWhiteLabelPartner?: boolean
+  profitSharePct?: number
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -72,6 +74,8 @@ export async function createBrokerage(input: {
         broker_of_record_email: v.brokerOfRecordEmail || null,
         logo_url: v.logoUrl || null,
         brand_color: v.brandColor || null,
+        is_white_label_partner: v.isWhiteLabelPartner ?? false,
+        profit_share_pct: v.profitSharePct ?? 0,
         status: 'active',
       })
       .select()
@@ -113,6 +117,8 @@ export async function updateBrokerage(input: {
   brokerOfRecordEmail?: string
   logoUrl?: string
   brandColor?: string
+  isWhiteLabelPartner?: boolean
+  profitSharePct?: number
   status: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
@@ -124,6 +130,18 @@ export async function updateBrokerage(input: {
       return { success: false, error: parsed.error.issues[0]?.message || 'Invalid input' }
     }
     const v = parsed.data
+
+    // Snapshot previous profit-share state to detect onboarding transition.
+    // We trigger welcome emails when profit_share_pct goes from 0 to >0.
+    const { data: prev } = await supabase
+      .from('brokerages')
+      .select('profit_share_pct')
+      .eq('id', v.id)
+      .single()
+
+    const prevPct = Number(prev?.profit_share_pct ?? 0)
+    const newPct = Number(v.profitSharePct ?? 0)
+    const becamePartner = prevPct === 0 && newPct > 0
 
     const { data: brokerage, error: updateError } = await supabase
       .from('brokerages')
@@ -143,6 +161,8 @@ export async function updateBrokerage(input: {
         broker_of_record_email: v.brokerOfRecordEmail || null,
         logo_url: v.logoUrl || null,
         brand_color: v.brandColor || null,
+        is_white_label_partner: v.isWhiteLabelPartner ?? false,
+        profit_share_pct: v.profitSharePct ?? 0,
         status: v.status,
       })
       .eq('id', v.id)
@@ -158,10 +178,26 @@ export async function updateBrokerage(input: {
       action: 'brokerage.update',
       entityType: 'brokerage',
       entityId: input.id,
-      metadata: { name: input.name, status: input.status },
+      metadata: {
+        name: input.name,
+        status: input.status,
+        is_white_label_partner: v.isWhiteLabelPartner,
+        profit_share_pct: v.profitSharePct,
+        became_partner: becamePartner,
+      },
     })
 
-    return { success: true, data: brokerage }
+    // On activation transition: queue welcome emails to roster.
+    // Awaited so Netlify doesn't kill the promise after response.
+    let welcomeQueued: { sent: number; failed: number } | undefined
+    if (becamePartner) {
+      const result = await sendWelcomeToAllBrokerageAgents({ brokerageId: v.id })
+      if (result.success && result.data) {
+        welcomeQueued = { sent: result.data.sent ?? 0, failed: result.data.failed ?? 0 }
+      }
+    }
+
+    return { success: true, data: { ...brokerage, welcomeQueued } }
   } catch (err: any) {
     console.error('Brokerage update error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
@@ -192,10 +228,10 @@ export async function createAgent(input: {
     }
     const v = parsed.data
 
-    // Verify brokerage exists
+    // Verify brokerage exists (incl. white-label branding for invite email)
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('id, name')
+      .select('id, name, logo_url, is_white_label_partner')
       .eq('id', v.brokerageId)
       .single()
 
@@ -939,10 +975,10 @@ export async function inviteAgent(input: {
 
     const email = input.email.trim().toLowerCase()
 
-    // Verify brokerage exists
+    // Verify brokerage exists (incl. white-label branding)
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('id, name')
+      .select('id, name, logo_url, is_white_label_partner')
       .eq('id', input.brokerageId)
       .single()
 
@@ -1118,6 +1154,7 @@ export async function inviteAgent(input: {
         agentFirstName: input.firstName.trim(),
         agentEmail: email,
         brokerageName: brokerage.name,
+        brokerageLogoUrl: brokerage.logo_url,
         inviteToken,
       })
     }
@@ -1176,10 +1213,10 @@ export async function resendAgentWelcomeEmail(input: {
     if (agentError || !agent) return { success: false, error: 'Agent not found' }
     if (agent.status === 'archived') return { success: false, error: 'Cannot send email to archived agent' }
 
-    // Get brokerage name
+    // Get brokerage incl. white-label branding for the invite email
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('name')
+      .select('name, logo_url, is_white_label_partner')
       .eq('id', agent.brokerage_id)
       .single()
 
@@ -1265,6 +1302,7 @@ export async function resendAgentWelcomeEmail(input: {
         agentFirstName: agent.first_name,
         agentEmail: agent.email,
         brokerageName: brokerage?.name || 'Your Brokerage',
+        brokerageLogoUrl: brokerage?.logo_url,
         inviteToken,
       })
     } else {
@@ -1273,9 +1311,16 @@ export async function resendAgentWelcomeEmail(input: {
         agentFirstName: agent.first_name,
         agentEmail: agent.email,
         brokerageName: brokerage?.name || 'Your Brokerage',
+        brokerageLogoUrl: brokerage?.logo_url,
         tempPassword,
       })
     }
+
+    // Stamp welcome_email_sent_at on the agent
+    await serviceClient
+      .from('agents')
+      .update({ welcome_email_sent_at: new Date().toISOString() })
+      .eq('id', agent.id)
 
     await logAuditEvent({
       action: 'agent.resend_welcome',
@@ -1310,10 +1355,10 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
   try {
     const serviceClient = createServiceRoleClient()
 
-    // Get brokerage
+    // Get brokerage incl. white-label branding
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('id, name')
+      .select('id, name, logo_url, is_white_label_partner')
       .eq('id', input.brokerageId)
       .single()
 
@@ -1331,22 +1376,51 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
 
     let sent = 0
     let failed = 0
+    let skipped = 0
     const errors: string[] = []
 
     for (const agent of agents) {
       try {
+        // Cannot invite without an email
+        if (!agent.email) {
+          errors.push(`${agent.first_name} ${agent.last_name}: no email on file`)
+          skipped++
+          continue
+        }
+
         // Check if agent has a user_profile (meaning they have a login)
-        const { data: profile } = await serviceClient
+        let { data: profile } = await serviceClient
           .from('user_profiles')
           .select('id')
           .eq('agent_id', agent.id)
           .maybeSingle()
 
+        // No login? Create one (roster-only agent being activated for white-label).
         if (!profile) {
-          // No login exists — skip (they were added as roster-only)
-          errors.push(`${agent.first_name} ${agent.last_name}: no login exists`)
-          failed++
-          continue
+          const tempPassword = generateTempPassword()
+          const { data: authData, error: signUpError } = await serviceClient.auth.admin.createUser({
+            email: agent.email,
+            password: tempPassword,
+            email_confirm: true,
+          })
+          if (signUpError || !authData?.user) {
+            errors.push(`${agent.first_name} ${agent.last_name}: ${signUpError?.message || 'auth create failed'}`)
+            failed++
+            continue
+          }
+          await serviceClient
+            .from('user_profiles')
+            .insert({
+              id: authData.user.id,
+              email: agent.email,
+              role: 'agent',
+              full_name: `${agent.first_name} ${agent.last_name}`,
+              agent_id: agent.id,
+              brokerage_id: input.brokerageId,
+              is_active: true,
+              must_reset_password: true,
+            })
+          profile = { id: authData.user.id }
         }
 
         // Generate magic link invite token (72-hour expiry)
@@ -1379,8 +1453,15 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
           agentFirstName: agent.first_name,
           agentEmail: agent.email,
           brokerageName: brokerage.name,
+          brokerageLogoUrl: brokerage.logo_url,
           inviteToken,
         })
+
+        // Stamp welcome_email_sent_at on the agent
+        await serviceClient
+          .from('agents')
+          .update({ welcome_email_sent_at: new Date().toISOString() })
+          .eq('id', agent.id)
 
         sent++
       } catch (err: any) {
@@ -1399,17 +1480,21 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
         total_agents: agents.length,
         sent,
         failed,
+        skipped,
         sent_by: user.id,
       },
     })
 
     if (failed > 0 && sent > 0) {
-      return { success: true, data: { sent, failed, errors }, error: `Sent ${sent} emails, ${failed} failed` }
+      return { success: true, data: { sent, failed, skipped, errors }, error: `Sent ${sent} emails, ${failed} failed, ${skipped} skipped (no email)` }
     } else if (failed > 0 && sent === 0) {
       return { success: false, error: `All ${failed} emails failed. ${errors[0] || ''}` }
     }
+    if (sent === 0 && skipped > 0) {
+      return { success: true, data: { sent: 0, failed: 0, skipped, errors }, error: `${skipped} agents skipped (no email on file)` }
+    }
 
-    return { success: true, data: { sent, failed } }
+    return { success: true, data: { sent, failed, skipped } }
   } catch (err: any) {
     console.error('Send all welcome emails error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }

@@ -350,6 +350,10 @@ interface Deal {
   admin_notes_timeline: { id: string; text: string; author_name: string; created_at: string }[] | null
   actual_closing_date: string | null
   late_interest_charged: number | null
+  // White-label profit-share snapshot (Session 34)
+  broker_share_pct_at_funding: number | null
+  broker_share_amount: number | null
+  broker_share_remitted: boolean
 }
 
 interface DealMessage {
@@ -2097,6 +2101,19 @@ export default function DealDetailPage() {
                   <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'} ${(row as any).color || ''}`}>{row.value}</span>
                 </div>
               ))}
+              {deal.broker_share_pct_at_funding != null && (
+                <div className="flex justify-between py-1.5 text-xs border-b border-primary/20 bg-primary/[0.04] px-2 -mx-2 rounded">
+                  <span className="text-primary font-semibold flex items-center gap-1">
+                    White-Label Broker Share ({Number(deal.broker_share_pct_at_funding).toFixed(1)}%)
+                    {deal.broker_share_remitted && <span className="text-[10px] text-muted-foreground font-normal">— remitted</span>}
+                  </span>
+                  <span className="tabular-nums font-semibold text-primary">
+                    {deal.broker_share_amount != null
+                      ? formatCurrency(deal.broker_share_amount)
+                      : `~${formatCurrency(Math.round(deal.discount_fee * Number(deal.broker_share_pct_at_funding)) / 100)} (est.)`}
+                  </span>
+                </div>
+              )}
               {(deal.balance_deducted || 0) > 0 && (
                 <div className="flex justify-between py-1.5 text-xs border-b border-border/20">
                   <span className="text-muted-foreground">Balance Deducted</span>

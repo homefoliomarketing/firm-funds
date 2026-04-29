@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
 import { getAgentTransactions } from '@/lib/actions/account-actions'
@@ -48,6 +48,9 @@ interface Agent {
   banking_rejection_reason: string | null
   preauth_form_path: string | null
   preauth_form_uploaded_at: string | null
+  // White-label activation tracking (Session 34)
+  welcome_email_sent_at: string | null
+  account_activated_at: string | null
   created_at: string
 }
 
@@ -79,6 +82,8 @@ interface Brokerage {
   bca_signed_at: string | null
   logo_url: string | null
   brand_color: string | null
+  is_white_label_partner: boolean
+  profit_share_pct: number
   created_at: string
   updated_at: string
 }
@@ -103,6 +108,8 @@ interface BrokerageFormData {
   brokerOfRecordEmail: string
   logoUrl: string
   brandColor: string
+  isWhiteLabelPartner: boolean
+  profitSharePct: string
   status?: 'active' | 'suspended' | 'inactive' | 'archived'
 }
 
@@ -311,10 +318,10 @@ export default function BrokeragesPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
-    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', isWhiteLabelPartner: false, profitSharePct: '',
   })
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' | 'archived' }>({
-    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', status: 'active',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', isWhiteLabelPartner: false, profitSharePct: '', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
@@ -501,7 +508,7 @@ export default function BrokeragesPage() {
       }
 
       setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}` })
-      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873' })
+      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', isWhiteLabelPartner: false, profitSharePct: '' })
       setCreateRosterFile(null)
       setShowCreateForm(false)
       await loadBrokerages()
@@ -517,6 +524,10 @@ export default function BrokeragesPage() {
     if (!editFormData.name.trim() || !editFormData.email.trim() || !editFormData.referralFeePercentage) {
       setStatusMessage({ type: 'error', text: 'Please fill in all required fields' }); return
     }
+    const profitSharePct = editFormData.profitSharePct ? parseFloat(editFormData.profitSharePct) : 0
+    if (Number.isNaN(profitSharePct) || profitSharePct < 0 || profitSharePct > 100) {
+      setStatusMessage({ type: 'error', text: 'Profit share % must be between 0 and 100' }); return
+    }
     setSubmitting(true)
     const result = await updateBrokerage({
       id: brokerageId, name: editFormData.name, email: editFormData.email,
@@ -528,10 +539,17 @@ export default function BrokeragesPage() {
       transactionSystem: editFormData.transactionSystem || undefined, notes: editFormData.notes || undefined,
       brokerOfRecordName: editFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: editFormData.brokerOfRecordEmail || undefined,
       logoUrl: editFormData.logoUrl || undefined, brandColor: editFormData.brandColor || undefined,
+      isWhiteLabelPartner: profitSharePct > 0,
+      profitSharePct,
       status: editFormData.status,
     })
     if (result.success) {
-      setStatusMessage({ type: 'success', text: 'Brokerage updated successfully' })
+      const queued = (result.data as any)?.welcomeQueued
+      let msg = 'Brokerage updated successfully'
+      if (queued) {
+        msg += ` — welcome emails queued: ${queued.sent} sent, ${queued.failed} failed`
+      }
+      setStatusMessage({ type: 'success', text: msg })
       setEditingBrokerageId(null)
       await loadBrokerages()
     } else {
@@ -550,6 +568,8 @@ export default function BrokeragesPage() {
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
       brokerOfRecordName: brokerage.broker_of_record_name || '', brokerOfRecordEmail: brokerage.broker_of_record_email || '',
       logoUrl: brokerage.logo_url || '', brandColor: brokerage.brand_color || '#5FA873',
+      isWhiteLabelPartner: brokerage.is_white_label_partner ?? false,
+      profitSharePct: (brokerage.profit_share_pct ?? 0).toString(),
       status: brokerage.status,
     })
     setEditingBrokerageId(brokerage.id)
@@ -1313,6 +1333,13 @@ export default function BrokeragesPage() {
                         {brokerage.brand && (
                           <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">{brokerage.brand}</span>
                         )}
+                        {brokerage.is_white_label_partner && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30"
+                            title={`White-label partner — ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
+                          >
+                            White-Label
+                          </span>
+                        )}
                         {actionCount > 0 && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
                             <AlertCircle size={10} />
@@ -1415,6 +1442,38 @@ export default function BrokeragesPage() {
                             <textarea value={editFormData.notes} onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
                               rows={3} className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary resize-none transition-colors" />
                           </div>
+
+                          {/* Profit Share — every onboarded brokerage is a white-label partner */}
+                          <div className="border border-border/60 rounded-lg p-4 bg-muted/20 space-y-3">
+                            <div>
+                              <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                The brokerage&apos;s negotiated share of the advance discount fee. Submits deals on behalf of its agents.
+                              </p>
+                            </div>
+                            <div className="pt-2 border-t border-border/40">
+                              <label className="block text-sm font-medium mb-2 text-muted-foreground">
+                                Profit Share %
+                              </label>
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                max="100"
+                                value={editFormData.profitSharePct}
+                                onChange={(e) => setEditFormData({ ...editFormData, profitSharePct: e.target.value })}
+                                placeholder="e.g. 20"
+                                className={inputCls}
+                              />
+                              <p className="text-[11px] mt-1.5 text-muted-foreground/70">
+                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal — renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
+                              </p>
+                              <p className="text-[11px] mt-1 text-amber-400/80">
+                                Setting this above 0 (when previously 0) queues welcome emails to roster agents with an email on file.
+                              </p>
+                            </div>
+                          </div>
+
                           <div className="flex gap-3 pt-2">
                             <Button type="button" variant="outline" className="flex-1" onClick={() => setEditingBrokerageId(null)}>
                               Cancel
@@ -2115,6 +2174,17 @@ export default function BrokeragesPage() {
                                               <CreditCard size={9} /> Banking needs review
                                             </span>
                                           )}
+                                          {agent.account_activated_at ? (
+                                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 bg-primary/15 text-primary border border-primary/30"
+                                              title={`Activated ${new Date(agent.account_activated_at).toLocaleDateString('en-CA')}`}>
+                                              <CheckCircle2 size={9} /> Activated
+                                            </span>
+                                          ) : agent.welcome_email_sent_at ? (
+                                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold mt-1 bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                                              title={`Welcome sent ${new Date(agent.welcome_email_sent_at).toLocaleDateString('en-CA')}`}>
+                                              <Clock size={9} /> Setup pending
+                                            </span>
+                                          ) : null}
                                         </td>
                                         <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email || '—'}</td>
                                         <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || '—'}</td>
