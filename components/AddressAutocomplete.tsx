@@ -39,6 +39,11 @@ function loadGoogleMaps(apiKey: string): Promise<any> {
     script.id = 'google-maps-js'
     script.async = true
     script.defer = true
+    // Site-wide Referrer-Policy is `no-referrer`, which strips the Referer
+    // header. Google Cloud's HTTP-referrer key restriction needs the origin
+    // to match. Per-element override sends just the origin (e.g.
+    // https://firmfunds.ca/).
+    script.referrerPolicy = 'strict-origin-when-cross-origin'
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&loading=async`
     script.onload = () => resolve((window as any).google)
     script.onerror = () => reject(new Error('Google Maps script failed to load'))
