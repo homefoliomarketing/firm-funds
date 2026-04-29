@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import AddressAutocomplete, { type AddressParts } from '@/components/AddressAutocomplete'
 
 interface AgentRow {
   id: string
@@ -44,10 +45,7 @@ export default function NewBrokerageDealPage() {
   const [loading, setLoading] = useState(true)
 
   const [agentId, setAgentId] = useState<string>('')
-  const [streetAddress, setStreetAddress] = useState('')
-  const [city, setCity] = useState('')
-  const [province, setProvince] = useState('Ontario')
-  const [postalCode, setPostalCode] = useState('')
+  const [address, setAddress] = useState<AddressParts>({ street: '', city: '', province: 'Ontario', postalCode: '' })
   const [closingDate, setClosingDate] = useState('')
   const [grossCommission, setGrossCommission] = useState('')
   const [brokerageSplitPct, setBrokerageSplitPct] = useState('')
@@ -80,7 +78,7 @@ export default function NewBrokerageDealPage() {
   const [resendBusy, setResendBusy] = useState(false)
   const [resendMsg, setResendMsg] = useState<string | null>(null)
 
-  const propertyAddress = [streetAddress.trim(), city.trim(), province.trim(), postalCode.trim().toUpperCase()].filter(Boolean).join(', ')
+  const propertyAddress = [address.street.trim(), address.city.trim(), address.province.trim(), address.postalCode.trim().toUpperCase()].filter(Boolean).join(', ')
 
   useEffect(() => {
     async function load() {
@@ -168,9 +166,9 @@ export default function NewBrokerageDealPage() {
 
   const missing: string[] = []
   if (!agentId) missing.push('Agent')
-  if (!streetAddress.trim()) missing.push('Address')
-  if (!city.trim()) missing.push('City')
-  if (!postalCode.trim()) missing.push('Postal Code')
+  if (!address.street.trim()) missing.push('Address')
+  if (!address.city.trim()) missing.push('City')
+  if (!address.postalCode.trim()) missing.push('Postal Code')
   if (!closingDate) missing.push('Closing Date')
   if (!grossCommission || parseFloat(grossCommission) <= 0) missing.push('Gross Commission')
   if (brokerageSplitPct === '' || isNaN(parseFloat(brokerageSplitPct))) missing.push('Brokerage Split %')
@@ -363,23 +361,8 @@ export default function NewBrokerageDealPage() {
           {/* Property */}
           <Card>
             <CardHeader><CardTitle className="text-base flex items-center gap-2"><MapPin size={16} /> Property</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2">
-                <Label htmlFor="street">Street address <span className="text-destructive">*</span></Label>
-                <Input id="street" value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} placeholder="123 Main St" required />
-              </div>
-              <div>
-                <Label htmlFor="city">City <span className="text-destructive">*</span></Label>
-                <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} required />
-              </div>
-              <div>
-                <Label htmlFor="province">Province</Label>
-                <Input id="province" value={province} onChange={(e) => setProvince(e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="postal">Postal Code <span className="text-destructive">*</span></Label>
-                <Input id="postal" value={postalCode} onChange={(e) => setPostalCode(e.target.value.toUpperCase())} required maxLength={7} />
-              </div>
+            <CardContent className="space-y-4">
+              <AddressAutocomplete value={address} onChange={setAddress} required />
               <div>
                 <Label htmlFor="txtype">Transaction type</Label>
                 <select id="txtype" value={transactionType} onChange={(e) => setTransactionType(e.target.value)}
