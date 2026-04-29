@@ -44,7 +44,11 @@ function loadGoogleMaps(apiKey: string): Promise<any> {
     // to match. Per-element override sends just the origin (e.g.
     // https://firmfunds.ca/).
     script.referrerPolicy = 'strict-origin-when-cross-origin'
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&loading=async`
+    // Note: no `loading=async` — that requires Google's inline bootstrap
+    // loader to define google.maps.importLibrary up-front. With a plain
+    // <script> tag the legacy mode is what we want; once onload fires,
+    // google.maps.places.Autocomplete is already attached.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`
     script.onload = () => resolve((window as any).google)
     script.onerror = () => reject(new Error('Google Maps script failed to load'))
     document.head.appendChild(script)
@@ -89,14 +93,9 @@ export default function AddressAutocomplete({
     if (!apiKey || !inputRef.current) return
     let cancelled = false
     loadGoogleMaps(apiKey)
-      .then(async (g) => {
+      .then((g) => {
         if (cancelled || !inputRef.current) return
-        // With loading=async, the Autocomplete constructor isn't on
-        // google.maps.places until importLibrary resolves. Calling it
-        // directly racy-fails with "Cannot read properties of undefined".
-        const { Autocomplete } = await g.maps.importLibrary('places')
-        if (cancelled || !inputRef.current) return
-        autoRef.current = new Autocomplete(inputRef.current, {
+        autoRef.current = new g.maps.places.Autocomplete(inputRef.current, {
           types: ['address'],
           componentRestrictions: { country: [country] },
           fields: ['address_components', 'formatted_address'],
