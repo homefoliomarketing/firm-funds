@@ -10,6 +10,10 @@
    ============================================================================ */
 
 :root {
+  /* Tells browsers to render native form controls (date pickers,
+     <option> dropdowns, scrollbars) using their dark variants. */
+  color-scheme: dark;
+
   /* Brand tokens (preserved for backward compat) */
   --ff-charcoal: #2D2D2D;
   --ff-charcoal-dark: #1E1E1E;
