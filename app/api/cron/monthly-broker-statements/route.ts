@@ -55,11 +55,11 @@ export async function GET(request: Request) {
     year: 'numeric', month: 'long', timeZone: 'America/Toronto',
   })
 
-  // 1. Fetch all white-label partner brokerages
+  // 1. Fetch all brokerages with a profit-share arrangement
   const { data: brokerages, error: brokErr } = await supabase
     .from('brokerages')
     .select('id, name, email, broker_of_record_email, logo_url, profit_share_pct')
-    .eq('is_white_label_partner', true)
+    .gt('profit_share_pct', 0)
     .neq('status', 'archived')
 
   if (brokErr) {

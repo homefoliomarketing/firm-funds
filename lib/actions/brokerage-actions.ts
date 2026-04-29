@@ -117,7 +117,7 @@ export async function addAgentAsBrokerage(input: {
             agentFirstName: v.firstName,
             agentEmail: email,
             brokerageName: brokerage?.name || 'Your Brokerage',
-            brokerageLogoUrl: brokerage?.is_white_label_partner ? brokerage.logo_url : null,
+            brokerageLogoUrl: brokerage?.logo_url,
             inviteToken: token,
           })
 
@@ -295,7 +295,7 @@ export async function brokerageResendWelcomeEmail(input: { agentId: string }): P
     agentFirstName: agent.first_name,
     agentEmail: agent.email,
     brokerageName: brokerage?.name || 'Your Brokerage',
-    brokerageLogoUrl: brokerage?.is_white_label_partner ? brokerage.logo_url : null,
+    brokerageLogoUrl: brokerage?.logo_url,
     inviteToken: token,
   })
 

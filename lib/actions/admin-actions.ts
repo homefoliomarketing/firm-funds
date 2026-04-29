@@ -131,15 +131,17 @@ export async function updateBrokerage(input: {
     }
     const v = parsed.data
 
-    // Snapshot previous white-label state to detect activation transition
+    // Snapshot previous profit-share state to detect onboarding transition.
+    // We trigger welcome emails when profit_share_pct goes from 0 to >0.
     const { data: prev } = await supabase
       .from('brokerages')
-      .select('is_white_label_partner')
+      .select('profit_share_pct')
       .eq('id', v.id)
       .single()
 
-    const wasPartner = !!prev?.is_white_label_partner
-    const becamePartner = !wasPartner && v.isWhiteLabelPartner === true
+    const prevPct = Number(prev?.profit_share_pct ?? 0)
+    const newPct = Number(v.profitSharePct ?? 0)
+    const becamePartner = prevPct === 0 && newPct > 0
 
     const { data: brokerage, error: updateError } = await supabase
       .from('brokerages')
@@ -1152,7 +1154,7 @@ export async function inviteAgent(input: {
         agentFirstName: input.firstName.trim(),
         agentEmail: email,
         brokerageName: brokerage.name,
-        brokerageLogoUrl: brokerage.is_white_label_partner ? brokerage.logo_url : null,
+        brokerageLogoUrl: brokerage.logo_url,
         inviteToken,
       })
     }
@@ -1300,7 +1302,7 @@ export async function resendAgentWelcomeEmail(input: {
         agentFirstName: agent.first_name,
         agentEmail: agent.email,
         brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.is_white_label_partner ? brokerage.logo_url : null,
+        brokerageLogoUrl: brokerage?.logo_url,
         inviteToken,
       })
     } else {
@@ -1309,7 +1311,7 @@ export async function resendAgentWelcomeEmail(input: {
         agentFirstName: agent.first_name,
         agentEmail: agent.email,
         brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.is_white_label_partner ? brokerage.logo_url : null,
+        brokerageLogoUrl: brokerage?.logo_url,
         tempPassword,
       })
     }
@@ -1451,7 +1453,7 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
           agentFirstName: agent.first_name,
           agentEmail: agent.email,
           brokerageName: brokerage.name,
-          brokerageLogoUrl: brokerage.is_white_label_partner ? brokerage.logo_url : null,
+          brokerageLogoUrl: brokerage.logo_url,
           inviteToken,
         })
 

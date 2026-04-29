@@ -563,19 +563,18 @@ export async function updateDealStatus(input: {
       // Recalculate financials server-side using actual days from today (Eastern Time) to closing
       const actualDays = Math.max(1, calcDaysUntilClosing(deal.closing_date))
 
-      // Fetch brokerage incl. white-label partner state + profit_share_pct
+      // Fetch brokerage incl. profit_share_pct (every onboarded brokerage is white-label;
+      // profit_share_pct == 0 means no profit-share arrangement)
       const { data: brokerage } = await supabase
         .from('brokerages')
-        .select('referral_fee_percentage, is_white_label_partner, profit_share_pct')
+        .select('referral_fee_percentage, profit_share_pct')
         .eq('id', deal.brokerage_id)
         .single()
 
-      // For white-label partners the profit_share_pct (whole, 0-100) governs both the
+      // When the brokerage has a configured profit_share_pct (>0), it governs both the
       // brokerage's keep AND the historical broker_share snapshot. Per-deal override still wins.
-      const isWhiteLabel = !!brokerage?.is_white_label_partner
-      const profitShareDecimal = isWhiteLabel
-        ? Number(brokerage?.profit_share_pct ?? 0) / 100
-        : null
+      const profitSharePct = Number(brokerage?.profit_share_pct ?? 0)
+      const profitShareDecimal = profitSharePct > 0 ? profitSharePct / 100 : null
 
       const referralPct = input.brokerageReferralPct
         ?? profitShareDecimal
@@ -592,10 +591,10 @@ export async function updateDealStatus(input: {
         brokerageReferralPct: referralPct,
       })
 
-      // Snapshot the white-label profit share (whole pct) at funding so historical deals
-      // are unaffected by future renegotiations.
-      if (isWhiteLabel) {
-        updateData.broker_share_pct_at_funding = Number(brokerage?.profit_share_pct ?? 0)
+      // Snapshot the profit share (whole pct) at funding so historical deals are
+      // unaffected by future renegotiations. Only snapshot when there is a share arrangement.
+      if (profitSharePct > 0) {
+        updateData.broker_share_pct_at_funding = profitSharePct
       }
 
       // Calculate due date: closing + 14 calendar days

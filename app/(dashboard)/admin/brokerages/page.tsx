@@ -524,11 +524,9 @@ export default function BrokeragesPage() {
     if (!editFormData.name.trim() || !editFormData.email.trim() || !editFormData.referralFeePercentage) {
       setStatusMessage({ type: 'error', text: 'Please fill in all required fields' }); return
     }
-    if (editFormData.isWhiteLabelPartner) {
-      const pct = parseFloat(editFormData.profitSharePct)
-      if (Number.isNaN(pct) || pct <= 0 || pct > 100) {
-        setStatusMessage({ type: 'error', text: 'Profit share % must be between 0 and 100 for white-label partners' }); return
-      }
+    const profitSharePct = editFormData.profitSharePct ? parseFloat(editFormData.profitSharePct) : 0
+    if (Number.isNaN(profitSharePct) || profitSharePct < 0 || profitSharePct > 100) {
+      setStatusMessage({ type: 'error', text: 'Profit share % must be between 0 and 100' }); return
     }
     setSubmitting(true)
     const result = await updateBrokerage({
@@ -541,8 +539,8 @@ export default function BrokeragesPage() {
       transactionSystem: editFormData.transactionSystem || undefined, notes: editFormData.notes || undefined,
       brokerOfRecordName: editFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: editFormData.brokerOfRecordEmail || undefined,
       logoUrl: editFormData.logoUrl || undefined, brandColor: editFormData.brandColor || undefined,
-      isWhiteLabelPartner: editFormData.isWhiteLabelPartner,
-      profitSharePct: editFormData.profitSharePct ? parseFloat(editFormData.profitSharePct) : 0,
+      isWhiteLabelPartner: profitSharePct > 0,
+      profitSharePct,
       status: editFormData.status,
     })
     if (result.success) {
@@ -1445,49 +1443,35 @@ export default function BrokeragesPage() {
                               rows={3} className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary resize-none transition-colors" />
                           </div>
 
-                          {/* White-Label Partner Section */}
+                          {/* Profit Share — every onboarded brokerage is a white-label partner */}
                           <div className="border border-border/60 rounded-lg p-4 bg-muted/20 space-y-3">
-                            <div className="flex items-center justify-between gap-4">
-                              <div>
-                                <h5 className="text-sm font-semibold text-foreground">White-Label Partner</h5>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Brokerage operates as a Firm Funds division. Submits deals on behalf of agents and earns a negotiated share of the discount fee.
-                                </p>
-                              </div>
-                              <label className="inline-flex items-center cursor-pointer shrink-0">
-                                <input
-                                  type="checkbox"
-                                  className="sr-only peer"
-                                  checked={editFormData.isWhiteLabelPartner}
-                                  onChange={(e) => setEditFormData({ ...editFormData, isWhiteLabelPartner: e.target.checked })}
-                                />
-                                <div className="relative w-11 h-6 bg-input rounded-full peer peer-focus:ring-2 peer-focus:ring-primary/40 peer-checked:bg-primary after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-background after:border after:border-border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full peer-checked:after:border-primary-foreground"></div>
-                              </label>
+                            <div>
+                              <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                The brokerage&apos;s negotiated share of the advance discount fee. Submits deals on behalf of its agents.
+                              </p>
                             </div>
-                            {editFormData.isWhiteLabelPartner && (
-                              <div className="pt-2 border-t border-border/40">
-                                <label className="block text-sm font-medium mb-2 text-muted-foreground">
-                                  Profit Share % <span className="text-destructive">*</span>
-                                </label>
-                                <input
-                                  type="number"
-                                  step="0.5"
-                                  min="0"
-                                  max="100"
-                                  required={editFormData.isWhiteLabelPartner}
-                                  value={editFormData.profitSharePct}
-                                  onChange={(e) => setEditFormData({ ...editFormData, profitSharePct: e.target.value })}
-                                  placeholder="e.g. 20"
-                                  className={inputCls}
-                                />
-                                <p className="text-[11px] mt-1.5 text-muted-foreground/70">
-                                  Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal — renegotiations don&apos;t affect closed deals.
-                                </p>
-                                <p className="text-[11px] mt-1 text-amber-400/80">
-                                  Activating partner status will queue welcome emails to all roster agents who have an email on file.
-                                </p>
-                              </div>
-                            )}
+                            <div className="pt-2 border-t border-border/40">
+                              <label className="block text-sm font-medium mb-2 text-muted-foreground">
+                                Profit Share %
+                              </label>
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                max="100"
+                                value={editFormData.profitSharePct}
+                                onChange={(e) => setEditFormData({ ...editFormData, profitSharePct: e.target.value })}
+                                placeholder="e.g. 20"
+                                className={inputCls}
+                              />
+                              <p className="text-[11px] mt-1.5 text-muted-foreground/70">
+                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal — renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
+                              </p>
+                              <p className="text-[11px] mt-1 text-amber-400/80">
+                                Setting this above 0 (when previously 0) queues welcome emails to roster agents with an email on file.
+                              </p>
+                            </div>
                           </div>
 
                           <div className="flex gap-3 pt-2">

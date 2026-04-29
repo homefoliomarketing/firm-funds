@@ -452,17 +452,15 @@ export default function BrokerageDashboard() {
             <Button variant="outline" onClick={() => router.push('/brokerage/agents')} className="h-9">
               <Users size={14} className="mr-1.5" /> Manage agents
             </Button>
-            {brokerage?.is_white_label_partner && (
-              <Button onClick={() => router.push('/brokerage/deals/new')} className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
-                <Send size={14} className="mr-1.5" /> Submit advance request
-              </Button>
-            )}
+            <Button onClick={() => router.push('/brokerage/deals/new')} className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
+              <Send size={14} className="mr-1.5" /> Submit advance request
+            </Button>
           </div>
         </section>
 
-        {/* White-Label Revenue Tracker — only for white-label partner brokerages */}
-        {brokerage?.is_white_label_partner && (
-          <section aria-label="White-label revenue tracker" className="mb-6">
+        {/* Profit-share revenue tracker (every onboarded brokerage is white-label) */}
+        {Number(brokerage?.profit_share_pct ?? 0) > 0 && (
+          <section aria-label="Profit-share revenue tracker" className="mb-6">
             <Card className="border-primary/30 bg-gradient-to-br from-primary/[0.06] to-primary/[0.02]">
               <CardContent className="p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
