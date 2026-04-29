@@ -89,9 +89,14 @@ export default function AddressAutocomplete({
     if (!apiKey || !inputRef.current) return
     let cancelled = false
     loadGoogleMaps(apiKey)
-      .then((g) => {
+      .then(async (g) => {
         if (cancelled || !inputRef.current) return
-        autoRef.current = new g.maps.places.Autocomplete(inputRef.current, {
+        // With loading=async, the Autocomplete constructor isn't on
+        // google.maps.places until importLibrary resolves. Calling it
+        // directly racy-fails with "Cannot read properties of undefined".
+        const { Autocomplete } = await g.maps.importLibrary('places')
+        if (cancelled || !inputRef.current) return
+        autoRef.current = new Autocomplete(inputRef.current, {
           types: ['address'],
           componentRestrictions: { country: [country] },
           fields: ['address_components', 'formatted_address'],
