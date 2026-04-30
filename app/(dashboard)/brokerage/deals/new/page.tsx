@@ -155,8 +155,10 @@ export default function NewBrokerageDealPage() {
 
   const handleFileAdd = (slotKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
-    if (!files) return
-    setDocSlots(prev => ({ ...prev, [slotKey]: [...prev[slotKey], ...Array.from(files)] }))
+    console.log('[doc upload] change fired', slotKey, 'count:', files?.length ?? 0)
+    if (!files || files.length === 0) return
+    const arr = Array.from(files)
+    setDocSlots(prev => ({ ...prev, [slotKey]: [...prev[slotKey], ...arr] }))
     e.target.value = ''
   }
 
@@ -451,7 +453,16 @@ export default function NewBrokerageDealPage() {
                     </div>
                     <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer bg-input border border-border text-foreground hover:bg-muted">
                       <Upload size={14} /> Add
-                      <input type="file" accept={slot.types} multiple className="hidden" onChange={(e) => handleFileAdd(slot.key, e)} />
+                      {/* Off-screen instead of display:none — some browser/extension combos
+                          drop the change event when a display:none file input is the picker
+                          target. Keeping the element in the layout tree fixes that. */}
+                      <input
+                        type="file"
+                        accept={slot.types}
+                        multiple
+                        onChange={(e) => handleFileAdd(slot.key, e)}
+                        style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', borderWidth: 0 }}
+                      />
                     </label>
                   </div>
                   {docSlots[slot.key].length > 0 && (
