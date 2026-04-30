@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
+import { Loader2, MapPin } from 'lucide-react'
 
 export interface AddressParts {
   street: string
@@ -39,10 +39,8 @@ function loadGoogleMaps(apiKey: string): Promise<any> {
     script.id = 'google-maps-js'
     script.async = true
     script.defer = true
-    // Site-wide Referrer-Policy is `no-referrer`, which strips the Referer
-    // header. Google Cloud's HTTP-referrer key restriction needs the origin
-    // to match. Per-element override sends just the origin (e.g.
-    // https://firmfunds.ca/).
+    // Site-wide Referrer-Policy is `no-referrer`. Per-element override sends
+    // the origin so Google Cloud's HTTP-referrer key restriction matches.
     script.referrerPolicy = 'strict-origin-when-cross-origin'
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&v=weekly`
     script.onload = () => resolve((window as any).google)
@@ -73,6 +71,12 @@ function partsFromComponents(components: AddressComponentNew[]): AddressParts {
   return { street, city, province, postalCode }
 }
 
+interface Suggestion {
+  text: string
+  placeId: string
+  fetchPlace: () => Promise<any>
+}
+
 export default function AddressAutocomplete({
   value,
   onChange,
@@ -80,123 +84,208 @@ export default function AddressAutocomplete({
   required = false,
 }: AddressAutocompleteProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-  const containerRef = useRef<HTMLDivElement>(null)
-  const elementRef = useRef<any>(null)
-  const [loaded, setLoaded] = useState(false)
+  const [query, setQuery] = useState(value.street)
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-
-  // Track latest onChange so the listener never holds a stale closure
+  const [mapsReady, setMapsReady] = useState(false)
+  const placesLibRef = useRef<any>(null)
+  const sessionTokenRef = useRef<any>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const onChangeRef = useRef(onChange)
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
+  // Load the Maps SDK + Places library once
   useEffect(() => {
-    if (!apiKey || !containerRef.current) return
+    if (!apiKey) return
     let cancelled = false
-
     loadGoogleMaps(apiKey)
       .then(async (g) => {
-        if (cancelled || !containerRef.current) return
-        // Legacy google.maps.places.Autocomplete is blocked for projects
-        // created after March 1, 2025. PlaceAutocompleteElement is the new
-        // Web Component replacement and is what's available to new keys.
-        const { PlaceAutocompleteElement } = await g.maps.importLibrary('places')
-        if (cancelled || !containerRef.current) return
-
-        const el = new PlaceAutocompleteElement({
-          includedRegionCodes: [country],
-        })
-        el.id = 'address-search'
-        // Pre-fill with whatever parent state holds, so the element shows
-        // the same string the user typed before this remounted.
-        if (value.street) {
-          // PlaceAutocompleteElement does not expose a value setter as of
-          // this writing; we rely on the embedded input's defaults.
-        }
-
-        elementRef.current = el
-        containerRef.current.replaceChildren(el)
-
-        el.addEventListener('gmp-placeselect', async (event: any) => {
-          try {
-            const place = event.place
-            await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
-            const comps: AddressComponentNew[] = place.addressComponents || []
-            const parts = partsFromComponents(comps)
-            if (parts.street) onChangeRef.current(parts)
-          } catch (err) {
-            console.error('[AddressAutocomplete] place select failed:', err)
-          }
-        })
-
-        setLoaded(true)
+        if (cancelled) return
+        const places = await g.maps.importLibrary('places')
+        if (cancelled) return
+        placesLibRef.current = places
+        sessionTokenRef.current = new places.AutocompleteSessionToken()
+        setMapsReady(true)
       })
       .catch((e) => {
         if (cancelled) return
         console.error('[AddressAutocomplete] failed to load:', e)
         setLoadError('Address suggestions unavailable — enter the address manually below.')
       })
+    return () => { cancelled = true }
+  }, [apiKey])
 
-    return () => {
-      cancelled = true
-      if (elementRef.current) {
-        try { elementRef.current.remove() } catch {}
-        elementRef.current = null
+  // Debounced suggestion fetch
+  const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fetchSuggestions = useCallback((input: string) => {
+    if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current)
+    if (!input || input.trim().length < 3 || !placesLibRef.current) {
+      setSuggestions([])
+      setOpen(false)
+      return
+    }
+    fetchTimerRef.current = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const { AutocompleteSuggestion } = placesLibRef.current
+        const { suggestions: results } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+          input: input.trim(),
+          includedRegionCodes: [country],
+          sessionToken: sessionTokenRef.current,
+        })
+        const mapped: Suggestion[] = (results || [])
+          .filter((s: any) => s.placePrediction)
+          .slice(0, 6)
+          .map((s: any) => ({
+            text: s.placePrediction.text?.toString?.() || '',
+            placeId: s.placePrediction.placeId,
+            fetchPlace: async () => {
+              const place = s.placePrediction.toPlace()
+              await place.fetchFields({
+                fields: ['addressComponents', 'formattedAddress'],
+              })
+              return place
+            },
+          }))
+        setSuggestions(mapped)
+        setActiveIndex(0)
+        setOpen(mapped.length > 0)
+      } catch (err) {
+        console.error('[AddressAutocomplete] suggestion fetch failed:', err)
+        setSuggestions([])
+        setOpen(false)
+      } finally {
+        setLoading(false)
+      }
+    }, 250)
+  }, [country])
+
+  const pickSuggestion = useCallback(async (s: Suggestion) => {
+    setOpen(false)
+    setLoading(true)
+    try {
+      const place = await s.fetchPlace()
+      const comps: AddressComponentNew[] = place.addressComponents || []
+      const parts = partsFromComponents(comps)
+      if (parts.street) {
+        setQuery(parts.street)
+        onChangeRef.current(parts)
+      } else {
+        setQuery(s.text)
+      }
+    } catch (err) {
+      console.error('[AddressAutocomplete] place fetch failed:', err)
+      setQuery(s.text)
+    } finally {
+      setLoading(false)
+      // Start a fresh session for the next query — Google bills per session
+      if (placesLibRef.current?.AutocompleteSessionToken) {
+        sessionTokenRef.current = new placesLibRef.current.AutocompleteSessionToken()
       }
     }
-  // value.street intentionally not a dep — we only seed on first mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey, country])
-
-  // Theme the gmp-place-autocomplete custom element to match the dark theme.
-  // Material-style CSS variables are exposed by the Web Component's shadow DOM.
-  useEffect(() => {
-    if (typeof document === 'undefined') return
-    const id = 'gmp-place-autocomplete-theme'
-    if (document.getElementById(id)) return
-    const style = document.createElement('style')
-    style.id = id
-    style.textContent = `
-      gmp-place-autocomplete {
-        --gmp-mat-color-surface: var(--card, #141418);
-        --gmp-mat-color-surface-container-low: var(--card, #141418);
-        --gmp-mat-color-surface-container: var(--card, #141418);
-        --gmp-mat-color-on-surface: var(--foreground, #EAEAEF);
-        --gmp-mat-color-on-surface-variant: var(--muted-foreground, #B8B8B8);
-        --gmp-mat-color-outline: var(--border, rgba(255,255,255,0.12));
-        --gmp-mat-color-outline-variant: var(--border, rgba(255,255,255,0.08));
-        --gmp-mat-color-primary: var(--primary, #5FA873);
-        --gmp-mat-color-secondary-container: var(--secondary, #1E1E24);
-        --gmp-mat-font-family: inherit;
-        width: 100%;
-        display: block;
-      }
-    `
-    document.head.appendChild(style)
   }, [])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    setQuery(v)
+    onChangeRef.current({ ...value, street: v })
+    fetchSuggestions(v)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || suggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex(i => (i + 1) % suggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex(i => (i - 1 + suggestions.length) % suggestions.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const sel = suggestions[activeIndex]
+      if (sel) pickSuggestion(sel)
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  // Sync external value changes back to local query (e.g. parent reset)
+  useEffect(() => {
+    if (value.street !== query && document.activeElement !== inputRef.current) {
+      setQuery(value.street)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.street])
 
   return (
     <div className="space-y-3">
-      <div>
+      <div ref={containerRef} className="relative">
         <Label htmlFor="address-search">
           Property address {required && <span className="text-destructive">*</span>}
         </Label>
         <div className="relative">
-          <div ref={containerRef} className="min-h-[40px]">
-            {!apiKey && (
-              <Input
-                id="address-search-fallback"
-                placeholder="Enter street address"
-                value={value.street}
-                onChange={(e) => onChange({ ...value, street: e.target.value })}
-                required={required}
-                autoComplete="off"
-              />
-            )}
-          </div>
-          {apiKey && !loaded && !loadError && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 animate-spin pointer-events-none" aria-label="Loading suggestions" />
+          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
+          <Input
+            id="address-search"
+            ref={inputRef}
+            value={query}
+            placeholder={apiKey ? 'Start typing an address…' : 'Enter street address'}
+            className="pl-9"
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            onFocus={() => { if (suggestions.length > 0) setOpen(true) }}
+            required={required}
+            autoComplete="off"
+            role="combobox"
+            aria-expanded={open}
+            aria-controls="address-suggestions"
+            aria-autocomplete="list"
+            aria-activedescendant={open ? `address-suggestion-${activeIndex}` : undefined}
+          />
+          {(loading || (apiKey && !mapsReady && !loadError)) && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 animate-spin pointer-events-none" aria-label="Loading" />
           )}
         </div>
+
+        {open && suggestions.length > 0 && (
+          <ul
+            id="address-suggestions"
+            role="listbox"
+            className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-card shadow-xl"
+          >
+            {suggestions.map((s, i) => (
+              <li
+                key={s.placeId}
+                id={`address-suggestion-${i}`}
+                role="option"
+                aria-selected={i === activeIndex}
+                onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s) }}
+                onMouseEnter={() => setActiveIndex(i)}
+                className={`cursor-pointer px-3 py-2 text-sm text-foreground ${i === activeIndex ? 'bg-secondary' : 'hover:bg-secondary/60'}`}
+              >
+                <span className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground/60 shrink-0" aria-hidden="true" />
+                  <span className="leading-snug">{s.text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {loadError && <p className="text-[11px] text-amber-400/80 mt-1">{loadError}</p>}
         {!apiKey && (
           <p className="text-[11px] text-muted-foreground/70 mt-1">
