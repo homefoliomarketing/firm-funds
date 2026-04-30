@@ -87,7 +87,7 @@ export async function GET(request: Request) {
     const { data: deals, error: dealsErr } = await supabase
       .from('deals')
       .select(`
-        id, property_address, funding_date, discount_fee,
+        id, property_address, funding_date, discount_fee, settlement_period_fee,
         broker_share_pct_at_funding, broker_share_amount, broker_share_remitted,
         agents(first_name, last_name)
       `)
@@ -106,7 +106,8 @@ export async function GET(request: Request) {
 
     const rows = (deals || []).map((d: any) => {
       const pct = Number(d.broker_share_pct_at_funding ?? 0)
-      const fee = Number(d.discount_fee ?? 0)
+      // Match the brokerage_referral_fee formula: pct applies to discount + settlement.
+      const fee = Number(d.discount_fee ?? 0) + Number(d.settlement_period_fee ?? 0)
       // If broker_share_amount is set (deal is completed), use it; else estimate from fee × pct
       const share = d.broker_share_amount != null
         ? Number(d.broker_share_amount)

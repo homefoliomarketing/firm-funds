@@ -151,7 +151,7 @@ export interface Deal {
   notes: string | null
   // White-label broker share — Session 34
   broker_share_pct_at_funding: number | null  // Snapshot at funding so historical deals don't change if pct is renegotiated
-  broker_share_amount: number | null  // discount_fee * broker_share_pct_at_funding / 100, calculated at completion
+  broker_share_amount: number | null  // (discount_fee + settlement_period_fee) * broker_share_pct_at_funding / 100, calculated at completion
   broker_share_remitted: boolean
   created_at: string
   updated_at: string

@@ -467,7 +467,7 @@ export default function BrokerageDashboard() {
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">White-Label Partner</p>
                     <p className="text-sm text-muted-foreground">
-                      Your share of the advance discount fee on every funded deal:&nbsp;
+                      Your share of the advance fees (discount + 14-day settlement) on every funded deal:&nbsp;
                       <span className="text-foreground font-bold">{Number(brokerage.profit_share_pct ?? 0).toFixed(1)}%</span>
                     </p>
                   </div>

@@ -29,7 +29,7 @@ export interface DealResult {
   settlementPeriodFee: number
   totalFees: number // discountFee + settlementPeriodFee
   advanceAmount: number // netCommission - totalFees
-  brokerageReferralFee: number // referralPct × discountFee ONLY (not settlement fee)
+  brokerageReferralFee: number // referralPct × (discountFee + settlementPeriodFee)
   firmFundsProfit: number
   amountDueFromBrokerage: number
   eftTransferDays: number
@@ -96,11 +96,12 @@ export function calculateDeal(input: DealCalculation): DealResult {
   // What the agent receives
   const advanceAmount = netCommission - totalFees
 
-  // Brokerage gets a cut of the discount fee ONLY (not settlement period fee)
-  const brokerageReferralFee = discountFee * referralPct
+  // Brokerage (white-label partner) gets a cut of the TOTAL fees — both the
+  // discount fee AND the 14-day settlement period fee.
+  const brokerageReferralFee = totalFees * referralPct
 
-  // Firm Funds keeps the rest of the discount fee + all of the settlement period fee
-  const firmFundsProfit = (discountFee - brokerageReferralFee) + settlementPeriodFee
+  // Firm Funds keeps whatever's left of the total fees after the brokerage share.
+  const firmFundsProfit = totalFees - brokerageReferralFee
 
   // What brokerage sends to Firm Funds at closing (net commission minus their referral fee)
   const amountDueFromBrokerage = netCommission - brokerageReferralFee

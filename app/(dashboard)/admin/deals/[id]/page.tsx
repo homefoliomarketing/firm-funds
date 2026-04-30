@@ -2113,7 +2113,7 @@ export default function DealDetailPage() {
                   <span className="tabular-nums font-semibold text-primary">
                     {deal.broker_share_amount != null
                       ? formatCurrency(deal.broker_share_amount)
-                      : `~${formatCurrency(Math.round(deal.discount_fee * Number(deal.broker_share_pct_at_funding)) / 100)} (est.)`}
+                      : `~${formatCurrency(Math.round((Number(deal.discount_fee || 0) + Number(deal.settlement_period_fee || 0)) * Number(deal.broker_share_pct_at_funding)) / 100)} (est.)`}
                   </span>
                 </div>
               )}

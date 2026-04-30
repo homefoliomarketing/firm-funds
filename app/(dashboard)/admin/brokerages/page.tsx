@@ -1448,7 +1448,7 @@ export default function BrokeragesPage() {
                             <div>
                               <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
                               <p className="text-xs text-muted-foreground mt-1">
-                                The brokerage&apos;s negotiated share of the advance discount fee. Submits deals on behalf of its agents.
+                                The brokerage&apos;s negotiated share of the advance fees (discount + 14-day settlement period). Submits deals on behalf of its agents.
                               </p>
                             </div>
                             <div className="pt-2 border-t border-border/40">

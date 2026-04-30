@@ -8,7 +8,7 @@
 /** Discount rate: $0.75 per $1,000 of net commission per day until closing */
 export const DISCOUNT_RATE_PER_1000_PER_DAY = 0.75
 
-/** Default brokerage referral fee: 20% of the discount fee */
+/** Default brokerage referral fee: 20% of the total fees (discount fee + 14-day settlement period fee) */
 export const DEFAULT_BROKERAGE_REFERRAL_PCT = 0.20
 
 /** Maximum daily EFT transfer amount */

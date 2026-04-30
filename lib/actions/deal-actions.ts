@@ -657,12 +657,13 @@ export async function updateDealStatus(input: {
       if (input.repaymentAmount !== undefined) {
         updateData.repayment_amount = input.repaymentAmount
       }
-      // White-label: calculate broker_share_amount from the snapshotted pct + actual discount fee.
-      // This is the canonical white-label "amount kept by brokerage from the discount fee" record,
-      // used for monthly statements and audit. Only set if a snapshot exists (i.e. funded as white-label).
+      // White-label: calculate broker_share_amount from the snapshotted pct + actual fees.
+      // Includes BOTH the discount fee and the 14-day settlement period fee — matches the
+      // brokerage_referral_fee formula in lib/calculations.ts. Used for monthly statements
+      // and audit. Only set if a snapshot exists (i.e. funded as white-label).
       if (deal.broker_share_pct_at_funding != null && deal.discount_fee != null) {
         const pct = Number(deal.broker_share_pct_at_funding)
-        const fee = Number(deal.discount_fee)
+        const fee = Number(deal.discount_fee) + Number(deal.settlement_period_fee || 0)
         updateData.broker_share_amount = Math.round(fee * pct) / 100
       }
     }

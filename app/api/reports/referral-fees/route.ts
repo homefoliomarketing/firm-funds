@@ -230,7 +230,7 @@ export async function GET(request: Request) {
   currentPage.drawText('REFERRAL FEE RATE', {
     x: box3X + 10, y: boxY + 33, size: 7, font: helveticaBold, color: GREY,
   })
-  currentPage.drawText(`${(referralPct * 100).toFixed(0)}% of Discount Fee`, {
+  currentPage.drawText(`${(referralPct * 100).toFixed(0)}% of Discount + Settlement`, {
     x: box3X + 10, y: boxY + 12, size: 12, font: helveticaBold, color: rgb(0.57, 0.44, 0.1),
   })
 
