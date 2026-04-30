@@ -246,10 +246,13 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
         </div>
       )}
       {/* Scrollable PDF content — drag to pan when zoomed, Ctrl+scroll to zoom */}
+      {/* min-h-0 is REQUIRED here: flex items default to min-height:auto which
+          makes them grow to fit content, breaking overflow-auto. Without it,
+          page 2+ canvases push below the visible area with no scrollbar. */}
       <div
         ref={containerRef}
         {...dragHandlers}
-        className="flex-1 overflow-auto p-0"
+        className="flex-1 overflow-auto p-0 min-h-0"
         style={{ cursor: isZoomed ? 'grab' : 'default' }}
       >
         {status === 'loading' && (
@@ -2393,7 +2396,9 @@ export default function DealDetailPage() {
                   </div>
                 </div>
                 {/* Inline viewer content */}
-                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                {/* minHeight: 0 lets this flex item shrink to its parent's bounds
+                    so the inner overflow-auto on PdfCanvasViewer can actually scroll. */}
+                <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                   {viewingDoc.type === 'image' ? (
                     <ImageZoomViewer src={viewingDoc.blobUrl} alt={viewingDoc.fileName} />
                   ) : viewingDoc.pdfData ? (
