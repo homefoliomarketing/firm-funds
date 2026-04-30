@@ -39,7 +39,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: blob: https://*.supabase.co https://maps.gstatic.com https://maps.googleapis.com https://*.googleusercontent.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.upstash.io https://maps.googleapis.com",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.upstash.io https://maps.googleapis.com https://places.googleapis.com",
               "worker-src 'self' blob: https://cdnjs.cloudflare.com",
               "object-src 'none'",
               "frame-ancestors 'none'",
