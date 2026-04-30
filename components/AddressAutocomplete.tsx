@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, MapPin } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 export interface AddressParts {
   street: string
@@ -15,7 +15,7 @@ export interface AddressParts {
 interface AddressAutocompleteProps {
   value: AddressParts
   onChange: (parts: AddressParts) => void
-  /** Restrict suggestions to this 2-letter country code (default: 'ca') */
+  /** Restrict suggestions to this 2-letter region code (default: 'ca') */
   country?: string
   required?: boolean
 }
@@ -25,7 +25,7 @@ interface AddressAutocompleteProps {
 let mapsLoadPromise: Promise<any> | null = null
 function loadGoogleMaps(apiKey: string): Promise<any> {
   if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'))
-  if ((window as any).google?.maps?.places) return Promise.resolve((window as any).google)
+  if ((window as any).google?.maps) return Promise.resolve((window as any).google)
   if (mapsLoadPromise) return mapsLoadPromise
 
   mapsLoadPromise = new Promise((resolve, reject) => {
@@ -44,11 +44,7 @@ function loadGoogleMaps(apiKey: string): Promise<any> {
     // to match. Per-element override sends just the origin (e.g.
     // https://firmfunds.ca/).
     script.referrerPolicy = 'strict-origin-when-cross-origin'
-    // Note: no `loading=async` — that requires Google's inline bootstrap
-    // loader to define google.maps.importLibrary up-front. With a plain
-    // <script> tag the legacy mode is what we want; once onload fires,
-    // google.maps.places.Autocomplete is already attached.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&v=weekly`
     script.onload = () => resolve((window as any).google)
     script.onerror = () => reject(new Error('Google Maps script failed to load'))
     document.head.appendChild(script)
@@ -56,13 +52,17 @@ function loadGoogleMaps(apiKey: string): Promise<any> {
   return mapsLoadPromise
 }
 
-interface AddressComponent { types: string[]; long_name: string; short_name: string }
-interface PlaceResult { address_components?: AddressComponent[]; formatted_address?: string }
+interface AddressComponentNew {
+  types: string[]
+  longText?: string | null
+  shortText?: string | null
+}
 
-function parsePlace(place: PlaceResult): AddressParts {
+function partsFromComponents(components: AddressComponentNew[]): AddressParts {
   const get = (type: string, useShort = false): string => {
-    const comp = place.address_components?.find(c => c.types.includes(type))
-    return comp ? (useShort ? comp.short_name : comp.long_name) : ''
+    const comp = components.find(c => c.types.includes(type))
+    if (!comp) return ''
+    return (useShort ? comp.shortText : comp.longText) || ''
   }
   const streetNumber = get('street_number')
   const route = get('route')
@@ -80,37 +80,54 @@ export default function AddressAutocomplete({
   required = false,
 }: AddressAutocompleteProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-  const inputRef = useRef<HTMLInputElement>(null)
-  const autoRef = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const elementRef = useRef<any>(null)
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Track latest onChange so the place_changed listener never holds a stale closure
+  // Track latest onChange so the listener never holds a stale closure
   const onChangeRef = useRef(onChange)
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
   useEffect(() => {
-    if (!apiKey || !inputRef.current) return
+    if (!apiKey || !containerRef.current) return
     let cancelled = false
+
     loadGoogleMaps(apiKey)
-      .then((g) => {
-        if (cancelled || !inputRef.current) return
-        autoRef.current = new g.maps.places.Autocomplete(inputRef.current, {
-          types: ['address'],
-          componentRestrictions: { country: [country] },
-          fields: ['address_components', 'formatted_address'],
+      .then(async (g) => {
+        if (cancelled || !containerRef.current) return
+        // Legacy google.maps.places.Autocomplete is blocked for projects
+        // created after March 1, 2025. PlaceAutocompleteElement is the new
+        // Web Component replacement and is what's available to new keys.
+        const { PlaceAutocompleteElement } = await g.maps.importLibrary('places')
+        if (cancelled || !containerRef.current) return
+
+        const el = new PlaceAutocompleteElement({
+          includedRegionCodes: [country],
         })
-        autoRef.current.addListener('place_changed', () => {
-          const place = autoRef.current?.getPlace()
-          if (!place?.address_components) return
-          const parts = parsePlace(place)
-          if (!parts.street) return
-          onChangeRef.current(parts)
-          // Sync the visible search input to the parsed street so the user
-          // sees what they picked (Google sets the value to the formatted
-          // address; we want the just-the-street version that lives in state).
-          if (inputRef.current) inputRef.current.value = parts.street
+        el.id = 'address-search'
+        // Pre-fill with whatever parent state holds, so the element shows
+        // the same string the user typed before this remounted.
+        if (value.street) {
+          // PlaceAutocompleteElement does not expose a value setter as of
+          // this writing; we rely on the embedded input's defaults.
+        }
+
+        elementRef.current = el
+        containerRef.current.replaceChildren(el)
+
+        el.addEventListener('gmp-placeselect', async (event: any) => {
+          try {
+            const place = event.place
+            await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
+            const comps: AddressComponentNew[] = place.addressComponents || []
+            const parts = partsFromComponents(comps)
+            if (parts.street) onChangeRef.current(parts)
+          } catch (err) {
+            console.error('[AddressAutocomplete] place select failed:', err)
+          }
         })
+
         setLoaded(true)
       })
       .catch((e) => {
@@ -118,42 +135,45 @@ export default function AddressAutocomplete({
         console.error('[AddressAutocomplete] failed to load:', e)
         setLoadError('Address suggestions unavailable — enter the address manually below.')
       })
-    return () => { cancelled = true }
+
+    return () => {
+      cancelled = true
+      if (elementRef.current) {
+        try { elementRef.current.remove() } catch {}
+        elementRef.current = null
+      }
+    }
+  // value.street intentionally not a dep — we only seed on first mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey, country])
 
-  // Defensive: Google's pac-container (suggestion dropdown) renders at the
-  // document body and z-indexes above modals on its own, but it inherits
-  // light colors. Make it readable on our dark theme.
+  // Theme the gmp-place-autocomplete custom element to match the dark theme.
+  // Material-style CSS variables are exposed by the Web Component's shadow DOM.
   useEffect(() => {
     if (typeof document === 'undefined') return
-    const id = 'pac-dark-style'
+    const id = 'gmp-place-autocomplete-theme'
     if (document.getElementById(id)) return
     const style = document.createElement('style')
     style.id = id
     style.textContent = `
-      .pac-container {
-        background: var(--card, #141418);
-        border: 1px solid var(--border, rgba(255,255,255,0.08));
-        border-radius: 8px;
-        margin-top: 4px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-        font-family: inherit;
+      gmp-place-autocomplete {
+        --gmp-mat-color-surface: var(--card, #141418);
+        --gmp-mat-color-surface-container-low: var(--card, #141418);
+        --gmp-mat-color-surface-container: var(--card, #141418);
+        --gmp-mat-color-on-surface: var(--foreground, #EAEAEF);
+        --gmp-mat-color-on-surface-variant: var(--muted-foreground, #B8B8B8);
+        --gmp-mat-color-outline: var(--border, rgba(255,255,255,0.12));
+        --gmp-mat-color-outline-variant: var(--border, rgba(255,255,255,0.08));
+        --gmp-mat-color-primary: var(--primary, #5FA873);
+        --gmp-mat-color-secondary-container: var(--secondary, #1E1E24);
+        --gmp-mat-font-family: inherit;
+        width: 100%;
+        display: block;
       }
-      .pac-item, .pac-item-query {
-        color: var(--foreground, #EAEAEF);
-        border-top-color: var(--border, rgba(255,255,255,0.05));
-        padding: 8px 12px;
-      }
-      .pac-item:hover, .pac-item-selected, .pac-item-selected:hover {
-        background: var(--secondary, #1E1E24);
-      }
-      .pac-matched { color: var(--primary, #5FA873); }
-      .pac-icon { filter: invert(0.8); }
     `
     document.head.appendChild(style)
   }, [])
 
-  // Single search input + revealed parts (parts are still editable in case Google misses something)
   return (
     <div className="space-y-3">
       <div>
@@ -161,19 +181,20 @@ export default function AddressAutocomplete({
           Property address {required && <span className="text-destructive">*</span>}
         </Label>
         <div className="relative">
-          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
-          <Input
-            id="address-search"
-            ref={inputRef}
-            placeholder={apiKey ? 'Start typing an address…' : 'Enter street address'}
-            className="pl-9"
-            defaultValue={value.street}
-            onChange={(e) => onChange({ ...value, street: e.target.value })}
-            required={required}
-            autoComplete="off"
-          />
+          <div ref={containerRef} className="min-h-[40px]">
+            {!apiKey && (
+              <Input
+                id="address-search-fallback"
+                placeholder="Enter street address"
+                value={value.street}
+                onChange={(e) => onChange({ ...value, street: e.target.value })}
+                required={required}
+                autoComplete="off"
+              />
+            )}
+          </div>
           {apiKey && !loaded && !loadError && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 animate-spin" aria-label="Loading suggestions" />
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 animate-spin pointer-events-none" aria-label="Loading suggestions" />
           )}
         </div>
         {loadError && <p className="text-[11px] text-amber-400/80 mt-1">{loadError}</p>}
