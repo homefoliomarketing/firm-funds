@@ -172,6 +172,9 @@ export default function NewBrokerageDealPage() {
   if (!closingDate) missing.push('Closing Date')
   if (!grossCommission || parseFloat(grossCommission) <= 0) missing.push('Gross Commission')
   if (brokerageSplitPct === '' || isNaN(parseFloat(brokerageSplitPct))) missing.push('Brokerage Split %')
+  for (const slot of DOC_SLOTS) {
+    if (slot.required && (docSlots[slot.key]?.length ?? 0) === 0) missing.push(slot.label)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

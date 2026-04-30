@@ -1094,8 +1094,15 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
     const randomId = crypto.randomUUID()
     const safePath = `${dealId}/${timestamp}_${randomId}${ext}`
 
+    // Use service role for the actual mutation. Authorization was already
+    // verified above (deal ownership for agent / brokerage match for
+    // brokerage_admin / unrestricted for super_admin & firm_funds_admin).
+    // RLS on deal_documents has no policy for brokerage_admin, so the
+    // user-scoped client would silently reject the metadata insert.
+    const adminSupabase = createServiceRoleClient()
+
     // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await adminSupabase.storage
       .from('deal-documents')
       .upload(safePath, file)
 
@@ -1105,7 +1112,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
     }
 
     // Insert metadata
-    const { data: docRecord, error: insertError } = await supabase
+    const { data: docRecord, error: insertError } = await adminSupabase
       .from('deal_documents')
       .insert({
         deal_id: dealId,
@@ -1121,7 +1128,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
 
     if (insertError) {
       // Clean up uploaded file if DB insert fails
-      await supabase.storage.from('deal-documents').remove([safePath])
+      await adminSupabase.storage.from('deal-documents').remove([safePath])
       console.error('Document record insert error:', insertError.message)
       return { success: false, error: 'Failed to save document record. Please try again.' }
     }
