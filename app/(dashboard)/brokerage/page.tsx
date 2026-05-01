@@ -8,10 +8,12 @@ import {
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
   MessageSquare, Inbox, Settings, Bell, CheckCircle2, Eye, ExternalLink, X, Phone, MapPin,
+  CalendarClock,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
+import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -77,6 +79,7 @@ export default function BrokerageDashboard() {
   const [downloadingCsv, setDownloadingCsv] = useState(false)
   const [showMonthlyChart, setShowMonthlyChart] = useState(true)
   const [brokerageInbox, setBrokerageInbox] = useState<any[]>([])
+  const [pendingAmendments, setPendingAmendments] = useState<any[]>([])
   const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
   const [dealMessages, setDealMessages] = useState<any[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -125,6 +128,9 @@ export default function BrokerageDashboard() {
         setAgents(agentData || [])
         getBrokerageInbox(profileData.brokerage_id).then(r => {
           if (r.success && r.data) setBrokerageInbox(r.data.inbox)
+        })
+        getBrokeragePendingAmendments().then(r => {
+          if (r.success && Array.isArray(r.data)) setPendingAmendments(r.data)
         })
       }
       setLoading(false)
@@ -452,11 +458,59 @@ export default function BrokerageDashboard() {
             <Button variant="outline" onClick={() => router.push('/brokerage/agents')} className="h-9">
               <Users size={14} className="mr-1.5" /> Manage agents
             </Button>
+            <Button variant="outline" onClick={() => router.push('/brokerage/amendments/new')} className="h-9">
+              <CalendarClock size={14} className="mr-1.5" /> Request a deal change
+            </Button>
             <Button onClick={() => router.push('/brokerage/deals/new')} className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
               <Send size={14} className="mr-1.5" /> Submit advance request
             </Button>
           </div>
         </section>
+
+        {/* Pending amendment requests */}
+        {pendingAmendments.length > 0 && (
+          <section aria-label="Pending amendment requests" className="mb-6">
+            <Card className="border-amber-500/30 bg-amber-500/[0.04]">
+              <CardContent className="p-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <CalendarClock size={18} className="text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-bold text-foreground mb-2">
+                      Pending amendment{pendingAmendments.length === 1 ? '' : 's'} under review
+                    </h3>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      An admin is reviewing the following closing-date amendment request{pendingAmendments.length === 1 ? '' : 's'}.
+                    </p>
+                    <ul className="space-y-2">
+                      {pendingAmendments.map((a: any) => {
+                        const deal = a.deals as { property_address?: string; agents?: { first_name?: string; last_name?: string } } | undefined
+                        const agentName = deal?.agents ? `${deal.agents.first_name ?? ''} ${deal.agents.last_name ?? ''}`.trim() : null
+                        return (
+                          <li key={a.id} className="rounded-lg border border-amber-500/20 bg-card/60 px-3 py-2 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-foreground truncate">{deal?.property_address || 'Deal'}</p>
+                                <p className="text-muted-foreground mt-0.5">
+                                  {agentName ? <>Agent: <span className="text-foreground">{agentName}</span> · </> : null}
+                                  {formatDate(a.old_closing_date)} → <span className="text-foreground font-semibold">{formatDate(a.new_closing_date)}</span>
+                                </p>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground/80 flex items-center gap-1.5">
+                                <Clock size={11} /> Submitted {formatDate(a.created_at)}
+                              </div>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* Profit-share revenue tracker (every onboarded brokerage is white-label) */}
         {Number(brokerage?.profit_share_pct ?? 0) > 0 && (

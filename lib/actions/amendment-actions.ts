@@ -238,6 +238,232 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
 }
 
 // ============================================================================
+// Brokerage Action: Submit Closing Date Amendment Request
+// ============================================================================
+
+export async function submitClosingDateAmendmentAsBrokerage(formData: FormData): Promise<ActionResult> {
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Brokerage profile not configured' }
+
+  try {
+    const dealId = formData.get('dealId') as string | null
+    const newClosingDate = formData.get('newClosingDate') as string | null
+    const file = formData.get('file') as File | null
+
+    if (!dealId || !newClosingDate || !file) {
+      return { success: false, error: 'Missing required fields' }
+    }
+
+    // Validate deal exists and belongs to this brokerage
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('*')
+      .eq('id', dealId)
+      .single()
+
+    if (dealError || !deal) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    if (deal.brokerage_id !== profile.brokerage_id) {
+      return { success: false, error: 'You do not have access to this deal' }
+    }
+
+    if (!['approved', 'funded'].includes(deal.status)) {
+      return { success: false, error: 'Closing date can only be amended on approved or funded deals' }
+    }
+
+    const serviceClient = createServiceRoleClient()
+    const { data: existingPending } = await serviceClient
+      .from('closing_date_amendments')
+      .select('id')
+      .eq('deal_id', dealId)
+      .eq('status', 'pending')
+      .limit(1)
+
+    if (existingPending && existingPending.length > 0) {
+      return { success: false, error: 'There is already a pending amendment request for this deal. Please wait for admin review.' }
+    }
+
+    const newDays = calcDaysUntilClosing(newClosingDate)
+    if (newDays < MIN_DAYS_UNTIL_CLOSING || newDays > MAX_DAYS_UNTIL_CLOSING) {
+      return { success: false, error: `New closing date must be between ${MIN_DAYS_UNTIL_CLOSING} and ${MAX_DAYS_UNTIL_CLOSING} days from today` }
+    }
+
+    if (newClosingDate === deal.closing_date) {
+      return { success: false, error: 'New closing date is the same as the current closing date' }
+    }
+
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      return { success: false, error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)}MB` }
+    }
+    if (file.size === 0) {
+      return { success: false, error: 'File is empty' }
+    }
+
+    const fileName = file.name.toLowerCase()
+    const ext = '.' + fileName.split('.').pop()
+    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+      return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
+    }
+    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+      return { success: false, error: 'File MIME type not allowed' }
+    }
+
+    const magicBytesValid = await verifyFileMagicBytes(file)
+    if (!magicBytesValid) {
+      return { success: false, error: 'File content does not match its declared type' }
+    }
+
+    const timestamp = Date.now()
+    const randomId = crypto.randomUUID()
+    const safePath = `${dealId}/${timestamp}_amendment_${randomId}${ext}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('deal-documents')
+      .upload(safePath, file)
+
+    if (uploadError) {
+      console.error('Brokerage amendment upload error:', uploadError.message)
+      return { success: false, error: 'Failed to upload amendment document' }
+    }
+
+    // Use service role for the deal_documents insert — the brokerage_admin RLS
+    // policy on deal_documents has historically been incomplete (see commit b32b5b5).
+    const { data: docRecord, error: docError } = await serviceClient
+      .from('deal_documents')
+      .insert({
+        deal_id: dealId,
+        uploaded_by: user.id,
+        document_type: 'closing_date_amendment' as const,
+        file_name: file.name,
+        file_path: safePath,
+        file_size: file.size,
+        upload_source: 'manual_upload' as const,
+      })
+      .select()
+      .single()
+
+    if (docError || !docRecord) {
+      await supabase.storage.from('deal-documents').remove([safePath])
+      return { success: false, error: 'Failed to save document record' }
+    }
+
+    const referralPct = deal.brokerage_referral_pct || 0.20
+    const newCalc = calculateDeal({
+      grossCommission: deal.gross_commission,
+      brokerageSplitPct: deal.brokerage_split_pct,
+      daysUntilClosing: newDays,
+      discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
+      brokerageReferralPct: referralPct,
+    })
+
+    const newClosingDateObj = new Date(newClosingDate + 'T00:00:00Z')
+    const newDueDate = new Date(newClosingDateObj.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDateStr = newDueDate.toISOString().split('T')[0]
+
+    let scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' = 'approved_recalc'
+    let feeAdjustment = 0
+
+    if (deal.status === 'funded') {
+      const oldDiscountFee = deal.discount_fee || 0
+      feeAdjustment = newCalc.discountFee - oldDiscountFee
+      scenario = feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier'
+    }
+
+    const { data: amendment, error: amendError } = await serviceClient
+      .from('closing_date_amendments')
+      .insert({
+        deal_id: dealId,
+        requested_by: user.id,
+        old_closing_date: deal.closing_date,
+        new_closing_date: newClosingDate,
+        status: 'pending',
+        amendment_document_id: docRecord.id,
+        old_discount_fee: deal.discount_fee,
+        new_discount_fee: newCalc.discountFee,
+        old_settlement_period_fee: deal.settlement_period_fee || 0,
+        new_settlement_period_fee: newCalc.settlementPeriodFee,
+        old_advance_amount: deal.advance_amount,
+        new_advance_amount: newCalc.advanceAmount,
+        old_due_date: deal.due_date,
+        new_due_date: newDueDateStr,
+        fee_adjustment_amount: feeAdjustment,
+        adjustment_scenario: scenario,
+      })
+      .select()
+      .single()
+
+    if (amendError || !amendment) {
+      console.error('Brokerage amendment insert error:', amendError?.message)
+      return { success: false, error: 'Failed to create amendment request' }
+    }
+
+    await logAuditEvent({
+      action: 'amendment.requested',
+      entityType: 'deal',
+      entityId: dealId,
+      metadata: {
+        amendment_id: amendment.id,
+        old_closing_date: deal.closing_date,
+        new_closing_date: newClosingDate,
+        requested_by: user.id,
+        requested_by_role: 'brokerage_admin',
+      },
+    })
+
+    // Notify admin — fetch the agent on the deal so the email reads naturally
+    const { data: agentData } = await serviceClient
+      .from('agents')
+      .select('first_name, last_name')
+      .eq('id', deal.agent_id)
+      .single()
+
+    if (agentData) {
+      sendAmendmentRequestedNotification({
+        dealId: deal.id,
+        propertyAddress: deal.property_address,
+        agentName: `${agentData.first_name} ${agentData.last_name}`,
+        oldClosingDate: deal.closing_date,
+        newClosingDate,
+      })
+    }
+
+    return { success: true, data: { amendmentId: amendment.id } }
+  } catch (err: any) {
+    console.error('Submit brokerage closing date amendment error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Brokerage: Get pending amendments for this brokerage's deals
+// ============================================================================
+
+export async function getBrokeragePendingAmendments(): Promise<ActionResult> {
+  const { error: authErr, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Brokerage profile not configured' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data, error } = await serviceClient
+      .from('closing_date_amendments')
+      .select('*, deals!inner(id, property_address, status, brokerage_id, agents(first_name, last_name))')
+      .eq('deals.brokerage_id', profile.brokerage_id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+
+    if (error) return { success: false, error: error.message }
+    return { success: true, data: data || [] }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to fetch pending amendments' }
+  }
+}
+
+// ============================================================================
 // Admin Action: Approve Closing Date Amendment
 // ============================================================================
 
