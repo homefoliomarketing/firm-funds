@@ -1695,11 +1695,18 @@ export async function recordBrokeragePayment(input: {
       date: input.date,
       ...(input.reference ? { reference: input.reference } : {}),
       ...(input.method ? { method: input.method } : {}),
+      // Admin-recorded payments come straight from observed bank deposits.
+      status: 'confirmed' as const,
+      submitted_by_role: 'admin' as const,
+      submitted_by_user_id: user.id,
+      submitted_at: new Date().toISOString(),
     }
     const updatedPayments = [...existingPayments, newPayment]
 
-    // Calculate new total
-    const newTotal = updatedPayments.reduce((sum: number, p: any) => sum + p.amount, 0)
+    // Only confirmed (and legacy, which have no status field) entries count.
+    const newTotal = updatedPayments
+      .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
+      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
     const updateData: Record<string, any> = { brokerage_payments: updatedPayments }
 
     // Store total as repayment_amount for reporting
@@ -1754,7 +1761,9 @@ export async function removeBrokeragePayment(input: {
 
     const removedPayment = payments[input.paymentIndex]
     payments.splice(input.paymentIndex, 1)
-    const newTotal = payments.reduce((sum: number, p: any) => sum + p.amount, 0)
+    const newTotal = payments
+      .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
+      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
 
     const { data: updatedDeal, error: updateError } = await supabase
       .from('deals')
@@ -1782,6 +1791,133 @@ export async function removeBrokeragePayment(input: {
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }
+}
+
+// ============================================================================
+// Admin: Confirm or reject a brokerage payment claim
+//
+// Brokerage-submitted claims land in deals.brokerage_payments with status='pending'.
+// Admin reviews their bank deposits and confirms or rejects each claim.
+// Confirmed claims count toward the repayment total; pending/rejected do not.
+// ============================================================================
+
+interface PaymentEntryShape {
+  amount: number
+  date: string
+  reference?: string
+  method?: string
+  notes?: string
+  status?: 'pending' | 'confirmed' | 'rejected'
+  submitted_by_role?: string
+  submitted_by_user_id?: string
+  submitted_at?: string
+  reviewed_by_user_id?: string
+  reviewed_at?: string
+  rejection_reason?: string
+}
+
+async function reviewBrokeragePaymentClaim(
+  dealId: string,
+  paymentIndex: number,
+  decision: 'confirmed' | 'rejected',
+  rejectionReason: string | undefined,
+  reviewerUserId: string,
+  supabase: ReturnType<typeof createServiceRoleClient>,
+): Promise<ActionResult> {
+  const { data: deal, error: dealError } = await supabase
+    .from('deals')
+    .select('id, brokerage_payments, amount_due_from_brokerage')
+    .eq('id', dealId)
+    .single()
+
+  if (dealError || !deal) return { success: false, error: 'Deal not found' }
+
+  const payments: PaymentEntryShape[] = deal.brokerage_payments || []
+  if (paymentIndex < 0 || paymentIndex >= payments.length) {
+    return { success: false, error: 'Invalid payment index' }
+  }
+
+  const claim = payments[paymentIndex]
+  if (claim.status !== 'pending') {
+    return { success: false, error: 'This payment has already been reviewed' }
+  }
+
+  payments[paymentIndex] = {
+    ...claim,
+    status: decision,
+    reviewed_by_user_id: reviewerUserId,
+    reviewed_at: new Date().toISOString(),
+    ...(decision === 'rejected' && rejectionReason ? { rejection_reason: rejectionReason } : {}),
+  }
+
+  // Confirmed + legacy-no-status both count; pending/rejected do not.
+  const newTotal = payments
+    .filter(p => p.status === 'confirmed' || p.status === undefined)
+    .reduce((sum, p) => sum + (p.amount || 0), 0)
+
+  const { data: updatedDeal, error: updateError } = await supabase
+    .from('deals')
+    .update({
+      brokerage_payments: payments,
+      repayment_amount: newTotal > 0 ? newTotal : null,
+    })
+    .eq('id', dealId)
+    .select()
+    .single()
+
+  if (updateError) {
+    console.error('Payment claim review error:', updateError.message)
+    return { success: false, error: 'Failed to update payment claim' }
+  }
+
+  await logAuditEvent({
+    action: decision === 'confirmed' ? 'brokerage_payment.claim_confirmed' : 'brokerage_payment.claim_rejected',
+    entityType: 'deal',
+    entityId: dealId,
+    metadata: {
+      payment_index: paymentIndex,
+      claim: payments[paymentIndex],
+      new_total: newTotal,
+      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
+    },
+  })
+
+  return { success: true, data: updatedDeal }
+}
+
+export async function confirmBrokeragePaymentClaim(input: {
+  dealId: string
+  paymentIndex: number
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  return reviewBrokeragePaymentClaim(
+    input.dealId,
+    input.paymentIndex,
+    'confirmed',
+    undefined,
+    user.id,
+    createServiceRoleClient(),
+  )
+}
+
+export async function rejectBrokeragePaymentClaim(input: {
+  dealId: string
+  paymentIndex: number
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'Rejection reason is required' }
+  return reviewBrokeragePaymentClaim(
+    input.dealId,
+    input.paymentIndex,
+    'rejected',
+    reason.slice(0, 1000),
+    user.id,
+    createServiceRoleClient(),
+  )
 }
 
 // ============================================================================

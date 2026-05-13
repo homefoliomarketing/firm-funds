@@ -14,6 +14,7 @@ import { uploadDocument } from '@/lib/actions/deal-actions'
 import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
 import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
+import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -84,6 +85,11 @@ export default function BrokerageDashboard() {
   const [dealMessages, setDealMessages] = useState<any[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [unreadNotifCount, setUnreadNotifCount] = useState(0)
+
+  // Record-payment modal state
+  const [showRecordPayment, setShowRecordPayment] = useState(false)
+  const [recordPaymentDealId, setRecordPaymentDealId] = useState<string | null>(null)
+  const [paymentStatusMsg, setPaymentStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // KYC verification state
   const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; agentName: string; agentId: string; agentPhone: string | null; agentAddress: string | null } | null>(null)
@@ -460,6 +466,13 @@ export default function BrokerageDashboard() {
             </Button>
             <Button variant="outline" onClick={() => router.push('/brokerage/amendments/new')} className="h-9">
               <CalendarClock size={14} className="mr-1.5" /> Request a deal change
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => { setRecordPaymentDealId(null); setShowRecordPayment(true) }}
+              className="h-9"
+            >
+              <CreditCard size={14} className="mr-1.5" /> Send a payment
             </Button>
             <Button onClick={() => router.push('/brokerage/deals/new')} className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
               <Send size={14} className="mr-1.5" /> Submit advance request
@@ -1305,25 +1318,41 @@ export default function BrokerageDashboard() {
                   )
                 }
 
+                // Confirmed and legacy (no status) entries count toward repayment.
+                // Pending claims are visible but not counted. Rejected are hidden.
+                const isCounted = (p: any) => p?.status === 'confirmed' || p?.status === undefined
+                const isPending = (p: any) => p?.status === 'pending'
+
                 const totalOwed = fundedDeals.reduce((sum, d) => sum + (d.amount_due_from_brokerage || 0), 0)
                 const totalPaid = fundedDeals.reduce((sum, d) => {
                   const payments = (d as any).brokerage_payments || []
-                  return sum + payments.reduce((s: number, p: any) => s + p.amount, 0)
+                  return sum + payments.filter(isCounted).reduce((s: number, p: any) => s + (p.amount || 0), 0)
+                }, 0)
+                const totalPending = fundedDeals.reduce((sum, d) => {
+                  const payments = (d as any).brokerage_payments || []
+                  return sum + payments.filter(isPending).reduce((s: number, p: any) => s + (p.amount || 0), 0)
                 }, 0)
                 const outstanding = totalOwed - totalPaid
                 const paidPct = totalOwed > 0 ? Math.min((totalPaid / totalOwed) * 100, 100) : 0
 
                 return (
                   <>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                    {/* Stats row */}
+                    <div className={`grid grid-cols-1 gap-3 mb-6 ${totalPending > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
                       <div className="rounded-xl p-4 bg-blue-950/40 border border-blue-800/50">
                         <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">Total Owed</p>
                         <p className="text-xl font-black mt-1 tabular-nums text-blue-400">{formatCurrency(totalOwed)}</p>
                       </div>
                       <div className="rounded-xl p-4 bg-green-950/40 border border-green-800/50">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-green-400">Paid</p>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-green-400">Confirmed Paid</p>
                         <p className="text-xl font-black mt-1 tabular-nums text-green-400">{formatCurrency(totalPaid)}</p>
                       </div>
+                      {totalPending > 0 && (
+                        <div className="rounded-xl p-4 bg-amber-950/40 border border-amber-800/50">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-amber-400">Pending Confirmation</p>
+                          <p className="text-xl font-black mt-1 tabular-nums text-amber-400">{formatCurrency(totalPending)}</p>
+                        </div>
+                      )}
                       <div className={`rounded-xl p-4 ${outstanding > 0.01 ? 'bg-yellow-950/40 border border-yellow-800/50' : 'bg-green-950/40 border border-green-800/50'}`}>
                         <p className={`text-xs font-semibold uppercase tracking-wider ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>Outstanding</p>
                         <p className={`text-xl font-black mt-1 tabular-nums ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>{formatCurrency(Math.max(outstanding, 0))}</p>
@@ -1332,7 +1361,7 @@ export default function BrokerageDashboard() {
 
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-muted-foreground">Payment Progress</span>
+                        <span className="text-xs font-semibold text-muted-foreground">Payment Progress (confirmed)</span>
                         <span className="text-xs font-semibold text-muted-foreground">{paidPct.toFixed(0)}%</span>
                       </div>
                       <div className="h-3 rounded-full overflow-hidden bg-muted">
@@ -1350,29 +1379,42 @@ export default function BrokerageDashboard() {
                       {fundedDeals.map(deal => {
                         const owed = deal.amount_due_from_brokerage || 0
                         const payments = (deal as any).brokerage_payments || []
-                        const paid = payments.reduce((s: number, p: any) => s + p.amount, 0)
-                        const remaining = owed - paid
-                        const isPaid = Math.abs(remaining) < 0.01 && paid > 0
-                        const isPartial = paid > 0 && !isPaid
+                        const confirmedPaid = payments.filter(isCounted).reduce((s: number, p: any) => s + (p.amount || 0), 0)
+                        const dealPending = payments.filter(isPending).reduce((s: number, p: any) => s + (p.amount || 0), 0)
+                        const remaining = owed - confirmedPaid
+                        const isPaid = Math.abs(remaining) < 0.01 && confirmedPaid > 0
+                        const isPartial = confirmedPaid > 0 && !isPaid
 
                         return (
                           <div key={deal.id} className="rounded-xl p-4 bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group/deal">
-                            <div className="flex items-start justify-between mb-2">
-                              <div>
-                                <p className="font-medium text-sm text-foreground transition-colors group-hover/deal:text-primary">{deal.property_address}</p>
+                            <div className="flex items-start justify-between mb-2 gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-sm text-foreground transition-colors group-hover/deal:text-primary truncate">{deal.property_address}</p>
                                 <p className="text-xs mt-0.5 text-muted-foreground">
                                   {deal.agent ? `${deal.agent.first_name} ${deal.agent.last_name}` : ''} &middot; {formatStatusLabel(deal.status)}
                                 </p>
                               </div>
-                              <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md border ${
-                                isPaid
-                                  ? 'bg-green-950/50 text-green-400 border-green-800'
-                                  : isPartial
-                                  ? 'bg-yellow-950/50 text-yellow-400 border-yellow-800'
-                                  : 'bg-muted text-muted-foreground border-border'
-                              }`}>
-                                {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Pending'}
-                              </span>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md border ${
+                                  isPaid
+                                    ? 'bg-green-950/50 text-green-400 border-green-800'
+                                    : isPartial
+                                    ? 'bg-yellow-950/50 text-yellow-400 border-yellow-800'
+                                    : 'bg-muted text-muted-foreground border-border'
+                                }`}>
+                                  {isPaid ? 'Paid' : isPartial ? 'Partial' : 'Unpaid'}
+                                </span>
+                                {!isPaid && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    onClick={() => { setRecordPaymentDealId(deal.id); setShowRecordPayment(true) }}
+                                  >
+                                    <CreditCard size={12} className="mr-1" /> Record payment
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                             <div className="grid grid-cols-3 gap-3 text-sm">
                               <div>
@@ -1381,7 +1423,7 @@ export default function BrokerageDashboard() {
                               </div>
                               <div>
                                 <span className="text-muted-foreground">Paid: </span>
-                                <span className={`font-semibold ${paid > 0 ? 'text-green-400' : 'text-muted-foreground'}`}>{formatCurrency(paid)}</span>
+                                <span className={`font-semibold ${confirmedPaid > 0 ? 'text-green-400' : 'text-muted-foreground'}`}>{formatCurrency(confirmedPaid)}</span>
                               </div>
                               <div>
                                 <span className="text-muted-foreground">Remaining: </span>
@@ -1390,18 +1432,33 @@ export default function BrokerageDashboard() {
                                 </span>
                               </div>
                             </div>
+                            {dealPending > 0 && (
+                              <p className="text-[11px] mt-2 text-amber-400 flex items-center gap-1.5">
+                                <Clock size={11} />
+                                {formatCurrency(dealPending)} pending Firm Funds confirmation
+                              </p>
+                            )}
                             {payments.length > 0 && (
                               <div className="mt-3 pt-2 border-t border-border/30">
-                                {payments.map((p: any, idx: number) => (
-                                  <div key={idx} className="flex justify-between items-center text-xs py-1">
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                                      <span className="text-foreground/80">{formatDate(p.date)}</span>
-                                      {p.reference && <span className="text-muted-foreground">Ref: {p.reference}</span>}
+                                {payments.filter((p: any) => p.status !== 'rejected').map((p: any, idx: number) => {
+                                  const pending = isPending(p)
+                                  return (
+                                    <div key={idx} className="flex justify-between items-center text-xs py-1">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pending ? 'bg-amber-400' : 'bg-green-400'}`} />
+                                        <span className="text-foreground/80 flex-shrink-0">{formatDate(p.date)}</span>
+                                        {p.method && <span className="text-muted-foreground/70 uppercase text-[10px] tracking-wider">{p.method}</span>}
+                                        {p.reference && <span className="text-muted-foreground truncate">Ref: {p.reference}</span>}
+                                        {pending && (
+                                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950/60 text-amber-400 border border-amber-800 flex-shrink-0">
+                                            Pending confirmation
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className={`font-semibold flex-shrink-0 ${pending ? 'text-amber-400' : 'text-green-400'}`}>{formatCurrency(p.amount)}</span>
                                     </div>
-                                    <span className="font-semibold text-green-400">{formatCurrency(p.amount)}</span>
-                                  </div>
-                                ))}
+                                  )
+                                })}
                               </div>
                             )}
                           </div>
@@ -1410,7 +1467,7 @@ export default function BrokerageDashboard() {
                     </div>
 
                     <p className="text-xs mt-4 text-muted-foreground/50">
-                      Payments shown are recorded by Firm Funds. Contact your account manager if you believe there is a discrepancy.
+                      Use <strong>Send a payment</strong> on the dashboard to record payments you&apos;ve sent. Firm Funds will match them to a bank deposit and mark them confirmed.
                     </p>
                   </>
                 )
@@ -1655,6 +1712,48 @@ export default function BrokerageDashboard() {
           to { transform: translateX(0); }
         }
       `}</style>
+
+      {/* Record-payment modal */}
+      <RecordPaymentModal
+        open={showRecordPayment}
+        initialDealId={recordPaymentDealId}
+        onClose={() => setShowRecordPayment(false)}
+        onSuccess={async (msg) => {
+          setPaymentStatusMsg({ type: 'success', text: msg })
+          // Reload deals so the new pending entry is visible in the Payments tab
+          if (profile?.brokerage_id) {
+            const { data: dealData } = await supabase
+              .from('deals')
+              .select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
+              .eq('brokerage_id', profile.brokerage_id)
+              .order('created_at', { ascending: false })
+            if (dealData) setDeals(dealData as Deal[])
+          }
+        }}
+      />
+
+      {/* Payment success/error flash */}
+      {paymentStatusMsg && (
+        <div
+          role="status"
+          className={`fixed bottom-6 right-6 z-[60] max-w-sm rounded-lg px-4 py-3 text-sm shadow-lg border ${
+            paymentStatusMsg.type === 'success'
+              ? 'bg-primary/15 border-primary/40 text-primary'
+              : 'bg-destructive/15 border-destructive/40 text-destructive'
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <span className="flex-1">{paymentStatusMsg.text}</span>
+            <button
+              onClick={() => setPaymentStatusMsg(null)}
+              className="opacity-70 hover:opacity-100"
+              aria-label="Dismiss"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

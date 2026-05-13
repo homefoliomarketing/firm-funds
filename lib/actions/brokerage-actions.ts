@@ -13,6 +13,25 @@ interface ActionResult {
   data?: Record<string, any>
 }
 
+// Brokerage payment-claim entry. Backwards compatible with legacy entries
+// recorded by an admin (no status field) — those are treated as 'confirmed'.
+// NOTE: not exported because 'use server' files can only export async functions.
+// Consumer components define their own structural type matching this shape.
+interface BrokeragePaymentEntry {
+  amount: number
+  date: string
+  reference?: string
+  method?: string
+  notes?: string
+  status?: 'pending' | 'confirmed' | 'rejected'
+  submitted_by_role?: 'admin' | 'brokerage_admin'
+  submitted_by_user_id?: string
+  submitted_at?: string
+  reviewed_by_user_id?: string
+  reviewed_at?: string
+  rejection_reason?: string
+}
+
 function generateTempPassword(): string {
   // 16-char temp password matching admin-actions semantics — never shown to the agent.
   const bytes = crypto.randomBytes(12)
@@ -316,4 +335,130 @@ export async function brokerageResendWelcomeEmail(input: { agentId: string }): P
   })
 
   return { success: true }
+}
+
+// ============================================================================
+// Submit a brokerage payment claim
+//
+// Brokerage admin logs "I sent $X via method Y on date Z, reference W". The
+// entry lands in deals.brokerage_payments with status='pending' so it doesn't
+// count toward repayment totals until an FF admin confirms a bank match. This
+// is the brokerage-side counterpart to admin's recordBrokeragePayment.
+// ============================================================================
+
+const PAYMENT_METHODS = ['eft', 'wire', 'cheque', 'cash', 'other'] as const
+
+export async function submitBrokeragePaymentClaim(input: {
+  dealId: string
+  amount: number
+  date: string
+  reference?: string
+  method?: typeof PAYMENT_METHODS[number]
+  notes?: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
+
+  // Basic validation
+  if (!input.dealId) return { success: false, error: 'Deal is required' }
+  if (!input.amount || input.amount <= 0) return { success: false, error: 'Amount must be greater than $0' }
+  if (input.amount > 10_000_000) return { success: false, error: 'Amount exceeds maximum' }
+  if (!input.date) return { success: false, error: 'Payment date is required' }
+  // Validate date is not in the future
+  const today = new Date()
+  today.setHours(23, 59, 59, 999)
+  const paymentDate = new Date(input.date + 'T00:00:00')
+  if (Number.isNaN(paymentDate.getTime())) return { success: false, error: 'Invalid payment date' }
+  if (paymentDate > today) return { success: false, error: 'Payment date cannot be in the future' }
+  if (input.method && !PAYMENT_METHODS.includes(input.method)) {
+    return { success: false, error: 'Invalid payment method' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  // Verify the deal exists, is owned by this brokerage, and is in a payable state
+  const { data: deal, error: dealError } = await serviceClient
+    .from('deals')
+    .select('id, brokerage_id, status, property_address, amount_due_from_brokerage, brokerage_payments')
+    .eq('id', input.dealId)
+    .single()
+
+  if (dealError || !deal) return { success: false, error: 'Deal not found' }
+  if (deal.brokerage_id !== profile.brokerage_id) {
+    return { success: false, error: 'You do not have access to this deal' }
+  }
+  if (!['funded', 'completed'].includes(deal.status)) {
+    return { success: false, error: 'Payments can only be recorded on funded or completed deals' }
+  }
+
+  const existingPayments: BrokeragePaymentEntry[] = deal.brokerage_payments || []
+
+  // Block runaway duplicates: more than 3 outstanding pending claims is suspicious
+  const existingPending = existingPayments.filter(p => p.status === 'pending').length
+  if (existingPending >= 3) {
+    return { success: false, error: 'There are already 3 pending payment claims on this deal. Please wait for confirmation before submitting more.' }
+  }
+
+  const newEntry: BrokeragePaymentEntry = {
+    amount: Math.round(input.amount * 100) / 100,
+    date: input.date,
+    ...(input.reference ? { reference: input.reference.slice(0, 200) } : {}),
+    ...(input.method ? { method: input.method } : {}),
+    ...(input.notes ? { notes: input.notes.slice(0, 1000) } : {}),
+    status: 'pending',
+    submitted_by_role: 'brokerage_admin',
+    submitted_by_user_id: user.id,
+    submitted_at: new Date().toISOString(),
+  }
+  const updatedPayments = [...existingPayments, newEntry]
+
+  const { error: updateError } = await serviceClient
+    .from('deals')
+    .update({ brokerage_payments: updatedPayments })
+    .eq('id', input.dealId)
+
+  if (updateError) {
+    console.error('Payment claim insert error:', updateError.message)
+    return { success: false, error: 'Failed to record payment claim' }
+  }
+
+  await logAuditEvent({
+    action: 'brokerage_payment.claim_submitted',
+    entityType: 'deal',
+    entityId: input.dealId,
+    metadata: {
+      amount: newEntry.amount,
+      date: newEntry.date,
+      method: newEntry.method,
+      reference: newEntry.reference,
+      submitted_by_user_id: user.id,
+      brokerage_id: profile.brokerage_id,
+    },
+  })
+
+  return { success: true, data: { claimIndex: updatedPayments.length - 1 } }
+}
+
+// ============================================================================
+// Get all deals (with payment claim state) for the authed brokerage
+// Used by the dashboard's "Send a Payment" modal to populate the deal picker.
+// ============================================================================
+
+export async function getBrokeragePayableDeals(): Promise<ActionResult> {
+  const { error: authErr, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
+
+  const serviceClient = createServiceRoleClient()
+
+  const { data, error } = await serviceClient
+    .from('deals')
+    .select('id, property_address, status, amount_due_from_brokerage, brokerage_payments, closing_date, agents(first_name, last_name)')
+    .eq('brokerage_id', profile.brokerage_id)
+    .in('status', ['funded', 'completed'])
+    .order('closing_date', { ascending: false })
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, data: { deals: data || [] } }
 }
