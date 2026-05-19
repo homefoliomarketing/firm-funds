@@ -102,7 +102,6 @@ export default function BrokerageDashboard() {
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
-  const amendmentsBannerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     async function loadBrokerage() {
@@ -341,12 +340,6 @@ export default function BrokerageDashboard() {
     [brokerageInbox])
   const kycPendingCount = useMemo(() =>
     agents.filter(a => a.kyc_status === 'submitted').length, [agents])
-  const paymentClaimsPendingCount = useMemo(() =>
-    deals.reduce((sum, d) => {
-      const payments = ((d as any).brokerage_payments || []) as Array<{ status?: string }>
-      return sum + payments.filter(p => p.status === 'pending').length
-    }, 0),
-    [deals])
   const totalReferralFees = useMemo(() =>
     earnedDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [earnedDeals])
   const pendingReferralFees = useMemo(() =>
@@ -492,7 +485,7 @@ export default function BrokerageDashboard() {
 
         {/* Pending amendment requests */}
         {pendingAmendments.length > 0 && (
-          <section ref={amendmentsBannerRef} aria-label="Pending amendment requests" className="mb-6 scroll-mt-24">
+          <section aria-label="Pending amendment requests" className="mb-6">
             <Card className="border-amber-500/30 bg-amber-500/[0.04]">
               <CardContent className="p-5">
                 <div className="flex items-start gap-3">
@@ -584,13 +577,13 @@ export default function BrokerageDashboard() {
           </section>
         )}
 
-        {/* Action Required — replaces the old KPI strip; only renders cards
-            where count > 0 (or a success line when everything is at zero). */}
+        {/* Action Required — only true actions (trade records, KYC, messages).
+            Passive waiting states (payment-claim confirmation, amendment review)
+            live elsewhere; including them here was misleading since the
+            brokerage can't do anything about them. */}
         {deals.length > 0 && (
           <ActionRequiredStrip
             tradeRecordsMissing={dealsMissingTradeRecord}
-            paymentClaimsPending={paymentClaimsPendingCount}
-            amendmentsPending={pendingAmendments.length}
             kycPending={kycPendingCount}
             unreadMessages={unansweredMessageCount}
             onNavigate={(tab: ActionTab) => {
@@ -600,9 +593,6 @@ export default function BrokerageDashboard() {
                   if (r.success && r.data) setBrokerageInbox(r.data.inbox)
                 })
               }
-            }}
-            onAmendmentClick={() => {
-              amendmentsBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
             }}
           />
         )}

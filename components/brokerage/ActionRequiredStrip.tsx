@@ -1,10 +1,10 @@
 'use client'
 
-import { AlertTriangle, Clock, Shield, MessageSquare, CalendarClock, CheckCircle2, ChevronRight } from 'lucide-react'
+import { AlertTriangle, Shield, MessageSquare, CheckCircle2, ChevronRight } from 'lucide-react'
 
 export type ActionTab = 'deals' | 'payments' | 'messages' | 'agents' | 'referrals'
 
-type Tone = 'red' | 'amber' | 'blue' | 'primary'
+type Tone = 'red' | 'amber' | 'blue'
 
 interface Item {
   key: string
@@ -18,12 +18,9 @@ interface Item {
 
 interface Props {
   tradeRecordsMissing: number
-  paymentClaimsPending: number
-  amendmentsPending: number
   kycPending: number
   unreadMessages: number
   onNavigate: (tab: ActionTab) => void
-  onAmendmentClick: () => void
 }
 
 const toneClasses: Record<Tone, { bg: string; border: string; hover: string; iconBg: string; iconText: string; count: string }> = {
@@ -51,59 +48,30 @@ const toneClasses: Record<Tone, { bg: string; border: string; hover: string; ico
     iconText: 'text-blue-400',
     count: 'text-blue-300',
   },
-  primary: {
-    bg: 'bg-primary/[0.06]',
-    border: 'border-primary/30',
-    hover: 'hover:border-primary hover:bg-primary/[0.10]',
-    iconBg: 'bg-primary/15',
-    iconText: 'text-primary',
-    count: 'text-primary',
-  },
 }
 
 export default function ActionRequiredStrip({
   tradeRecordsMissing,
-  paymentClaimsPending,
-  amendmentsPending,
   kycPending,
   unreadMessages,
   onNavigate,
-  onAmendmentClick,
 }: Props) {
   const items: Item[] = [
     {
       key: 'trade',
       count: tradeRecordsMissing,
-      label: tradeRecordsMissing === 1 ? 'Trade record missing' : 'Trade records missing',
+      label: tradeRecordsMissing === 1 ? 'Trade record to upload' : 'Trade records to upload',
       Icon: AlertTriangle,
       tone: 'red',
       onClick: () => onNavigate('deals'),
-      ariaLabel: `${tradeRecordsMissing} trade record${tradeRecordsMissing === 1 ? '' : 's'} missing — view deals`,
-    },
-    {
-      key: 'payments',
-      count: paymentClaimsPending,
-      label: paymentClaimsPending === 1 ? 'Payment claim pending' : 'Payment claims pending',
-      Icon: Clock,
-      tone: 'amber',
-      onClick: () => onNavigate('payments'),
-      ariaLabel: `${paymentClaimsPending} payment claim${paymentClaimsPending === 1 ? '' : 's'} awaiting Firm Funds confirmation — view payments`,
-    },
-    {
-      key: 'amendments',
-      count: amendmentsPending,
-      label: amendmentsPending === 1 ? 'Amendment under review' : 'Amendments under review',
-      Icon: CalendarClock,
-      tone: 'amber',
-      onClick: onAmendmentClick,
-      ariaLabel: `${amendmentsPending} amendment${amendmentsPending === 1 ? '' : 's'} under review — view details`,
+      ariaLabel: `${tradeRecordsMissing} trade record${tradeRecordsMissing === 1 ? '' : 's'} to upload — view deals`,
     },
     {
       key: 'kyc',
       count: kycPending,
       label: kycPending === 1 ? 'Agent ID to review' : 'Agent IDs to review',
       Icon: Shield,
-      tone: 'blue',
+      tone: 'amber',
       onClick: () => onNavigate('agents'),
       ariaLabel: `${kycPending} agent ID${kycPending === 1 ? '' : 's'} awaiting review — view agents`,
     },
@@ -112,7 +80,7 @@ export default function ActionRequiredStrip({
       count: unreadMessages,
       label: unreadMessages === 1 ? 'Unread message' : 'Unread messages',
       Icon: MessageSquare,
-      tone: 'red',
+      tone: 'blue',
       onClick: () => onNavigate('messages'),
       ariaLabel: `${unreadMessages} unread message${unreadMessages === 1 ? '' : 's'} — view messages`,
     },
@@ -136,19 +104,44 @@ export default function ActionRequiredStrip({
     )
   }
 
-  const gridCols =
-    active.length === 1 ? 'grid-cols-1' :
-    active.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
-    active.length === 3 ? 'grid-cols-1 sm:grid-cols-3' :
-    active.length === 4 ? 'grid-cols-2 lg:grid-cols-4' :
-    'grid-cols-2 lg:grid-cols-5'
+  // Single item: compact horizontal alert — avoids the empty-card-with-tiny-number look
+  if (active.length === 1) {
+    const item = active[0]
+    const t = toneClasses[item.tone]
+    return (
+      <section aria-label="Action required" className="mb-6">
+        <button
+          type="button"
+          onClick={item.onClick}
+          aria-label={item.ariaLabel}
+          className={`group w-full text-left rounded-xl px-5 py-3.5 transition-all border flex items-center gap-4 ${t.bg} ${t.border} ${t.hover} focus:outline-none focus:ring-2 focus:ring-ring`}
+        >
+          <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${t.iconBg}`} aria-hidden="true">
+            <item.Icon size={17} className={t.iconText} />
+          </div>
+          <div className="flex-1 min-w-0 flex items-baseline gap-2">
+            <span className={`text-xl font-bold tabular-nums leading-none ${t.count}`}>{item.count}</span>
+            <span className="text-sm text-foreground/85">{item.label}</span>
+          </div>
+          <ChevronRight
+            size={16}
+            className={`opacity-50 group-hover:opacity-100 transition flex-shrink-0 ${t.iconText}`}
+            aria-hidden="true"
+          />
+        </button>
+      </section>
+    )
+  }
+
+  // 2-3 items: equal-width card grid
+  const gridCols = active.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'
 
   return (
     <section aria-label="Action required" className="mb-6">
       <div className="flex items-center justify-between mb-3">
         <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Needs your attention</p>
         <p className="text-[11px] text-muted-foreground/70">
-          {active.length} {active.length === 1 ? 'item' : 'items'}
+          {active.length} items
         </p>
       </div>
       <div className={`grid gap-3 ${gridCols}`}>
