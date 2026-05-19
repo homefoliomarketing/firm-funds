@@ -22,6 +22,7 @@ import {
   sendStatusChangeNotification,
   sendDocumentUploadedNotification,
   sendDocumentRequestNotification,
+  sendFailedToCloseElectionEmail,
 } from '@/lib/email'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
@@ -1823,5 +1824,204 @@ export async function updateClosingDate(input: {
   } catch (err: any) {
     console.error('Closing date update error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Server Action: Mark deal as failed to close (admin only)
+// CPA Article 5.1/5.2/5.3 — triggers mandatory cure election under 5.5
+// ============================================================================
+
+export async function markDealFailedToClose(input: {
+  dealId: string
+  failureType: 'non_closing' | 'commission_deficiency'
+  outstandingAmount: number
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!input.reason?.trim()) {
+    return { success: false, error: 'Failure reason is required' }
+  }
+  if (!Number.isFinite(input.outstandingAmount) || input.outstandingAmount <= 0) {
+    return { success: false, error: 'Outstanding amount must be greater than zero' }
+  }
+  if (input.failureType !== 'non_closing' && input.failureType !== 'commission_deficiency') {
+    return { success: false, error: 'Invalid failure type' }
+  }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('*')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    if (deal.status !== 'funded') {
+      return { success: false, error: `Cannot mark deal as failed: status is "${deal.status}". Only funded deals can be marked as failed to close.` }
+    }
+
+    const now = new Date()
+    const deadline = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000)
+
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('deals')
+      .update({
+        status: 'failed_to_close',
+        failed_to_close_at: now.toISOString(),
+        failure_type: input.failureType,
+        failure_reason: input.reason.trim(),
+        outstanding_balance: input.outstandingAmount,
+        cure_election_deadline: deadline.toISOString(),
+        payment_status: 'not_applicable',
+      })
+      .eq('id', deal.id)
+      .eq('status', 'funded')
+      .select()
+
+    if (updateError) {
+      console.error('Deal failed-to-close update error:', updateError.message)
+      return { success: false, error: `Failed to update deal: ${updateError.message}` }
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      return { success: false, error: 'Deal status was changed by another user. Please refresh and try again.' }
+    }
+
+    const serviceClient = createServiceRoleClient()
+
+    const { data: agent } = await serviceClient
+      .from('agents')
+      .select('id, account_balance, first_name, last_name, email')
+      .eq('id', deal.agent_id)
+      .single()
+
+    const currentBalance = Number(agent?.account_balance) || 0
+    const newBalance = currentBalance + input.outstandingAmount
+
+    await serviceClient
+      .from('agents')
+      .update({ account_balance: newBalance })
+      .eq('id', deal.agent_id)
+
+    await serviceClient
+      .from('agent_transactions')
+      .insert({
+        agent_id: deal.agent_id,
+        deal_id: deal.id,
+        type: 'failed_deal_balance',
+        amount: input.outstandingAmount,
+        running_balance: newBalance,
+        description: input.failureType === 'non_closing'
+          ? `Failed deal — full Purchase Price owed (${deal.property_address})`
+          : `Commission deficiency — shortfall owed (${deal.property_address})`,
+        created_by: user.id,
+      })
+
+    await logAuditEvent({
+      action: 'deal.failed_to_close',
+      entityType: 'deal',
+      entityId: deal.id,
+      metadata: {
+        failure_type: input.failureType,
+        outstanding_amount: input.outstandingAmount,
+        reason: input.reason.trim(),
+        cure_election_deadline: deadline.toISOString(),
+      },
+    })
+
+    if (agent?.email) {
+      sendFailedToCloseElectionEmail({
+        dealId: deal.id,
+        propertyAddress: deal.property_address,
+        agentEmail: agent.email,
+        agentFirstName: agent.first_name,
+        failureType: input.failureType,
+        outstandingAmount: input.outstandingAmount,
+        deadline: deadline.toISOString(),
+      })
+    }
+
+    return { success: true, data: { dealId: deal.id } }
+  } catch (err: any) {
+    console.error('markDealFailedToClose error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
+// Server Action: Submit cure election (agent only)
+// CPA Article 5.5 — agent chooses cash or commission assignment within 15 days
+// ============================================================================
+
+export async function submitCureElection(input: {
+  dealId: string
+  election: 'cash' | 'commission_assignment'
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (input.election !== 'cash' && input.election !== 'commission_assignment') {
+    return { success: false, error: 'Invalid election' }
+  }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('id, agent_id, status, cure_election, property_address, outstanding_balance')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    if (deal.agent_id !== profile.agent_id) {
+      return { success: false, error: 'This deal does not belong to you' }
+    }
+
+    if (deal.status !== 'failed_to_close') {
+      return { success: false, error: 'This deal is not in a failed-to-close state' }
+    }
+
+    if (deal.cure_election) {
+      return { success: false, error: 'You have already made your election on this deal' }
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('deals')
+      .update({
+        cure_election: input.election,
+        cure_election_at: new Date().toISOString(),
+      })
+      .eq('id', deal.id)
+      .is('cure_election', null)
+      .select()
+
+    if (updateError) {
+      console.error('Cure election update error:', updateError.message)
+      return { success: false, error: `Failed to record election: ${updateError.message}` }
+    }
+    if (!updated || updated.length === 0) {
+      return { success: false, error: 'Election was already recorded. Please refresh.' }
+    }
+
+    await logAuditEvent({
+      action: 'deal.cure_election',
+      entityType: 'deal',
+      entityId: deal.id,
+      metadata: {
+        election: input.election,
+      },
+    })
+
+    return { success: true, data: { election: input.election } }
+  } catch (err: any) {
+    console.error('submitCureElection error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }

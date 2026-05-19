@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowDownLeft, ArrowUpRight, Receipt, Clock, AlertTriangle, DollarSign } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowDownLeft, ArrowUpRight, Receipt, Clock, AlertTriangle, DollarSign, ArrowRight } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getAgentTransactions } from '@/lib/actions/account-actions'
 import AgentHeader from '@/components/AgentHeader'
@@ -19,6 +20,13 @@ import {
 } from '@/components/ui/table'
 import type { AgentAccountTransaction } from '@/types/database'
 
+interface PendingElection {
+  id: string
+  property_address: string
+  outstanding_balance: number | null
+  cure_election_deadline: string | null
+}
+
 const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof ArrowUpRight }> = {
   late_closing_interest: { label: 'Late Closing Interest', color: 'text-status-amber', icon: Clock },
   late_payment_interest: { label: 'Late Payment Interest', color: 'text-status-amber', icon: Clock },
@@ -26,6 +34,7 @@ const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; ic
   invoice_payment: { label: 'Invoice Payment', color: 'text-status-teal', icon: Receipt },
   adjustment: { label: 'Adjustment', color: 'text-muted-foreground', icon: DollarSign },
   credit: { label: 'Credit', color: 'text-status-teal', icon: ArrowDownLeft },
+  failed_deal_balance: { label: 'Failed Deal Balance', color: 'text-status-red', icon: AlertTriangle },
 }
 
 export default function AgentAccountPage() {
@@ -33,6 +42,7 @@ export default function AgentAccountPage() {
   const [agent, setAgent] = useState<any>(null)
   const [transactions, setTransactions] = useState<AgentAccountTransaction[]>([])
   const [currentBalance, setCurrentBalance] = useState(0)
+  const [pendingElections, setPendingElections] = useState<PendingElection[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const supabase = createClient()
@@ -65,6 +75,17 @@ export default function AgentAccountPage() {
           setTransactions(result.data.transactions)
           setCurrentBalance(result.data.currentBalance)
         }
+
+        // Fetch any pending cure elections — failed-to-close deals awaiting agent choice
+        const { data: pending } = await supabase
+          .from('deals')
+          .select('id, property_address, outstanding_balance, cure_election_deadline')
+          .eq('agent_id', profileData.agent_id)
+          .eq('status', 'failed_to_close')
+          .is('cure_election', null)
+          .order('cure_election_deadline', { ascending: true })
+
+        if (pending) setPendingElections(pending as PendingElection[])
       }
 
       setLoading(false)
@@ -102,6 +123,50 @@ export default function AgentAccountPage() {
       />
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Pending cure election banner(s) — CPA Article 5.5 */}
+        {pendingElections.length > 0 && (
+          <section aria-label="Action required" className="mb-6 space-y-3">
+            {pendingElections.map((p) => {
+              const deadlineFmt = p.cure_election_deadline
+                ? new Date(p.cure_election_deadline).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })
+                : null
+              const daysLeft = p.cure_election_deadline
+                ? Math.max(0, Math.ceil((new Date(p.cure_election_deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                : 0
+              return (
+                <Link
+                  key={p.id}
+                  href={`/agent/account/cure-election/${p.id}`}
+                  className="block rounded-xl border border-status-red-border/40 bg-status-red-muted/15 hover:bg-status-red-muted/25 transition-colors"
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-status-red-muted/60 flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle size={20} className="text-status-red" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-status-red mb-0.5">
+                        Action required — choose your repayment method
+                      </p>
+                      <p className="text-xs text-foreground/80 truncate">
+                        {p.property_address}
+                        {p.outstanding_balance != null && (
+                          <span className="text-muted-foreground"> · Balance owing: <strong className="text-foreground">{formatCurrency(Number(p.outstanding_balance))}</strong></span>
+                        )}
+                      </p>
+                      {deadlineFmt && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Election due by {deadlineFmt} ({daysLeft} {daysLeft === 1 ? 'day' : 'days'} left)
+                        </p>
+                      )}
+                    </div>
+                    <ArrowRight size={18} className="text-status-red flex-shrink-0" />
+                  </div>
+                </Link>
+              )
+            })}
+          </section>
+        )}
+
         {/* Balance Card */}
         <section aria-label="Account balance">
           <Card className={`mb-6 border-border/40 ${currentBalance > 0 ? 'ring-1 ring-status-amber-border/40' : ''}`}>

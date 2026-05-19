@@ -1843,3 +1843,118 @@ export async function sendAmendmentRejectedNotification(params: {
     console.error('[email] Failed to send amendment rejected notification:', err)
   }
 }
+
+// ============================================================================
+// Email: Failed-to-close cure election notice → Agent
+// CPA Article 5.5 — agent must elect cash or commission assignment within 15 days
+// ============================================================================
+
+export async function sendFailedToCloseElectionEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentEmail: string
+  agentFirstName: string
+  failureType: 'non_closing' | 'commission_deficiency'
+  outstandingAmount: number
+  deadline: string // ISO timestamp
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const amountFmt = new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    minimumFractionDigits: 2,
+  }).format(params.outstandingAmount)
+
+  const deadlineFmt = new Date(params.deadline).toLocaleDateString('en-CA', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+
+  const failureLabel = params.failureType === 'non_closing'
+    ? 'did not close'
+    : 'closed with a commission shortfall'
+
+  const failureExplanation = params.failureType === 'non_closing'
+    ? `Because the transaction did not close, the full Purchase Price you received from Firm Funds is owed back, in accordance with Article 5.1 of your Commission Purchase Agreement.`
+    : `Because the commission received was less than the Face Value, the shortfall is owed back, in accordance with Article 5.2 of your Commission Purchase Agreement.`
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.agentEmail,
+      subject: `Action required: Your funded deal at ${params.propertyAddress} ${failureLabel}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Action Required — Choose Your Repayment Method</h2>
+        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
+          Hi ${params.agentFirstName}, we wanted to let you know that your funded deal at <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> ${failureLabel}.
+        </p>
+        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
+          ${failureExplanation}
+        </p>
+
+        <!-- Outstanding balance highlight -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:10px;">
+          <tr>
+            <td style="padding:18px; text-align:center;">
+              <p style="margin:0 0 4px; color:#BCBBB8; font-size:11px; text-transform:uppercase; letter-spacing:0.06em;">Outstanding Balance</p>
+              <p style="margin:0 0 6px; color:#F87171; font-size:28px; font-weight:700; letter-spacing:-0.01em;">${amountFmt}</p>
+              <p style="margin:0; color:#BCBBB8; font-size:12px;">Charged to your Firm Funds account</p>
+            </td>
+          </tr>
+        </table>
+
+        <h3 style="margin:24px 0 12px; color:#E5E5E5; font-size:16px;">You must choose one of two repayment methods</h3>
+        <p style="margin:0 0 16px; color:#BCBBB8; font-size:13px; line-height:1.6;">
+          Per Article 5.5 of your Commission Purchase Agreement, you have <strong style="color:#5FA873;">until ${deadlineFmt}</strong> (15 calendar days) to make your election.
+        </p>
+
+        <!-- Option A: Cash -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px; background:#1A1A1A; border:1px solid #333; border-radius:10px;">
+          <tr>
+            <td style="padding:18px;">
+              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option A — Cash Repayment</p>
+              <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
+                Pay the full outstanding balance from your own funds by electronic funds transfer within 30 days.
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Option B: Commission assignment -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#1A1A1A; border:1px solid #333; border-radius:10px;">
+          <tr>
+            <td style="padding:18px;">
+              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option B — Assign Next Commission(s)</p>
+              <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
+                Sign a Remediation Direction to Pay that directs your brokerage to remit your next eligible commission(s) to Firm Funds until the balance is satisfied. No discount fee or settlement fee applies — this is not a new advance.
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <p style="margin:0 0 16px; color:#BCBBB8; font-size:12px; line-height:1.5;">
+          If you do not make a written election by ${deadlineFmt}, you will be deemed to have elected cash repayment, and the full balance will become immediately due. Interest of 24% per annum will accrue on any unpaid balance.
+        </p>
+
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">
+          <tr>
+            <td align="center" style="padding:8px 0;">
+              <a href="${APP_URL}/agent/account/cure-election/${params.dealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
+                Make Your Election
+              </a>
+            </td>
+          </tr>
+        </table>
+
+        <p style="margin:24px 0 0; color:#737373; font-size:12px; line-height:1.5;">
+          Questions? Reply to this email and we'll help you through it.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send failed-to-close election notice:', err)
+  }
+}
