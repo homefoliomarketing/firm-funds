@@ -472,7 +472,7 @@ export default function BrokerageDashboard() {
               onClick={() => { setRecordPaymentDealId(null); setShowRecordPayment(true) }}
               className="h-9"
             >
-              <CreditCard size={14} className="mr-1.5" /> Send a payment
+              <CreditCard size={14} className="mr-1.5" /> Record a payment
             </Button>
             <Button onClick={() => router.push('/brokerage/deals/new')} className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
               <Send size={14} className="mr-1.5" /> Submit advance request
@@ -1467,7 +1467,7 @@ export default function BrokerageDashboard() {
                     </div>
 
                     <p className="text-xs mt-4 text-muted-foreground/50">
-                      Use <strong>Send a payment</strong> on the dashboard to record payments you&apos;ve sent. Firm Funds will match them to a bank deposit and mark them confirmed.
+                      Use <strong>Record a payment</strong> on the dashboard to log payments you&apos;ve sent. Firm Funds will match them to a bank deposit and mark them confirmed.
                     </p>
                   </>
                 )
