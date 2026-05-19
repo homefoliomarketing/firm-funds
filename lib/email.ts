@@ -1843,3 +1843,80 @@ export async function sendAmendmentRejectedNotification(params: {
     console.error('[email] Failed to send amendment rejected notification:', err)
   }
 }
+
+// ============================================================================
+// Brokerage submitted a payment claim → notify admin
+// ============================================================================
+
+export async function sendPaymentClaimSubmittedNotification(params: {
+  dealId: string
+  propertyAddress: string
+  brokerageName: string
+  agentName: string
+  amount: number
+  paymentDate: string
+  method?: string
+  reference?: string
+}) {
+  const resend = getResend()
+  if (!resend) return
+
+  const methodLabel = (() => {
+    switch (params.method) {
+      case 'eft': return 'EFT'
+      case 'wire': return 'Wire transfer'
+      case 'cheque': return 'Cheque'
+      case 'cash': return 'Cash'
+      case 'other': return 'Other'
+      default: return 'Not specified'
+    }
+  })()
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: ADMIN_EMAIL,
+      subject: `New payment claim — ${params.brokerageName} — ${formatReminderCurrency(params.amount)}`,
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
+          New Payment Claim Submitted
+        </h2>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+          <strong style="color:#7B9FE0;">${params.brokerageName}</strong> has submitted a payment claim for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
+          <tr>
+            <td style="padding:16px;">
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount</p>
+              <p style="margin:0 0 12px; color:#5FA873; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amount)}</p>
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Agent</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${params.agentName}</p>
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Date</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${formatReminderDate(params.paymentDate)}</p>
+              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Method</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${methodLabel}</p>
+              ${params.reference ? `
+                <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Reference</p>
+                <p style="margin:0; color:#E5E5E5; font-size:14px; font-weight:600;">${params.reference}</p>
+              ` : ''}
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
+          The claim is sitting in pending status until you confirm a bank match or reject it.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:12px 0;">
+              <a href="${APP_URL}/admin/payments" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
+                Review Payment Claim
+              </a>
+            </td>
+          </tr>
+        </table>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send payment claim submitted notification:', err)
+  }
+}

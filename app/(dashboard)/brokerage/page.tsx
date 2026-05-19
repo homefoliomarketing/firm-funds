@@ -15,6 +15,7 @@ import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycD
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
 import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
 import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
+import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -101,6 +102,7 @@ export default function BrokerageDashboard() {
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = createClient()
+  const amendmentsBannerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     async function loadBrokerage() {
@@ -337,6 +339,14 @@ export default function BrokerageDashboard() {
   const unansweredMessageCount = useMemo(() =>
     brokerageInbox.reduce((sum: number, item: any) => sum + (item.unread_message_count || 0), 0),
     [brokerageInbox])
+  const kycPendingCount = useMemo(() =>
+    agents.filter(a => a.kyc_status === 'submitted').length, [agents])
+  const paymentClaimsPendingCount = useMemo(() =>
+    deals.reduce((sum, d) => {
+      const payments = ((d as any).brokerage_payments || []) as Array<{ status?: string }>
+      return sum + payments.filter(p => p.status === 'pending').length
+    }, 0),
+    [deals])
   const totalReferralFees = useMemo(() =>
     earnedDeals.reduce((sum, d) => sum + d.brokerage_referral_fee, 0), [earnedDeals])
   const pendingReferralFees = useMemo(() =>
@@ -482,7 +492,7 @@ export default function BrokerageDashboard() {
 
         {/* Pending amendment requests */}
         {pendingAmendments.length > 0 && (
-          <section aria-label="Pending amendment requests" className="mb-6">
+          <section ref={amendmentsBannerRef} aria-label="Pending amendment requests" className="mb-6 scroll-mt-24">
             <Card className="border-amber-500/30 bg-amber-500/[0.04]">
               <CardContent className="p-5">
                 <div className="flex items-start gap-3">
@@ -574,32 +584,33 @@ export default function BrokerageDashboard() {
           </section>
         )}
 
-        {/* KPI Summary */}
+        {/* Action Required — replaces the old KPI strip; only renders cards
+            where count > 0 (or a success line when everything is at zero). */}
         {deals.length > 0 && (
-          <section aria-label="Key metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            {[
-              { label: 'Total Deals', value: deals.length, icon: FileText, accent: 'text-primary' },
-              { label: 'Active', value: deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status)).length, icon: TrendingUp, accent: 'text-status-blue' },
-              { label: 'Referral Fees Earned', value: formatCurrency(earnedDeals.reduce((s, d) => s + d.brokerage_referral_fee, 0)), icon: DollarSign, accent: 'text-primary' },
-              { label: 'Missing Trade Records', value: dealsMissingTradeRecord, icon: AlertTriangle, accent: dealsMissingTradeRecord > 0 ? 'text-status-red' : 'text-status-teal' },
-            ].map(stat => (
-              <Card key={stat.label} className="border-border/40 bg-card/60">
-                <CardContent className="p-4 sm:p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{stat.label}</span>
-                    <stat.icon size={15} className={`${stat.accent} opacity-60`} aria-hidden="true" />
-                  </div>
-                  <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{stat.value}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </section>
+          <ActionRequiredStrip
+            tradeRecordsMissing={dealsMissingTradeRecord}
+            paymentClaimsPending={paymentClaimsPendingCount}
+            amendmentsPending={pendingAmendments.length}
+            kycPending={kycPendingCount}
+            unreadMessages={unansweredMessageCount}
+            onNavigate={(tab: ActionTab) => {
+              setActiveTab(tab)
+              if (tab === 'messages' && profile?.brokerage_id) {
+                getBrokerageInbox(profile.brokerage_id).then(r => {
+                  if (r.success && r.data) setBrokerageInbox(r.data.inbox)
+                })
+              }
+            }}
+            onAmendmentClick={() => {
+              amendmentsBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }}
+          />
         )}
 
         {/* Tabbed Content */}
         <Card className="overflow-hidden border-border/40 shadow-lg shadow-black/20">
           <div className="flex overflow-x-auto border-b border-border/50" role="tablist" aria-label="Brokerage dashboard tabs">
-            {(['deals', 'agents', 'referrals', 'payments', 'messages'] as const).map((tab) => {
+            {(['deals', 'payments', 'messages', 'agents', 'referrals'] as const).map((tab) => {
               const tabLabels: Record<string, string> = { deals: `Deals (${deals.length})`, agents: `Agents (${agents.length})`, referrals: 'Referral Fees', payments: 'Payment Status', messages: 'Messages' }
               return (
                 <button
@@ -805,6 +816,70 @@ export default function BrokerageDashboard() {
                               </div>
                             </div>
                           </div>
+                          {/* Quick actions footer */}
+                          {!['denied', 'cancelled'].includes(deal.status) && (
+                            <div className="mt-4 pt-3 border-t border-border/40 flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground/60 mr-1">
+                                Quick actions
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={async () => {
+                                  setActiveTab('messages')
+                                  setSelectedMsgDealId(deal.id)
+                                  setMessagesLoading(true)
+                                  const result = await getDealMessages(deal.id)
+                                  if (result.success && result.data) setDealMessages(result.data)
+                                  setMessagesLoading(false)
+                                  await markBrokerageMessagesRead(deal.id)
+                                  setBrokerageInbox((prev: any[]) =>
+                                    prev.map((d: any) => d.deal_id === deal.id ? { ...d, unread_message_count: 0 } : d)
+                                  )
+                                  if (profile?.brokerage_id) {
+                                    const brokerageId = profile.brokerage_id
+                                    getBrokerageInbox(brokerageId).then(r => {
+                                      if (r.success && r.data) {
+                                        setBrokerageInbox(r.data.inbox)
+                                        getBrokerageNotificationCounts(brokerageId).then(c => {
+                                          if (c.success && c.data) setUnreadNotifCount(c.data.unreadMessages)
+                                        })
+                                      }
+                                    })
+                                  }
+                                }}
+                              >
+                                <MessageSquare size={12} className="mr-1.5" />
+                                Send message
+                              </Button>
+                              {['approved', 'funded'].includes(deal.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 text-xs"
+                                  onClick={() => router.push(`/brokerage/amendments/new?dealId=${deal.id}`)}
+                                >
+                                  <CalendarClock size={12} className="mr-1.5" />
+                                  Request amendment
+                                </Button>
+                              )}
+                              {['funded', 'completed'].includes(deal.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 text-xs"
+                                  onClick={() => {
+                                    setRecordPaymentDealId(deal.id)
+                                    setShowRecordPayment(true)
+                                  }}
+                                >
+                                  <CreditCard size={12} className="mr-1.5" />
+                                  Record payment
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

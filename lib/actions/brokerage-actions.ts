@@ -4,7 +4,7 @@ import crypto from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
-import { sendAgentInviteNotification } from '@/lib/email'
+import { sendAgentInviteNotification, sendPaymentClaimSubmittedNotification } from '@/lib/email'
 import { CreateAgentSchema } from '@/lib/validations'
 
 interface ActionResult {
@@ -380,7 +380,7 @@ export async function submitBrokeragePaymentClaim(input: {
   // Verify the deal exists, is owned by this brokerage, and is in a payable state
   const { data: deal, error: dealError } = await serviceClient
     .from('deals')
-    .select('id, brokerage_id, status, property_address, amount_due_from_brokerage, brokerage_payments')
+    .select('id, brokerage_id, agent_id, status, property_address, amount_due_from_brokerage, brokerage_payments')
     .eq('id', input.dealId)
     .single()
 
@@ -436,6 +436,35 @@ export async function submitBrokeragePaymentClaim(input: {
       brokerage_id: profile.brokerage_id,
     },
   })
+
+  // Notify admin — wrapped in try/catch so a Resend hiccup never fails the action.
+  // Awaited (not fire-and-forget) because Netlify can kill background work after return.
+  try {
+    const [{ data: brokerageData }, { data: agentData }] = await Promise.all([
+      serviceClient
+        .from('brokerages')
+        .select('name')
+        .eq('id', profile.brokerage_id!)
+        .single(),
+      serviceClient
+        .from('agents')
+        .select('first_name, last_name')
+        .eq('id', deal.agent_id)
+        .single(),
+    ])
+    await sendPaymentClaimSubmittedNotification({
+      dealId: deal.id,
+      propertyAddress: deal.property_address,
+      brokerageName: brokerageData?.name || 'A brokerage',
+      agentName: agentData ? `${agentData.first_name} ${agentData.last_name}` : 'Agent',
+      amount: newEntry.amount,
+      paymentDate: newEntry.date,
+      method: newEntry.method,
+      reference: newEntry.reference,
+    })
+  } catch (err) {
+    console.error('[brokerage-actions] payment claim notification dispatch failed:', err)
+  }
 
   return { success: true, data: { claimIndex: updatedPayments.length - 1 } }
 }
