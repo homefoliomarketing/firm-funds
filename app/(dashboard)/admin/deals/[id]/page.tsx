@@ -23,6 +23,7 @@ import {
   cancelDocumentRequest,
   deleteDeal,
   linkDocumentToChecklist,
+  markDealFailedToClose,
 } from '@/lib/actions/deal-actions'
 import {
   sendDealMessage,
@@ -436,6 +437,7 @@ const BACKWARD_STATUSES: Record<string, string[]> = {
 const STATUS_LABELS: Record<string, string> = {
   submitted: 'Submitted', under_review: 'Under Review', approved: 'Approved',
   funded: 'Funded', completed: 'Completed', denied: 'Denied', cancelled: 'Cancelled',
+  failed_to_close: 'Failed to Close',
 }
 
 interface ChecklistCategory {
@@ -587,6 +589,12 @@ export default function DealDetailPage() {
   // Unread = last message from agent AND not yet dismissed locally
   const hasUnreadMessages = !messagesDismissed && messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin'
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
+  // Failed-to-close cure election modal
+  const [showFailedToCloseModal, setShowFailedToCloseModal] = useState(false)
+  const [failedToCloseType, setFailedToCloseType] = useState<'non_closing' | 'commission_deficiency'>('non_closing')
+  const [failedToCloseAmount, setFailedToCloseAmount] = useState('')
+  const [failedToCloseReason, setFailedToCloseReason] = useState('')
+  const [failedToCloseSaving, setFailedToCloseSaving] = useState(false)
   // Drag-and-drop
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null)
@@ -875,6 +883,38 @@ export default function DealDetailPage() {
       setShowPaymentForm(false)
     }
     setUpdating(false)
+  }
+
+  const handleMarkFailedToClose = async () => {
+    if (!deal) return
+    const amount = parseFloat(failedToCloseAmount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setStatusMessage({ type: 'error', text: 'Enter a valid outstanding amount greater than zero' })
+      return
+    }
+    if (!failedToCloseReason.trim()) {
+      setStatusMessage({ type: 'error', text: 'A reason is required' })
+      return
+    }
+    setFailedToCloseSaving(true)
+    setStatusMessage(null)
+    const result = await markDealFailedToClose({
+      dealId: deal.id,
+      failureType: failedToCloseType,
+      outstandingAmount: amount,
+      reason: failedToCloseReason.trim(),
+    })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Deal marked as failed to close. Agent has been emailed to choose a cure method.' })
+      setShowFailedToCloseModal(false)
+      setFailedToCloseAmount('')
+      setFailedToCloseReason('')
+      setFailedToCloseType('non_closing')
+      await loadDealData()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to mark deal as failed to close' })
+    }
+    setFailedToCloseSaving(false)
   }
 
   const handleSendForSignature = async () => {
@@ -1262,6 +1302,23 @@ export default function DealDetailPage() {
                   </div>
                 )
               })}
+
+              {/* Mark Failed to Close — only for funded deals */}
+              {deal.status === 'funded' && (
+                <button
+                  onClick={() => {
+                    setFailedToCloseType('non_closing')
+                    setFailedToCloseAmount(deal.advance_amount ? String(deal.advance_amount) : '')
+                    setFailedToCloseReason('')
+                    setShowFailedToCloseModal(true)
+                  }}
+                  disabled={updating}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-red-950/30 text-red-400 border border-red-800/50 hover:bg-red-950/50"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  Mark Failed to Close
+                </button>
+              )}
 
               {/* E-Signature Button */}
               {deal.status === 'approved' && (() => {
@@ -2890,6 +2947,95 @@ export default function DealDetailPage() {
         )}
 
       </main>
+
+      {/* Mark Failed to Close — Modal */}
+      {showFailedToCloseModal && deal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => !failedToCloseSaving && setShowFailedToCloseModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="failed-modal-title"
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-card border border-destructive/40 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              <h2 id="failed-modal-title" className="text-base font-bold text-destructive">Mark Deal as Failed to Close</h2>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                This will set the deal status to <strong>Failed to Close</strong>, charge the outstanding amount to the agent's ledger, and email the agent to choose a cure method within 15 days (per CPA Article 5.5).
+              </p>
+
+              <div>
+                <label htmlFor="failure-type" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Failure Type</label>
+                <select
+                  id="failure-type"
+                  value={failedToCloseType}
+                  onChange={(e) => setFailedToCloseType(e.target.value as 'non_closing' | 'commission_deficiency')}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                >
+                  <option value="non_closing">Deal did not close — full Purchase Price owed (CPA 5.1)</option>
+                  <option value="commission_deficiency">Closed with commission shortfall (CPA 5.2)</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="failure-amount" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Outstanding Amount Owed (CAD)
+                </label>
+                <input
+                  id="failure-amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={failedToCloseAmount}
+                  onChange={(e) => setFailedToCloseAmount(e.target.value)}
+                  placeholder={failedToCloseType === 'non_closing' ? 'Full Purchase Price' : 'Shortfall amount'}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
+                />
+                {failedToCloseType === 'non_closing' && deal.advance_amount && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Suggested: {formatCurrency(deal.advance_amount)} (Purchase Price from this deal)
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="failure-reason" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Reason</label>
+                <textarea
+                  id="failure-reason"
+                  value={failedToCloseReason}
+                  onChange={(e) => setFailedToCloseReason(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Buyer financing fell through; mutual termination..."
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowFailedToCloseModal(false)}
+                disabled={failedToCloseSaving}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMarkFailedToClose}
+                disabled={failedToCloseSaving || !failedToCloseAmount || !failedToCloseReason.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-destructive hover:bg-destructive/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+              >
+                {failedToCloseSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                {failedToCloseSaving ? 'Processing...' : 'Mark as Failed to Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   )

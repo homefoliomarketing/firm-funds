@@ -116,12 +116,13 @@ export const DEAL_STATUSES = {
 // =============================================================================
 
 export const STATUS_BADGE_CLASSES: Record<string, string> = {
-  under_review: 'bg-status-blue-muted text-status-blue border border-status-blue-border',
-  approved:     'bg-status-green-muted text-status-green border border-status-green-border',
-  funded:       'bg-status-purple-muted text-status-purple border border-status-purple-border',
-  completed:    'bg-status-teal-muted text-status-teal border border-status-teal-border',
-  denied:       'bg-status-red-muted text-status-red border border-status-red-border',
-  cancelled:    'bg-status-amber-muted text-status-amber border border-status-amber-border',
+  under_review:    'bg-status-blue-muted text-status-blue border border-status-blue-border',
+  approved:        'bg-status-green-muted text-status-green border border-status-green-border',
+  funded:          'bg-status-purple-muted text-status-purple border border-status-purple-border',
+  completed:       'bg-status-teal-muted text-status-teal border border-status-teal-border',
+  denied:          'bg-status-red-muted text-status-red border border-status-red-border',
+  cancelled:       'bg-status-amber-muted text-status-amber border border-status-amber-border',
+  failed_to_close: 'bg-status-red-muted text-status-red border border-status-red-border',
 }
 
 /** Helper: get Tailwind class string for a status badge */
