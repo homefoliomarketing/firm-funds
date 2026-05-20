@@ -2776,7 +2776,7 @@ export default function DealDetailPage() {
                         className="px-2 py-1 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground [color-scheme:dark]"
                       />
                     </div>
-                    <p className="text-[10px] text-muted-foreground">$0.75 per $1,000/day · 5-day grace after {deal.closing_date}</p>
+                    <p className="text-[10px] text-muted-foreground">$0.75 per $1,000/day · starts day after 14-day settlement period ends</p>
                     <div className="flex gap-1.5">
                       <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
                         className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors">
