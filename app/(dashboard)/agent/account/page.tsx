@@ -35,6 +35,7 @@ const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; ic
   adjustment: { label: 'Adjustment', color: 'text-muted-foreground', icon: DollarSign },
   credit: { label: 'Credit', color: 'text-status-teal', icon: ArrowDownLeft },
   failed_deal_balance: { label: 'Failed Deal Balance', color: 'text-status-red', icon: AlertTriangle },
+  failed_deal_interest: { label: 'Failed Deal Interest', color: 'text-status-amber', icon: Clock },
 }
 
 export default function AgentAccountPage() {
