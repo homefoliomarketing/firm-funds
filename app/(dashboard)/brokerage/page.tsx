@@ -1393,37 +1393,10 @@ export default function BrokerageDashboard() {
                   const payments = (d as any).brokerage_payments || []
                   return sum + payments.filter(isCounted).reduce((s: number, p: any) => s + (p.amount || 0), 0)
                 }, 0)
-                const totalPending = fundedDeals.reduce((sum, d) => {
-                  const payments = (d as any).brokerage_payments || []
-                  return sum + payments.filter(isPending).reduce((s: number, p: any) => s + (p.amount || 0), 0)
-                }, 0)
-                const outstanding = totalOwed - totalPaid
                 const paidPct = totalOwed > 0 ? Math.min((totalPaid / totalOwed) * 100, 100) : 0
 
                 return (
                   <>
-                    {/* Stats row */}
-                    <div className={`grid grid-cols-1 gap-3 mb-6 ${totalPending > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
-                      <div className="rounded-xl p-4 bg-blue-950/40 border border-blue-800/50">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-blue-400">Total Owed</p>
-                        <p className="text-xl font-black mt-1 tabular-nums text-blue-400">{formatCurrency(totalOwed)}</p>
-                      </div>
-                      <div className="rounded-xl p-4 bg-green-950/40 border border-green-800/50">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-green-400">Confirmed Paid</p>
-                        <p className="text-xl font-black mt-1 tabular-nums text-green-400">{formatCurrency(totalPaid)}</p>
-                      </div>
-                      {totalPending > 0 && (
-                        <div className="rounded-xl p-4 bg-amber-950/40 border border-amber-800/50">
-                          <p className="text-xs font-semibold uppercase tracking-wider text-amber-400">Pending Confirmation</p>
-                          <p className="text-xl font-black mt-1 tabular-nums text-amber-400">{formatCurrency(totalPending)}</p>
-                        </div>
-                      )}
-                      <div className={`rounded-xl p-4 ${outstanding > 0.01 ? 'bg-yellow-950/40 border border-yellow-800/50' : 'bg-green-950/40 border border-green-800/50'}`}>
-                        <p className={`text-xs font-semibold uppercase tracking-wider ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>Outstanding</p>
-                        <p className={`text-xl font-black mt-1 tabular-nums ${outstanding > 0.01 ? 'text-yellow-400' : 'text-green-400'}`}>{formatCurrency(Math.max(outstanding, 0))}</p>
-                      </div>
-                    </div>
-
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-semibold text-muted-foreground">Payment Progress (confirmed)</span>
