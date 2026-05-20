@@ -2013,7 +2013,7 @@ export async function sendFailedToCloseElectionEmail(params: {
         </table>
 
         <p style="margin:0 0 16px; color:#BCBBB8; font-size:12px; line-height:1.5;">
-          If you do not make a written election by ${deadlineFmt}, you will be deemed to have elected cash repayment, and the full balance will become immediately due. Interest of 24% per annum will accrue on any unpaid balance.
+          If you do not make a written election by ${deadlineFmt}, you will be deemed to have elected cash repayment, and the full balance will become immediately due. Interest of 24% per annum, compounded daily, will accrue on any unpaid balance starting on the 31st day.
         </p>
 
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">

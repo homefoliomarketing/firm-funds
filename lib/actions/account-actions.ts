@@ -3,7 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
-import { calculateLateInterest } from '@/lib/calculations'
+import { calculateLateInterest, calculateCompoundDailyInterest } from '@/lib/calculations'
 import { formatCurrency } from '@/lib/formatting'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
@@ -216,6 +216,11 @@ export async function autoChargeDailyLateInterest(): Promise<{
 // notice (the demand notice is sent when the deal is marked failed_to_close).
 // Days 1-30 = grace; day 31+ = accruing.
 //
+// Compounds daily on the unpaid balance — i.e. interest accrues on prior
+// accrued interest, not just on the original principal. Computed via the
+// closed-form principal × ((1 + dailyRate)^daysOverdue - 1) so the result is
+// idempotent regardless of how many cron runs happened.
+//
 // Mirrors autoChargeDailyLateInterest's idempotency pattern: tracks total
 // interest charged on the deal (failed_deal_interest_charged) and on each run
 // computes total interest owed from day 31 to today, charging only the delta.
@@ -250,14 +255,14 @@ export async function autoChargeDailyFailedDealInterest(): Promise<{
 
     try {
       // Interest accrues starting on the 31st day after failed_to_close_at.
-      // Pass that date as the "due date" to calculateLateInterest, which
-      // already returns 0 when (today <= due_date).
+      // calculateCompoundDailyInterest returns 0 when today <= accrualStart
+      // (i.e. still in the grace period).
       const failedAt = new Date(deal.failed_to_close_at as string)
       const accrualStartMs = failedAt.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
       const accrualStartStr = new Date(accrualStartMs).toISOString().slice(0, 10)
 
       const principal = Number(deal.outstanding_balance) || 0
-      const totalInterestOwed = calculateLateInterest(principal, accrualStartStr, today)
+      const totalInterestOwed = calculateCompoundDailyInterest(principal, accrualStartStr, today)
       const alreadyCharged = Number(deal.failed_deal_interest_charged) || 0
       const interestToCharge = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
 
@@ -287,7 +292,7 @@ export async function autoChargeDailyFailedDealInterest(): Promise<{
           type: 'failed_deal_interest',
           amount: interestToCharge,
           running_balance: newBalance,
-          description: `Failed-deal interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. on ${formatCurrency(principal)})`,
+          description: `Failed-deal interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(principal)})`,
         })
 
       await serviceClient

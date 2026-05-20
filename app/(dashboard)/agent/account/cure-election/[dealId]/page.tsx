@@ -309,7 +309,7 @@ export default function CureElectionPage({ params }: PageProps) {
                   <ul className="text-xs text-muted-foreground/80 mt-2 space-y-1 list-disc list-inside">
                     <li>No discount fee or settlement fee — this is not a new advance</li>
                     <li>You'll sign a Remediation Direction to Pay when your next deal goes firm</li>
-                    <li>24% interest continues to accrue on the unpaid balance until cleared</li>
+                    <li>24% interest compounds daily on the unpaid balance until cleared</li>
                   </ul>
                 </div>
               </div>

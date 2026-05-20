@@ -158,6 +158,39 @@ export function calculateDailyLateInterest(advanceAmount: number): number {
   return roundToCents(advanceAmount * dailyRate)
 }
 
+/**
+ * Compound daily interest at 24% p.a. on an unpaid balance.
+ *
+ * Returns the TOTAL interest accrued from accrualStartDate to currentDate
+ * using the closed-form: principal × ((1 + dailyRate)^daysOverdue - 1).
+ * Equivalent to charging dailyRate on (principal + prior accrued interest)
+ * every day, but computed as a single expression for idempotency.
+ *
+ * Used for CPA 5.3 failed-to-close balances, which compound daily on the
+ * unpaid balance (principal + prior accrued interest). Returns 0 if the
+ * accrual start date hasn't yet been reached (e.g. still in the 30-day
+ * grace period after the demand notice).
+ *
+ * @param principal - The unpaid principal at the moment accrual begins
+ * @param accrualStartDate - YYYY-MM-DD, the day interest begins accruing
+ * @param currentDate - YYYY-MM-DD, the day to compute total accrued through
+ */
+export function calculateCompoundDailyInterest(
+  principal: number,
+  accrualStartDate: string,
+  currentDate: string,
+): number {
+  const startMs = new Date(accrualStartDate + 'T00:00:00Z').getTime()
+  const currentMs = new Date(currentDate + 'T00:00:00Z').getTime()
+  const daysOverdue = Math.floor((currentMs - startMs) / (1000 * 60 * 60 * 24))
+
+  if (daysOverdue <= 0) return 0
+
+  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
+  const totalBalance = principal * Math.pow(1 + dailyRate, daysOverdue)
+  return roundToCents(totalBalance - principal)
+}
+
 // Format currency for display
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', {
