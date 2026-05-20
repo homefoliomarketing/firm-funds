@@ -14,7 +14,7 @@ You are continuing development on **Firm Funds** (firmfunds.ca), a commission ad
 - **Next.js 16.2.1** — `params` are Promises, `'use server'` files only export async functions, `useSearchParams()` needs `<Suspense>` boundary. This is NOT the Next.js you know from training data.
 - **Supabase RLS** — Use `createServiceRoleClient()` for ALL server-side mutations. This is the #1 source of bugs.
 - **Dark mode locked** — `colors.gold` is green (#5FA873), not gold.
-- **Discount rate** — $0.75 per $1,000 per day, +1 processing day offset. Late closing uses same rate with 5-day grace period.
+- **Discount rate** — $0.75 per $1,000 per day, +1 processing day offset. Late payment interest: 24% per annum, starts day after the 14-day settlement period expires (no grace period).
 - **PowerShell on Windows** — Use semicolons not `&&`.
 - **TypeScript check** — `npx tsc --noEmit` (can't run `next build` in sandbox due to missing SWC binaries).
 - **Underwriting checklist** — DO NOT MODIFY the 12 items in 3 categories. Migration 017 is definitive. This has been broken and fixed across sessions 6-9. Don't touch it.

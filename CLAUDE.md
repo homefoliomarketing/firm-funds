@@ -30,7 +30,7 @@ You don't need to ask permission to push to git. Just send it if we are completi
 ## Financial Rules
 
 - Discount rate: $0.75 per $1,000 per day. +1 day processing offset in `lib/calculations.ts`
-- Late closing interest: same rate, 5-day grace period (`LATE_CLOSING_GRACE_DAYS` in `lib/constants.ts`)
+- Late payment interest: 24% per annum, starts the day after the 14-day settlement period expires (no grace period)
 - Deal status flow: `under_review → approved → funded → completed`
 - `brokerage_split_pct` stores whole numbers (5 = 5%), NOT decimals. Do NOT multiply by 100.
 
