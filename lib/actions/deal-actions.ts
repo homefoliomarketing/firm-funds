@@ -1992,7 +1992,11 @@ export async function submitCureElection(input: {
       return { success: false, error: 'You have already made your election on this deal' }
     }
 
-    const { data: updated, error: updateError } = await supabase
+    // Use service role for the write — agents don't have a row-level UPDATE
+    // policy on deals. Authorization is enforced above (agent_id check,
+    // status check, election-still-null check).
+    const serviceClient = createServiceRoleClient()
+    const { data: updated, error: updateError } = await serviceClient
       .from('deals')
       .update({
         cure_election: input.election,
