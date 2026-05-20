@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import { calculateLateInterest } from '@/lib/calculations'
+import { formatCurrency } from '@/lib/formatting'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
   sendDocumentReturnNotification,
@@ -200,6 +201,107 @@ export async function autoChargeDailyLateInterest(): Promise<{
       result.details.push({ dealId: deal.id, interest: interestToCharge })
     } catch (err) {
       console.error(`Auto-charge error for deal ${deal.id}:`, err)
+      result.errors++
+    }
+  }
+
+  return result
+}
+
+// ============================================================================
+// Auto-charge daily failed-deal interest (called by cron)
+//
+// CPA Article 5.3: interest at 24% per annum accrues on the unpaid balance of
+// a failed-to-close deal "from the thirty-first (31st) day" after the demand
+// notice (the demand notice is sent when the deal is marked failed_to_close).
+// Days 1-30 = grace; day 31+ = accruing.
+//
+// Mirrors autoChargeDailyLateInterest's idempotency pattern: tracks total
+// interest charged on the deal (failed_deal_interest_charged) and on each run
+// computes total interest owed from day 31 to today, charging only the delta.
+// Self-healing if a cron run is missed; safe to re-run within the same day.
+//
+// Continues accruing even after the agent elects commission_assignment (CPA
+// 5.7 explicitly says interest continues until the balance is satisfied in
+// full, regardless of cure method).
+// ============================================================================
+
+const FAILED_DEAL_GRACE_DAYS = 30
+
+export async function autoChargeDailyFailedDealInterest(): Promise<{
+  charged: number
+  errors: number
+  details: { dealId: string; interest: number }[]
+}> {
+  const serviceClient = createServiceRoleClient()
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+
+  const { data: failedDeals } = await serviceClient
+    .from('deals')
+    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_charged')
+    .eq('status', 'failed_to_close')
+    .gt('outstanding_balance', 0)
+
+  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number }[] }
+  if (!failedDeals || failedDeals.length === 0) return result
+
+  for (const deal of failedDeals) {
+    if (!deal.failed_to_close_at) continue
+
+    try {
+      // Interest accrues starting on the 31st day after failed_to_close_at.
+      // Pass that date as the "due date" to calculateLateInterest, which
+      // already returns 0 when (today <= due_date).
+      const failedAt = new Date(deal.failed_to_close_at as string)
+      const accrualStartMs = failedAt.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
+      const accrualStartStr = new Date(accrualStartMs).toISOString().slice(0, 10)
+
+      const principal = Number(deal.outstanding_balance) || 0
+      const totalInterestOwed = calculateLateInterest(principal, accrualStartStr, today)
+      const alreadyCharged = Number(deal.failed_deal_interest_charged) || 0
+      const interestToCharge = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
+
+      // Nothing to charge: still in grace period, already current for today,
+      // or a prior run overshot.
+      if (interestToCharge < 0.005) continue
+
+      const { data: agent } = await serviceClient
+        .from('agents')
+        .select('id, account_balance')
+        .eq('id', deal.agent_id)
+        .single()
+      if (!agent) continue
+
+      const newBalance = (agent.account_balance || 0) + interestToCharge
+
+      await serviceClient
+        .from('agents')
+        .update({ account_balance: newBalance })
+        .eq('id', agent.id)
+
+      await serviceClient
+        .from('agent_transactions')
+        .insert({
+          agent_id: agent.id,
+          deal_id: deal.id,
+          type: 'failed_deal_interest',
+          amount: interestToCharge,
+          running_balance: newBalance,
+          description: `Failed-deal interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. on ${formatCurrency(principal)})`,
+        })
+
+      await serviceClient
+        .from('deals')
+        .update({
+          failed_deal_interest_charged: totalInterestOwed,
+          failed_deal_interest_calculated_at: new Date().toISOString(),
+        })
+        .eq('id', deal.id)
+
+      result.charged++
+      result.details.push({ dealId: deal.id, interest: interestToCharge })
+    } catch (err) {
+      console.error(`Failed-deal interest accrual error for deal ${deal.id}:`, err)
       result.errors++
     }
   }

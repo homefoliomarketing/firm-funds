@@ -984,3 +984,174 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
   const buffer = await Packer.toBuffer(doc)
   return Buffer.from(buffer)
 }
+
+// ============================================================================
+// Remediation IDP Generator
+//
+// Executed by an agent under CPA Article 5.5(b) to satisfy an outstanding
+// balance owing on a prior failed-to-close deal. Assigns the agent's next
+// eligible commission to Firm Funds.
+//
+// Key differences from the standard IDP (CPA 5.6 / BCA 3.5):
+//   - No Purchase Price, Purchase Discount, or Settlement Period Fee — this
+//     is collection, not a new commission purchase.
+//   - No Referral Fee to the brokerage — full commission (after standard
+//     split) passes through to Firm Funds up to the directed amount.
+//   - Directed amount = outstanding balance + accrued 24% p.a. interest on
+//     the failed deal (CPA 5.3).
+// ============================================================================
+
+export async function generateRemediationIdpDocx(data: Record<string, string>): Promise<Buffer> {
+  const r = (key: string) => data[key] || key
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
+        },
+        headers: { default: makeHeader('Remediation Direction to Pay') },
+        footers: { default: makeFooterWithInitials('Agent Initials') },
+        children: [
+          // Title
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 40 },
+            children: [new TextRun({ text: 'REMEDIATION DIRECTION TO PAY', bold: true, font: FONT, size: 36, color: '000000' })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+            children: [new TextRun({ text: 'Assignment of Commission to Satisfy Outstanding Balance', italics: true, font: FONT, size: FONT_SIZE })],
+          }),
+
+          // Date
+          richParagraph([{ text: 'Date: ' }, { text: r('{{AGREEMENT_DATE}}'), bold: true }]),
+          emptyLine(),
+
+          // TO (Brokerage)
+          body('TO:', { bold: true }),
+          body(r('{{BROKERAGE_LEGAL_NAME}}'), { bold: true, indent: 300 }),
+          body(r('{{BROKERAGE_ADDRESS}}'), { indent: 300 }),
+          richParagraph([{ text: 'Attention: ' }, { text: r('{{BROKER_OF_RECORD}}'), bold: true }], { indent: 300 }),
+          emptyLine(),
+
+          // FROM (Agent)
+          body('FROM:', { bold: true }),
+          body(r('{{AGENT_FULL_LEGAL_NAME}}'), { bold: true, indent: 300 }),
+          body(`RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}`, { indent: 300 }),
+          emptyLine(),
+
+          // RE — new commission being assigned
+          richParagraph([
+            { text: 'RE: ', bold: true },
+            { text: 'Assignment of commission on sale of ' },
+            { text: r('{{SOURCE_PROPERTY_ADDRESS}}'), bold: true },
+            { text: ', MLS No. ' },
+            { text: r('{{SOURCE_MLS_NUMBER}}'), bold: true },
+            { text: ', to satisfy an outstanding balance owing to Firm Funds Inc.' },
+          ]),
+          emptyLine(),
+
+          // Recitals — link this Remediation IDP to the failed transaction
+          heading2('RECITALS'),
+          richParagraph([
+            { text: 'A. ' },
+            { text: 'The undersigned Agent and Firm Funds Inc. (the "Purchaser") are parties to a Commission Purchase Agreement dated ' },
+            { text: r('{{FAILED_DEAL_DATE}}'), bold: true },
+            { text: ' in respect of the property municipally known as ' },
+            { text: r('{{FAILED_DEAL_PROPERTY}}'), bold: true },
+            { text: ' (the "Original CPA").' },
+          ]),
+          richParagraph([
+            { text: 'B. ' },
+            { text: 'The transaction underlying the Original CPA failed to close in full, and as of the date of this Direction the Agent owes the Purchaser the sum of ' },
+            { text: r('{{OUTSTANDING_BALANCE}}'), bold: true },
+            { text: ' under Articles 5.1 or 5.2 of the Original CPA, together with accrued interest under Article 5.3 (the "Outstanding Balance").' },
+          ]),
+          richParagraph([
+            { text: 'C. ' },
+            { text: 'Under Article 5.5(b) of the Original CPA, the Agent has elected to satisfy the Outstanding Balance by executing this Remediation Direction to Pay, assigning to the Purchaser the next eligible commission receivable, being the commission earned on the sale of ' },
+            { text: r('{{SOURCE_PROPERTY_ADDRESS}}'), bold: true },
+            { text: ' (the "Assigned Commission").' },
+          ]),
+          emptyLine(),
+
+          // Direction
+          heading2('DIRECTION'),
+          richParagraph([
+            { text: 'I, ' },
+            { text: r('{{AGENT_FULL_LEGAL_NAME}}'), bold: true },
+            { text: ', a registered real estate salesperson/broker affiliated with ' },
+            { text: r('{{BROKERAGE_LEGAL_NAME}}'), bold: true },
+            { text: ' (the "Brokerage"), hereby irrevocably direct the Brokerage to pay the sum of ' },
+            { text: r('{{OUTSTANDING_BALANCE}}'), bold: true },
+            { text: ' (the "Directed Amount") from the Assigned Commission directly to ' },
+            { text: 'Firm Funds Inc.', bold: true },
+            { text: ' (the "Purchaser") in satisfaction of the Outstanding Balance owing under the Original CPA.' },
+          ]),
+          emptyLine(),
+          body('This Direction is irrevocable and may not be revoked, altered, amended, or countermanded by me without the prior written consent of the Purchaser.'),
+          emptyLine(),
+          richParagraph([
+            { text: 'The Directed Amount shall be paid from the Brokerage\'s real estate trust account upon the Brokerage receiving the Assigned Commission (expected on or about ' },
+            { text: r('{{SOURCE_CLOSING_DATE}}'), bold: true },
+            { text: '), by electronic funds transfer to the following account:' },
+          ]),
+          emptyLine(),
+
+          infoTable([
+            ['Payee', 'Firm Funds Inc.'],
+            ['Financial Institution', r('{{PURCHASER_BANK_NAME}}')],
+            ['Transit Number', r('{{PURCHASER_TRANSIT}}')],
+            ['Account Number', r('{{PURCHASER_ACCOUNT}}')],
+          ]),
+
+          // No Referral Fee / No Purchase Consideration — explicit per BCA 3.5(a) and CPA 5.6
+          heading2('NO REFERRAL FEE; NO PURCHASE CONSIDERATION'),
+          body('I acknowledge and agree, and the Brokerage acknowledges by accepting this Direction, that: (a) under Article 3.5(a) of the Brokerage Cooperation Agreement between the Brokerage and the Purchaser, no Referral Fee is payable to the Brokerage in respect of this Remediation Direction to Pay; (b) the Brokerage shall remit to the Purchaser the full Assigned Commission otherwise payable to me (after the Brokerage\'s standard commission split), up to the Directed Amount; and (c) this Remediation Direction to Pay does not constitute a new commission purchase transaction, and no Purchase Price, Purchase Discount, Settlement Period Fee, or other consideration is or shall be payable by the Purchaser to me in respect of the Assigned Commission (Article 5.6 of the Original CPA).'),
+
+          // Shortfall — successive Remediation IDPs
+          heading2('SHORTFALL — SUCCESSIVE REMEDIATION IDPs'),
+          body('If the Assigned Commission, after the Brokerage\'s standard commission split, is insufficient to satisfy the Directed Amount in full, the Brokerage shall remit the full net amount to the Purchaser, and I acknowledge that the remaining Outstanding Balance shall continue to be owing under the Original CPA. I further acknowledge that I shall be required under Article 5.5(b) of the Original CPA to execute one or more successive Remediation Directions to Pay in respect of each subsequent commission receivable, in the order in which they become firm, until the Outstanding Balance is satisfied in full.'),
+
+          // Surplus
+          heading2('SURPLUS'),
+          body('If, after applying the Directed Amount, the Brokerage remits an amount in excess of the Outstanding Balance, the Purchaser shall remit such surplus to me by electronic funds transfer within five (5) business days of receipt (Article 5.6 of the Original CPA).'),
+
+          // Notification (CPA 5.7)
+          heading2('NOTIFICATION OBLIGATION'),
+          body('I shall immediately notify both the Brokerage and the Purchaser if: (a) the closing date of the Assigned Commission transaction is changed; (b) the transaction is terminated; (c) any circumstance may prevent or delay closing; or (d) my brokerage affiliation changes. Notification to the Purchaser shall be in writing within two (2) business days of the relevant event (Article 5.7 of the Original CPA).'),
+
+          // Continuing Interest (CPA 5.3 / 5.7)
+          heading2('CONTINUING INTEREST'),
+          body('I acknowledge that interest at the rate of twenty-four percent (24%) per annum, as set out in Article 5.3 of the Original CPA, continues to accrue daily on any unpaid Outstanding Balance until satisfied in full, and that execution of this Remediation Direction to Pay does not stop the accrual of such interest.'),
+
+          // ILA
+          heading2('INDEPENDENT LEGAL ADVICE'),
+          body('I acknowledge that I have been advised to obtain independent legal advice. I am executing this Direction freely, voluntarily, and with full knowledge of its contents and legal effect.'),
+
+          // E-Sig
+          heading2('ELECTRONIC SIGNATURE'),
+          body('This Direction may be executed by electronic signature in accordance with the Electronic Commerce Act, 2000 (Ontario).'),
+
+          initialsAnchor(),
+          emptyLine(),
+          emptyLine(),
+
+          // Signature block
+          body('AGENT SIGNATURE', { bold: true }),
+          body(`Name: ${r('{{AGENT_FULL_LEGAL_NAME}}')}`),
+          body(`RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}`),
+          emptyLine(),
+          emptyLine(),
+          body('Signature: /sig1/', { italic: true }),
+          body('Date Signed: /dat1/', { italic: true }),
+        ],
+      },
+    ],
+  })
+
+  const buffer = await Packer.toBuffer(doc)
+  return Buffer.from(buffer)
+}

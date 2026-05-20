@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder7Day, sendSettlementReminder3Day } from '@/lib/email'
-import { autoChargeDailyLateInterest } from '@/lib/actions/account-actions'
+import { autoChargeDailyLateInterest, autoChargeDailyFailedDealInterest } from '@/lib/actions/account-actions'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
 
 // =============================================================================
@@ -197,6 +197,12 @@ export async function GET(request: Request) {
       .eq('payment_status', 'pending')
       .lt('due_date', today)
 
+    // =======================================================================
+    // 4. Auto-charge daily failed-deal interest (CPA 5.3 — 24% p.a. from day 31)
+    // =======================================================================
+
+    const failedDealInterestResult = await autoChargeDailyFailedDealInterest()
+
     return Response.json({
       message: 'Daily cron complete',
       approaching: approachingDeals.length,
@@ -206,6 +212,10 @@ export async function GET(request: Request) {
       late_interest: {
         deals_charged: lateInterestResult.charged,
         errors: lateInterestResult.errors,
+      },
+      failed_deal_interest: {
+        deals_charged: failedDealInterestResult.charged,
+        errors: failedDealInterestResult.errors,
       },
     })
   } catch (err: any) {

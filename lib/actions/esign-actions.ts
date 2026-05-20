@@ -3,7 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
-import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx } from '@/lib/contract-docx'
+import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx, generateRemediationIdpDocx } from '@/lib/contract-docx'
 
 type ActionResult = { success: boolean; error?: string; data?: any }
 
@@ -715,5 +715,255 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
   } catch (err: any) {
     console.error('Send amended CPA error:', err?.message)
     return { success: false, error: err?.message || 'Failed to send amended CPA' }
+  }
+}
+
+// ============================================================================
+// Remediation IDP — list source deals eligible to satisfy a failed deal
+//
+// A "source deal" is one of the agent's currently funded deals whose
+// commission can be assigned to clear the outstanding balance on the failed
+// deal. Excludes the failed deal itself and any source deals that already
+// have an active (sent/delivered/signed) Remediation IDP.
+// ============================================================================
+
+export async function getEligibleRemediationSourceDeals(failedDealId: string): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: failedDeal, error: failedErr } = await supabase
+      .from('deals')
+      .select('id, agent_id, status, cure_election, outstanding_balance')
+      .eq('id', failedDealId)
+      .single()
+
+    if (failedErr || !failedDeal) return { success: false, error: 'Failed deal not found' }
+    if (failedDeal.status !== 'failed_to_close') {
+      return { success: false, error: 'Deal is not in failed-to-close state' }
+    }
+    if (failedDeal.cure_election !== 'commission_assignment') {
+      return { success: false, error: 'Agent has not elected commission assignment for this deal' }
+    }
+
+    // Source deals already covered by an active Remediation IDP for THIS failed deal
+    const { data: activeRemediations } = await supabase
+      .from('esignature_envelopes')
+      .select('deal_id')
+      .eq('document_type', 'remediation_idp')
+      .eq('cures_deal_id', failedDealId)
+      .in('status', ['sent', 'delivered', 'signed'])
+
+    const lockedSourceIds = new Set((activeRemediations || []).map((r: any) => r.deal_id))
+
+    const { data: candidates } = await supabase
+      .from('deals')
+      .select('id, property_address, advance_amount, net_commission, closing_date, status, funding_date')
+      .eq('agent_id', failedDeal.agent_id)
+      .in('status', ['funded'])
+      .neq('id', failedDealId)
+      .order('closing_date', { ascending: true })
+
+    const eligible = (candidates || []).filter((d: any) => !lockedSourceIds.has(d.id))
+
+    return { success: true, data: eligible }
+  } catch (err: any) {
+    console.error('getEligibleRemediationSourceDeals error:', err?.message)
+    return { success: false, error: err?.message || 'Failed to load eligible deals' }
+  }
+}
+
+// ============================================================================
+// Remediation IDP — generate, send via DocuSign, record envelope
+//
+// failedDealId: the deal in failed_to_close state whose outstanding balance
+//               is being cleared (CPA 5.5(b) cure election = commission_assignment)
+// sourceDealId: the agent's currently funded deal whose commission is being
+//               assigned. The Brokerage on this source deal will remit.
+// ============================================================================
+
+export async function sendRemediationIdpForSignature(input: {
+  failedDealId: string
+  sourceDealId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const connected = await isDocuSignConnected()
+    if (!connected) {
+      return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+    }
+
+    // Failed deal — establishes the obligation
+    const { data: failedDeal, error: failedErr } = await supabase
+      .from('deals')
+      .select('id, agent_id, status, cure_election, outstanding_balance, failed_deal_interest_charged, property_address, funding_date, failed_to_close_at')
+      .eq('id', input.failedDealId)
+      .single()
+
+    if (failedErr || !failedDeal) return { success: false, error: 'Failed deal not found' }
+    if (failedDeal.status !== 'failed_to_close') {
+      return { success: false, error: 'Failed deal is not in failed-to-close state' }
+    }
+    if (failedDeal.cure_election !== 'commission_assignment') {
+      return { success: false, error: 'Agent has not elected commission assignment for this deal' }
+    }
+
+    // Source deal — provides the commission being assigned
+    const { data: sourceDeal, error: sourceErr } = await supabase
+      .from('deals')
+      .select('*, agent:agents(*, brokerage:brokerages(*))')
+      .eq('id', input.sourceDealId)
+      .single()
+
+    if (sourceErr || !sourceDeal) return { success: false, error: 'Source deal not found' }
+    if (sourceDeal.agent_id !== failedDeal.agent_id) {
+      return { success: false, error: 'Source deal belongs to a different agent' }
+    }
+    if (sourceDeal.status !== 'funded') {
+      return { success: false, error: `Source deal must be funded (current status: ${sourceDeal.status})` }
+    }
+
+    const agent = sourceDeal.agent
+    const brokerage = agent?.brokerage
+    if (!agent) return { success: false, error: 'Source deal is missing agent data' }
+    if (!brokerage) return { success: false, error: 'Agent is missing brokerage data' }
+    if (!agent.email) return { success: false, error: 'Agent has no email address' }
+
+    // Prevent duplicate active Remediation IDPs for the same failed+source pair
+    const { data: existing } = await supabase
+      .from('esignature_envelopes')
+      .select('id, status')
+      .eq('document_type', 'remediation_idp')
+      .eq('cures_deal_id', input.failedDealId)
+      .eq('deal_id', input.sourceDealId)
+      .in('status', ['sent', 'delivered', 'signed'])
+
+    if (existing && existing.length > 0) {
+      return { success: false, error: 'An active Remediation IDP already exists for this combination. Void it first to resend.' }
+    }
+
+    // Directed amount = failed deal's principal + interest accrued to date.
+    // Interest will keep accruing under CPA 5.3 until the balance is cleared;
+    // any new accrual after signing flows into a successive Remediation IDP.
+    const principal = Number(failedDeal.outstanding_balance) || 0
+    const accruedInterest = Number(failedDeal.failed_deal_interest_charged) || 0
+    const directedAmount = Math.round((principal + accruedInterest) * 100) / 100
+
+    if (directedAmount <= 0) {
+      return { success: false, error: 'Failed deal has no outstanding balance to remediate' }
+    }
+
+    const agentName = `${agent.first_name} ${agent.last_name}`
+    const today = new Date().toISOString().split('T')[0]
+
+    const contractData: Record<string, string> = {
+      '{{AGREEMENT_DATE}}': formatDate(today),
+      '{{AGENT_FULL_LEGAL_NAME}}': agentName,
+      '{{RECO_REGISTRATION_NUMBER}}': agent.reco_number || 'On file',
+      '{{BROKERAGE_LEGAL_NAME}}': brokerage.name,
+      '{{BROKERAGE_ADDRESS}}': [brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'On file',
+      '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name || 'On file',
+      '{{OUTSTANDING_BALANCE}}': formatCurrency(directedAmount),
+      // Failed deal — establishes the original obligation
+      '{{FAILED_DEAL_PROPERTY}}': failedDeal.property_address,
+      '{{FAILED_DEAL_DATE}}': failedDeal.funding_date ? formatDate(failedDeal.funding_date) : 'original CPA date',
+      // Source deal — supplies the commission being assigned
+      '{{SOURCE_PROPERTY_ADDRESS}}': sourceDeal.property_address,
+      '{{SOURCE_MLS_NUMBER}}': 'See APS',
+      '{{SOURCE_CLOSING_DATE}}': formatDate(sourceDeal.closing_date),
+      // Firm Funds banking
+      '{{PURCHASER_BANK_NAME}}': 'On file with Firm Funds',
+      '{{PURCHASER_TRANSIT}}': 'On file',
+      '{{PURCHASER_ACCOUNT}}': 'On file',
+    }
+
+    const docBuffer = await generateRemediationIdpDocx(contractData)
+    const docBase64 = docBuffer.toString('base64')
+
+    const agentFirstName = agent.first_name || 'there'
+    const result = await createAndSendEnvelope({
+      emailSubject: `Firm Funds — Remediation Direction to Pay: ${sourceDeal.property_address}`,
+      emailBlurb: `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${sourceDeal.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance — no discount, settlement fee, or referral fee applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
+      documents: [
+        {
+          documentBase64: docBase64,
+          name: 'Remediation Direction to Pay',
+          fileExtension: 'docx',
+          documentId: '1',
+        },
+      ],
+      signers: [
+        {
+          email: agent.email,
+          name: agentName,
+          recipientId: '1',
+          routingOrder: '1',
+          tabs: {
+            signHereTabs: [
+              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+            dateSignedTabs: [
+              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+            initialHereTabs: [
+              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+            ],
+          },
+        },
+      ],
+      ccRecipients: [
+        ...(brokerage.broker_of_record_email ? [{
+          email: brokerage.broker_of_record_email,
+          name: brokerage.broker_of_record_name || brokerage.name,
+          recipientId: '2',
+          routingOrder: '2',
+        }] : []),
+        ...(brokerage.email && brokerage.email !== brokerage.broker_of_record_email ? [{
+          email: brokerage.email,
+          name: brokerage.name + ' (Admin)',
+          recipientId: '3',
+          routingOrder: '2',
+        }] : []),
+      ],
+      status: 'sent',
+    })
+
+    const { error: insertErr } = await supabase
+      .from('esignature_envelopes')
+      .insert({
+        deal_id: input.sourceDealId,
+        cures_deal_id: input.failedDealId,
+        envelope_id: result.envelopeId,
+        document_type: 'remediation_idp' as const,
+        status: 'sent' as const,
+        agent_signer_status: 'sent' as const,
+        sent_by: user.id,
+        envelope_uri: result.uri,
+      })
+
+    if (insertErr) {
+      console.error('Failed to save Remediation IDP envelope record:', insertErr.message)
+    }
+
+    await logAuditEvent({
+      action: 'remediation_idp.sent',
+      entityType: 'deal',
+      entityId: input.failedDealId,
+      metadata: {
+        envelopeId: result.envelopeId,
+        sourceDealId: input.sourceDealId,
+        sourcePropertyAddress: sourceDeal.property_address,
+        directedAmount,
+        agentEmail: agent.email,
+        agentName,
+      },
+    })
+
+    return { success: true, data: { envelopeId: result.envelopeId, directedAmount } }
+  } catch (err: any) {
+    console.error('sendRemediationIdpForSignature error:', err?.message)
+    return { success: false, error: err?.message || 'Failed to send Remediation IDP' }
   }
 }
