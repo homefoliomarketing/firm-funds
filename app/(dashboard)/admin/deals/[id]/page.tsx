@@ -36,7 +36,7 @@ import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes, getEligibl
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT } from '@/lib/constants'
-import { calculateDeal, getChargeDays } from '@/lib/calculations'
+import { calculateDeal, getChargeDays, liveFailedDealInterestOwed } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
 import { Button } from '@/components/ui/button'
@@ -3129,19 +3129,32 @@ export default function DealDetailPage() {
               <h2 id="remediation-modal-title" className="text-base font-bold text-amber-300">Send Remediation Direction to Pay</h2>
             </div>
             <div className="px-6 py-5 space-y-4">
-              <div className="rounded-lg bg-muted/40 border border-border/40 p-4 space-y-1">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 font-semibold">Outstanding Balance — Failed Deal</p>
-                <p className="text-2xl font-bold tabular-nums text-amber-300">
-                  {formatCurrency((Number(deal.outstanding_balance) || 0) + (Number(deal.failed_deal_interest_charged) || 0))}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {formatCurrency(Number(deal.outstanding_balance) || 0)} principal
-                  {Number(deal.failed_deal_interest_charged) > 0
-                    ? ` + ${formatCurrency(Number(deal.failed_deal_interest_charged) || 0)} accrued interest`
-                    : ''}
-                  {' '}from {deal.property_address}
-                </p>
-              </div>
+              {(() => {
+                const principal = Number(deal.outstanding_balance) || 0
+                const liveInterest = deal.failed_to_close_at
+                  ? liveFailedDealInterestOwed(principal, deal.failed_to_close_at)
+                  : 0
+                const posted = Number(deal.failed_deal_interest_charged) || 0
+                const unposted = Math.max(0, liveInterest - posted)
+                return (
+                  <div className="rounded-lg bg-muted/40 border border-border/40 p-4 space-y-1">
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 font-semibold">Outstanding Balance — Failed Deal</p>
+                    <p className="text-2xl font-bold tabular-nums text-amber-300">
+                      {formatCurrency(principal + liveInterest)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatCurrency(principal)} principal
+                      {liveInterest > 0 ? ` + ${formatCurrency(liveInterest)} compound interest` : ''}
+                      {' '}from {deal.property_address}
+                    </p>
+                    {unposted > 0.005 && (
+                      <p className="text-[11px] text-muted-foreground/70 mt-1">
+                        Of that interest, {formatCurrency(posted)} is posted to the ledger; {formatCurrency(unposted)} is accrued but not yet posted (interest posts monthly).
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
 
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Pick a currently-funded deal whose commission will be assigned to clear this balance. The agent will receive a DocuSign envelope to sign the Remediation IDP, with the brokerage CC'd. <strong className="text-foreground">No discount, settlement fee, or referral fee applies</strong> (CPA 5.6, BCA 3.5(a)).

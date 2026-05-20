@@ -3,7 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
-import { calculateLateInterest, calculateCompoundDailyInterest } from '@/lib/calculations'
+import { calculateLateInterest, calculateCompoundDailyInterest, failedDealAccrualStartDate } from '@/lib/calculations'
 import { formatCurrency } from '@/lib/formatting'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
@@ -209,65 +209,116 @@ export async function autoChargeDailyLateInterest(): Promise<{
 }
 
 // ============================================================================
-// Auto-charge daily failed-deal interest (called by cron)
+// Failed-deal interest — pure helpers used by both the monthly poster
+// (autoChargeMonthlyFailedDealInterest) and the live-balance UI/IDP code.
 //
 // CPA Article 5.3: interest at 24% per annum accrues on the unpaid balance of
 // a failed-to-close deal "from the thirty-first (31st) day" after the demand
 // notice (the demand notice is sent when the deal is marked failed_to_close).
 // Days 1-30 = grace; day 31+ = accruing.
 //
-// Compounds daily on the unpaid balance — i.e. interest accrues on prior
-// accrued interest, not just on the original principal. Computed via the
-// closed-form principal × ((1 + dailyRate)^daysOverdue - 1) so the result is
-// idempotent regardless of how many cron runs happened.
-//
-// Mirrors autoChargeDailyLateInterest's idempotency pattern: tracks total
-// interest charged on the deal (failed_deal_interest_charged) and on each run
-// computes total interest owed from day 31 to today, charging only the delta.
-// Self-healing if a cron run is missed; safe to re-run within the same day.
-//
-// Continues accruing even after the agent elects commission_assignment (CPA
-// 5.7 explicitly says interest continues until the balance is satisfied in
-// full, regardless of cure method).
+// Math compounds daily — interest accrues on prior accrued interest, not just
+// on the principal. Posted to the ledger ONCE PER MONTH (on the first daily
+// cron run after a month boundary crosses). Between postings the live
+// liability grows daily but the ledger doesn't change.
 // ============================================================================
 
-const FAILED_DEAL_GRACE_DAYS = 30
+/** Last day of the previous calendar month (Toronto) as YYYY-MM-DD. */
+function endOfPreviousMonth(today: string): string {
+  const [y, m] = today.split('-').map(Number)
+  // First of current month minus one day = last of previous month
+  const firstOfCurrent = new Date(Date.UTC(y, m - 1, 1))
+  const lastOfPrev = new Date(firstOfCurrent.getTime() - 24 * 60 * 60 * 1000)
+  return lastOfPrev.toISOString().slice(0, 10)
+}
 
-export async function autoChargeDailyFailedDealInterest(): Promise<{
+/** Calendar month bucket for a date string, YYYY-MM. */
+function monthBucket(dateStr: string): string {
+  return dateStr.slice(0, 7)
+}
+
+/** Pretty month name + year, e.g. "April 2026". */
+function formatMonthName(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-CA', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+// ============================================================================
+// Monthly failed-deal interest poster (called by daily cron)
+//
+// The cron runs every day, but this function only POSTS to the ledger when a
+// month boundary has been crossed since the last posting on a given deal.
+// Between postings:
+//   - The agent's "live" liability still grows daily (computed via
+//     liveFailedDealInterestOwed when needed for IDP signing or UI display)
+//   - account_balance and failed_deal_interest_charged are NOT touched daily
+//
+// At month boundary (the first daily run on or after the 1st of a new month):
+//   - Compute total compound interest owed through end of LAST month
+//   - Post the delta (since the last posting) as a single agent_transactions
+//     row, type='failed_deal_interest', description tagged with the month
+//   - Update failed_deal_interest_charged + account_balance
+//
+// Idempotent: re-running the same day is a no-op (failed_deal_interest_charged
+// already at the end-of-last-month figure). Self-healing across missed runs:
+// the next run still posts whatever's owed through end-of-last-month.
+//
+// Continues posting even after the agent elects commission_assignment (CPA
+// 5.7 — interest continues until the balance is satisfied in full).
+// ============================================================================
+
+export async function autoChargeMonthlyFailedDealInterest(): Promise<{
   charged: number
   errors: number
-  details: { dealId: string; interest: number }[]
+  details: { dealId: string; interest: number; postedFor: string }[]
 }> {
   const serviceClient = createServiceRoleClient()
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 
   const { data: failedDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_charged')
+    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_charged, failed_deal_interest_calculated_at')
     .eq('status', 'failed_to_close')
     .gt('outstanding_balance', 0)
 
-  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number }[] }
+  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number; postedFor: string }[] }
   if (!failedDeals || failedDeals.length === 0) return result
+
+  const currentMonthBucket = monthBucket(today)
+  const endOfLastMonth = endOfPreviousMonth(today)
+  const lastMonthBucket = monthBucket(endOfLastMonth)
+  const lastMonthName = formatMonthName(lastMonthBucket)
 
   for (const deal of failedDeals) {
     if (!deal.failed_to_close_at) continue
 
     try {
-      // Interest accrues starting on the 31st day after failed_to_close_at.
-      // calculateCompoundDailyInterest returns 0 when today <= accrualStart
-      // (i.e. still in the grace period).
-      const failedAt = new Date(deal.failed_to_close_at as string)
-      const accrualStartMs = failedAt.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
-      const accrualStartStr = new Date(accrualStartMs).toISOString().slice(0, 10)
+      const accrualStart = failedDealAccrualStartDate(deal.failed_to_close_at as string)
+
+      // Nothing to post if the grace period hasn't ended by end-of-last-month
+      // (i.e. the failed deal is too new to have any "last month" accrual).
+      if (accrualStart > endOfLastMonth) continue
+
+      // Skip if we've already posted FOR last month (calc'd_at falls within
+      // current month → we already booked last month's interest this month).
+      const lastCalc = deal.failed_deal_interest_calculated_at as string | null
+      if (lastCalc) {
+        const lastCalcDate = new Date(lastCalc).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+        if (monthBucket(lastCalcDate) === currentMonthBucket) continue
+      }
 
       const principal = Number(deal.outstanding_balance) || 0
-      const totalInterestOwed = calculateCompoundDailyInterest(principal, accrualStartStr, today)
+      // Total compound interest owed THROUGH END OF LAST MONTH (not through today).
+      const totalInterestThroughLastMonth = calculateCompoundDailyInterest(principal, accrualStart, endOfLastMonth)
       const alreadyCharged = Number(deal.failed_deal_interest_charged) || 0
-      const interestToCharge = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
+      const interestToCharge = Math.round((totalInterestThroughLastMonth - alreadyCharged) * 100) / 100
 
-      // Nothing to charge: still in grace period, already current for today,
-      // or a prior run overshot.
+      // Nothing to charge: already at-or-above the through-last-month figure
+      // (e.g. cron run twice the same month, or a prior overshoot).
       if (interestToCharge < 0.005) continue
 
       const { data: agent } = await serviceClient
@@ -292,27 +343,28 @@ export async function autoChargeDailyFailedDealInterest(): Promise<{
           type: 'failed_deal_interest',
           amount: interestToCharge,
           running_balance: newBalance,
-          description: `Failed-deal interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(principal)})`,
+          description: `Failed-deal interest — ${lastMonthName} — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(principal)})`,
         })
 
       await serviceClient
         .from('deals')
         .update({
-          failed_deal_interest_charged: totalInterestOwed,
+          failed_deal_interest_charged: totalInterestThroughLastMonth,
           failed_deal_interest_calculated_at: new Date().toISOString(),
         })
         .eq('id', deal.id)
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: interestToCharge })
+      result.details.push({ dealId: deal.id, interest: interestToCharge, postedFor: lastMonthName })
     } catch (err) {
-      console.error(`Failed-deal interest accrual error for deal ${deal.id}:`, err)
+      console.error(`Failed-deal monthly interest post error for deal ${deal.id}:`, err)
       result.errors++
     }
   }
 
   return result
 }
+
 
 // ============================================================================
 // Deduct balance from next advance

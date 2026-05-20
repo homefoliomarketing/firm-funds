@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
 import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx, generateRemediationIdpDocx } from '@/lib/contract-docx'
+import { liveFailedDealInterestOwed } from '@/lib/calculations'
 
 type ActionResult = { success: boolean; error?: string; data?: any }
 
@@ -844,12 +845,16 @@ export async function sendRemediationIdpForSignature(input: {
       return { success: false, error: 'An active Remediation IDP already exists for this combination. Void it first to resend.' }
     }
 
-    // Directed amount = failed deal's principal + interest accrued to date.
-    // Interest will keep accruing under CPA 5.3 until the balance is cleared;
-    // any new accrual after signing flows into a successive Remediation IDP.
+    // Directed amount = failed deal's principal + LIVE compound interest
+    // owed today (not the column value, which lags by up to a month because
+    // accrual is only posted to the ledger monthly). Interest will keep
+    // accruing under CPA 5.3 until the balance is cleared; any new accrual
+    // after signing flows into a successive Remediation IDP.
     const principal = Number(failedDeal.outstanding_balance) || 0
-    const accruedInterest = Number(failedDeal.failed_deal_interest_charged) || 0
-    const directedAmount = Math.round((principal + accruedInterest) * 100) / 100
+    const liveInterest = failedDeal.failed_to_close_at
+      ? liveFailedDealInterestOwed(principal, failedDeal.failed_to_close_at as string)
+      : 0
+    const directedAmount = Math.round((principal + liveInterest) * 100) / 100
 
     if (directedAmount <= 0) {
       return { success: false, error: 'Failed deal has no outstanding balance to remediate' }

@@ -191,6 +191,36 @@ export function calculateCompoundDailyInterest(
   return roundToCents(totalBalance - principal)
 }
 
+/**
+ * Failed-deal interest accrual: days 1-30 after `failed_to_close_at` are
+ * grace (CPA 5.3); accrual begins on day 31 ("the thirty-first (31st) day").
+ */
+export const FAILED_DEAL_GRACE_DAYS = 30
+
+/** Day-31 accrual-start date (YYYY-MM-DD, Toronto) for a failed deal. */
+export function failedDealAccrualStartDate(failedToCloseAt: string): string {
+  const failedAt = new Date(failedToCloseAt)
+  const accrualStartMs = failedAt.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
+  return new Date(accrualStartMs).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+}
+
+/**
+ * Total compound interest owed RIGHT NOW on a failed deal — principal × growth
+ * from day 31 to `asOfDate`. Use this for the live liability shown in the
+ * admin Remediation IDP modal and as the directed amount on a Remediation IDP
+ * at signing time. Includes accrual that hasn't yet been posted to the ledger
+ * (interest posts monthly via the daily cron's month-boundary check).
+ */
+export function liveFailedDealInterestOwed(
+  principal: number,
+  failedToCloseAt: string,
+  asOfDate?: string,
+): number {
+  const today = asOfDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  const accrualStart = failedDealAccrualStartDate(failedToCloseAt)
+  return calculateCompoundDailyInterest(principal, accrualStart, today)
+}
+
 // Format currency for display
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', {
