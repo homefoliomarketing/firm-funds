@@ -123,6 +123,7 @@ export const STATUS_BADGE_CLASSES: Record<string, string> = {
   denied:          'bg-status-red-muted text-status-red border border-status-red-border',
   cancelled:       'bg-status-amber-muted text-status-amber border border-status-amber-border',
   failed_to_close: 'bg-status-red-muted text-status-red border border-status-red-border',
+  cured:           'bg-status-teal-muted text-status-teal border border-status-teal-border',
 }
 
 /** Helper: get Tailwind class string for a status badge */

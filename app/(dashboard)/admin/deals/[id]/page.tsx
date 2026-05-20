@@ -32,7 +32,8 @@ import {
 } from '@/lib/actions/account-actions'
 import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
-import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes, getEligibleRemediationSourceDeals, sendRemediationIdpForSignature } from '@/lib/actions/esign-actions'
+import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
+import RemediationDealsPanel from './RemediationDealsPanel'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT } from '@/lib/constants'
@@ -426,8 +427,10 @@ interface Agent {
 
 interface Brokerage {
   id: string; name: string; brand: string | null; address: string | null
+  city: string | null; province: string | null; postal_code: string | null
   phone: string | null; email: string | null; status: string
   referral_fee_percentage: number | null; transaction_system: string | null
+  broker_of_record_name: string | null; broker_of_record_email: string | null
 }
 
 const STATUS_FLOW: Record<string, string[]> = {
@@ -448,6 +451,7 @@ const STATUS_LABELS: Record<string, string> = {
   submitted: 'Submitted', under_review: 'Under Review', approved: 'Approved',
   funded: 'Funded', completed: 'Completed', denied: 'Denied', cancelled: 'Cancelled',
   failed_to_close: 'Failed to Close',
+  cured: 'Cured',
 }
 
 interface ChecklistCategory {
@@ -605,16 +609,6 @@ export default function DealDetailPage() {
   const [failedToCloseAmount, setFailedToCloseAmount] = useState('')
   const [failedToCloseReason, setFailedToCloseReason] = useState('')
   const [failedToCloseSaving, setFailedToCloseSaving] = useState(false)
-  // Remediation IDP — send to agent + brokerage to satisfy outstanding balance
-  // from a future commission (CPA 5.5(b), BCA 3.5)
-  const [showRemediationModal, setShowRemediationModal] = useState(false)
-  const [remediationLoading, setRemediationLoading] = useState(false)
-  const [remediationSaving, setRemediationSaving] = useState(false)
-  const [remediationError, setRemediationError] = useState<string | null>(null)
-  const [remediationSourceDeals, setRemediationSourceDeals] = useState<{
-    id: string; property_address: string; advance_amount: number; net_commission: number; closing_date: string; funding_date: string | null
-  }[]>([])
-  const [selectedRemediationSourceId, setSelectedRemediationSourceId] = useState<string | null>(null)
   // Drag-and-drop
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null)
@@ -937,47 +931,6 @@ export default function DealDetailPage() {
     setFailedToCloseSaving(false)
   }
 
-  const openRemediationModal = async () => {
-    if (!deal) return
-    setRemediationError(null)
-    setSelectedRemediationSourceId(null)
-    setShowRemediationModal(true)
-    setRemediationLoading(true)
-    const result = await getEligibleRemediationSourceDeals(deal.id)
-    if (result.success) {
-      setRemediationSourceDeals(result.data || [])
-      if (!result.data || result.data.length === 0) {
-        setRemediationError('No eligible funded deals to assign. The agent needs a currently-funded deal that does not already have a Remediation IDP pending.')
-      }
-    } else {
-      setRemediationError(result.error || 'Failed to load eligible deals')
-      setRemediationSourceDeals([])
-    }
-    setRemediationLoading(false)
-  }
-
-  const handleSendRemediationIdp = async () => {
-    if (!deal || !selectedRemediationSourceId) return
-    setRemediationSaving(true)
-    setRemediationError(null)
-    const result = await sendRemediationIdpForSignature({
-      failedDealId: deal.id,
-      sourceDealId: selectedRemediationSourceId,
-    })
-    if (result.success) {
-      const directed = result.data?.directedAmount
-      setStatusMessage({
-        type: 'success',
-        text: `Remediation IDP sent for ${formatCurrency(directed || 0)}. Agent and brokerage will receive DocuSign emails shortly.`,
-      })
-      setShowRemediationModal(false)
-      setSelectedRemediationSourceId(null)
-      await loadDealData()
-    } else {
-      setRemediationError(result.error || 'Failed to send Remediation IDP')
-    }
-    setRemediationSaving(false)
-  }
 
   const handleSendForSignature = async () => {
     if (!deal) return
@@ -1382,17 +1335,6 @@ export default function DealDetailPage() {
                 </button>
               )}
 
-              {/* Send Remediation IDP — only for failed deals where agent elected commission assignment */}
-              {deal.status === 'failed_to_close' && deal.cure_election === 'commission_assignment' && (
-                <button
-                  onClick={openRemediationModal}
-                  disabled={updating}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-amber-950/40 text-amber-300 border border-amber-800/50 hover:bg-amber-950/60"
-                >
-                  <FileSignature className="w-4 h-4" />
-                  Send Remediation IDP
-                </button>
-              )}
 
               {/* E-Signature Button */}
               {deal.status === 'approved' && (() => {
@@ -1684,6 +1626,31 @@ export default function DealDetailPage() {
             </div>
           )}
         </div>
+
+        {/* REMEDIATION DEALS — only for failed_to_close / cured deals */}
+        {(deal.status === 'failed_to_close' || deal.status === 'cured') && (() => {
+          const principal = Number(deal.outstanding_balance) || 0
+          const liveInterest = deal.failed_to_close_at
+            ? liveFailedDealInterestOwed(principal, deal.failed_to_close_at)
+            : 0
+          const liveBalanceOwed = Math.round((principal + liveInterest) * 100) / 100
+          const brokerageDefaults = brokerage ? {
+            brokerageId: brokerage.id,
+            brokerageName: brokerage.name || '',
+            brokerageAddress: [brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', '),
+            brokerOfRecordName: brokerage.broker_of_record_name || '',
+            brokerOfRecordEmail: brokerage.broker_of_record_email || '',
+          } : null
+          return (
+            <RemediationDealsPanel
+              failedDealId={deal.id}
+              liveBalanceOwed={liveBalanceOwed}
+              brokerageDefaults={brokerageDefaults}
+              onCured={loadDealData}
+              onChange={loadDealData}
+            />
+          )
+        })()}
 
         {/* EFT SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
@@ -3111,133 +3078,6 @@ export default function DealDetailPage() {
         </div>
       )}
 
-      {/* Send Remediation IDP — Modal */}
-      {showRemediationModal && deal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => !remediationSaving && setShowRemediationModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="remediation-modal-title"
-        >
-          <div
-            className="w-full max-w-2xl rounded-2xl bg-card border border-amber-800/50 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
-              <FileSignature className="w-5 h-5 text-amber-400" />
-              <h2 id="remediation-modal-title" className="text-base font-bold text-amber-300">Send Remediation Direction to Pay</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              {(() => {
-                const principal = Number(deal.outstanding_balance) || 0
-                const liveInterest = deal.failed_to_close_at
-                  ? liveFailedDealInterestOwed(principal, deal.failed_to_close_at)
-                  : 0
-                const posted = Number(deal.failed_deal_interest_charged) || 0
-                const unposted = Math.max(0, liveInterest - posted)
-                return (
-                  <div className="rounded-lg bg-muted/40 border border-border/40 p-4 space-y-1">
-                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 font-semibold">Outstanding Balance — Failed Deal</p>
-                    <p className="text-2xl font-bold tabular-nums text-amber-300">
-                      {formatCurrency(principal + liveInterest)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatCurrency(principal)} principal
-                      {liveInterest > 0 ? ` + ${formatCurrency(liveInterest)} compound interest` : ''}
-                      {' '}from {deal.property_address}
-                    </p>
-                    {unposted > 0.005 && (
-                      <p className="text-[11px] text-muted-foreground/70 mt-1">
-                        Of that interest, {formatCurrency(posted)} is posted to the ledger; {formatCurrency(unposted)} is accrued but not yet posted (interest posts monthly).
-                      </p>
-                    )}
-                  </div>
-                )
-              })()}
-
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Pick a currently-funded deal whose commission will be assigned to clear this balance. The agent will receive a DocuSign envelope to sign the Remediation IDP, with the brokerage CC'd. <strong className="text-foreground">No discount, settlement fee, or referral fee applies</strong> (CPA 5.6, BCA 3.5(a)).
-              </p>
-
-              {remediationLoading ? (
-                <div className="rounded-lg bg-muted/40 border border-border/40 p-6 text-center">
-                  <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground mb-2" />
-                  <p className="text-xs text-muted-foreground">Loading eligible deals...</p>
-                </div>
-              ) : remediationSourceDeals.length === 0 ? (
-                <div className="rounded-lg bg-muted/40 border border-border/40 p-4">
-                  <p className="text-sm text-muted-foreground">
-                    {remediationError || 'No eligible funded deals to assign.'}
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                    Source Deal — Commission to Assign
-                  </label>
-                  <div className="space-y-2 max-h-72 overflow-y-auto">
-                    {remediationSourceDeals.map(srcDeal => {
-                      const selected = selectedRemediationSourceId === srcDeal.id
-                      return (
-                        <button
-                          key={srcDeal.id}
-                          type="button"
-                          onClick={() => setSelectedRemediationSourceId(srcDeal.id)}
-                          disabled={remediationSaving}
-                          className={`w-full text-left rounded-lg border transition-all p-3 ${
-                            selected
-                              ? 'border-amber-500/60 bg-amber-500/10 ring-2 ring-amber-500/30'
-                              : 'border-border/40 bg-muted/30 hover:border-border'
-                          }`}
-                          aria-pressed={selected}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-foreground truncate">{srcDeal.property_address}</p>
-                              <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Closing {formatDate(srcDeal.closing_date)}
-                                {srcDeal.funding_date && ` · Funded ${formatDate(srcDeal.funding_date)}`}
-                              </p>
-                            </div>
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Net Commission</p>
-                              <p className="text-sm font-bold tabular-nums text-foreground">{formatCurrency(srcDeal.net_commission)}</p>
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {remediationError && remediationSourceDeals.length > 0 && (
-                <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                  <p className="text-xs text-destructive">{remediationError}</p>
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowRemediationModal(false)}
-                disabled={remediationSaving}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSendRemediationIdp}
-                disabled={remediationSaving || !selectedRemediationSourceId || remediationSourceDeals.length === 0}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-amber-600 hover:bg-amber-600/90 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {remediationSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                {remediationSaving ? 'Sending...' : 'Send Remediation IDP'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   )
