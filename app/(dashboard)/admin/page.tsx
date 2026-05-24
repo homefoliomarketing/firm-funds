@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
-  CreditCard, Eye, EyeOff, Loader2, ClipboardList
+  CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset
 } from 'lucide-react'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
+import { getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
-import { formatCurrency } from '@/lib/formatting'
+import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -45,6 +46,7 @@ export default function AdminDashboard() {
     dealsWithUnreadMessages: [],
   })
   const [allDeals, setAllDeals] = useState<any[]>([])
+  const [overdueSettlements, setOverdueSettlements] = useState<any[]>([])
   const [pendingBankingAgents, setPendingBankingAgents] = useState<any[]>([])
   const [pendingKycAgents, setPendingKycAgents] = useState<any[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -122,6 +124,11 @@ export default function AdminDashboard() {
         dealsWithUnreadMessages: dealsWithUnread,
       })
       setAllDeals(allDealsList)
+
+      // Settlement-overdue deals (funded, past due_date, no strike yet)
+      const overdueResult = await getOverdueSettlementDeals()
+      if (overdueResult.success) setOverdueSettlements(overdueResult.data as any[] || [])
+
       setLoading(false)
     }
     loadDashboard()
@@ -488,6 +495,50 @@ export default function AdminDashboard() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Late Settlement Alerts — deals past their Payment Due Date that
+            still need a human strike-or-skip decision */}
+        {overdueSettlements.length > 0 && (
+          <section aria-label="Late settlements" className="mb-6">
+            <Card className="border-amber-500/40 bg-amber-500/5">
+              <CardHeader className="py-3 px-4 bg-amber-500/5 border-b border-amber-500/20">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-400">
+                  <TimerReset size={16} />
+                  {overdueSettlements.length} brokerage settlement{overdueSettlements.length === 1 ? '' : 's'} past due — review for strike
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 divide-y divide-border/50">
+                {overdueSettlements.map((d: any) => (
+                  <div key={d.deal_id} className="px-4 py-3 flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {d.property_address}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {d.agent_name ? `${d.agent_name} · ` : ''}
+                        {d.brokerage_name || 'Brokerage on file'}
+                      </p>
+                      <p className="text-[11px] text-amber-300/80 mt-1">
+                        Due {d.due_date ? formatDate(d.due_date) : '—'}
+                        <span className="text-muted-foreground/70"> · {d.days_overdue} day{d.days_overdue === 1 ? '' : 's'} overdue</span>
+                        <span className="text-muted-foreground/70"> · Outstanding {formatCurrency(d.outstanding)} of {formatCurrency(d.amount_due)}</span>
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => router.push(`/admin/deals/${d.deal_id}`)}
+                      className="text-xs gap-1.5 border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                    >
+                      Review deal
+                      <ChevronRight size={12} />
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* Attention Alerts */}
         {totalAlerts > 0 && (

@@ -14,72 +14,181 @@ import {
 } from '@/lib/validations'
 import {
   BROKERAGE_LATE_STRIKE_THRESHOLD,
-  SETTLEMENT_PERIOD_DAYS,
 } from '@/lib/constants'
 
 // ============================================================================
-// Helper: record a "late settlement" strike on a brokerage when a deal is
-// fully paid past the settlement window. Idempotent per deal — if
-// deals.late_strike_recorded is already true, this is a no-op.
+// Admin: manually record a Late Settlement Strike against a brokerage for a
+// specific deal. Idempotent per deal — once a deal has late_strike_recorded
+// set, this is a no-op. Auto-bumps the brokerage to 14-day settlement on the
+// strike that brings them to BROKERAGE_LATE_STRIKE_THRESHOLD (5). Admin can
+// undo via resetBrokerageLateStrikes() if needed.
 //
-// Auto-bumps the brokerage to 14-day settlement once strike count reaches
-// BROKERAGE_LATE_STRIKE_THRESHOLD (5). Admin can manually reset.
+// Recorded manually (not on payment-record) because in-transit wires can
+// settle late through no fault of the brokerage; admin is the human judge.
 // ============================================================================
-async function maybeRecordLateStrike(
-  serviceClient: ReturnType<typeof createServiceRoleClient>,
-  dealId: string,
-  latestPaymentDate: string, // YYYY-MM-DD
-): Promise<{ struck: boolean; bumped: boolean }> {
-  const { data: deal } = await serviceClient
-    .from('deals')
-    .select('id, brokerage_id, closing_date, settlement_days_at_funding, amount_due_from_brokerage, brokerage_payments, late_strike_recorded')
-    .eq('id', dealId)
-    .single()
 
-  if (!deal || deal.late_strike_recorded) return { struck: false, bumped: false }
-  if (!deal.closing_date || !deal.brokerage_id) return { struck: false, bumped: false }
+export async function recordLateStrike(input: {
+  dealId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
-  const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
-  const dueDate = new Date(deal.closing_date + 'T00:00:00Z')
-  dueDate.setUTCDate(dueDate.getUTCDate() + settlementDays)
-  const dueDateStr = dueDate.toISOString().slice(0, 10)
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
 
-  // Only count a strike if the deal is fully paid AND that happened past the window
-  const amountDue = Number(deal.amount_due_from_brokerage) || 0
-  const payments = (deal.brokerage_payments as any[]) || []
-  const confirmedTotal = payments
-    .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-    .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0)
+  const serviceClient = createServiceRoleClient()
 
-  if (amountDue <= 0 || confirmedTotal + 0.005 < amountDue) return { struck: false, bumped: false }
-  if (latestPaymentDate <= dueDateStr) return { struck: false, bumped: false }
+  try {
+    const { data: deal, error: dealErr } = await serviceClient
+      .from('deals')
+      .select('id, brokerage_id, status, closing_date, settlement_days_at_funding, due_date, property_address, late_strike_recorded')
+      .eq('id', input.dealId)
+      .single()
 
-  // It's late — record the strike
-  await serviceClient
-    .from('deals')
-    .update({ late_strike_recorded: true })
-    .eq('id', dealId)
+    if (dealErr || !deal) return { success: false, error: 'Deal not found' }
+    if (deal.late_strike_recorded) return { success: false, error: 'A strike has already been recorded for this deal' }
+    if (deal.status !== 'funded' && deal.status !== 'completed') {
+      return { success: false, error: 'Strikes can only be recorded against funded or completed deals' }
+    }
+    if (!deal.brokerage_id || !deal.due_date) {
+      return { success: false, error: 'Deal is missing required brokerage or due-date info' }
+    }
 
-  const { data: brokerage } = await serviceClient
-    .from('brokerages')
-    .select('id, late_strike_count, auto_bumped_to_14_days_at')
-    .eq('id', deal.brokerage_id)
-    .single()
+    // Sanity: only allow strike if the deal is actually past its due_date
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+    const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as any).toISOString().slice(0, 10)
+    if (today <= dueDateStr) {
+      return { success: false, error: 'Deal is not yet past its Payment Due Date' }
+    }
 
-  if (!brokerage) return { struck: true, bumped: false }
+    await serviceClient
+      .from('deals')
+      .update({ late_strike_recorded: true })
+      .eq('id', deal.id)
 
-  const newCount = (brokerage.late_strike_count || 0) + 1
-  const shouldBump = newCount >= BROKERAGE_LATE_STRIKE_THRESHOLD && !brokerage.auto_bumped_to_14_days_at
+    const { data: brokerage } = await serviceClient
+      .from('brokerages')
+      .select('id, name, late_strike_count, auto_bumped_to_14_days_at')
+      .eq('id', deal.brokerage_id)
+      .single()
 
-  const brokeragePatch: Record<string, any> = { late_strike_count: newCount }
-  if (shouldBump) brokeragePatch.auto_bumped_to_14_days_at = new Date().toISOString()
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
 
-  await serviceClient
-    .from('brokerages')
-    .update(brokeragePatch)
-    .eq('id', brokerage.id)
+    const newCount = (brokerage.late_strike_count || 0) + 1
+    const shouldBump = newCount >= BROKERAGE_LATE_STRIKE_THRESHOLD && !brokerage.auto_bumped_to_14_days_at
 
-  return { struck: true, bumped: shouldBump }
+    const brokeragePatch: Record<string, any> = { late_strike_count: newCount }
+    if (shouldBump) brokeragePatch.auto_bumped_to_14_days_at = new Date().toISOString()
+
+    await serviceClient
+      .from('brokerages')
+      .update(brokeragePatch)
+      .eq('id', brokerage.id)
+
+    await logAuditEvent({
+      action: 'brokerage.late_strike_recorded',
+      entityType: 'deal',
+      entityId: deal.id,
+      severity: 'warning',
+      metadata: {
+        brokerage_id: brokerage.id,
+        brokerage_name: brokerage.name,
+        property_address: deal.property_address,
+        due_date: dueDateStr,
+        reason: reason.slice(0, 500),
+        new_strike_count: newCount,
+        auto_bumped: shouldBump,
+        threshold: BROKERAGE_LATE_STRIKE_THRESHOLD,
+      },
+    })
+
+    if (shouldBump) {
+      await logAuditEvent({
+        action: 'brokerage.auto_bumped_to_14_days',
+        entityType: 'brokerage',
+        entityId: brokerage.id,
+        severity: 'warning',
+        metadata: { trigger_deal_id: deal.id, threshold: BROKERAGE_LATE_STRIKE_THRESHOLD },
+      })
+    }
+
+    return { success: true, data: { newStrikeCount: newCount, bumped: shouldBump } }
+  } catch (err: any) {
+    console.error('recordLateStrike error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Admin: list funded deals that are past their Payment Due Date and have not
+// yet had a Late Settlement Strike recorded. Drives the dashboard banner so
+// the admin knows which deals need a strike-or-no-strike judgement call.
+// ============================================================================
+
+export async function getOverdueSettlementDeals(): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+
+  try {
+    const { data, error } = await serviceClient
+      .from('deals')
+      .select(`
+        id,
+        property_address,
+        closing_date,
+        due_date,
+        amount_due_from_brokerage,
+        brokerage_payments,
+        settlement_days_at_funding,
+        agents:agent_id ( first_name, last_name ),
+        brokerages:brokerage_id ( id, name )
+      `)
+      .eq('status', 'funded')
+      .eq('late_strike_recorded', false)
+      .lt('due_date', today)
+      .order('due_date', { ascending: true })
+
+    if (error) {
+      console.error('getOverdueSettlementDeals error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    const rows = (data || []).map((d: any) => {
+      const amountDue = Number(d.amount_due_from_brokerage) || 0
+      const payments = (d.brokerage_payments as any[]) || []
+      const confirmedTotal = payments
+        .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
+        .reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+      const outstanding = Math.max(0, Math.round((amountDue - confirmedTotal) * 100) / 100)
+      const dueDateStr = d.due_date ? (d.due_date as string).slice(0, 10) : null
+      const daysOverdue = dueDateStr
+        ? Math.floor((new Date(today + 'T00:00:00Z').getTime() - new Date(dueDateStr + 'T00:00:00Z').getTime()) / 86400000)
+        : 0
+      return {
+        deal_id: d.id,
+        property_address: d.property_address,
+        closing_date: d.closing_date,
+        due_date: dueDateStr,
+        days_overdue: daysOverdue,
+        amount_due: amountDue,
+        confirmed_total: confirmedTotal,
+        outstanding,
+        settlement_days: d.settlement_days_at_funding,
+        agent_name: d.agents ? `${d.agents.first_name || ''} ${d.agents.last_name || ''}`.trim() : null,
+        brokerage_id: d.brokerages?.id || null,
+        brokerage_name: d.brokerages?.name || null,
+      }
+    })
+
+    return { success: true, data: rows }
+  } catch (err: any) {
+    console.error('getOverdueSettlementDeals error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
 }
 
 // ============================================================================
@@ -1793,8 +1902,9 @@ export async function recordBrokeragePayment(input: {
       return { success: false, error: `Failed to record payment: ${updateError.message}` }
     }
 
-    // Record a late strike if this payment fully clears the deal past the settlement window
-    const strikeResult = await maybeRecordLateStrike(supabase, input.dealId, input.date)
+    // NOTE: Late settlement strikes are NOT auto-recorded here. Admin reviews
+    // each overdue deal manually and records a strike via recordLateStrike()
+    // if appropriate (e.g., to allow for in-transit wires admin hasn't logged yet).
 
     await logAuditEvent({
       action: 'brokerage_payment.record',
@@ -1805,20 +1915,8 @@ export async function recordBrokeragePayment(input: {
         date: input.date,
         new_total: newTotal,
         expected: deal.amount_due_from_brokerage,
-        late_strike_recorded: strikeResult.struck,
-        brokerage_auto_bumped: strikeResult.bumped,
       },
     })
-
-    if (strikeResult.bumped) {
-      await logAuditEvent({
-        action: 'brokerage.auto_bumped_to_14_days',
-        entityType: 'brokerage',
-        entityId: deal.brokerage_id || input.dealId,
-        severity: 'warning',
-        metadata: { trigger_deal_id: input.dealId, threshold: BROKERAGE_LATE_STRIKE_THRESHOLD },
-      })
-    }
 
     return { success: true, data: updatedDeal }
   } catch (err: any) {
@@ -1959,12 +2057,6 @@ async function reviewBrokeragePaymentClaim(
     return { success: false, error: 'Failed to update payment claim' }
   }
 
-  // If this confirmation tips the deal over the amount due, run the strike check
-  let strikeResult: { struck: boolean; bumped: boolean } = { struck: false, bumped: false }
-  if (decision === 'confirmed') {
-    strikeResult = await maybeRecordLateStrike(supabase, dealId, claim.date)
-  }
-
   await logAuditEvent({
     action: decision === 'confirmed' ? 'brokerage_payment.claim_confirmed' : 'brokerage_payment.claim_rejected',
     entityType: 'deal',
@@ -1974,23 +2066,8 @@ async function reviewBrokeragePaymentClaim(
       claim: payments[paymentIndex],
       new_total: newTotal,
       ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
-      ...(strikeResult.struck ? { late_strike_recorded: true } : {}),
-      ...(strikeResult.bumped ? { brokerage_auto_bumped: true } : {}),
     },
   })
-
-  if (strikeResult.bumped) {
-    const { data: dealForBrokerage } = await supabase.from('deals').select('brokerage_id').eq('id', dealId).single()
-    if (dealForBrokerage?.brokerage_id) {
-      await logAuditEvent({
-        action: 'brokerage.auto_bumped_to_14_days',
-        entityType: 'brokerage',
-        entityId: dealForBrokerage.brokerage_id,
-        severity: 'warning',
-        metadata: { trigger_deal_id: dealId, threshold: BROKERAGE_LATE_STRIKE_THRESHOLD },
-      })
-    }
-  }
 
   return { success: true, data: updatedDeal }
 }

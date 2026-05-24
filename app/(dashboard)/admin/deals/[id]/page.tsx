@@ -31,12 +31,12 @@ import {
   chargeLatePaymentInterest,
 } from '@/lib/actions/account-actions'
 import { dismissDealMessages } from '@/lib/actions/notification-actions'
-import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
+import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment, recordLateStrike } from '@/lib/actions/admin-actions'
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
 import RemediationDealsPanel from './RemediationDealsPanel'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING } from '@/lib/constants'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
 import { calculateDeal, getChargeDays, liveFailedDealInterestOwed } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
@@ -605,6 +605,11 @@ export default function DealDetailPage() {
   // Unread = last message from agent AND not yet dismissed locally
   const hasUnreadMessages = !messagesDismissed && messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin'
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
+  // Late settlement strike state
+  const [showStrikeForm, setShowStrikeForm] = useState(false)
+  const [strikeReason, setStrikeReason] = useState('')
+  const [strikeSubmitting, setStrikeSubmitting] = useState(false)
+  const [strikeError, setStrikeError] = useState<string | null>(null)
   // Failed-to-close cure election modal
   const [showFailedToCloseModal, setShowFailedToCloseModal] = useState(false)
   const [failedToCloseType, setFailedToCloseType] = useState<'non_closing' | 'commission_deficiency'>('non_closing')
@@ -2893,6 +2898,83 @@ export default function DealDetailPage() {
             )}
           </div>
         )}
+
+        {/* LATE SETTLEMENT STRIKE */}
+        {deal && ['funded', 'completed'].includes(deal.status) && deal.due_date && (() => {
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+          const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as any).toISOString().slice(0, 10)
+          const isPastDue = todayStr > dueDateStr
+          if (!isPastDue && !deal.late_strike_recorded) return null
+          return (
+            <div className="rounded-xl mb-3 overflow-hidden bg-card border border-border/50 ff-card-elevated">
+              <div className="px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-500/5 border-b border-amber-500/10">
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Late Settlement Strike
+                  {deal.late_strike_recorded && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950/30 text-destructive">
+                      Recorded
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Brokerage settlement was due {formatDate(dueDateStr)} ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}-day window). Recording a strike contributes toward the brokerage's auto-bump to a {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day window after {BROKERAGE_LATE_STRIKE_THRESHOLD} total strikes. Only record when you've confirmed the brokerage actually paid late (or hasn't paid).
+                </p>
+                {deal.late_strike_recorded ? (
+                  <p className="text-[11px] text-amber-300/80">
+                    A strike has already been recorded for this deal. To undo, reset the brokerage's strikes from /admin/brokerages.
+                  </p>
+                ) : !showStrikeForm ? (
+                  <button
+                    onClick={() => { setShowStrikeForm(true); setStrikeReason(''); setStrikeError(null) }}
+                    className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+                  >
+                    Record Late Strike
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Reason (required, audit-logged)</label>
+                    <input
+                      type="text"
+                      value={strikeReason}
+                      onChange={(e) => setStrikeReason(e.target.value)}
+                      placeholder="e.g. Brokerage confirmed payment will be 5 days late"
+                      className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                    />
+                    {strikeError && <p className="text-[11px] text-destructive">{strikeError}</p>}
+                    <div className="flex items-center gap-2">
+                      <button
+                        disabled={strikeSubmitting || !strikeReason.trim()}
+                        onClick={async () => {
+                          setStrikeSubmitting(true); setStrikeError(null)
+                          const res = await recordLateStrike({ dealId: deal.id, reason: strikeReason.trim() })
+                          if (res.success) {
+                            setDeal(prev => prev ? { ...prev, late_strike_recorded: true } : prev)
+                            setShowStrikeForm(false); setStrikeReason('')
+                          } else {
+                            setStrikeError(res.error || 'Failed to record strike')
+                          }
+                          setStrikeSubmitting(false)
+                        }}
+                        className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                      >
+                        {strikeSubmitting ? 'Recording…' : 'Confirm strike'}
+                      </button>
+                      <button
+                        onClick={() => { setShowStrikeForm(false); setStrikeReason(''); setStrikeError(null) }}
+                        className="px-3 py-1.5 rounded text-xs text-muted-foreground bg-muted hover:bg-muted/70 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ADMIN NOTES */}
         <div className="rounded-xl overflow-hidden mb-3 bg-card border border-border/50 ff-card-elevated">
