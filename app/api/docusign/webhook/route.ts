@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getValidAccessToken } from '@/lib/docusign'
 
@@ -6,10 +7,67 @@ import { getValidAccessToken } from '@/lib/docusign'
 // URL: https://firmfunds.ca/api/docusign/webhook
 // Data Format: REST v2.1 (JSON)
 // Event Delivery Mode: Aggregate
+// HMAC Security: REQUIRED in DocuSign Connect Configuration. The secret is
+// stored as DOCUSIGN_HMAC_SECRET in Netlify env. The webhook fails closed
+// (returns 401) if the env var is missing or the signature doesn't match.
+
+/**
+ * Redact an envelope ID for logging — show first/last 4 chars only.
+ * Envelope IDs are the secret an attacker needs to spoof completion events;
+ * the unredacted ID appearing in Netlify function logs is itself a leak.
+ */
+function redactEnvelopeId(id: string | null | undefined): string {
+  if (!id) return '<none>'
+  if (id.length <= 8) return '****'
+  return `${id.slice(0, 4)}...${id.slice(-4)}`
+}
+
+/**
+ * Verify the DocuSign Connect HMAC signature on a webhook payload. DocuSign
+ * computes base64(HMAC-SHA256(secret, rawBody)) and sends it in the
+ * X-DocuSign-Signature-1 header. Returns false if env is unset, header is
+ * missing, or signature does not match. Constant-time comparison.
+ *
+ * Dev escape hatch: if DOCUSIGN_HMAC_DEV_BYPASS=1, verification is skipped.
+ * Never set this in production.
+ */
+function verifyDocusignSignature(rawBody: string, headerSig: string | null): boolean {
+  if (process.env.DOCUSIGN_HMAC_DEV_BYPASS === '1') {
+    console.warn('DocuSign webhook: HMAC verification BYPASSED via DOCUSIGN_HMAC_DEV_BYPASS — never enable in production')
+    return true
+  }
+  const secret = process.env.DOCUSIGN_HMAC_SECRET
+  if (!secret) {
+    console.error('DocuSign webhook: DOCUSIGN_HMAC_SECRET not configured — rejecting all webhooks (fail closed)')
+    return false
+  }
+  if (!headerSig) {
+    return false
+  }
+  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
+  const expectedBuf = Buffer.from(expected, 'utf8')
+  const actualBuf = Buffer.from(headerSig, 'utf8')
+  if (expectedBuf.length !== actualBuf.length) return false
+  return timingSafeEqual(expectedBuf, actualBuf)
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.text()
+
+    // HMAC verification (Finding 1). Previously the webhook trusted any
+    // POST that contained a recognizable envelope_id, letting an attacker
+    // with a leaked envelope ID flip deals to "signed" and fast-track them
+    // to funding.
+    const headerSig =
+      request.headers.get('x-docusign-signature-1') ||
+      request.headers.get('X-DocuSign-Signature-1') ||
+      null
+    if (!verifyDocusignSignature(body, headerSig)) {
+      console.error('DocuSign webhook: HMAC verification failed — rejecting')
+      return new Response('Unauthorized', { status: 401 })
+    }
+
     let payload: any
 
     // DocuSign sends JSON when configured for REST v2.1
@@ -46,7 +104,7 @@ export async function POST(request: Request) {
       return new Response('OK', { status: 200 })
     }
 
-    console.log(`DocuSign webhook: envelope ${envelopeId} status: ${envelopeStatus}`)
+    console.log(`DocuSign webhook: envelope ${redactEnvelopeId(envelopeId)} status: ${envelopeStatus}`)
 
     const supabase = createServiceRoleClient()
 
@@ -57,7 +115,7 @@ export async function POST(request: Request) {
       .eq('envelope_id', envelopeId)
 
     if (fetchErr || !envelopes || envelopes.length === 0) {
-      console.error('DocuSign webhook: envelope not found in DB:', envelopeId)
+      console.error('DocuSign webhook: envelope not found in DB:', redactEnvelopeId(envelopeId))
       return new Response('OK', { status: 200 })
     }
 
