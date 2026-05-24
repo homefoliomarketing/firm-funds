@@ -113,7 +113,11 @@ export default function BrokerageDashboard() {
       if (profileData?.brokerage_id) {
         const { data: brokerageData } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', profileData.brokerage_id).single()
         setBrokerage(brokerageData)
-        const { data: dealData } = await supabase.from('deals').select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage)').eq('brokerage_id', profileData.brokerage_id).order('created_at', { ascending: false })
+        const { data: dealData } = await supabase
+          .from('deals')
+          .select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
+          .eq('brokerage_id', profileData.brokerage_id)
+          .order('created_at', { ascending: false })
         setDeals(dealData || [])
         if (dealData && dealData.length > 0) {
           const dealIds = dealData.map((d: any) => d.id)
@@ -1478,10 +1482,10 @@ export default function BrokerageDashboard() {
                             )}
                             {payments.length > 0 && (
                               <div className="mt-3 pt-2 border-t border-border/30">
-                                {payments.filter((p: any) => p.status !== 'rejected').map((p: any, idx: number) => {
+                                {payments.filter((p: any) => p.status !== 'rejected').map((p: any) => {
                                   const pending = isPending(p)
                                   return (
-                                    <div key={idx} className="flex justify-between items-center text-xs py-1">
+                                    <div key={p.id} className="flex justify-between items-center text-xs py-1">
                                       <div className="flex items-center gap-2 min-w-0">
                                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${pending ? 'bg-amber-400' : 'bg-green-400'}`} />
                                         <span className="text-foreground/80 flex-shrink-0">{formatDate(p.date)}</span>

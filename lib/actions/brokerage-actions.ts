@@ -6,30 +6,12 @@ import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification, sendPaymentClaimSubmittedNotification } from '@/lib/email'
 import { CreateAgentSchema } from '@/lib/validations'
+import { insertPayment } from '@/lib/brokerage-payments'
 
 interface ActionResult {
   success: boolean
   error?: string
   data?: Record<string, any>
-}
-
-// Brokerage payment-claim entry. Backwards compatible with legacy entries
-// recorded by an admin (no status field) — those are treated as 'confirmed'.
-// NOTE: not exported because 'use server' files can only export async functions.
-// Consumer components define their own structural type matching this shape.
-interface BrokeragePaymentEntry {
-  amount: number
-  date: string
-  reference?: string
-  method?: string
-  notes?: string
-  status?: 'pending' | 'confirmed' | 'rejected'
-  submitted_by_role?: 'admin' | 'brokerage_admin'
-  submitted_by_user_id?: string
-  submitted_at?: string
-  reviewed_by_user_id?: string
-  reviewed_at?: string
-  rejection_reason?: string
 }
 
 function generateTempPassword(): string {
@@ -380,7 +362,7 @@ export async function submitBrokeragePaymentClaim(input: {
   // Verify the deal exists, is owned by this brokerage, and is in a payable state
   const { data: deal, error: dealError } = await serviceClient
     .from('deals')
-    .select('id, brokerage_id, agent_id, status, property_address, amount_due_from_brokerage, brokerage_payments')
+    .select('id, brokerage_id, agent_id, status, property_address, amount_due_from_brokerage, brokerage_payments(status)')
     .eq('id', input.dealId)
     .single()
 
@@ -392,34 +374,37 @@ export async function submitBrokeragePaymentClaim(input: {
     return { success: false, error: 'Payments can only be recorded on funded or completed deals' }
   }
 
-  const existingPayments: BrokeragePaymentEntry[] = deal.brokerage_payments || []
-
   // Block runaway duplicates: more than 3 outstanding pending claims is suspicious
-  const existingPending = existingPayments.filter(p => p.status === 'pending').length
+  const existingPending = ((deal.brokerage_payments as { status: string }[]) || [])
+    .filter((p) => p.status === 'pending').length
   if (existingPending >= 3) {
     return { success: false, error: 'There are already 3 pending payment claims on this deal. Please wait for confirmation before submitting more.' }
   }
 
-  const newEntry: BrokeragePaymentEntry = {
-    amount: Math.round(input.amount * 100) / 100,
-    date: input.date,
-    ...(input.reference ? { reference: input.reference.slice(0, 200) } : {}),
-    ...(input.method ? { method: input.method } : {}),
-    ...(input.notes ? { notes: input.notes.slice(0, 1000) } : {}),
-    status: 'pending',
-    submitted_by_role: 'brokerage_admin',
-    submitted_by_user_id: user.id,
-    submitted_at: new Date().toISOString(),
-  }
-  const updatedPayments = [...existingPayments, newEntry]
+  const amount = Math.round(input.amount * 100) / 100
+  const reference = input.reference ? input.reference.slice(0, 200) : null
+  const notes = input.notes ? input.notes.slice(0, 1000) : null
+  const method = input.method || null
 
-  const { error: updateError } = await serviceClient
-    .from('deals')
-    .update({ brokerage_payments: updatedPayments })
-    .eq('id', input.dealId)
-
-  if (updateError) {
-    console.error('Payment claim insert error:', updateError.message)
+  let newEntry
+  try {
+    newEntry = await insertPayment(
+      {
+        dealId: input.dealId,
+        brokerageId: profile.brokerage_id,
+        amount,
+        paymentDate: input.date,
+        reference,
+        method,
+        notes,
+        status: 'pending',
+        submittedByRole: 'brokerage_admin',
+        submittedByUserId: user.id,
+      },
+      serviceClient,
+    )
+  } catch (err: any) {
+    console.error('Payment claim insert error:', err?.message)
     return { success: false, error: 'Failed to record payment claim' }
   }
 
@@ -428,8 +413,9 @@ export async function submitBrokeragePaymentClaim(input: {
     entityType: 'deal',
     entityId: input.dealId,
     metadata: {
+      payment_id: newEntry.id,
       amount: newEntry.amount,
-      date: newEntry.date,
+      date: newEntry.payment_date,
       method: newEntry.method,
       reference: newEntry.reference,
       submitted_by_user_id: user.id,
@@ -458,15 +444,15 @@ export async function submitBrokeragePaymentClaim(input: {
       brokerageName: brokerageData?.name || 'A brokerage',
       agentName: agentData ? `${agentData.first_name} ${agentData.last_name}` : 'Agent',
       amount: newEntry.amount,
-      paymentDate: newEntry.date,
-      method: newEntry.method,
-      reference: newEntry.reference,
+      paymentDate: newEntry.payment_date,
+      method: newEntry.method || undefined,
+      reference: newEntry.reference || undefined,
     })
   } catch (err) {
     console.error('[brokerage-actions] payment claim notification dispatch failed:', err)
   }
 
-  return { success: true, data: { claimIndex: updatedPayments.length - 1 } }
+  return { success: true, data: { paymentId: newEntry.id } }
 }
 
 // ============================================================================
@@ -483,7 +469,15 @@ export async function getBrokeragePayableDeals(): Promise<ActionResult> {
 
   const { data, error } = await serviceClient
     .from('deals')
-    .select('id, property_address, status, amount_due_from_brokerage, brokerage_payments, closing_date, agents(first_name, last_name)')
+    .select(`
+      id,
+      property_address,
+      status,
+      amount_due_from_brokerage,
+      closing_date,
+      brokerage_payments ( id, amount, payment_date, reference, method, notes, status, submitted_by_role, submitted_at, reviewed_at, rejection_reason ),
+      agents ( first_name, last_name )
+    `)
     .eq('brokerage_id', profile.brokerage_id)
     .in('status', ['funded', 'completed'])
     .order('closing_date', { ascending: false })

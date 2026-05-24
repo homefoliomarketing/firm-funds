@@ -350,7 +350,7 @@ interface Deal {
   funding_date: string | null
   repayment_date: string | null; repayment_amount: number | null
   eft_transfers: { amount: number; date: string; confirmed: boolean; reference?: string }[] | null
-  brokerage_payments: { amount: number; date: string; reference?: string; method?: string }[] | null
+  brokerage_payments: { id: string; amount: number; date: string; reference?: string | null; method?: string | null; status: 'pending' | 'confirmed' | 'rejected'; submitted_by_role?: string | null }[] | null
   source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
   admin_notes: string | null
@@ -659,7 +659,11 @@ export default function DealDetailPage() {
     if (!user) { router.push('/login'); return }
     const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
     if (!profile || (profile.role !== 'super_admin' && profile.role !== 'firm_funds_admin')) { router.push('/login'); return }
-    const { data: dealData, error: dealError } = await supabase.from('deals').select('*').eq('id', dealId).single()
+    const { data: dealData, error: dealError } = await supabase
+      .from('deals')
+      .select('*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role)')
+      .eq('id', dealId)
+      .single()
     if (dealError || !dealData) { router.push('/admin'); return }
     setDeal(dealData)
     setAdminNotes(dealData.admin_notes || '')
@@ -1913,8 +1917,8 @@ export default function DealDetailPage() {
 
             {deal.brokerage_payments && deal.brokerage_payments.length > 0 && (
               <div className="space-y-2">
-                {deal.brokerage_payments.map((payment, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
+                {deal.brokerage_payments.map((payment) => (
+                  <div key={payment.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
                     <div>
                       <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(payment.amount)}</p>
                       <p className="text-xs text-muted-foreground">
@@ -1929,7 +1933,7 @@ export default function DealDetailPage() {
                       className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={async () => {
                         if (!confirm('Remove this payment?')) return
-                        const result = await removeBrokeragePayment({ dealId: deal.id, paymentIndex: idx })
+                        const result = await removeBrokeragePayment({ dealId: deal.id, paymentId: payment.id })
                         if (result.success) {
                           setDeal(prev => prev ? { ...prev, ...result.data } : null)
                           setStatusMessage({ type: 'success', text: 'Payment removed' })

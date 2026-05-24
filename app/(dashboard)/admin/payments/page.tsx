@@ -16,15 +16,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { confirmBrokeragePaymentClaim, rejectBrokeragePaymentClaim } from '@/lib/actions/admin-actions'
 
 interface PaymentEntry {
+  id: string
   amount: number
   date: string
-  reference?: string
-  method?: string
-  notes?: string
-  status?: 'pending' | 'confirmed' | 'rejected'
-  submitted_by_role?: string
+  reference?: string | null
+  method?: string | null
+  notes?: string | null
+  status: 'pending' | 'confirmed' | 'rejected'
+  submitted_by_role?: string | null
   submitted_at?: string
-  rejection_reason?: string
+  rejection_reason?: string | null
 }
 
 interface Deal {
@@ -40,8 +41,7 @@ interface Deal {
   agent: any
 }
 
-// Backward-compat: legacy entries (no status field) are treated as confirmed.
-const isCounted = (p: PaymentEntry) => p.status === 'confirmed' || p.status === undefined
+const isCounted = (p: PaymentEntry) => p.status === 'confirmed'
 const isPending = (p: PaymentEntry) => p.status === 'pending'
 
 interface Brokerage {
@@ -84,7 +84,12 @@ export default function AdminPaymentsPage() {
 
     const { data: deals } = await supabase
       .from('deals')
-      .select('id, property_address, status, advance_amount, amount_due_from_brokerage, brokerage_referral_fee, brokerage_payments, funding_date, closing_date, brokerage_id, agent:agents(first_name, last_name)')
+      .select(`
+        id, property_address, status, advance_amount, amount_due_from_brokerage, brokerage_referral_fee,
+        funding_date, closing_date, brokerage_id,
+        brokerage_payments ( id, amount, date:payment_date, reference, method, notes, status, submitted_by_role, submitted_at, rejection_reason ),
+        agent:agents(first_name, last_name)
+      `)
       .in('status', ['funded', 'completed'])
       .order('funding_date', { ascending: false })
 
@@ -196,50 +201,45 @@ export default function AdminPaymentsPage() {
   const [rejectingKey, setRejectingKey] = useState<string | null>(null)
   const [rejectionReason, setRejectionReason] = useState('')
 
-  // Optimistic update of a single payment entry in local state.
-  const updateLocalPaymentEntry = (dealId: string, idx: number, patch: Partial<PaymentEntry>) => {
+  // Optimistic update of a single payment entry in local state, keyed by payment id.
+  const updateLocalPaymentEntry = (dealId: string, paymentId: string, patch: Partial<PaymentEntry>) => {
     setSummaries(prev => prev.map(s => ({
       ...s,
       deals: s.deals.map(d => {
         if (d.id !== dealId) return d
-        const updated = [...(d.brokerage_payments || [])] as PaymentEntry[]
-        updated[idx] = { ...updated[idx], ...patch }
-        // Recompute summary totals for this deal
+        const updated = (d.brokerage_payments || []).map(p => p.id === paymentId ? { ...p, ...patch } : p) as PaymentEntry[]
         const counted = updated.filter(isCounted).reduce((sum, p) => sum + (p.amount || 0), 0)
         return { ...d, brokerage_payments: updated, repayment_amount: counted } as Deal
       }),
     })))
   }
 
-  const handleConfirmClaim = async (dealId: string, idx: number) => {
-    const key = `${dealId}:${idx}`
-    setReviewBusy(key)
+  const handleConfirmClaim = async (dealId: string, paymentId: string) => {
+    setReviewBusy(paymentId)
     setReviewMsg(null)
-    const r = await confirmBrokeragePaymentClaim({ dealId, paymentIndex: idx })
+    const r = await confirmBrokeragePaymentClaim({ dealId, paymentId })
     setReviewBusy(null)
     if (r.success) {
-      updateLocalPaymentEntry(dealId, idx, { status: 'confirmed' })
+      updateLocalPaymentEntry(dealId, paymentId, { status: 'confirmed' })
       setReviewMsg({ type: 'success', text: 'Payment claim confirmed.' })
-      // Recompute brokerage summary totals
       await loadPaymentData()
     } else {
       setReviewMsg({ type: 'error', text: r.error || 'Failed to confirm claim' })
     }
   }
 
-  const handleRejectClaim = async (dealId: string, idx: number) => {
+  const handleRejectClaim = async (dealId: string, paymentId: string) => {
     const reason = rejectionReason.trim()
     if (!reason) {
       setReviewMsg({ type: 'error', text: 'Please provide a reason for rejection.' })
       return
     }
-    const key = `${dealId}:${idx}`
-    setReviewBusy(key)
+    setReviewBusy(paymentId)
     setReviewMsg(null)
-    const r = await rejectBrokeragePaymentClaim({ dealId, paymentIndex: idx, reason })
+    const r = await rejectBrokeragePaymentClaim({ dealId, paymentId, reason })
     setReviewBusy(null)
     if (r.success) {
-      updateLocalPaymentEntry(dealId, idx, { status: 'rejected', rejection_reason: reason })
+      updateLocalPaymentEntry(dealId, paymentId, { status: 'rejected', rejection_reason: reason })
       setReviewMsg({ type: 'success', text: 'Payment claim rejected.' })
       setRejectingKey(null)
       setRejectionReason('')
@@ -251,13 +251,13 @@ export default function AdminPaymentsPage() {
 
   // Collect all pending claims across all summaries for the top banner.
   const pendingClaims = useMemo(() => {
-    const out: Array<{ summary: BrokeragePaymentSummary; deal: Deal; entry: PaymentEntry; idx: number }> = []
+    const out: Array<{ summary: BrokeragePaymentSummary; deal: Deal; entry: PaymentEntry }> = []
     for (const summary of summaries) {
       for (const deal of summary.deals) {
         const payments = (deal.brokerage_payments || []) as PaymentEntry[]
-        payments.forEach((entry, idx) => {
-          if (isPending(entry)) out.push({ summary, deal, entry, idx })
-        })
+        for (const entry of payments) {
+          if (isPending(entry)) out.push({ summary, deal, entry })
+        }
       }
     }
     out.sort((a, b) => {
@@ -350,8 +350,8 @@ export default function AdminPaymentsPage() {
                       Brokerages have logged payments they sent. Match each to a bank deposit, then confirm or reject.
                     </p>
                     <ul className="space-y-2">
-                      {pendingClaims.map(({ summary, deal, entry, idx }) => {
-                        const key = `${deal.id}:${idx}`
+                      {pendingClaims.map(({ summary, deal, entry }) => {
+                        const key = entry.id
                         const isRejectingThis = rejectingKey === key
                         const isBusyThis = reviewBusy === key
                         return (
@@ -378,7 +378,7 @@ export default function AdminPaymentsPage() {
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
                                   <Button
                                     size="sm"
-                                    onClick={() => handleConfirmClaim(deal.id, idx)}
+                                    onClick={() => handleConfirmClaim(deal.id, entry.id)}
                                     disabled={isBusyThis}
                                     className="h-7 text-xs"
                                   >
@@ -419,7 +419,7 @@ export default function AdminPaymentsPage() {
                                   </Button>
                                   <Button
                                     size="sm"
-                                    onClick={() => handleRejectClaim(deal.id, idx)}
+                                    onClick={() => handleRejectClaim(deal.id, entry.id)}
                                     disabled={isBusyThis || !rejectionReason.trim()}
                                     className="h-7 text-xs"
                                   >
@@ -665,13 +665,13 @@ export default function AdminPaymentsPage() {
                                 <div className="mt-3 pt-3 border-t border-border/30">
                                   <p className="text-xs font-semibold uppercase tracking-wider mb-2 text-muted-foreground">Payment History</p>
                                   <div className="space-y-1.5">
-                                    {deal.brokerage_payments.map((payment, idx) => {
+                                    {deal.brokerage_payments.map((payment) => {
                                       const pending = isPending(payment)
                                       const rejected = payment.status === 'rejected'
                                       const dotColor = pending ? 'bg-amber-400' : rejected ? 'bg-destructive' : 'bg-green-400'
                                       const amountColor = pending ? 'text-amber-400' : rejected ? 'text-destructive line-through opacity-60' : 'text-green-400'
                                       return (
-                                        <div key={idx} className="flex items-center justify-between text-xs gap-2">
+                                        <div key={payment.id} className="flex items-center justify-between text-xs gap-2">
                                           <div className="flex items-center gap-2 min-w-0 flex-1">
                                             <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
                                             <span className="text-foreground/80 flex-shrink-0">{formatDate(payment.date)}</span>

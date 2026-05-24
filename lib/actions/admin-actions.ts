@@ -15,6 +15,13 @@ import {
 import {
   BROKERAGE_LATE_STRIKE_THRESHOLD,
 } from '@/lib/constants'
+import {
+  insertPayment,
+  deletePayment,
+  reviewPayment,
+  fetchPaymentsForDeal,
+  sumConfirmedPayments,
+} from '@/lib/brokerage-payments'
 
 // ============================================================================
 // Admin: manually record a Late Settlement Strike against a brokerage for a
@@ -148,7 +155,7 @@ export async function getOverdueSettlementDeals(): Promise<ActionResult> {
         closing_date,
         due_date,
         amount_due_from_brokerage,
-        brokerage_payments,
+        brokerage_payments ( amount, status ),
         settlement_days_at_funding,
         agents:agent_id ( first_name, last_name ),
         brokerages:brokerage_id ( id, name )
@@ -165,10 +172,7 @@ export async function getOverdueSettlementDeals(): Promise<ActionResult> {
 
     const rows = (data || []).map((d: any) => {
       const amountDue = Number(d.amount_due_from_brokerage) || 0
-      const payments = (d.brokerage_payments as any[]) || []
-      const confirmedTotal = payments
-        .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-        .reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+      const confirmedTotal = sumConfirmedPayments(d.brokerage_payments)
       const outstanding = Math.max(0, Math.round((amountDue - confirmedTotal) * 100) / 100)
       const dueDateStr = d.due_date ? (d.due_date as string).slice(0, 10) : null
       const daysOverdue = dueDateStr
@@ -1864,7 +1868,7 @@ export async function recordBrokeragePayment(input: {
 
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, status, brokerage_id, amount_due_from_brokerage, brokerage_payments')
+      .select('id, status, brokerage_id, amount_due_from_brokerage')
       .eq('id', input.dealId)
       .single()
 
@@ -1872,51 +1876,45 @@ export async function recordBrokeragePayment(input: {
     if (!['funded', 'completed'].includes(deal.status)) {
       return { success: false, error: 'Brokerage payments can only be recorded on funded or completed deals' }
     }
-
-    const existingPayments = deal.brokerage_payments || []
-    const newPayment = {
-      amount: input.amount,
-      date: input.date,
-      ...(input.reference ? { reference: input.reference } : {}),
-      ...(input.method ? { method: input.method } : {}),
-      // Admin-recorded payments come straight from observed bank deposits.
-      status: 'confirmed' as const,
-      submitted_by_role: 'admin' as const,
-      submitted_by_user_id: user.id,
-      submitted_at: new Date().toISOString(),
+    if (!deal.brokerage_id) {
+      return { success: false, error: 'Deal has no brokerage assigned' }
     }
-    const updatedPayments = [...existingPayments, newPayment]
 
-    // Only confirmed (and legacy, which have no status field) entries count.
-    const newTotal = updatedPayments
-      .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-    const updateData: Record<string, any> = { brokerage_payments: updatedPayments }
+    const method = ['eft', 'wire', 'cheque', 'cash', 'other'].includes(input.method || '')
+      ? (input.method as 'eft' | 'wire' | 'cheque' | 'cash' | 'other')
+      : null
 
-    // Store total as repayment_amount for reporting
-    updateData.repayment_amount = newTotal
+    const newPayment = await insertPayment(
+      {
+        dealId: input.dealId,
+        brokerageId: deal.brokerage_id,
+        amount: input.amount,
+        paymentDate: input.date,
+        reference: input.reference || null,
+        method,
+        status: 'confirmed',
+        submittedByRole: 'admin',
+        submittedByUserId: user.id,
+      },
+      supabase,
+    )
 
-    const { data: updatedDeal, error: updateError } = await supabase
+    // The migration 055 trigger has already synced deals.repayment_amount.
+    // Refetch the deal so the caller gets the fresh total.
+    const { data: updatedDeal } = await supabase
       .from('deals')
-      .update(updateData)
+      .select('*, brokerage_payments(*)')
       .eq('id', input.dealId)
-      .select()
       .single()
 
-    if (updateError) {
-      console.error('Brokerage payment error:', updateError.message)
-      return { success: false, error: `Failed to record payment: ${updateError.message}` }
-    }
-
-    // NOTE: Late settlement strikes are NOT auto-recorded here. Admin reviews
-    // each overdue deal manually and records a strike via recordLateStrike()
-    // if appropriate (e.g., to allow for in-transit wires admin hasn't logged yet).
+    const newTotal = sumConfirmedPayments(updatedDeal?.brokerage_payments || [])
 
     await logAuditEvent({
       action: 'brokerage_payment.record',
       entityType: 'deal',
       entityId: input.dealId,
       metadata: {
+        payment_id: newPayment.id,
         amount: input.amount,
         date: input.date,
         new_total: newTotal,
@@ -1924,65 +1922,50 @@ export async function recordBrokeragePayment(input: {
       },
     })
 
+    // NOTE: Late settlement strikes are NOT auto-recorded here. Admin reviews
+    // each overdue deal manually and records a strike via recordLateStrike()
+    // if appropriate (e.g., to allow for in-transit wires admin hasn't logged yet).
     return { success: true, data: updatedDeal }
   } catch (err: any) {
     console.error('Brokerage payment error:', err?.message)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
   }
 }
 
 export async function removeBrokeragePayment(input: {
   dealId: string
-  paymentIndex: number
+  paymentId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (!input.paymentId) return { success: false, error: 'Payment id is required' }
+
   try {
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('id, brokerage_payments')
-      .eq('id', input.dealId)
-      .single()
-
-    if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-    const payments = deal.brokerage_payments || []
-    if (input.paymentIndex < 0 || input.paymentIndex >= payments.length) {
-      return { success: false, error: 'Invalid payment index' }
+    const removed = await deletePayment(input.paymentId, supabase)
+    if (removed.deal_id !== input.dealId) {
+      // Defensive: caller passed mismatched ids. Audit log captures the truth.
+      console.warn('[removeBrokeragePayment] deal_id mismatch', { input, removedDealId: removed.deal_id })
     }
 
-    const removedPayment = payments[input.paymentIndex]
-    payments.splice(input.paymentIndex, 1)
-    const newTotal = payments
-      .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-
-    const { data: updatedDeal, error: updateError } = await supabase
+    // Trigger has already synced deals.repayment_amount.
+    const { data: updatedDeal } = await supabase
       .from('deals')
-      .update({
-        brokerage_payments: payments,
-        repayment_amount: payments.length > 0 ? newTotal : null,
-      })
-      .eq('id', input.dealId)
-      .select()
+      .select('*, brokerage_payments(*)')
+      .eq('id', removed.deal_id)
       .single()
-
-    if (updateError) {
-      return { success: false, error: `Failed to remove payment: ${updateError.message}` }
-    }
 
     await logAuditEvent({
       action: 'brokerage_payment.remove',
       entityType: 'deal',
-      entityId: input.dealId,
+      entityId: removed.deal_id,
       severity: 'critical',
-      metadata: { payment_index: input.paymentIndex, removed_payment: removedPayment },
+      metadata: { payment_id: input.paymentId, removed_payment: removed },
     })
 
     return { success: true, data: updatedDeal }
   } catch (err: any) {
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
   }
 }
 
@@ -1994,82 +1977,35 @@ export async function removeBrokeragePayment(input: {
 // Confirmed claims count toward the repayment total; pending/rejected do not.
 // ============================================================================
 
-interface PaymentEntryShape {
-  amount: number
-  date: string
-  reference?: string
-  method?: string
-  notes?: string
-  status?: 'pending' | 'confirmed' | 'rejected'
-  submitted_by_role?: string
-  submitted_by_user_id?: string
-  submitted_at?: string
-  reviewed_by_user_id?: string
-  reviewed_at?: string
-  rejection_reason?: string
-}
-
 async function reviewBrokeragePaymentClaim(
-  dealId: string,
-  paymentIndex: number,
+  paymentId: string,
   decision: 'confirmed' | 'rejected',
-  rejectionReason: string | undefined,
+  rejectionReason: string | null,
   reviewerUserId: string,
   supabase: ReturnType<typeof createServiceRoleClient>,
 ): Promise<ActionResult> {
-  const { data: deal, error: dealError } = await supabase
+  const updated = await reviewPayment(paymentId, decision, reviewerUserId, rejectionReason, supabase)
+  if (!updated) {
+    // Row was either missing or already reviewed (status != pending).
+    return { success: false, error: 'This payment is missing or has already been reviewed' }
+  }
+
+  // Trigger keeps deals.repayment_amount in sync. Refetch deal for the caller.
+  const { data: updatedDeal } = await supabase
     .from('deals')
-    .select('id, brokerage_payments, amount_due_from_brokerage')
-    .eq('id', dealId)
+    .select('*, brokerage_payments(*)')
+    .eq('id', updated.deal_id)
     .single()
 
-  if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-  const payments: PaymentEntryShape[] = deal.brokerage_payments || []
-  if (paymentIndex < 0 || paymentIndex >= payments.length) {
-    return { success: false, error: 'Invalid payment index' }
-  }
-
-  const claim = payments[paymentIndex]
-  if (claim.status !== 'pending') {
-    return { success: false, error: 'This payment has already been reviewed' }
-  }
-
-  payments[paymentIndex] = {
-    ...claim,
-    status: decision,
-    reviewed_by_user_id: reviewerUserId,
-    reviewed_at: new Date().toISOString(),
-    ...(decision === 'rejected' && rejectionReason ? { rejection_reason: rejectionReason } : {}),
-  }
-
-  // Confirmed + legacy-no-status both count; pending/rejected do not.
-  const newTotal = payments
-    .filter(p => p.status === 'confirmed' || p.status === undefined)
-    .reduce((sum, p) => sum + (p.amount || 0), 0)
-
-  const { data: updatedDeal, error: updateError } = await supabase
-    .from('deals')
-    .update({
-      brokerage_payments: payments,
-      repayment_amount: newTotal > 0 ? newTotal : null,
-    })
-    .eq('id', dealId)
-    .select()
-    .single()
-
-  if (updateError) {
-    console.error('Payment claim review error:', updateError.message)
-    return { success: false, error: 'Failed to update payment claim' }
-  }
+  const newTotal = sumConfirmedPayments(updatedDeal?.brokerage_payments || [])
 
   await logAuditEvent({
     action: decision === 'confirmed' ? 'brokerage_payment.claim_confirmed' : 'brokerage_payment.claim_rejected',
     entityType: 'deal',
-    entityId: dealId,
+    entityId: updated.deal_id,
     metadata: {
-      payment_index: paymentIndex,
-      claim: payments[paymentIndex],
+      payment_id: paymentId,
+      claim: updated,
       new_total: newTotal,
       ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
     },
@@ -2080,15 +2016,15 @@ async function reviewBrokeragePaymentClaim(
 
 export async function confirmBrokeragePaymentClaim(input: {
   dealId: string
-  paymentIndex: number
+  paymentId: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (!input.paymentId) return { success: false, error: 'Payment id is required' }
   return reviewBrokeragePaymentClaim(
-    input.dealId,
-    input.paymentIndex,
+    input.paymentId,
     'confirmed',
-    undefined,
+    null,
     user.id,
     createServiceRoleClient(),
   )
@@ -2096,16 +2032,16 @@ export async function confirmBrokeragePaymentClaim(input: {
 
 export async function rejectBrokeragePaymentClaim(input: {
   dealId: string
-  paymentIndex: number
+  paymentId: string
   reason: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (!input.paymentId) return { success: false, error: 'Payment id is required' }
   const reason = (input.reason || '').trim()
   if (!reason) return { success: false, error: 'Rejection reason is required' }
   return reviewBrokeragePaymentClaim(
-    input.dealId,
-    input.paymentIndex,
+    input.paymentId,
     'rejected',
     reason.slice(0, 1000),
     user.id,

@@ -144,7 +144,7 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
   // charging interest on settled deals while admin paperwork lagged).
   const { data: overdueDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_charged, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments')
+    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_charged, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments(amount, status)')
     .eq('status', 'funded')
     .not('closing_date', 'is', null)
 
@@ -166,10 +166,10 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
     // from funded → completed. Cent-level tolerance to handle minor rounding.
     const amountDue = Number(deal.amount_due_from_brokerage) || 0
     if (amountDue > 0) {
-      const payments = (deal.brokerage_payments as any[]) || []
+      const payments = (deal.brokerage_payments as { amount: number; status: string }[] | null) || []
       const confirmedTotal = payments
-        .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-        .reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+        .filter((p) => p.status === 'confirmed')
+        .reduce((s, p) => s + (Number(p.amount) || 0), 0)
       if (confirmedTotal >= amountDue - 0.01) continue
     }
 
