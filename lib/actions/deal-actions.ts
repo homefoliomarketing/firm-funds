@@ -1421,32 +1421,77 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
 }
 
 // ============================================================================
-// Server Action: Delete deal (admin only — TEMPORARY for testing)
+// Server Action: Delete deal (admin only)
 // ============================================================================
+// Allowed only for non-financial statuses (under_review / cancelled / denied).
+// The DB trigger prevent_financial_deal_delete (migration 048) backstops this
+// in case the action guard is ever bypassed.
+// ============================================================================
+
+const DELETABLE_DEAL_STATUSES = ['under_review', 'cancelled', 'denied'] as const
 
 export async function deleteDeal(input: { dealId: string }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    // 1. Get all documents for this deal to clean up storage
+    // 1. Verify deal is in a deletable status
+    const { data: deal, error: fetchErr } = await supabase
+      .from('deals')
+      .select('id, status, property_address')
+      .eq('id', input.dealId)
+      .single()
+
+    if (fetchErr || !deal) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    if (!DELETABLE_DEAL_STATUSES.includes(deal.status as typeof DELETABLE_DEAL_STATUSES[number])) {
+      return {
+        success: false,
+        error: `Cannot delete deal in status "${deal.status}". Only under_review, cancelled, or denied deals can be deleted.`,
+      }
+    }
+
+    // 2. Get storage paths for cleanup
     const { data: docs } = await supabase
       .from('deal_documents')
       .select('file_path')
       .eq('deal_id', input.dealId)
 
-    // 2. Delete files from storage
+    // 3. Clean up RESTRICT-protected child records first (envelopes, amendments).
+    //    These are never expected on a deletable-status deal, but if they exist
+    //    they must be removed explicitly because their FKs are ON DELETE RESTRICT
+    //    (migration 049). remediation_deals is not cleaned up here: if one exists
+    //    against a deletable deal something is wrong; refuse the delete.
+    const { count: remediationCount } = await supabase
+      .from('remediation_deals')
+      .select('id', { count: 'exact', head: true })
+      .eq('failed_deal_id', input.dealId)
+
+    if ((remediationCount ?? 0) > 0) {
+      return {
+        success: false,
+        error: 'Deal has remediation_deals attached. Investigate before deleting.',
+      }
+    }
+
+    await supabase.from('esignature_envelopes').delete().eq('deal_id', input.dealId)
+    await supabase.from('closing_date_amendments').delete().eq('deal_id', input.dealId)
+
+    // 4. Cascading children (deal_documents, underwriting_checklist) will be
+    //    handled by ON DELETE CASCADE, but clear deal_documents first so we can
+    //    remove the storage files (DB row before storage avoids orphan refs).
+    await supabase.from('deal_documents').delete().eq('deal_id', input.dealId)
+    await supabase.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
+
     if (docs && docs.length > 0) {
       await supabase.storage
         .from('deal-documents')
         .remove(docs.map(d => d.file_path))
     }
 
-    // 3. Delete related records (order matters for FK constraints)
-    await supabase.from('deal_documents').delete().eq('deal_id', input.dealId)
-    await supabase.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
-
-    // 4. Delete the deal itself
+    // 5. Delete the deal itself
     const { error: deleteError } = await supabase
       .from('deals')
       .delete()
@@ -1461,7 +1506,11 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
       action: 'deal.delete',
       entityType: 'deal',
       entityId: input.dealId,
-      metadata: { deleted_by: user.id, note: 'Temporary testing feature' },
+      metadata: {
+        deleted_by: user.id,
+        prior_status: deal.status,
+        property_address: deal.property_address,
+      },
     })
 
     return { success: true }
