@@ -819,6 +819,39 @@ export async function getAgentProfile(agentId: string) {
 
   const serviceClient = createServiceRoleClient()
 
+  // Authorization check (Finding 10): the previous version only verified that
+  // the caller was logged in, not that they had any right to see this agent's
+  // banking + KYC info. An agent could pass any UUID and get back bank
+  // transit, institution, and account numbers.
+  const { data: callerProfile } = await serviceClient
+    .from('user_profiles')
+    .select('role, agent_id, brokerage_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!callerProfile) {
+    return { success: false, error: 'Caller profile not found', data: null }
+  }
+
+  const isAdmin = ['super_admin', 'firm_funds_admin'].includes(callerProfile.role)
+  const isSelf = callerProfile.role === 'agent' && callerProfile.agent_id === agentId
+
+  if (!isAdmin && !isSelf) {
+    // Brokerage admin can see agents in their brokerage.
+    if (callerProfile.role === 'brokerage_admin' && callerProfile.brokerage_id) {
+      const { data: targetAgent } = await serviceClient
+        .from('agents')
+        .select('brokerage_id')
+        .eq('id', agentId)
+        .single()
+      if (!targetAgent || targetAgent.brokerage_id !== callerProfile.brokerage_id) {
+        return { success: false, error: 'Not authorized for this agent', data: null }
+      }
+    } else {
+      return { success: false, error: 'Not authorized for this agent', data: null }
+    }
+  }
+
   const { data: agent, error } = await serviceClient
     .from('agents')
     .select('*, brokerages(name)')

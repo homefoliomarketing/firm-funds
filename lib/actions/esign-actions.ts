@@ -359,7 +359,36 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
 // ============================================================================
 
 export async function getDealSignatureStatus(dealId: string): Promise<ActionResult> {
+  // Authorization (Finding 11): previously unauthenticated. Any logged-in
+  // user could enumerate envelopes across the platform; envelope IDs are the
+  // secret used to spoof the (now HMAC-verified) DocuSign webhook.
+  const { createClient: createUserClient } = await import('@/lib/supabase/server')
+  const userSupabase = await createUserClient()
+  const { data: { user } } = await userSupabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
   const supabase = createServiceRoleClient()
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, agent_id, brokerage_id')
+    .eq('id', user.id)
+    .single()
+  if (!profile) return { success: false, error: 'Profile not found' }
+
+  const isAdmin = ['super_admin', 'firm_funds_admin'].includes(profile.role)
+  if (!isAdmin) {
+    const { data: deal } = await supabase
+      .from('deals')
+      .select('agent_id, brokerage_id')
+      .eq('id', dealId)
+      .single()
+    if (!deal) return { success: false, error: 'Deal not found' }
+    const isOwner =
+      (profile.role === 'agent' && profile.agent_id === deal.agent_id) ||
+      (profile.role === 'brokerage_admin' && profile.brokerage_id === deal.brokerage_id)
+    if (!isOwner) return { success: false, error: 'Not authorized for this deal' }
+  }
 
   const { data: envelopes, error } = await supabase
     .from('esignature_envelopes')
@@ -591,7 +620,26 @@ export async function voidBcaEnvelope(brokerageId: string, reason: string): Prom
 // ============================================================================
 
 export async function getBcaSignatureStatus(brokerageId: string): Promise<ActionResult> {
+  // Authorization (Finding 11): admin OR a brokerage_admin of the same brokerage.
+  const { createClient: createUserClient } = await import('@/lib/supabase/server')
+  const userSupabase = await createUserClient()
+  const { data: { user } } = await userSupabase.auth.getUser()
+  if (!user) return { success: false, error: 'Not authenticated' }
+
   const supabase = createServiceRoleClient()
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, brokerage_id')
+    .eq('id', user.id)
+    .single()
+  if (!profile) return { success: false, error: 'Profile not found' }
+
+  const isAdmin = ['super_admin', 'firm_funds_admin'].includes(profile.role)
+  const isBrokerageOwner = profile.role === 'brokerage_admin' && profile.brokerage_id === brokerageId
+  if (!isAdmin && !isBrokerageOwner) {
+    return { success: false, error: 'Not authorized for this brokerage' }
+  }
 
   const { data: envelopes, error } = await supabase
     .from('esignature_envelopes')

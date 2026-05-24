@@ -952,10 +952,11 @@ export async function deleteDocument(input: {
   if (authErr) return { success: false, error: authErr }
 
   try {
-    // Delete from storage
-    await supabase.storage.from('deal-documents').remove([input.filePath])
-
-    // Delete metadata from DB
+    // Delete DB row FIRST, then storage file. If storage delete fails we have
+    // an orphaned file (recoverable via storage admin) instead of an orphan
+    // DB pointer to a missing file (which surfaces as a broken download for
+    // the user). Original order was reversed and would silently leave the
+    // metadata row pointing at a missing object when the DB delete failed.
     const { error: dbError } = await supabase
       .from('deal_documents')
       .delete()
@@ -966,12 +967,19 @@ export async function deleteDocument(input: {
       return { success: false, error: 'Failed to delete document record' }
     }
 
+    const { error: storageError } = await supabase.storage.from('deal-documents').remove([input.filePath])
+    if (storageError) {
+      console.error('Document storage delete error (DB row already removed):', storageError.message)
+      // Best-effort: DB row is gone, the orphaned storage object is leaked
+      // but not user-facing. Don't fail the request.
+    }
+
     // Audit log
     await logAuditEvent({
       action: 'document.delete',
       entityType: 'document',
       entityId: input.documentId,
-      metadata: { file_path: input.filePath },
+      metadata: { file_path: input.filePath, storage_orphaned: Boolean(storageError) },
     })
 
     return { success: true }
@@ -1356,14 +1364,19 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
     const adminClient = createServiceRoleClient()
 
     if (deal.status === 'under_review') {
-      // Under review = hasn't been touched yet — delete it entirely
-      // Clean up related records first
+      // Under review = hasn't been touched yet — delete it entirely.
+      // CAPTURE storage paths BEFORE deleting the deal_documents rows.
+      // Previously the storage query ran AFTER the DELETE, returning zero
+      // rows and leaking the files in storage (which the migration 053
+      // bucket-policy tightening makes less dangerous, but still wasteful).
+      const { data: docs } = await adminClient.from('deal_documents').select('file_path').eq('deal_id', input.dealId)
+
+      // Now delete metadata rows
       await adminClient.from('document_requests').delete().eq('deal_id', input.dealId)
       await adminClient.from('deal_documents').delete().eq('deal_id', input.dealId)
       await adminClient.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
 
-      // Delete any uploaded files from storage
-      const { data: docs } = await adminClient.from('deal_documents').select('file_path').eq('deal_id', input.dealId)
+      // Then storage files (with the paths we captured above)
       if (docs && docs.length > 0) {
         await adminClient.storage.from('deal-documents').remove(docs.map(d => d.file_path))
       }
