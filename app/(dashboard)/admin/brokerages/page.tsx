@@ -5,14 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes } from '@/lib/actions/admin-actions'
 import { getAgentTransactions } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
-import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL } from '@/lib/constants'
+import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -84,6 +84,10 @@ interface Brokerage {
   brand_color: string | null
   is_white_label_partner: boolean
   profit_share_pct: number
+  late_strike_count: number
+  auto_bumped_to_14_days_at: string | null
+  last_strike_reset_at: string | null
+  settlement_days_override: number | null
   created_at: string
   updated_at: string
 }
@@ -135,6 +139,128 @@ function getLocalStatusBadgeClass(status: string): string {
     case 'archived': return 'bg-muted text-muted-foreground border border-border'
     default: return 'bg-muted text-muted-foreground border border-border'
   }
+}
+
+// ============================================================================
+// Late Settlement Strikes Section
+// ============================================================================
+
+function LateStrikeSection({ brokerage, onChange }: { brokerage: Brokerage; onChange: () => Promise<void> }) {
+  const [submitting, setSubmitting] = useState(false)
+  const [showResetUI, setShowResetUI] = useState(false)
+  const [reason, setReason] = useState('')
+  const [clearAutoBump, setClearAutoBump] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const strikeCount = brokerage.late_strike_count || 0
+  const autoBumped = !!brokerage.auto_bumped_to_14_days_at
+  const override = brokerage.settlement_days_override
+  const effectiveDays = override ?? (autoBumped ? BROKERAGE_BUMPED_SETTLEMENT_DAYS : SETTLEMENT_PERIOD_DAYS)
+  const lastReset = brokerage.last_strike_reset_at
+
+  const tone =
+    autoBumped
+      ? 'border-red-800/50 bg-red-950/15'
+      : strikeCount >= BROKERAGE_LATE_STRIKE_THRESHOLD - 2
+        ? 'border-amber-800/50 bg-amber-950/15'
+        : 'border-border/40 bg-card/60'
+
+  const handleReset = async () => {
+    setSubmitting(true)
+    setError(null)
+    const res = await resetBrokerageLateStrikes({
+      brokerageId: brokerage.id,
+      clearAutoBump,
+      reason: reason.trim(),
+    })
+    if (res.success) {
+      setShowResetUI(false)
+      setReason('')
+      await onChange()
+    } else {
+      setError(res.error || 'Failed to reset strikes')
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className={`px-6 py-4 border-b border-border/50`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Clock size={15} className="text-primary" />
+          <h4 className="text-sm font-bold text-foreground">Settlement Window</h4>
+        </div>
+        <span className="text-xs font-semibold tabular-nums text-foreground">
+          {effectiveDays} days
+          {autoBumped && <span className="ml-1.5 text-[10px] uppercase tracking-wider text-red-300/80">auto-bumped</span>}
+          {override != null && override > 0 && <span className="ml-1.5 text-[10px] uppercase tracking-wider text-blue-300/80">override</span>}
+        </span>
+      </div>
+      <div className={`rounded-lg border p-3 ${tone}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Late strikes</p>
+            <p className="text-base font-bold tabular-nums text-foreground">
+              {strikeCount} / {BROKERAGE_LATE_STRIKE_THRESHOLD}
+              <span className="ml-2 text-[11px] font-normal text-muted-foreground/70">
+                {strikeCount >= BROKERAGE_LATE_STRIKE_THRESHOLD
+                  ? 'auto-bump triggered'
+                  : `${BROKERAGE_LATE_STRIKE_THRESHOLD - strikeCount} more before auto-bump`}
+              </span>
+            </p>
+            {lastReset && (
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                Last reset {new Date(lastReset).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => { setShowResetUI(v => !v); setError(null) }}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border/50 hover:border-primary/40 hover:text-primary transition"
+            disabled={strikeCount === 0 && !autoBumped}
+          >
+            {showResetUI ? 'Cancel' : 'Reset strikes'}
+          </button>
+        </div>
+
+        {showResetUI && (
+          <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Reason (required, audit-logged)</label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Brokerage explained Aug payment delay; one-time"
+              className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-input text-foreground focus:outline-none focus:border-primary"
+            />
+            {autoBumped && (
+              <label className="flex items-center gap-2 text-xs text-foreground select-none cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={clearAutoBump}
+                  onChange={(e) => setClearAutoBump(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-border/60 bg-input text-primary"
+                />
+                Also clear the auto-bump (return to {SETTLEMENT_PERIOD_DAYS}-day settlement on new deals)
+              </label>
+            )}
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleReset}
+                disabled={submitting || !reason.trim()}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition"
+              >
+                {submitting ? 'Resetting…' : 'Confirm reset'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ============================================================================
@@ -1448,7 +1574,7 @@ export default function BrokeragesPage() {
                             <div>
                               <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
                               <p className="text-xs text-muted-foreground mt-1">
-                                The brokerage&apos;s negotiated share of the advance fees (discount + 14-day settlement period). Submits deals on behalf of its agents.
+                                The brokerage&apos;s negotiated share of the advance fees (discount + settlement period). Submits deals on behalf of its agents.
                               </p>
                             </div>
                             <div className="pt-2 border-t border-border/40">
@@ -1635,6 +1761,9 @@ export default function BrokeragesPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Settlement Window + Late Strikes */}
+                      <LateStrikeSection brokerage={brokerage} onChange={loadBrokerages} />
 
                       {/* Brokerage Cooperation Agreement (BCA) */}
                       <BcaStatusSection brokerage={brokerage} />

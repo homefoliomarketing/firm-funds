@@ -2,7 +2,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
-import { calculateDeal } from '@/lib/calculations'
+import { calculateDeal, effectiveSettlementDays } from '@/lib/calculations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
   SETTLEMENT_PERIOD_DAYS,
@@ -142,19 +142,22 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
       return { success: false, error: 'Failed to save document record' }
     }
 
-    // Calculate what the new fees would be
+    // Calculate what the new fees would be — preserve the deal's settlement
+    // window (snapshotted at funding, or fall back to the current brokerage default)
     const referralPct = deal.brokerage_referral_pct || 0.20
+    const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
-    // Compute new due date
+    // Compute new due date using the same settlement window
     const newClosingDateObj = new Date(newClosingDate + 'T00:00:00Z')
-    const newDueDate = new Date(newClosingDateObj.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDate = new Date(newClosingDateObj.getTime() + settlementDays * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
 
     // Determine scenario and fee adjustment
@@ -351,16 +354,18 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
     }
 
     const referralPct = deal.brokerage_referral_pct || 0.20
+    const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     const newClosingDateObj = new Date(newClosingDate + 'T00:00:00Z')
-    const newDueDate = new Date(newClosingDateObj.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDate = new Date(newClosingDateObj.getTime() + settlementDays * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
 
     let scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' = 'approved_recalc'
@@ -497,6 +502,7 @@ export async function approveClosingDateAmendment(input: {
     // Recalculate what fees WOULD be with the new closing date
     const newDays = calcDaysUntilClosing(amendment.new_closing_date)
     const referralPct = deal.brokerage_referral_pct || 0.20
+    const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
 
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
@@ -504,11 +510,12 @@ export async function approveClosingDateAmendment(input: {
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
-    // Compute new due date
+    // Compute new due date using the deal's snapshotted settlement window
     const newClosingDateObj = new Date(amendment.new_closing_date + 'T00:00:00Z')
-    const newDueDate = new Date(newClosingDateObj.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDate = new Date(newClosingDateObj.getTime() + settlementDays * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
 
     // Branch: approved deal (full recalc) vs funded deal (lock fees, adjust balance)

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
-import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder7Day, sendSettlementReminder3Day } from '@/lib/email'
-import { autoChargeDailyLateInterest, autoChargeMonthlyFailedDealInterest } from '@/lib/actions/account-actions'
+import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder3Day } from '@/lib/email'
+import { autoChargeMonthlyLatePaymentInterest, autoChargeMonthlyFailedDealInterest } from '@/lib/actions/account-actions'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
 
 // =============================================================================
@@ -8,9 +8,11 @@ import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
 //
 // Daily cron job that handles:
 // 1. Closing date alerts — approaching and overdue deals → admin digest email
-// 2. Settlement period reminders — closing day, 7-day, 3-day → agent + brokerage
-// 3. Auto-charge late interest — 24% p.a. daily on overdue deals
-// 4. Update payment_status for overdue deals
+// 2. Settlement period reminders — closing day + 3-days-remaining → agent + brokerage
+// 3. Mark payment_status='overdue' once deals pass the 30-day late-interest grace
+// 4. Post monthly late-payment interest (24% p.a. compounded daily, starting
+//    day 31 after closing)
+// 5. Post monthly failed-deal interest (24% p.a. compounded daily, CPA 5.3)
 //
 // Protected by CRON_SECRET header.
 // =============================================================================
@@ -162,19 +164,13 @@ export async function GET(request: Request) {
           daysRemaining: 0,
         }
 
-        // Closing day (daysSinceClosing === 0)
+        // Closing day (daysSinceClosing === 0): brokerage's settlement window starts today
         if (daysSinceClosing === 0) {
           reminderParams.daysRemaining = SETTLEMENT_PERIOD_DAYS
           await sendSettlementReminderClosingDay(reminderParams)
           remindersSent++
         }
-        // 7 days after closing (7 days remaining)
-        else if (daysSinceClosing === 7) {
-          reminderParams.daysRemaining = 7
-          await sendSettlementReminder7Day(reminderParams)
-          remindersSent++
-        }
-        // 11 days after closing (3 days remaining)
+        // Mid-window reminder: 3 days remaining in the settlement window
         else if (daysSinceClosing === SETTLEMENT_PERIOD_DAYS - 3) {
           reminderParams.daysRemaining = 3
           await sendSettlementReminder3Day(reminderParams)
@@ -184,18 +180,29 @@ export async function GET(request: Request) {
     }
 
     // =======================================================================
-    // 3. Auto-charge Late Interest + Update Payment Status (new)
+    // 3. Post monthly late-payment interest + flag overdue deals
+    //
+    // Interest is 24% p.a. compounded daily starting day 31 after closing.
+    // Monthly posting cadence mirrors the failed-deal interest pattern: the
+    // ledger only gets ONE agent_transactions row per month per deal, posted
+    // on the first daily run after a month boundary crosses.
     // =======================================================================
 
-    const lateInterestResult = await autoChargeDailyLateInterest()
+    const lateInterestResult = await autoChargeMonthlyLatePaymentInterest()
 
-    // Update payment_status for deals past due date
+    // Mark deals past the 30-day late-interest grace as overdue
+    // (closing_date + 30 days < today). Earlier than the grace, they're still
+    // technically late on settlement but no interest has accrued yet.
+    const today30Ago = new Date(today + 'T00:00:00Z')
+    today30Ago.setUTCDate(today30Ago.getUTCDate() - 30)
+    const overdueThreshold = today30Ago.toISOString().slice(0, 10)
+
     await supabase
       .from('deals')
       .update({ payment_status: 'overdue' })
       .eq('status', 'funded')
       .eq('payment_status', 'pending')
-      .lt('due_date', today)
+      .lt('closing_date', overdueThreshold)
 
     // =======================================================================
     // 4. Post monthly failed-deal interest (CPA 5.3 — 24% p.a. compounded
@@ -212,8 +219,9 @@ export async function GET(request: Request) {
       total_active: activeDeals.length,
       reminders_sent: remindersSent,
       late_interest: {
-        deals_charged: lateInterestResult.charged,
+        deals_posted: lateInterestResult.charged,
         errors: lateInterestResult.errors,
+        details: lateInterestResult.details,
       },
       failed_deal_interest: {
         deals_posted: failedDealInterestResult.charged,

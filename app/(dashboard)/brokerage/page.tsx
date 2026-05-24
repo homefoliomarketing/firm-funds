@@ -16,7 +16,7 @@ import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessag
 import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
 import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
-import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
@@ -111,7 +111,7 @@ export default function BrokerageDashboard() {
       setProfile(profileData)
       if (profileData?.role !== 'brokerage_admin') { router.push('/login'); return }
       if (profileData?.brokerage_id) {
-        const { data: brokerageData } = await supabase.from('brokerages').select('*').eq('id', profileData.brokerage_id).single()
+        const { data: brokerageData } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', profileData.brokerage_id).single()
         setBrokerage(brokerageData)
         const { data: dealData } = await supabase.from('deals').select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage)').eq('brokerage_id', profileData.brokerage_id).order('created_at', { ascending: false })
         setDeals(dealData || [])
@@ -537,7 +537,7 @@ export default function BrokerageDashboard() {
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">White-Label Partner</p>
                     <p className="text-sm text-muted-foreground">
-                      Your share of the advance fees (discount + 14-day settlement) on every funded deal:&nbsp;
+                      Your share of the advance fees (discount + settlement period) on every funded deal:&nbsp;
                       <span className="text-foreground font-bold">{Number(brokerage.profit_share_pct ?? 0).toFixed(1)}%</span>
                     </p>
                   </div>

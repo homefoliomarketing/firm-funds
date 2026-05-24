@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
+import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import {
   changePassword,
   updateDisplayName,
@@ -85,9 +86,9 @@ export default function BrokerageSettingsPage() {
       if (profileData.brokerage_id) {
         const { data: brokerageData } = await supabase
           .from('brokerages')
-          .select('*')
+          .select(BROKERAGE_PUBLIC_COLUMNS)
           .eq('id', profileData.brokerage_id)
-          .single()
+          .single<any>()
         setBrokerage(brokerageData)
         setContactEmail(brokerageData?.contact_email || '')
       }

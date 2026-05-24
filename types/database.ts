@@ -136,6 +136,8 @@ export interface Deal {
   brokerage_referral_fee: number
   amount_due_from_brokerage: number
   settlement_period_fee: number
+  settlement_days_at_funding: number | null  // 7 standard, 14 for brokerages auto-bumped after 5 strikes
+  late_strike_recorded: boolean
   due_date: string | null
   brokerage_referral_pct: number | null
   balance_deducted: number

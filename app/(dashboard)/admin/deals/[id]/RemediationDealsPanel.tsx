@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FileSignature, Plus, RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, DollarSign, Send } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
+import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
 import {
   createRemediationDeal,
   cancelRemediationDeal,
@@ -463,7 +464,7 @@ export default function RemediationDealsPanel({
                     value={form.expectedClosingDate}
                     onChange={(e) => {
                       const v = e.target.value
-                      setForm(f => ({ ...f, expectedClosingDate: v, expectedPaymentDate: f.expectedPaymentDate || addDaysIso(v, 14) }))
+                      setForm(f => ({ ...f, expectedClosingDate: v, expectedPaymentDate: f.expectedPaymentDate || addDaysIso(v, SETTLEMENT_PERIOD_DAYS) }))
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
                   />
@@ -476,7 +477,7 @@ export default function RemediationDealsPanel({
                     onChange={(e) => setForm(f => ({ ...f, expectedPaymentDate: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
                   />
-                  <p className="text-[10px] text-muted-foreground/60 mt-1">Defaults to closing + 14 days</p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">Defaults to closing + {SETTLEMENT_PERIOD_DAYS} days</p>
                 </div>
 
                 <div className="sm:col-span-2 pt-2 border-t border-border/30">

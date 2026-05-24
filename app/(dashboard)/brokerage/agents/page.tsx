@@ -9,6 +9,7 @@ import {
 import {
   addAgentAsBrokerage, brokerageResendWelcomeEmail, brokerageUpdateAgentContact,
 } from '@/lib/actions/brokerage-actions'
+import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -92,7 +93,7 @@ export default function BrokerageAgentsPage() {
       const { data: prof } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
       if (!prof || prof.role !== 'brokerage_admin' || !prof.brokerage_id) { router.push('/login'); return }
       setProfile(prof)
-      const { data: brok } = await supabase.from('brokerages').select('*').eq('id', prof.brokerage_id).single()
+      const { data: brok } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', prof.brokerage_id).single()
       setBrokerage(brok)
       await loadAgents(prof.brokerage_id)
       setLoading(false)

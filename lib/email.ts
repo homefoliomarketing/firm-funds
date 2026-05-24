@@ -1383,7 +1383,7 @@ function formatReminderCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
 }
 
-/** Closing day reminder — "Deal closed! Brokerage has 14 days to remit payment." */
+/** Closing day reminder — "Deal closed! Brokerage has the settlement window to remit payment." */
 export async function sendSettlementReminderClosingDay(params: SettlementReminderParams) {
   const resend = getResend()
   if (!resend) return
@@ -1396,7 +1396,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
       Hi ${params.agentFirstName}, the expected closing date for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> has arrived.
     </p>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Your brokerage has <strong style="color:#5FA873;">14 days</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds.
+      Your brokerage has <strong style="color:#5FA873;">${params.daysRemaining} days</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
       <tr>
@@ -1407,7 +1407,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
       </tr>
     </table>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-      If payment is not received by the due date, late payment interest at 24% per annum will begin accruing on your Firm Funds account.
+      Late payment interest at 24% per annum (compounded daily) only begins accruing if the payment remains outstanding 30 days after closing. We will be in touch with your brokerage if payment is delayed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
@@ -1457,69 +1457,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
   }
 }
 
-/** 7-day reminder — "7 days remaining for brokerage payment." */
-export async function sendSettlementReminder7Day(params: SettlementReminderParams) {
-  const resend = getResend()
-  if (!resend) return
-
-  const agentBody = wrap(`
-    <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-      7 Days Remaining — Payment Reminder
-    </h2>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${params.agentFirstName}, there are <strong style="color:#E8B54A;">7 days remaining</strong> for your brokerage to remit payment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
-    </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-      <tr>
-        <td style="padding:16px;">
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount Due</p>
-          <p style="margin:0 0 12px; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amountDueFromBrokerage)}</p>
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Due Date</p>
-          <p style="margin:0; color:#E8B54A; font-size:18px; font-weight:600;">${formatReminderDate(params.dueDate)}</p>
-        </td>
-      </tr>
-    </table>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-      If payment is not received by the due date, late payment interest at 24% per annum will begin accruing on your Firm Funds account.
-    </p>
-  `)
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: `7 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
-      html: agentBody,
-    })
-  } catch (err) {
-    console.error('[email] Failed to send 7-day reminder to agent:', err)
-  }
-
-  if (params.brokerageEmail) {
-    try {
-      await resend.emails.send({
-        from: FROM_ADDRESS,
-        to: params.brokerageEmail,
-        subject: `7 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
-        html: wrap(`
-          <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-            7 Days Remaining — Payment Reminder
-          </h2>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            There are <strong style="color:#E8B54A;">7 days remaining</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> for ${params.agentFirstName}'s deal at <strong>${params.propertyAddress}</strong>.
-          </p>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            Due date: <strong style="color:#E8B54A;">${formatReminderDate(params.dueDate)}</strong>
-          </p>
-        `),
-      })
-    } catch (err) {
-      console.error('[email] Failed to send 7-day reminder to brokerage:', err)
-    }
-  }
-}
-
-/** 3-day reminder — "3 days remaining! Late interest will apply after due date." */
+/** 3-day reminder — "3 days remaining! Payment due soon." */
 export async function sendSettlementReminder3Day(params: SettlementReminderParams) {
   const resend = getResend()
   if (!resend) return
@@ -1541,8 +1479,8 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
         </td>
       </tr>
     </table>
-    <p style="margin:0 0 12px; color:#E54B4B; font-size:14px; font-weight:600; line-height:1.5;">
-      If payment is not received by ${formatReminderDate(params.dueDate)}, late payment interest at 24% per annum will begin accruing daily on your Firm Funds account.
+    <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
+      If payment is still outstanding 30 days after closing, late payment interest at 24% per annum (compounded daily) will begin accruing on your Firm Funds account. We will be in touch with your brokerage if payment is delayed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
@@ -1579,8 +1517,8 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
             There are only <strong style="color:#E54B4B;">3 days remaining</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> for ${params.agentFirstName}'s deal at <strong>${params.propertyAddress}</strong>.
           </p>
-          <p style="margin:0 0 12px; color:#E54B4B; font-size:14px; font-weight:600; line-height:1.5;">
-            Due date: ${formatReminderDate(params.dueDate)}. Late payment interest will apply after this date.
+          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+            Due date: <strong style="color:#E54B4B;">${formatReminderDate(params.dueDate)}</strong>.
           </p>
         `),
       })

@@ -1,11 +1,10 @@
 'use server'
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { calculateDeal } from '@/lib/calculations'
+import { calculateDeal, effectiveSettlementDays } from '@/lib/calculations'
 import { DealSubmissionSchema, DealStatusChangeSchema } from '@/lib/validations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
-  SETTLEMENT_PERIOD_DAYS,
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
   MAX_UPLOAD_SIZE_BYTES,
@@ -62,7 +61,7 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
     // Look up the agent's brokerage and account balance
     const { data: agentData } = await supabase
       .from('agents')
-      .select('brokerage_id, account_balance, brokerages(referral_fee_percentage)')
+      .select('brokerage_id, account_balance, brokerages(referral_fee_percentage, settlement_days_override, auto_bumped_to_14_days_at)')
       .eq('id', input.agentId)
       .single()
 
@@ -73,12 +72,15 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
       return { success: false, error: 'Brokerage referral fee not configured. Please contact support.' }
     }
 
+    const settlementDays = effectiveSettlementDays(brokerage)
+
     const result = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     // Check if agent has outstanding balance that will be deducted at funding
@@ -95,6 +97,7 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
         brokerageReferralPct: referralPct,
         outstandingBalance,
         estimatedBalanceDeduction,
+        settlementPeriodDays: settlementDays,
       },
     }
   } catch (err: any) {
@@ -162,6 +165,8 @@ export async function submitDeal(formData: {
     // Calculate days until closing (Eastern Time)
     const daysUntilClosing = calcDaysUntilClosing(formData.closingDate)
 
+    const settlementDays = effectiveSettlementDays(brokerage)
+
     // Server-side financial calculations using the shared library
     const calc = calculateDeal({
       grossCommission: formData.grossCommission,
@@ -169,6 +174,7 @@ export async function submitDeal(formData: {
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     if (calc.advanceAmount <= 0) {
@@ -568,11 +574,12 @@ export async function updateDealStatus(input: {
       // Recalculate financials server-side using actual days from today (Eastern Time) to closing
       const actualDays = Math.max(1, calcDaysUntilClosing(deal.closing_date))
 
-      // Fetch brokerage incl. profit_share_pct (every onboarded brokerage is white-label;
-      // profit_share_pct == 0 means no profit-share arrangement)
+      // Fetch brokerage incl. profit_share_pct and settlement override columns.
+      // Every onboarded brokerage is white-label; profit_share_pct == 0 means
+      // no profit-share arrangement.
       const { data: brokerage } = await supabase
         .from('brokerages')
-        .select('referral_fee_percentage, profit_share_pct')
+        .select('referral_fee_percentage, profit_share_pct, settlement_days_override, auto_bumped_to_14_days_at')
         .eq('id', deal.brokerage_id)
         .single()
 
@@ -588,12 +595,15 @@ export async function updateDealStatus(input: {
         return { success: false, error: 'Brokerage referral fee percentage is not configured. Cannot fund deal.' }
       }
 
+      const settlementDays = effectiveSettlementDays(brokerage)
+
       const calc = calculateDeal({
         grossCommission: deal.gross_commission,
         brokerageSplitPct: deal.brokerage_split_pct,
         daysUntilClosing: actualDays,
         discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
         brokerageReferralPct: referralPct,
+        settlementPeriodDays: settlementDays,
       })
 
       // Snapshot the profit share (whole pct) at funding so historical deals are
@@ -602,9 +612,12 @@ export async function updateDealStatus(input: {
         updateData.broker_share_pct_at_funding = profitSharePct
       }
 
-      // Calculate due date: closing + 14 calendar days
+      // Due date = closing + the brokerage's effective settlement window
+      // (7 standard, 14 if auto-bumped or overridden). Snapshot the days
+      // used onto the deal row so the value is stable for the life of the
+      // deal even if the brokerage's effective days later change.
       const closingDate = new Date(deal.closing_date + 'T00:00:00Z')
-      const dueDate = new Date(closingDate.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+      const dueDate = new Date(closingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
       const dueDateStr = dueDate.toISOString().split('T')[0]
 
       updateData.days_until_closing = actualDays
@@ -615,6 +628,7 @@ export async function updateDealStatus(input: {
       updateData.brokerage_referral_pct = referralPct
       updateData.amount_due_from_brokerage = calc.amountDueFromBrokerage
       updateData.due_date = dueDateStr
+      updateData.settlement_days_at_funding = settlementDays
       updateData.payment_status = 'pending'
 
       // Balance deduction: if agent owes money, deduct from advance
@@ -1727,7 +1741,7 @@ export async function updateClosingDate(input: {
     // Fetch the deal
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('*, brokerages(referral_fee_percentage)')
+      .select('*, brokerages(referral_fee_percentage, settlement_days_override, auto_bumped_to_14_days_at)')
       .eq('id', input.dealId)
       .single()
 
@@ -1745,6 +1759,11 @@ export async function updateClosingDate(input: {
       return { success: false, error: 'Brokerage referral fee not configured' }
     }
 
+    // Use the snapshotted settlement window if the deal has already been funded;
+    // otherwise compute from the brokerage's current effective settings.
+    const settlementDays = deal.settlement_days_at_funding
+      ?? effectiveSettlementDays((deal as any).brokerages)
+
     // Recalculate with new days
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
@@ -1752,6 +1771,7 @@ export async function updateClosingDate(input: {
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     // Store old values for comparison
@@ -1764,9 +1784,10 @@ export async function updateClosingDate(input: {
       amount_due_from_brokerage: deal.amount_due_from_brokerage,
     }
 
-    // Recalculate due date when closing date changes
+    // Recalculate due date when closing date changes — closing + the effective
+    // settlement window for this deal (snapshotted or computed)
     const newClosingDate = new Date(input.newClosingDate + 'T00:00:00Z')
-    const newDueDate = new Date(newClosingDate.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDate = new Date(newClosingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
 
     const { error: updateError } = await supabase

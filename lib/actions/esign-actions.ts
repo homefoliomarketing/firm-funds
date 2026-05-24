@@ -4,6 +4,14 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
 import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx, generateRemediationIdpDocx } from '@/lib/contract-docx'
+import {
+  DISCOUNT_RATE_PER_1000_PER_DAY,
+  SETTLEMENT_PERIOD_DAYS,
+  LATE_INTEREST_GRACE_DAYS_FROM_CLOSING,
+  LATE_INTEREST_RATE_PER_ANNUM,
+  BROKERAGE_LATE_STRIKE_THRESHOLD,
+  BROKERAGE_BUMPED_SETTLEMENT_DAYS,
+} from '@/lib/constants'
 
 type ActionResult = { success: boolean; error?: string; data?: any }
 
@@ -109,6 +117,11 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
     const agentName = `${agent.first_name} ${agent.last_name}`
     const today = new Date().toISOString().split('T')[0]
 
+    // Use the deal's snapshotted settlement window if funded; otherwise fall
+    // back to the brokerage's current effective settings (handled via the
+    // already-saved settlement_period_fee).
+    const dealSettlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
+
     // Placeholder values for contract merge fields
     const contractData: Record<string, string> = {
       '{{AGREEMENT_DATE}}': formatDate(today),
@@ -118,13 +131,17 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{SETTLEMENT_PERIOD_FEE}}': formatCurrency(deal.settlement_period_fee || 0),
       '{{TOTAL_FEES}}': formatCurrency((deal.discount_fee || 0) + (deal.settlement_period_fee || 0)),
       '{{NUMBER_OF_DAYS}}': deal.days_until_closing?.toString() || 'N/A',
-      '{{SETTLEMENT_PERIOD_DAYS}}': '14',
+      '{{SETTLEMENT_PERIOD_DAYS}}': String(dealSettlementDays),
+      '{{LATE_INTEREST_GRACE_DAYS}}': String(LATE_INTEREST_GRACE_DAYS_FROM_CLOSING),
+      '{{LATE_STRIKE_THRESHOLD}}': String(BROKERAGE_LATE_STRIKE_THRESHOLD),
+      '{{BUMPED_SETTLEMENT_DAYS}}': String(BROKERAGE_BUMPED_SETTLEMENT_DAYS),
+      '{{DISCOUNT_RATE}}': `$${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)} per $1,000 per day`,
       '{{PURCHASE_PRICE}}': formatCurrency(deal.advance_amount),
       '{{PROPERTY_ADDRESS}}': deal.property_address,
       '{{MLS_NUMBER}}': 'See APS',
       '{{EXPECTED_CLOSING_DATE}}': formatDate(deal.closing_date),
-      '{{DUE_DATE}}': deal.due_date ? formatDate(deal.due_date) : 'Closing Date + 14 days',
-      '{{LATE_INTEREST_RATE}}': '24%',
+      '{{DUE_DATE}}': deal.due_date ? formatDate(deal.due_date) : `Closing Date + ${dealSettlementDays} days`,
+      '{{LATE_INTEREST_RATE}}': `${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}%`,
       '{{BROKERAGE_LEGAL_NAME}}': brokerage.name,
       '{{BROKERAGE_ADDRESS}}': [brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'On file',
       '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name || 'On file',
@@ -412,6 +429,11 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
       '{{BROKERAGE_EMAIL}}': brokerage.email,
       '{{BROKERAGE_PHONE}}': brokerage.phone || 'On file',
       '{{REFERRAL_FEE_PCT}}': referralDisplay,
+      '{{SETTLEMENT_PERIOD_DAYS}}': String(SETTLEMENT_PERIOD_DAYS),
+      '{{LATE_STRIKE_THRESHOLD}}': String(BROKERAGE_LATE_STRIKE_THRESHOLD),
+      '{{BUMPED_SETTLEMENT_DAYS}}': String(BROKERAGE_BUMPED_SETTLEMENT_DAYS),
+      '{{LATE_INTEREST_GRACE_DAYS}}': String(LATE_INTEREST_GRACE_DAYS_FROM_CLOSING),
+      '{{DISCOUNT_RATE}}': `$${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)} per $1,000 per day`,
       '{{SIGNATURE_DATE}}': '', // DocuSign fills this
     }
 
@@ -642,6 +664,9 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
       '{{NEW_NUMBER_OF_DAYS}}': newDaysNum.toString(),
       '{{SCENARIO}}': scenario,
       '{{FEE_ADJUSTMENT_DISPLAY}}': formatCurrency(Math.abs(feeAdjustment)),
+      '{{DISCOUNT_RATE}}': `$${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)} per $1,000 per day`,
+      '{{SETTLEMENT_PERIOD_DAYS}}': String(deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS),
+      '{{LATE_INTEREST_GRACE_DAYS}}': String(LATE_INTEREST_GRACE_DAYS_FROM_CLOSING),
     }
 
     const amendmentBuffer = await generateCpaAmendmentDocx(contractData)

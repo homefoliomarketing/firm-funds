@@ -3,7 +3,12 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
-import { calculateLateInterest, calculateCompoundDailyInterest, failedDealAccrualStartDate } from '@/lib/calculations'
+import {
+  calculateLateInterest,
+  calculateCompoundDailyInterest,
+  failedDealAccrualStartDate,
+  lateInterestAccrualStartDate,
+} from '@/lib/calculations'
 import { formatCurrency } from '@/lib/formatting'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
@@ -24,7 +29,12 @@ interface ActionResult {
 
 // ============================================================================
 // Late Payment Interest — Manual charge (admin triggers for a specific deal)
-// Uses 24% per annum, starting after the 14-day settlement period (due_date)
+//
+// 24% per annum, COMPOUNDED daily on the advance amount, starting day 31 after
+// the closing date (LATE_INTEREST_GRACE_DAYS_FROM_CLOSING). Days 0-30 after
+// closing are penalty-free regardless of when the brokerage actually pays.
+// Used when an admin wants to manually post interest mid-month (the daily
+// cron auto-posts monthly, but admins can preempt that for a specific deal).
 // ============================================================================
 
 export async function chargeLatePaymentInterest(input: {
@@ -39,21 +49,23 @@ export async function chargeLatePaymentInterest(input: {
   try {
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
-      .select('id, agent_id, advance_amount, due_date, property_address, late_interest_charged')
+      .select('id, agent_id, advance_amount, closing_date, property_address, late_interest_charged')
       .eq('id', input.dealId)
       .single()
 
     if (dealErr || !deal) return { success: false, error: 'Deal not found' }
-    if (!deal.due_date) return { success: false, error: 'Deal has no due date set' }
+    if (!deal.closing_date) return { success: false, error: 'Deal has no closing date set' }
 
-    // Calculate interest from due_date to throughDate at 24% per annum
-    const interest = calculateLateInterest(
-      deal.advance_amount,
-      deal.due_date,
-      input.throughDate,
-    )
+    // Calculate total compound interest owed from day 31 after closing through throughDate
+    const closingStr = typeof deal.closing_date === 'string'
+      ? deal.closing_date.slice(0, 10)
+      : new Date(deal.closing_date as any).toISOString().slice(0, 10)
 
-    if (interest <= 0) return { success: false, error: 'No late interest applicable (not past due date)' }
+    const totalInterestOwed = calculateLateInterest(deal.advance_amount, closingStr, input.throughDate)
+    const alreadyCharged = Number(deal.late_interest_charged) || 0
+    const interest = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
+
+    if (interest < 0.005) return { success: false, error: 'No additional late interest accrued (still in 30-day grace or already posted)' }
 
     const { data: agent } = await serviceClient
       .from('agents')
@@ -72,6 +84,8 @@ export async function chargeLatePaymentInterest(input: {
 
     if (balErr) return { success: false, error: `Failed to update balance: ${balErr.message}` }
 
+    const accrualStart = lateInterestAccrualStartDate(closingStr)
+
     const { error: txErr } = await serviceClient
       .from('agent_transactions')
       .insert({
@@ -80,7 +94,7 @@ export async function chargeLatePaymentInterest(input: {
         type: 'late_payment_interest',
         amount: interest,
         running_balance: newBalance,
-        description: `Late payment interest for ${deal.property_address} — ${input.throughDate} (due ${deal.due_date}), ${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.`,
+        description: `Late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily, accruing from ${accrualStart})`,
         created_by: user.id,
       })
 
@@ -89,7 +103,7 @@ export async function chargeLatePaymentInterest(input: {
     await serviceClient
       .from('deals')
       .update({
-        late_interest_charged: (deal.late_interest_charged || 0) + interest,
+        late_interest_charged: totalInterestOwed,
         late_interest_calculated_at: new Date().toISOString(),
       })
       .eq('id', deal.id)
@@ -101,9 +115,10 @@ export async function chargeLatePaymentInterest(input: {
       metadata: {
         agent_id: agent.id,
         interest_amount: interest,
-        due_date: deal.due_date,
+        closing_date: closingStr,
+        accrual_start: accrualStart,
         through_date: input.throughDate,
-        rate: `${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.`,
+        rate: `${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily`,
         new_balance: newBalance,
       },
     })
@@ -116,67 +131,87 @@ export async function chargeLatePaymentInterest(input: {
 }
 
 // ============================================================================
-// Auto-charge daily late interest (called by cron)
-// Charges 1 day of interest at 24% p.a. on all overdue funded deals
+// Auto-post monthly late-payment interest (called by daily cron)
+//
+// Mirrors the failed-deal monthly poster pattern: math compounds daily on the
+// advance amount, but the agent's ledger only gets one agent_transactions row
+// per month per overdue deal. Posting happens on the first daily cron run on
+// or after the 1st of each new month. Between postings, the "live" liability
+// is computed via liveLateInterestOwed() so admins see what's accruing.
+//
+// Accrual starts on day 31 after closing (LATE_INTEREST_GRACE_DAYS_FROM_CLOSING).
+// Deals that are still within the 30-day grace are skipped entirely (they
+// don't owe any interest yet).
+//
+// Idempotent: re-running the same day is a no-op. Self-healing across missed
+// runs: the next run still posts whatever's owed through end-of-last-month.
 // ============================================================================
 
-export async function autoChargeDailyLateInterest(): Promise<{
+export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
   charged: number
   errors: number
-  details: { dealId: string; interest: number }[]
+  details: { dealId: string; interest: number; postedFor: string }[]
 }> {
   const serviceClient = createServiceRoleClient()
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 
-  // Find all funded deals that are past their due date
-  const { data: overduDeals } = await serviceClient
+  const { data: overdueDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, advance_amount, due_date, property_address, settlement_period_fee, late_interest_charged')
+    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_charged, late_interest_calculated_at')
     .eq('status', 'funded')
-    .lt('due_date', today)
+    .not('closing_date', 'is', null)
 
-  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number }[] }
+  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number; postedFor: string }[] }
+  if (!overdueDeals || overdueDeals.length === 0) return result
 
-  if (!overduDeals || overduDeals.length === 0) return result
+  const currentMonthBucket = monthBucket(today)
+  const endOfLastMonth = endOfPreviousMonth(today)
+  const lastMonthBucket = monthBucket(endOfLastMonth)
+  const lastMonthName = formatMonthName(lastMonthBucket)
 
-  for (const deal of overduDeals) {
-    // Skip pre-migration deals (settlement_period_fee would be 0 or null for old deals)
-    // Only auto-charge deals that went through the new fee system
+  for (const deal of overdueDeals) {
+    // Skip pre-migration deals (no settlement period fee = old fee system)
     if (!deal.settlement_period_fee || deal.settlement_period_fee <= 0) continue
+    if (!deal.closing_date) continue
 
     try {
-      // Total interest owed from due_date to today (idempotent across multiple cron runs
-      // in the same day and resilient to missed runs)
-      const dueDateStr = typeof deal.due_date === 'string'
-        ? deal.due_date.slice(0, 10)
-        : new Date(deal.due_date as any).toISOString().slice(0, 10)
+      const closingStr = typeof deal.closing_date === 'string'
+        ? deal.closing_date.slice(0, 10)
+        : new Date(deal.closing_date as any).toISOString().slice(0, 10)
 
-      const totalInterestOwed = calculateLateInterest(deal.advance_amount, dueDateStr, today)
-      const alreadyCharged = (deal.late_interest_charged as number) || 0
-      const interestToCharge = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
+      const accrualStart = lateInterestAccrualStartDate(closingStr)
 
-      // Nothing to charge: either not overdue yet (calculateLateInterest returns 0),
-      // already fully charged for today, or a previous run overshot
+      // Skip deals still inside the 30-day grace as of end-of-last-month
+      if (accrualStart > endOfLastMonth) continue
+
+      // Skip if we've already posted FOR last month (calc'd_at is in current month)
+      const lastCalc = deal.late_interest_calculated_at as string | null
+      if (lastCalc) {
+        const lastCalcDate = new Date(lastCalc).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+        if (monthBucket(lastCalcDate) === currentMonthBucket) continue
+      }
+
+      const advance = Number(deal.advance_amount) || 0
+      const totalInterestThroughLastMonth = calculateCompoundDailyInterest(advance, accrualStart, endOfLastMonth)
+      const alreadyCharged = Number(deal.late_interest_charged) || 0
+      const interestToCharge = Math.round((totalInterestThroughLastMonth - alreadyCharged) * 100) / 100
+
       if (interestToCharge < 0.005) continue
 
-      // Get agent balance
       const { data: agent } = await serviceClient
         .from('agents')
         .select('id, account_balance')
         .eq('id', deal.agent_id)
         .single()
-
       if (!agent) continue
 
       const newBalance = (agent.account_balance || 0) + interestToCharge
 
-      // Update balance
       await serviceClient
         .from('agents')
         .update({ account_balance: newBalance })
         .eq('id', agent.id)
 
-      // Record transaction
       await serviceClient
         .from('agent_transactions')
         .insert({
@@ -185,20 +220,20 @@ export async function autoChargeDailyLateInterest(): Promise<{
           type: 'late_payment_interest',
           amount: interestToCharge,
           running_balance: newBalance,
-          description: `Late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a.)`,
+          description: `Late payment interest — ${lastMonthName} — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(advance)})`,
         })
 
       await serviceClient
         .from('deals')
         .update({
-          late_interest_charged: totalInterestOwed,
+          late_interest_charged: totalInterestThroughLastMonth,
           late_interest_calculated_at: new Date().toISOString(),
           payment_status: 'overdue',
         })
         .eq('id', deal.id)
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: interestToCharge })
+      result.details.push({ dealId: deal.id, interest: interestToCharge, postedFor: lastMonthName })
     } catch (err) {
       console.error(`Auto-charge error for deal ${deal.id}:`, err)
       result.errors++

@@ -36,7 +36,7 @@ import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/l
 import RemediationDealsPanel from './RemediationDealsPanel'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT } from '@/lib/constants'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING } from '@/lib/constants'
 import { calculateDeal, getChargeDays, liveFailedDealInterestOwed } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
@@ -342,6 +342,8 @@ interface Deal {
   property_address: string; closing_date: string; gross_commission: number
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
   discount_fee: number; settlement_period_fee: number; advance_amount: number
+  settlement_days_at_funding: number | null
+  late_strike_recorded: boolean
   brokerage_referral_fee: number; brokerage_referral_pct: number | null
   amount_due_from_brokerage: number; balance_deducted: number
   due_date: string | null; payment_status: string
@@ -1451,13 +1453,15 @@ export default function DealDetailPage() {
               daysUntilClosing,
               discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
               brokerageReferralPct: referralPct,
+              settlementPeriodDays: deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS,
             })
             const chargeDays = getChargeDays(daysUntilClosing)
             const today = new Date()
             const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
             const closingDate = new Date(deal.closing_date + 'T00:00:00')
-            // Due date = closing + 14 calendar days (matches server calculation)
-            const dueDate = new Date(closingDate.getTime() + 14 * 24 * 60 * 60 * 1000)
+            // Due date = closing + the deal's effective settlement window (matches server)
+            const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
+            const dueDate = new Date(closingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
             const fmtDate = (d: Date) => d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
             return (
               <div className="mt-4 pt-4 border-t border-border/50">
@@ -1504,11 +1508,11 @@ export default function DealDetailPage() {
                         </tr>
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Discount Fee ({chargeDays}d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-muted-foreground">Discount Fee ({chargeDays}d × ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1k)</td>
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.discountFee)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Settlement Period Fee (14d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-muted-foreground">Settlement Period Fee ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d × ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1k)</td>
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.settlementPeriodFee)}</td>
                         </tr>
                         <tr>
@@ -2194,7 +2198,7 @@ export default function DealDetailPage() {
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
                 { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
-                { label: 'Settlement Period Fee (14d)', value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
+                { label: `Settlement Period Fee (${deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d)`, value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
                 { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
@@ -2874,7 +2878,7 @@ export default function DealDetailPage() {
                         className="px-2 py-1 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground [color-scheme:dark]"
                       />
                     </div>
-                    <p className="text-[10px] text-muted-foreground">$0.75 per $1,000/day · starts day after 14-day settlement period ends</p>
+                    <p className="text-[10px] text-muted-foreground">24% p.a. compounded daily · starts day {LATE_INTEREST_GRACE_DAYS_FROM_CLOSING + 1} after closing</p>
                     <div className="flex gap-1.5">
                       <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
                         className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors">

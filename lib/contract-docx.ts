@@ -269,10 +269,11 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['"Brokerage"', ' means the real estate brokerage holding the Commission in trust as described in Schedule "A";'],
             ['"Closing Date"', ' means the expected closing date of the APS as set out in Schedule "A", or such earlier or later date as may be mutually agreed in writing by the parties to the APS;'],
             ['"Commission"', ' means the specific commission receivable being purchased, as described in Schedule "A";'],
-            ['"Settlement Period Fee"', ' means the non-refundable fee covering the fourteen (14) calendar day settlement period following the Expected Closing Date, during which the Brokerage is required to remit the Commission to the Purchaser, calculated in accordance with Article 3;'],
-            ['"Late Payment Interest"', ' means interest at the rate of twenty-four percent (24%) per annum, calculated daily, applicable to any amounts remaining unpaid after the Payment Due Date, as set out in Article 6;'],
+            ['"Settlement Period Fee"', ` means the non-refundable fee covering the settlement period of ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date, during which the Brokerage is required to remit the Commission to the Purchaser, calculated in accordance with Article 3;`],
+            ['"Late Payment Interest"', ` means interest at the rate of twenty-four percent (24%) per annum, compounded daily, applicable to the Purchase Price where the Commission has not been received in full by the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days after the Expected Closing Date, as set out in Article 6;`],
             ['"Face Value"', ' means the net commission payable to the Seller after the Brokerage\'s commission split, as set out in Schedule "A";'],
-            ['"Payment Due Date"', ' means the date that is fourteen (14) calendar days following the Expected Closing Date, by which the Brokerage must remit the Commission to the Purchaser;'],
+            ['"Payment Due Date"', ` means the date that is ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date, by which the Brokerage must remit the Commission to the Purchaser;`],
+            ['"Late Interest Accrual Date"', ` means the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days following the Expected Closing Date, on and after which Late Payment Interest begins to accrue if the Commission has not been received in full;`],
             ['"Irrevocable Direction to Pay"', ' means the irrevocable direction executed by the Seller directing the Brokerage to pay the Commission directly to the Purchaser, in the form attached as Schedule "B";'],
             ['"Remediation IDP"', ' means an Irrevocable Direction to Pay executed by the Seller under Article 5.5(b) in respect of a commission receivable other than the Commission, for the purpose of satisfying an outstanding balance owing under this Agreement;'],
             ['"Purchase Discount"', ' means the fee charged by the Purchaser for this purchase transaction, calculated as set out in Article 3;'],
@@ -292,8 +293,8 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           // Article 3
           heading2('ARTICLE 3 — PURCHASE PRICE AND PAYMENT'),
           richParagraph([{ text: '3.1 Face Value. ', bold: true }, { text: `The Face Value of the Commission is ${r('{{FACE_VALUE}}')} (the "Face Value"), being the net commission payable to the Seller after the Brokerage's commission split.` }]),
-          richParagraph([{ text: '3.2 Purchase Discount. ', bold: true }, { text: `The Purchase Discount is ${r('{{PURCHASE_DISCOUNT}}')} (the "Purchase Discount"), calculated as follows: $0.75 per $1,000.00 of Face Value per day, for ${r('{{NUMBER_OF_DAYS}}')} days (being the number of calendar days from the day following the Funding Date to the Expected Closing Date).` }]),
-          richParagraph([{ text: '3.3 Settlement Period Fee. ', bold: true }, { text: `The Settlement Period Fee is ${r('{{SETTLEMENT_PERIOD_FEE}}')} (the "Settlement Period Fee"), calculated as follows: $0.75 per $1,000.00 of Face Value per day, for fourteen (14) calendar days. This fee covers the settlement period during which the Brokerage is required to remit the Commission to the Purchaser. The Settlement Period Fee is a non-refundable flat fee and is not subject to proration or adjustment regardless of when payment is received.` }]),
+          richParagraph([{ text: '3.2 Purchase Discount. ', bold: true }, { text: `The Purchase Discount is ${r('{{PURCHASE_DISCOUNT}}')} (the "Purchase Discount"), calculated as follows: ${r('{{DISCOUNT_RATE}}')} of Face Value, for ${r('{{NUMBER_OF_DAYS}}')} days (being the number of calendar days from the day following the Funding Date to the Expected Closing Date).` }]),
+          richParagraph([{ text: '3.3 Settlement Period Fee. ', bold: true }, { text: `The Settlement Period Fee is ${r('{{SETTLEMENT_PERIOD_FEE}}')} (the "Settlement Period Fee"), calculated as follows: ${r('{{DISCOUNT_RATE}}')} of Face Value, for ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days. This fee covers the settlement period during which the Brokerage is required to remit the Commission to the Purchaser. The Settlement Period Fee is a non-refundable flat fee and is not subject to proration or adjustment regardless of when payment is received.` }]),
           richParagraph([{ text: '3.4 Purchase Price. ', bold: true }, { text: `The Purchase Price payable to the Seller is ${r('{{PURCHASE_PRICE}}')} (the "Purchase Price"), being the Face Value less the Purchase Discount and the Settlement Period Fee.` }]),
           richParagraph([{ text: '3.5 Payment. ', bold: true }, { text: 'The Purchaser shall pay the Purchase Price to the Seller by electronic funds transfer to the account specified in Schedule "C" within two (2) business days of execution of this Agreement and the Irrevocable Direction to Pay.' }]),
 
@@ -314,10 +315,11 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
 
           // Article 6
           heading2('ARTICLE 6 — LATE PAYMENT INTEREST'),
-          richParagraph([{ text: '6.1 Payment Due Date. ', bold: true }, { text: `The Brokerage shall remit the Commission to the Purchaser within fourteen (14) calendar days following the Expected Closing Date (the "Payment Due Date"). The Payment Due Date for this transaction is ${r('{{DUE_DATE}}')}.` }]),
-          richParagraph([{ text: '6.2 Late Payment Interest. ', bold: true }, { text: 'If the Real Estate Transaction closes but the Commission is not remitted to the Purchaser by the Payment Due Date, Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, calculated daily on the Purchase Price, commencing on the day following the Payment Due Date and continuing until the date the Commission is received by the Purchaser in full. For the purposes of this Article, the Commission shall be considered received in full when the Purchaser has received the Face Value less any Referral Fee lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement. This Article applies to late remittance by the Brokerage following a closing; interest on seller repayment obligations following non-closing or commission deficiency is governed by Article 5.3.' }]),
-          richParagraph([{ text: '6.3 Responsibility for Late Payment Interest. ', bold: true }, { text: 'The Seller acknowledges and agrees that Late Payment Interest is the sole responsibility of the Seller. Such interest shall be charged to the Seller\'s account with the Purchaser and may be deducted from future commission purchase transactions or invoiced separately at the Purchaser\'s discretion.' }]),
-          richParagraph([{ text: '6.4 No Refund of Settlement Period Fee. ', bold: true }, { text: 'For greater certainty, the Settlement Period Fee set out in Article 3.3 is non-refundable and shall not be credited, prorated, or adjusted in any circumstance, including early payment by the Brokerage.' }]),
+          richParagraph([{ text: '6.1 Payment Due Date. ', bold: true }, { text: `The Brokerage shall remit the Commission to the Purchaser within ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date (the "Payment Due Date"). The Payment Due Date for this transaction is ${r('{{DUE_DATE}}')}.` }]),
+          richParagraph([{ text: '6.2 Late Payment Grace; Late Interest Accrual Date. ', bold: true }, { text: `If the Commission is not received in full by the Payment Due Date, the Purchaser may, at its discretion, contact the Brokerage to address the delay. No Late Payment Interest shall accrue solely by reason of the Commission being unpaid between the Payment Due Date and the Late Interest Accrual Date (being the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days after the Expected Closing Date). For greater certainty, the Brokerage's obligation to remit the Commission by the Payment Due Date is not waived or modified by this grace; this Article governs only the timing of Late Payment Interest accrual.` }]),
+          richParagraph([{ text: '6.3 Late Payment Interest. ', bold: true }, { text: 'If the Commission has not been received in full by the Purchaser as of the Late Interest Accrual Date, Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, compounded daily on the Purchase Price (including any prior accrued and unpaid interest), commencing on the Late Interest Accrual Date and continuing until the Commission is received by the Purchaser in full. For the purposes of this Article, the Commission shall be considered received in full when the Purchaser has received the Face Value less any Referral Fee lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement. This Article applies to late remittance by the Brokerage following a closing; interest on seller repayment obligations following non-closing or commission deficiency is governed by Article 5.3.' }]),
+          richParagraph([{ text: '6.4 Responsibility for Late Payment Interest. ', bold: true }, { text: 'The Seller acknowledges and agrees that Late Payment Interest is the sole responsibility of the Seller. Such interest shall be charged to the Seller\'s account with the Purchaser and may be deducted from future commission purchase transactions or invoiced separately at the Purchaser\'s discretion.' }]),
+          richParagraph([{ text: '6.5 No Refund of Settlement Period Fee. ', bold: true }, { text: 'For greater certainty, the Settlement Period Fee set out in Article 3.3 is non-refundable and shall not be credited, prorated, or adjusted in any circumstance, including early payment by the Brokerage.' }]),
 
           // Article 7
           heading2('ARTICLE 7 — SUBSTITUTION AND REPAYMENT ARRANGEMENTS'),
@@ -367,13 +369,14 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['Gross Commission Amount', r('{{GROSS_COMMISSION_AMOUNT}}')],
             ['Brokerage Commission Split', `${r('{{BROKERAGE_SPLIT}}')}%`],
             ['Net Commission to Seller (Face Value)', r('{{FACE_VALUE}}')],
-            ['Discount Rate', '$0.75 per $1,000 per day'],
+            ['Discount Rate', r('{{DISCOUNT_RATE}}')],
             ['Number of Days (Discount Period)', r('{{NUMBER_OF_DAYS}}')],
             ['Purchase Discount', r('{{PURCHASE_DISCOUNT}}')],
-            ['Settlement Period Fee (14 days)', r('{{SETTLEMENT_PERIOD_FEE}}')],
+            [`Settlement Period Fee (${r('{{SETTLEMENT_PERIOD_DAYS}}')} days)`, r('{{SETTLEMENT_PERIOD_FEE}}')],
             ['Purchase Price (Agent Receives)', r('{{PURCHASE_PRICE}}')],
             ['Brokerage Referral Fee', r('{{BROKERAGE_REFERRAL_FEE}}')],
-            ['Late Payment Interest Rate', `${r('{{LATE_INTEREST_RATE}}')} per annum`],
+            ['Late Payment Interest Rate', `${r('{{LATE_INTEREST_RATE}}')} per annum, compounded daily`],
+            ['Late Interest Grace (from closing)', `${r('{{LATE_INTEREST_GRACE_DAYS}}')} days`],
             ['Brokerage Legal Name', r('{{BROKERAGE_LEGAL_NAME}}')],
             ['Brokerage Address', r('{{BROKERAGE_ADDRESS}}')],
             ['Broker of Record', r('{{BROKER_OF_RECORD}}')],
@@ -497,7 +500,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           richParagraph([
             { text: 'Subject to the Referral Fee deduction described above, the Directed Amount shall be paid from the Brokerage\'s real estate trust account no later than the Payment Due Date, being ' },
             { text: r('{{DUE_DATE}}'), bold: true },
-            { text: ' (fourteen (14) calendar days following the Expected Closing Date of ' },
+            { text: ` (${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date of ` },
             { text: r('{{EXPECTED_CLOSING_DATE}}'), bold: true },
             { text: '), by electronic funds transfer to the following account:' },
           ]),
@@ -520,8 +523,8 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
 
           // Settlement Period Fee & Late Payment Interest
           heading2('SETTLEMENT PERIOD FEE AND LATE PAYMENT INTEREST'),
-          body(`I acknowledge that a non-refundable Settlement Period Fee has been included in the calculation of the Purchase Price, covering the fourteen (14) calendar day settlement period following the Expected Closing Date (${r('{{EXPECTED_CLOSING_DATE}}')}) during which the Brokerage is required to remit the Commission to the Purchaser.`),
-          body(`I further acknowledge that if the Real Estate Transaction closes but the Commission is not remitted to the Purchaser by the Payment Due Date (${r('{{DUE_DATE}}')}, being fourteen (14) calendar days after the Expected Closing Date), Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, calculated daily, and shall be charged to my Firm Funds account. Such interest may be deducted from future commission purchase transactions or invoiced separately. My repayment obligations in the event of non-closing or commission deficiency are governed by the Commission Purchase Agreement.`),
+          body(`I acknowledge that a non-refundable Settlement Period Fee has been included in the calculation of the Purchase Price, covering the ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar day settlement period following the Expected Closing Date (${r('{{EXPECTED_CLOSING_DATE}}')}) during which the Brokerage is required to remit the Commission to the Purchaser.`),
+          body(`I further acknowledge that if the Commission has not been received by the Purchaser in full as of the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days after the Expected Closing Date (the "Late Interest Accrual Date"), Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, compounded daily on the Purchase Price (including any prior accrued and unpaid interest), and shall be charged to my Firm Funds account. Such interest may be deducted from future commission purchase transactions or invoiced separately. My repayment obligations in the event of non-closing or commission deficiency are governed by the Commission Purchase Agreement.`),
 
           // Notification
           heading2('NOTIFICATION OBLIGATION'),
@@ -637,8 +640,10 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           body('1.6 "Transaction" means a real estate transaction giving rise to a Commission Receivable.'),
           body('1.7 "Referral Fee" means the fee payable by Firm Funds to the Brokerage in connection with each commission purchase transaction, calculated as a percentage of the sum of the Purchase Discount and the Settlement Period Fee (each as defined in the applicable CPA). The applicable Referral Fee percentage for each Transaction shall be as set out in the applicable CPA, and may vary by Transaction.'),
           body('1.8 "Purchase Discount" means the fee charged by Firm Funds to the Agent for the commission purchase transaction, as calculated and set out in the applicable CPA. For clarity, the Purchase Discount does not include the Settlement Period Fee.'),
-          body('1.9 "Payment Due Date" means the date that is fourteen (14) calendar days following the Expected Closing Date as set out in the applicable CPA and IDP, by which the Brokerage must remit the Commission to Firm Funds.'),
+          body(`1.9 "Payment Due Date" means the date that is the Settlement Window (as defined in Article 3.6) following the Expected Closing Date as set out in the applicable CPA and IDP, by which the Brokerage must remit the Commission to Firm Funds. Unless modified under Article 3.6, the Settlement Window is ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days.`),
           body('1.10 "Remediation IDP" means an Irrevocable Direction to Pay executed by an Agent under Article 5.5(b) of the applicable CPA, directing the Brokerage to remit the Agent\'s next or subsequent commission receivable to Firm Funds in satisfaction of an outstanding balance owing on a prior commission purchase transaction. For greater certainty, a Remediation IDP is not associated with a new commission purchase transaction and does not give rise to any Purchase Discount, Settlement Period Fee, or Purchase Price.'),
+          body(`1.11 "Settlement Window" has the meaning set out in Article 3.6. The Settlement Window applicable to a given Transaction is fixed at the time the Agent's CPA is funded and is set out in the applicable CPA.`),
+          body(`1.12 "Late Settlement Strike" means an occurrence in which the Brokerage fails to remit the Commission for a Transaction in full by the Payment Due Date applicable to that Transaction, as tracked by Firm Funds for the purposes of Article 3.6.`),
 
           // Article 2: Cooperation — (#1) purchase language, (#4) tightened 2.3
           heading2('ARTICLE 2 — COOPERATION AND ACKNOWLEDGMENT'),
@@ -653,6 +658,7 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           body('3.3 The Brokerage agrees to process payment to Firm Funds no later than the Payment Due Date set out in the applicable IDP and CPA. Payment shall be made by electronic funds transfer to the account specified in the applicable IDP.'),
           body('3.4 In the event of a commission dispute, holdback, or adjustment that affects the amount payable under an IDP, the Brokerage shall: (a) promptly notify both the Agent and Firm Funds in writing; (b) remit to Firm Funds any undisputed or actually payable portion of the commission, less the Referral Fee under Article 4.4, up to the directed amount; and (c) withhold only the disputed, held-back, or not-yet-payable portion pending resolution or written instructions from Firm Funds.'),
           body('3.5 Remediation IDPs. The Brokerage acknowledges that, where a prior commission purchase transaction involving an Agent has resulted in an outstanding balance owing to Firm Funds (whether due to non-closing or commission deficiency), the Agent may be required under the applicable CPA to execute a Remediation IDP directing the Brokerage to remit the Agent\'s next eligible commission(s) to Firm Funds. The Brokerage agrees to honour any such Remediation IDP delivered to it by the Agent in accordance with the same procedures set out in Articles 3.1 through 3.4 and Article 4 for commission purchase IDPs, with the following modifications: (a) No Referral Fee. No Referral Fee shall be payable to the Brokerage in respect of a Remediation IDP, as the underlying transaction is not a new commission purchase. The Brokerage shall remit to Firm Funds the full commission amount otherwise payable to the Agent (after the Brokerage\'s standard commission split), up to the directed amount. (b) Successive Application. Where a single commission receivable is insufficient to satisfy the directed amount, the Brokerage acknowledges that the Agent may be required to execute successive Remediation IDPs in respect of subsequent commission receivables, and the Brokerage shall honour each such Remediation IDP delivered to it. (c) Agent Transfer. If the Brokerage receives notice that an Agent subject to an outstanding Remediation IDP obligation has transferred to another brokerage, the Brokerage shall: (i) notify Firm Funds in writing within two (2) business days; and (ii) remit to Firm Funds any commission earned by the Agent prior to the transfer that remains payable through the Brokerage, in accordance with any then-effective Remediation IDP.'),
+          body(`3.6 Settlement Window; Late Settlement Strikes and Auto-Extension. (a) The Settlement Window applicable to each Transaction is fixed at the time the Agent's CPA is funded and is set out in the applicable CPA. The default Settlement Window is ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date. (b) Firm Funds shall track each occurrence in which the Brokerage fails to remit the Commission for a Transaction in full by the Payment Due Date applicable to that Transaction (each, a "Late Settlement Strike"). (c) Upon the Brokerage accumulating ${r('{{LATE_STRIKE_THRESHOLD}}')} (${r('{{LATE_STRIKE_THRESHOLD}}')}) Late Settlement Strikes, the Settlement Window for all Transactions thereafter funded shall, by operation of this Agreement and without further notice, be extended to ${r('{{BUMPED_SETTLEMENT_DAYS}}')} (${r('{{BUMPED_SETTLEMENT_DAYS}}')}) calendar days (the "Extended Settlement Window"), and shall continue at the Extended Settlement Window until Firm Funds, in its sole discretion, restores the default Settlement Window in writing. (d) For greater certainty, an extension of the Settlement Window under this Article 3.6 does not modify the Payment Due Date applicable to any Transaction that was already funded prior to the extension; each Transaction's Payment Due Date is governed by the Settlement Window in effect at the time of its CPA funding. (e) Nothing in this Article 3.6 limits Firm Funds' other remedies under this Agreement or at law for the Brokerage's failure to remit any Commission by the applicable Payment Due Date.`),
 
           // Article 4: Commission Handling
           heading2('ARTICLE 4 — COMMISSION HANDLING AND REMITTANCE'),
@@ -780,7 +786,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
         ]),
         richParagraph([
           { text: '1.2 Payment Due Date. ', bold: true },
-          { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being fourteen (14) calendar days following the new Expected Closing Date.` },
+          { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being the Settlement Window applicable to this Transaction (as set out in the Original Agreement) following the new Expected Closing Date.` },
         ]),
         richParagraph([
           { text: '1.3 Face Value, Settlement Period Fee, and Purchase Price Unchanged. ', bold: true },
@@ -795,7 +801,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
         ]),
         richParagraph([
           { text: '1.2 Purchase Discount. ', bold: true },
-          { text: `The Purchase Discount is amended from ${r('{{OLD_PURCHASE_DISCOUNT}}')} to ${r('{{NEW_PURCHASE_DISCOUNT}}')}, calculated at $0.75 per $1,000.00 of Face Value per day for ${r('{{NEW_NUMBER_OF_DAYS}}')} days.` },
+          { text: `The Purchase Discount is amended from ${r('{{OLD_PURCHASE_DISCOUNT}}')} to ${r('{{NEW_PURCHASE_DISCOUNT}}')}, calculated at ${r('{{DISCOUNT_RATE}}')} of Face Value for ${r('{{NEW_NUMBER_OF_DAYS}}')} days.` },
         ]),
         richParagraph([
           { text: '1.3 Purchase Price. ', bold: true },
@@ -803,7 +809,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
         ]),
         richParagraph([
           { text: '1.4 Payment Due Date. ', bold: true },
-          { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being fourteen (14) calendar days following the new Expected Closing Date.` },
+          { text: `The Payment Due Date is amended from ${r('{{OLD_DUE_DATE}}')} to ${r('{{NEW_DUE_DATE}}')}, being the Settlement Window applicable to this Transaction (as set out in the Original Agreement) following the new Expected Closing Date.` },
         ]),
       ]
 
@@ -812,7 +818,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
     ? (isExtended
       ? [
           // FUNDED EXTENDED: agent owes additional discount fee
-          body('2.1 Additional Discount Fee. The Parties acknowledge that the change in the Expected Closing Date extends the period during which the Purchaser has carried the advance. For each additional calendar day between the original Expected Closing Date and the amended Expected Closing Date, an additional Purchase Discount charge shall accrue at $0.75 per $1,000.00 of Face Value per day.'),
+          body(`2.1 Additional Discount Fee. The Parties acknowledge that the change in the Expected Closing Date extends the period during which the Purchaser has carried the advance. For each additional calendar day between the original Expected Closing Date and the amended Expected Closing Date, an additional Purchase Discount charge shall accrue at ${r('{{DISCOUNT_RATE}}')} of Face Value.`),
           richParagraph([
             { text: '2.2 Additional Charge. ', bold: true },
             { text: `The total additional Purchase Discount resulting from this Amendment is ${r('{{FEE_ADJUSTMENT_DISPLAY}}')}. This amount shall be charged to the Seller's Firm Funds account as a balance owing, effective upon the execution of this Amendment. The outstanding balance may be deducted from future commission purchase transactions, invoiced separately, or demanded by the Purchaser at any time.` },
@@ -821,7 +827,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
         ]
       : [
           // FUNDED EARLIER: agent gets credit
-          body('2.1 Reduction in Purchase Discount. The Parties acknowledge that the earlier Expected Closing Date reduces the period during which the Purchaser carries the advance. The Purchase Discount under the Original Agreement shall be reduced by $0.75 per $1,000.00 of Face Value per day for each calendar day between the amended Expected Closing Date and the original Expected Closing Date.'),
+          body(`2.1 Reduction in Purchase Discount. The Parties acknowledge that the earlier Expected Closing Date reduces the period during which the Purchaser carries the advance. The Purchase Discount under the Original Agreement shall be reduced by ${r('{{DISCOUNT_RATE}}')} of Face Value for each calendar day between the amended Expected Closing Date and the original Expected Closing Date.`),
           richParagraph([
             { text: '2.2 Credit to Seller. ', bold: true },
             { text: `The total reduction in the Purchase Discount resulting from this Amendment is ${r('{{FEE_ADJUSTMENT_DISPLAY}}')}. This amount shall be credited to the Seller's Firm Funds account. Following the closing of the Real Estate Transaction, any net credit balance owing to the Seller shall be refunded by the Purchaser by electronic funds transfer.` },
