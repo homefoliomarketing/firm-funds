@@ -37,9 +37,26 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Redirect unauthenticated users to login (except login/auth/kyc-upload/kyc API routes/invite/magic-link/cron)
-  // Preserve the original URL so we can redirect back after login
-  if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/kyc-upload') && !pathname.startsWith('/api/kyc-') && !pathname.startsWith('/invite') && !pathname.startsWith('/api/magic-link') && !pathname.startsWith('/api/rate-limit') && !pathname.startsWith('/api/docusign/webhook') && !pathname.startsWith('/api/cron/')) {
+  // Redirect unauthenticated users to login except for these public paths.
+  // Use an explicit allowlist of EXACT prefixes (followed by '/' or end).
+  // Previously `startsWith('/api/kyc-')` would accidentally match a future
+  // `/api/kyc-admin-debug` route and bypass auth.
+  const PUBLIC_PATHS = [
+    '/login',
+    '/auth',
+    '/kyc-upload',
+    '/invite',
+    '/api/magic-link',
+    '/api/rate-limit',
+    '/api/docusign/webhook',
+    '/api/kyc-mobile-upload',
+    '/api/kyc-desktop-upload',
+    '/api/kyc-validate-token',
+  ]
+  const isPublic =
+    PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/')) ||
+    pathname.startsWith('/api/cron/')
+  if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     // Pass the original destination so login can redirect back

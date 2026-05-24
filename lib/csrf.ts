@@ -36,8 +36,10 @@ export function validateOrigin(request: Request): NextResponse | null {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // No origin or referer — likely server-side or API client call
-  // For browser-based CSRF, the browser always sends Origin on cross-origin requests
-  // So missing both headers means it's likely same-origin or non-browser — allow it
-  return null
+  // No origin or referer — reject state-changing requests. Previously this
+  // allowed the request through under the theory that "browser-based CSRF
+  // always has Origin" but: (1) some older browsers / proxies strip both,
+  // (2) attackers can submit form POSTs from non-browser clients to bypass
+  // the check. Require at least one of Origin/Referer matching ALLOWED.
+  return NextResponse.json({ error: 'Forbidden: missing Origin/Referer' }, { status: 403 })
 }

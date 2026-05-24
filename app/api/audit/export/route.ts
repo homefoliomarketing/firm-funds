@@ -72,8 +72,16 @@ export async function GET(request: Request) {
     query = query.lt('created_at', endDate.toISOString())
   }
   if (search) {
-    const searchTerm = `%${search}%`
-    query = query.or(`action.ilike.${searchTerm},entity_type.ilike.${searchTerm},actor_email.ilike.${searchTerm}`)
+    // Sanitize: strip characters that have special meaning to PostgREST's
+    // or() mini-DSL (comma, parens, period, percent, asterisk, colon).
+    // Without this, a search term like `x),id.eq.<other>` could broaden
+    // the filter. Admin-only route so the blast radius is limited, but
+    // defense in depth.
+    const safe = search.replace(/[,()%.*:]/g, '')
+    if (safe.length > 0) {
+      const searchTerm = `%${safe}%`
+      query = query.or(`action.ilike.${searchTerm},entity_type.ilike.${searchTerm},actor_email.ilike.${searchTerm}`)
+    }
   }
 
   const { data, error } = await query

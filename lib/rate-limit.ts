@@ -10,9 +10,18 @@ import { Redis } from '@upstash/redis'
 
 let redis: Redis | null = null
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
 function getRedis(): Redis | null {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    console.warn('[rate-limit] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN not set — rate limiting disabled')
+    if (isProduction()) {
+      // Production: rate limiting MUST be configured. Don't silently disable.
+      console.error('[rate-limit] CRITICAL: Upstash env vars missing in production. Rate limiting is OFF.')
+    } else {
+      console.warn('[rate-limit] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN not set — rate limiting disabled')
+    }
     return null
   }
   if (!redis) {
@@ -103,15 +112,28 @@ async function checkLimit(
   identifier: string
 ): Promise<RateLimitResult> {
   if (!limiter) {
-    // Rate limiting not configured — allow (fail open, but log warning)
+    // Production: fail CLOSED. A misconfigured Upstash means no rate
+    // limiting, which enables password spraying and token enumeration.
+    // Dev: fail open so local development isn't blocked.
+    if (isProduction()) {
+      return { allowed: false, remaining: 0, resetInSeconds: 60 }
+    }
     return { allowed: true, remaining: -1, resetInSeconds: 0 }
   }
 
-  const result = await limiter.limit(identifier)
-  return {
-    allowed: result.success,
-    remaining: result.remaining,
-    resetInSeconds: Math.ceil((result.reset - Date.now()) / 1000),
+  try {
+    const result = await limiter.limit(identifier)
+    return {
+      allowed: result.success,
+      remaining: result.remaining,
+      resetInSeconds: Math.ceil((result.reset - Date.now()) / 1000),
+    }
+  } catch (err) {
+    console.error('[rate-limit] Upstash limiter call threw:', err)
+    if (isProduction()) {
+      return { allowed: false, remaining: 0, resetInSeconds: 60 }
+    }
+    return { allowed: true, remaining: -1, resetInSeconds: 0 }
   }
 }
 

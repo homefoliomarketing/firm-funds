@@ -232,7 +232,11 @@ export function calculateCompoundDailyInterest(
 
   if (daysOverdue <= 0) return 0
 
-  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
+  // Daily rate that compounds to exactly LATE_INTEREST_RATE_PER_ANNUM (24%)
+  // over 365 days. The naive `rate / 365` decomposition compounds to ~27.1%
+  // effective APR over the year — matching the contract's plain reading of
+  // "24% per annum compounded daily" requires (1 + r_annual)^(1/365) - 1.
+  const dailyRate = Math.pow(1 + LATE_INTEREST_RATE_PER_ANNUM, 1 / 365) - 1
   const totalBalance = principal * Math.pow(1 + dailyRate, daysOverdue)
   return roundToCents(totalBalance - principal)
 }
