@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
+import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
 import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx, generateRemediationIdpDocx } from '@/lib/contract-docx'
 import { getChargeDays } from '@/lib/calculations'
@@ -57,7 +57,13 @@ function formatDate(dateStr: string): string {
 export async function getDocuSignStatus(): Promise<{ connected: boolean; consentUrl?: string }> {
   const connected = await isDocuSignConnected()
   if (!connected) {
-    return { connected: false, consentUrl: await getConsentUrl() }
+    // The connect route generates a one-time CSRF state cookie before
+    // redirecting to DocuSign. Linking directly to the DocuSign auth URL
+    // would skip that step and leave the admin vulnerable to OAuth CSRF.
+    if (!process.env.DOCUSIGN_INTEGRATION_KEY) {
+      return { connected: false }
+    }
+    return { connected: false, consentUrl: '/api/docusign/connect' }
   }
   return { connected: true }
 }

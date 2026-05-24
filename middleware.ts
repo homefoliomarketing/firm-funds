@@ -66,33 +66,36 @@ export async function middleware(request: NextRequest) {
 
   // For authenticated users: enforce role-based route access
   if (user) {
+    // Single profile read per request — used for is_active, must_reset_password,
+    // and role checks below. user_profiles.is_active=false means the user was
+    // deactivated; we sign them out immediately rather than letting their
+    // existing session ride to expiry.
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role, is_active, must_reset_password')
+      .eq('id', user.id)
+      .single()
+
+    if (profile && profile.is_active === false) {
+      await supabase.auth.signOut()
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return NextResponse.redirect(url)
+    }
+
     // Check if user must reset their password (first login after invite)
     // Skip if user already changed password (metadata flag set client-side)
     if (!pathname.startsWith('/change-password') && !pathname.startsWith('/api/') && !pathname.startsWith('/login') && !pathname.startsWith('/auth')) {
       const hasChangedPassword = user.user_metadata?.password_changed === true
-      if (!hasChangedPassword) {
-        const { data: pwProfile } = await supabase
-          .from('user_profiles')
-          .select('must_reset_password')
-          .eq('id', user.id)
-          .single()
-
-        if (pwProfile?.must_reset_password) {
-          const url = request.nextUrl.clone()
-          url.pathname = '/change-password'
-          return NextResponse.redirect(url)
-        }
+      if (!hasChangedPassword && profile?.must_reset_password) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/change-password'
+        return NextResponse.redirect(url)
       }
     }
 
     // If on login page, redirect to appropriate dashboard (or redirect param if present)
     if (pathname.startsWith('/login')) {
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
       // If no profile exists, sign them out and let them stay on login
       // (prevents redirect loop when profile row is missing)
       if (!profile) {
@@ -132,12 +135,6 @@ export async function middleware(request: NextRequest) {
     // Check role-based access for protected routes
     for (const [routePrefix, allowedRoles] of Object.entries(ROUTE_ROLES)) {
       if (pathname.startsWith(routePrefix)) {
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-
         if (!profile || !allowedRoles.includes(profile.role)) {
           // User doesn't have the right role or no profile — sign out and redirect to login
           await supabase.auth.signOut()
