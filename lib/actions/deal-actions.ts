@@ -184,7 +184,10 @@ export async function submitDeal(formData: {
     // Build notes with transaction type
     const noteText = `Transaction type: ${formData.transactionType}${formData.notes?.trim() ? '\n' + formData.notes.trim() : ''}`
 
-    // Insert the deal with server-calculated values
+    // Insert the deal with server-calculated values. Lock the settlement
+    // window at submission so the CPA the agent signs and the system's
+    // enforcement can never diverge if the brokerage's effective window
+    // changes later (e.g., a 5th strike auto-bumps them mid-flight).
     const { data: newDeal, error: insertError } = await supabase
       .from('deals')
       .insert({
@@ -199,6 +202,7 @@ export async function submitDeal(formData: {
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
         settlement_period_fee: calc.settlementPeriodFee,
+        settlement_days_at_funding: settlementDays,
         advance_amount: calc.advanceAmount,
         brokerage_referral_fee: calc.brokerageReferralFee,
         brokerage_referral_pct: referralPct,
@@ -291,7 +295,7 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
 
     const { data: agentData } = await supabase
       .from('agents')
-      .select('brokerage_id, account_balance, account_activated_at, brokerages(referral_fee_percentage)')
+      .select('brokerage_id, account_balance, account_activated_at, brokerages(referral_fee_percentage, settlement_days_override, auto_bumped_to_14_days_at)')
       .eq('id', input.agentId)
       .single()
 
@@ -306,12 +310,15 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
       return { success: false, error: 'Brokerage referral fee not configured.' }
     }
 
+    const settlementDays = effectiveSettlementDays(brokerage)
+
     const result = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     const outstandingBalance = agentData.account_balance || 0
@@ -327,6 +334,7 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
         brokerageReferralPct: referralPct,
         outstandingBalance,
         estimatedBalanceDeduction,
+        settlementPeriodDays: settlementDays,
         agentActivated: !!agentData.account_activated_at,
       },
     }
@@ -390,12 +398,14 @@ export async function submitDealAsBrokerage(formData: {
     }
 
     const daysUntilClosing = calcDaysUntilClosing(formData.closingDate)
+    const settlementDays = effectiveSettlementDays(brokerage)
     const calc = calculateDeal({
       grossCommission: formData.grossCommission,
       brokerageSplitPct: formData.brokerageSplitPct,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
     if (calc.advanceAmount <= 0) {
       return { success: false, error: 'The discount fee exceeds the net commission. This deal cannot be advanced.' }
@@ -406,6 +416,8 @@ export async function submitDealAsBrokerage(formData: {
     // Use service-role client for the INSERT — there is no RLS policy allowing
     // brokerage_admin role to write to `deals`. Auth + ownership checks above
     // already gate this path; we trust the verified inputs.
+    // Lock the settlement window at submission so the CPA the agent signs and
+    // the system's enforcement can never diverge later.
     const adminSupabase = createServiceRoleClient()
     const { data: newDeal, error: insertError } = await adminSupabase
       .from('deals')
@@ -421,6 +433,7 @@ export async function submitDealAsBrokerage(formData: {
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
         settlement_period_fee: calc.settlementPeriodFee,
+        settlement_days_at_funding: settlementDays,
         advance_amount: calc.advanceAmount,
         brokerage_referral_fee: calc.brokerageReferralFee,
         brokerage_referral_pct: referralPct,
@@ -595,7 +608,11 @@ export async function updateDealStatus(input: {
         return { success: false, error: 'Brokerage referral fee percentage is not configured. Cannot fund deal.' }
       }
 
-      const settlementDays = effectiveSettlementDays(brokerage)
+      // Settlement window: prefer the snapshot taken at submission so the
+      // CPA the agent signed and the system enforcement stay consistent
+      // even if the brokerage's effective window changed between submission
+      // and funding (e.g., they hit strike #5 on a different deal).
+      const settlementDays = deal.settlement_days_at_funding ?? effectiveSettlementDays(brokerage)
 
       const calc = calculateDeal({
         grossCommission: deal.gross_commission,
