@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
-  CreditCard, Eye, EyeOff, Loader2
+  CreditCard, Eye, EyeOff, Loader2, ClipboardList
 } from 'lucide-react'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
@@ -265,6 +265,7 @@ export default function AdminDashboard() {
           <nav aria-label="Admin quick links" className="flex items-center gap-2 flex-wrap">
             {[
               { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
+              { label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
               { label: 'Payments', icon: DollarSign, path: '/admin/payments' },
               { label: 'Audit Trail', icon: Shield, path: '/admin/audit' },
