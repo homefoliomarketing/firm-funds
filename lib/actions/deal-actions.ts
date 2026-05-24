@@ -1440,12 +1440,17 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
 const DELETABLE_DEAL_STATUSES = ['under_review', 'cancelled', 'denied'] as const
 
 export async function deleteDeal(input: { dealId: string }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  // Mutations use the service-role client so we don't depend on admin RLS
+  // permitting DELETE on closing_date_amendments / deal_documents (migration
+  // 056 removed those). Authorization was already proven above.
+  const serviceClient = createServiceRoleClient()
 
   try {
     // 1. Verify deal is in a deletable status
-    const { data: deal, error: fetchErr } = await supabase
+    const { data: deal, error: fetchErr } = await serviceClient
       .from('deals')
       .select('id, status, property_address')
       .eq('id', input.dealId)
@@ -1463,7 +1468,7 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
     }
 
     // 2. Get storage paths for cleanup
-    const { data: docs } = await supabase
+    const { data: docs } = await serviceClient
       .from('deal_documents')
       .select('file_path')
       .eq('deal_id', input.dealId)
@@ -1473,7 +1478,7 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
     //    they must be removed explicitly because their FKs are ON DELETE RESTRICT
     //    (migration 049). remediation_deals is not cleaned up here: if one exists
     //    against a deletable deal something is wrong; refuse the delete.
-    const { count: remediationCount } = await supabase
+    const { count: remediationCount } = await serviceClient
       .from('remediation_deals')
       .select('id', { count: 'exact', head: true })
       .eq('failed_deal_id', input.dealId)
@@ -1485,23 +1490,23 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
       }
     }
 
-    await supabase.from('esignature_envelopes').delete().eq('deal_id', input.dealId)
-    await supabase.from('closing_date_amendments').delete().eq('deal_id', input.dealId)
+    await serviceClient.from('esignature_envelopes').delete().eq('deal_id', input.dealId)
+    await serviceClient.from('closing_date_amendments').delete().eq('deal_id', input.dealId)
 
     // 4. Cascading children (deal_documents, underwriting_checklist) will be
     //    handled by ON DELETE CASCADE, but clear deal_documents first so we can
     //    remove the storage files (DB row before storage avoids orphan refs).
-    await supabase.from('deal_documents').delete().eq('deal_id', input.dealId)
-    await supabase.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
+    await serviceClient.from('deal_documents').delete().eq('deal_id', input.dealId)
+    await serviceClient.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
 
     if (docs && docs.length > 0) {
-      await supabase.storage
+      await serviceClient.storage
         .from('deal-documents')
         .remove(docs.map(d => d.file_path))
     }
 
     // 5. Delete the deal itself
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await serviceClient
       .from('deals')
       .delete()
       .eq('id', input.dealId)
