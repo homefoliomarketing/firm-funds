@@ -310,29 +310,31 @@ export async function markRemediationDealRemitted(input: {
     const fullyCleared = newPrincipal < 0.005 && newFailedDealInterestCharged < 0.005
 
     // -----------------------------------------------------------------------
-    // Apply the credit to the agent's ledger as a single 'credit' transaction
+    // Apply the remittance: atomically post the unposted-interest catch-up
+    // (if any) AND the credit row in one transaction (RPC from migration 052).
+    // Replaces the prior two-step pattern that would leave a phantom credit
+    // when applyToUnposted > 0 — the original code debited the full credit
+    // amount but never recorded the matching interest row, so the agent's
+    // balance ended up understated by applyToUnposted permanently.
     // -----------------------------------------------------------------------
     const creditAmount = Math.round((remittedAmount - surplus) * 100) / 100  // what actually paid down the failed deal
     const surplusAmount = surplus
+    const description = `Remediation IDP payment received — ${rem.property_address} (${rem.brokerage_legal_name}). Applied to ${failedDeal.property_address}.${surplusAmount > 0.005 ? ` Surplus ${formatMoney(surplusAmount)} to be refunded to agent.` : ''}`
 
-    const newAgentBalance = Math.round(((agent.account_balance || 0) - creditAmount) * 100) / 100
-
-    await serviceClient
-      .from('agents')
-      .update({ account_balance: newAgentBalance })
-      .eq('id', agent.id)
-
-    await serviceClient
-      .from('agent_transactions')
-      .insert({
-        agent_id: agent.id,
-        deal_id: failedDeal.id,
-        type: 'credit',
-        amount: -creditAmount,  // negative = reduces balance
-        running_balance: newAgentBalance,
-        description: `Remediation IDP payment received — ${rem.property_address} (${rem.brokerage_legal_name}). Applied to ${failedDeal.property_address}.${surplusAmount > 0.005 ? ` Surplus ${formatMoney(surplusAmount)} to be refunded to agent.` : ''}`,
-        created_by: user.id,
+    const { data: remitResult, error: remitErr } = await serviceClient
+      .rpc('apply_remediation_remittance', {
+        p_agent_id: agent.id,
+        p_credit_amount: creditAmount,
+        p_unposted_interest_amount: applyToUnposted,
+        p_failed_deal_id: failedDeal.id,
+        p_credit_description: description,
+        p_created_by: user.id,
       })
+    if (remitErr) {
+      console.error('applyFailedDealRemittance RPC error:', remitErr.message)
+      return { success: false, error: `Failed to apply remittance: ${remitErr.message}` }
+    }
+    const newAgentBalance = Number((remitResult as any)?.new_balance) || 0
 
     // -----------------------------------------------------------------------
     // Update the failed deal: drop principal/interest charged, set 'cured' if done

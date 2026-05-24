@@ -129,10 +129,14 @@ export async function GET(request: Request) {
     // 2. Settlement Period Reminders (new)
     // =======================================================================
 
-    // Fetch funded deals with settlement info for reminders
+    // Fetch funded deals with settlement info for reminders.
+    // settlement_days_at_funding is the per-deal locked window (7 standard,
+    // 14 for brokerages auto-bumped after the 5-strike threshold). Use the
+    // snapshot, not the global constant, so reminders fire on the deal's
+    // actual deadline.
     const { data: fundedDeals } = await supabase
       .from('deals')
-      .select('id, property_address, closing_date, due_date, advance_amount, amount_due_from_brokerage, settlement_period_fee, agent_id, brokerage_id, agents(first_name, email), brokerages(name, email, broker_of_record_email)')
+      .select('id, property_address, closing_date, due_date, advance_amount, amount_due_from_brokerage, settlement_period_fee, settlement_days_at_funding, agent_id, brokerage_id, agents(first_name, email), brokerages(name, email, broker_of_record_email)')
       .eq('status', 'funded')
       .not('due_date', 'is', null)
 
@@ -146,6 +150,10 @@ export async function GET(request: Request) {
 
         // Skip pre-migration deals
         if (!deal.settlement_period_fee || deal.settlement_period_fee <= 0) continue
+
+        // Per-deal settlement window: 7 days standard, 14 for bumped brokerages.
+        // Fall back to the global constant for legacy deals with no snapshot.
+        const dealSettlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
 
         const closingDate = new Date(deal.closing_date + 'T00:00:00')
         const todayDate = new Date(today + 'T00:00:00')
@@ -166,12 +174,12 @@ export async function GET(request: Request) {
 
         // Closing day (daysSinceClosing === 0): brokerage's settlement window starts today
         if (daysSinceClosing === 0) {
-          reminderParams.daysRemaining = SETTLEMENT_PERIOD_DAYS
+          reminderParams.daysRemaining = dealSettlementDays
           await sendSettlementReminderClosingDay(reminderParams)
           remindersSent++
         }
-        // Mid-window reminder: 3 days remaining in the settlement window
-        else if (daysSinceClosing === SETTLEMENT_PERIOD_DAYS - 3) {
+        // Mid-window reminder: 3 days remaining in the deal's settlement window
+        else if (daysSinceClosing === dealSettlementDays - 3) {
           reminderParams.daysRemaining = 3
           await sendSettlementReminder3Day(reminderParams)
           remindersSent++

@@ -21,7 +21,7 @@ interface DealRow {
   failure_type: 'non_closing' | 'commission_deficiency' | null
   failure_reason: string | null
   outstanding_balance: number | null
-  cure_election: 'cash' | 'commission_assignment' | null
+  cure_election: 'cash_repayment' | 'commission_assignment' | null
   cure_election_at: string | null
   cure_election_deadline: string | null
   status: string
@@ -48,7 +48,7 @@ export default function CureElectionPage({ params }: PageProps) {
   const [deal, setDeal] = useState<DealRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<'cash' | 'commission_assignment' | null>(null)
+  const [selected, setSelected] = useState<'cash_repayment' | 'commission_assignment' | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -212,10 +212,10 @@ export default function CureElectionPage({ params }: PageProps) {
                 <div>
                   <p className="text-sm font-bold text-status-teal mb-1">Election Recorded</p>
                   <p className="text-sm text-foreground mb-2">
-                    You chose <strong>{deal.cure_election === 'cash' ? 'Cash Repayment' : 'Assignment of Next Commission(s)'}</strong>
+                    You chose <strong>{deal.cure_election === 'cash_repayment' ? 'Cash Repayment' : 'Assignment of Next Commission(s)'}</strong>
                     {deal.cure_election_at && ` on ${formatDeadline(deal.cure_election_at)}`}.
                   </p>
-                  {deal.cure_election === 'cash' ? (
+                  {deal.cure_election === 'cash_repayment' ? (
                     <div className="text-xs text-muted-foreground leading-relaxed space-y-2 mt-3">
                       <p><strong className="text-foreground">Next steps:</strong> Pay the full outstanding balance to Firm Funds within 30 days of the failure notice by electronic funds transfer.</p>
                       <p>Banking details for the transfer have been sent to your email. If you don't see them, reply to that message and we'll resend.</p>
@@ -254,20 +254,20 @@ export default function CureElectionPage({ params }: PageProps) {
             {/* Option A: Cash */}
             <button
               type="button"
-              onClick={() => setSelected('cash')}
+              onClick={() => setSelected('cash_repayment')}
               disabled={submitting}
               className={`w-full text-left mb-3 rounded-xl border transition-all p-5 sm:p-6 ${
-                selected === 'cash'
+                selected === 'cash_repayment'
                   ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
                   : 'border-border/40 bg-card hover:border-border'
               }`}
-              aria-pressed={selected === 'cash'}
+              aria-pressed={selected === 'cash_repayment'}
             >
               <div className="flex items-start gap-4">
                 <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                  selected === 'cash' ? 'bg-primary/20' : 'bg-secondary/80'
+                  selected === 'cash_repayment' ? 'bg-primary/20' : 'bg-secondary/80'
                 }`}>
-                  <DollarSign className={selected === 'cash' ? 'text-primary' : 'text-muted-foreground'} size={22} />
+                  <DollarSign className={selected === 'cash_repayment' ? 'text-primary' : 'text-muted-foreground'} size={22} />
                 </div>
                 <div className="flex-1">
                   <p className="text-base font-bold text-foreground mb-1">Option A — Pay from Your Own Funds</p>

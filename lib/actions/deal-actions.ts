@@ -648,7 +648,10 @@ export async function updateDealStatus(input: {
       updateData.settlement_days_at_funding = settlementDays
       updateData.payment_status = 'pending'
 
-      // Balance deduction: if agent owes money, deduct from advance
+      // Balance deduction: if agent owes money, deduct from advance.
+      // Atomic via apply_agent_balance_delta RPC (migration 052) so the
+      // balance update and ledger insert cannot drift apart under
+      // concurrent interest accruals on the same agent.
       const { data: agentForBalance } = await supabase
         .from('agents')
         .select('id, account_balance')
@@ -658,26 +661,19 @@ export async function updateDealStatus(input: {
       const outstandingBalance = agentForBalance?.account_balance || 0
       if (outstandingBalance > 0 && calc.advanceAmount > 0) {
         const deductAmount = Math.min(outstandingBalance, calc.advanceAmount)
-        const newBalance = outstandingBalance - deductAmount
 
-        // Update agent balance
-        await supabase
-          .from('agents')
-          .update({ account_balance: newBalance })
-          .eq('id', deal.agent_id)
-
-        // Record deduction in ledger
-        await supabase
-          .from('agent_transactions')
-          .insert({
-            agent_id: deal.agent_id,
-            deal_id: deal.id,
-            type: 'balance_deduction',
-            amount: -deductAmount,
-            running_balance: newBalance,
-            description: `Balance deduction from advance — ${deal.property_address}`,
-            created_by: user.id,
+        const { error: rpcErr } = await supabase
+          .rpc('apply_agent_balance_delta', {
+            p_agent_id: deal.agent_id,
+            p_delta: -deductAmount,
+            p_type: 'balance_deduction',
+            p_description: `Balance deduction from advance — ${deal.property_address}`,
+            p_deal_id: deal.id,
+            p_created_by: user.id,
           })
+        if (rpcErr) {
+          return { success: false, error: `Failed to deduct balance: ${rpcErr.message}` }
+        }
 
         updateData.balance_deducted = deductAmount
       }
@@ -1983,31 +1979,27 @@ export async function markDealFailedToClose(input: {
 
     const { data: agent } = await serviceClient
       .from('agents')
-      .select('id, account_balance, first_name, last_name, email')
+      .select('id, first_name, last_name, email')
       .eq('id', deal.agent_id)
       .single()
 
-    const currentBalance = Number(agent?.account_balance) || 0
-    const newBalance = currentBalance + input.outstandingAmount
-
-    await serviceClient
-      .from('agents')
-      .update({ account_balance: newBalance })
-      .eq('id', deal.agent_id)
-
-    await serviceClient
-      .from('agent_transactions')
-      .insert({
-        agent_id: deal.agent_id,
-        deal_id: deal.id,
-        type: 'failed_deal_balance',
-        amount: input.outstandingAmount,
-        running_balance: newBalance,
-        description: input.failureType === 'non_closing'
+    // Atomic balance + ledger write via RPC (migration 052). The previous
+    // read-modify-write could race with concurrent interest accruals.
+    const { error: rpcErr } = await serviceClient
+      .rpc('apply_agent_balance_delta', {
+        p_agent_id: deal.agent_id,
+        p_delta: input.outstandingAmount,
+        p_type: 'failed_deal_balance',
+        p_description: input.failureType === 'non_closing'
           ? `Failed deal — full Purchase Price owed (${deal.property_address})`
           : `Commission deficiency — shortfall owed (${deal.property_address})`,
-        created_by: user.id,
+        p_deal_id: deal.id,
+        p_created_by: user.id,
       })
+    if (rpcErr) {
+      console.error('markDealFailedToClose balance RPC error:', rpcErr.message)
+      return { success: false, error: `Failed to record balance owed: ${rpcErr.message}` }
+    }
 
     await logAuditEvent({
       action: 'deal.failed_to_close',
@@ -2047,12 +2039,12 @@ export async function markDealFailedToClose(input: {
 
 export async function submitCureElection(input: {
   dealId: string
-  election: 'cash' | 'commission_assignment'
+  election: 'cash_repayment' | 'commission_assignment'
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
-  if (input.election !== 'cash' && input.election !== 'commission_assignment') {
+  if (input.election !== 'cash_repayment' && input.election !== 'commission_assignment') {
     return { success: false, error: 'Invalid election' }
   }
 

@@ -366,7 +366,7 @@ interface Deal {
   failure_type: 'non_closing' | 'commission_deficiency' | null
   failure_reason: string | null
   outstanding_balance: number | null
-  cure_election: 'cash' | 'commission_assignment' | null
+  cure_election: 'cash_repayment' | 'commission_assignment' | null
   cure_election_at: string | null
   cure_election_deadline: string | null
   failed_deal_interest_charged: number | null

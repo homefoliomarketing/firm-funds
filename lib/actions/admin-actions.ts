@@ -67,24 +67,30 @@ export async function recordLateStrike(input: {
       .update({ late_strike_recorded: true })
       .eq('id', deal.id)
 
+    // Atomic strike increment + conditional bump via RPC (migration 052).
+    // Previous read-modify-write could race: two concurrent strikes at count
+    // 4 could both compute newCount=5 and both write 5, missing one strike
+    // and double-firing the bump audit entry.
+    const { data: strikeRows, error: strikeErr } = await serviceClient
+      .rpc('record_brokerage_late_strike', {
+        p_brokerage_id: deal.brokerage_id,
+        p_strike_threshold: BROKERAGE_LATE_STRIKE_THRESHOLD,
+      })
+
+    if (strikeErr || !strikeRows || !Array.isArray(strikeRows) || strikeRows.length === 0) {
+      return { success: false, error: `Failed to record strike: ${strikeErr?.message || 'unknown error'}` }
+    }
+
+    const newCount = Number((strikeRows[0] as any).new_strike_count) || 0
+    const shouldBump = Boolean((strikeRows[0] as any).bumped_now)
+
+    // Fetch brokerage name for audit metadata (no longer pre-fetched above).
     const { data: brokerage } = await serviceClient
       .from('brokerages')
-      .select('id, name, late_strike_count, auto_bumped_to_14_days_at')
+      .select('id, name')
       .eq('id', deal.brokerage_id)
       .single()
-
     if (!brokerage) return { success: false, error: 'Brokerage not found' }
-
-    const newCount = (brokerage.late_strike_count || 0) + 1
-    const shouldBump = newCount >= BROKERAGE_LATE_STRIKE_THRESHOLD && !brokerage.auto_bumped_to_14_days_at
-
-    const brokeragePatch: Record<string, any> = { late_strike_count: newCount }
-    if (shouldBump) brokeragePatch.auto_bumped_to_14_days_at = new Date().toISOString()
-
-    await serviceClient
-      .from('brokerages')
-      .update(brokeragePatch)
-      .eq('id', brokerage.id)
 
     await logAuditEvent({
       action: 'brokerage.late_strike_recorded',

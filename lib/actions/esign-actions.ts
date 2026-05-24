@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope, getConsentUrl } from '@/lib/docusign'
 import { logAuditEvent } from '@/lib/audit'
 import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx, generateRemediationIdpDocx } from '@/lib/contract-docx'
+import { getChargeDays } from '@/lib/calculations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
   SETTLEMENT_PERIOD_DAYS,
@@ -130,7 +131,15 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{PURCHASE_DISCOUNT}}': formatCurrency(deal.discount_fee),
       '{{SETTLEMENT_PERIOD_FEE}}': formatCurrency(deal.settlement_period_fee || 0),
       '{{TOTAL_FEES}}': formatCurrency((deal.discount_fee || 0) + (deal.settlement_period_fee || 0)),
-      '{{NUMBER_OF_DAYS}}': deal.days_until_closing?.toString() || 'N/A',
+      // The CPA's printed discount calculation must reconcile with what is
+      // actually charged. effectiveDays = getChargeDays(days_until_closing) =
+      // days_until_closing - 1 + RETURN_PROCESSING_DAYS. Article 3.2's text
+      // describes the period as "from the day following the Funding Date to
+      // the day before the Expected Closing Date" so the count matches the
+      // charged days (closing day itself is not charged).
+      '{{NUMBER_OF_DAYS}}': deal.days_until_closing
+        ? getChargeDays(deal.days_until_closing).toString()
+        : 'N/A',
       '{{SETTLEMENT_PERIOD_DAYS}}': String(dealSettlementDays),
       '{{LATE_INTEREST_GRACE_DAYS}}': String(LATE_INTEREST_GRACE_DAYS_FROM_CLOSING),
       '{{LATE_STRIKE_THRESHOLD}}': String(BROKERAGE_LATE_STRIKE_THRESHOLD),
@@ -642,7 +651,10 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
     const scenario = amendment.adjustment_scenario || 'approved_recalc'
 
     const fundingDate = deal.funding_date || new Date().toISOString().split('T')[0]
-    const newDaysNum = Math.ceil((new Date(amendment.new_closing_date + 'T00:00:00Z').getTime() - new Date(fundingDate + 'T00:00:00Z').getTime()) / (1000 * 60 * 60 * 24))
+    // Raw days between funding and new closing; the printed value is the
+    // chargeable subset (getChargeDays), matching how Article 3.2 is now worded.
+    const rawDaysToClosing = Math.ceil((new Date(amendment.new_closing_date + 'T00:00:00Z').getTime() - new Date(fundingDate + 'T00:00:00Z').getTime()) / (1000 * 60 * 60 * 24))
+    const newDaysNum = getChargeDays(rawDaysToClosing)
 
     const contractData: Record<string, string> = {
       '{{AMENDMENT_DATE}}': formatDate(new Date().toISOString().split('T')[0]),
