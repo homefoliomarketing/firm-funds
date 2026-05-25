@@ -349,7 +349,7 @@ interface Deal {
   due_date: string | null; payment_status: string
   funding_date: string | null
   repayment_date: string | null; repayment_amount: number | null
-  eft_transfers: { amount: number; date: string; confirmed: boolean; reference?: string }[] | null
+  eft_transfers: { id: string; amount: number; transfer_date: string; confirmed: boolean; reference?: string | null }[] | null
   brokerage_payments: { id: string; amount: number; date: string; reference?: string | null; method?: string | null; status: 'pending' | 'confirmed' | 'rejected'; submitted_by_role?: string | null }[] | null
   source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
@@ -661,7 +661,7 @@ export default function DealDetailPage() {
     if (!profile || (profile.role !== 'super_admin' && profile.role !== 'firm_funds_admin')) { router.push('/login'); return }
     const { data: dealData, error: dealError } = await supabase
       .from('deals')
-      .select('*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role)')
+      .select('*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role), eft_transfers(id, amount, transfer_date, confirmed, reference)')
       .eq('id', dealId)
       .single()
     if (dealError || !dealData) { router.push('/admin'); return }
@@ -1729,7 +1729,7 @@ export default function DealDetailPage() {
 
             {/* EFT TOTAL TRACKER */}
             {(() => {
-              const eftTotal = (deal.eft_transfers || []).reduce((sum, t) => sum + t.amount, 0)
+              const eftTotal = (deal.eft_transfers || []).reduce((sum, t) => sum + Number(t.amount || 0), 0)
               const expected = deal.advance_amount
               const diff = expected - eftTotal
               const isMatch = Math.abs(diff) < 0.01
@@ -1755,12 +1755,12 @@ export default function DealDetailPage() {
 
             {deal.eft_transfers && deal.eft_transfers.length > 0 ? (
               <div className="space-y-2">
-                {deal.eft_transfers.map((eft, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
+                {deal.eft_transfers.map((eft) => (
+                  <div key={eft.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
                     <div>
-                      <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(eft.amount)}</p>
+                      <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(Number(eft.amount || 0))}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(eft.date)}{eft.reference ? ` · Ref: ${eft.reference}` : ''}
+                        {formatDate(eft.transfer_date)}{eft.reference ? ` · Ref: ${eft.reference}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1774,7 +1774,7 @@ export default function DealDetailPage() {
                           variant="outline"
                           size="sm"
                           onClick={async () => {
-                            const result = await confirmEftTransfer({ dealId: deal.id, transferIndex: idx })
+                            const result = await confirmEftTransfer({ transferId: eft.id })
                             if (result.success) {
                               setDeal(prev => prev ? { ...prev, ...result.data } : null)
                             }
@@ -1789,7 +1789,7 @@ export default function DealDetailPage() {
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         onClick={async () => {
-                          const result = await removeEftTransfer({ dealId: deal.id, transferIndex: idx })
+                          const result = await removeEftTransfer({ transferId: eft.id })
                           if (result.success) {
                             setDeal(prev => prev ? { ...prev, ...result.data } : null)
                           }

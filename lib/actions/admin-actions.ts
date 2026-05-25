@@ -1693,6 +1693,12 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
 // EFT Transfer Tracking
 // ============================================================================
 
+// Embed shape matches the loadDealData() select in app/(dashboard)/admin/deals/[id]/page.tsx.
+// Keeping the embed inside both the action response and the page reader avoids
+// drift between the two.
+const EFT_DEAL_SELECT =
+  '*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role), eft_transfers(id, amount, transfer_date, confirmed, reference)'
+
 export async function recordEftTransfer(input: {
   dealId: string
   amount: number
@@ -1706,43 +1712,46 @@ export async function recordEftTransfer(input: {
     if (input.amount <= 0) return { success: false, error: 'Amount must be greater than 0' }
     if (input.amount > 25000) return { success: false, error: 'Maximum EFT transfer is $25,000 per day' }
 
-    // Fetch current deal
+    // Verify the deal exists and is in funded status. The actual insert below
+    // touches a different table so it can't enforce the status itself.
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, status, advance_amount, eft_transfers')
+      .select('id, status')
       .eq('id', input.dealId)
       .single()
 
     if (dealError || !deal) return { success: false, error: 'Deal not found' }
     if (deal.status !== 'funded') return { success: false, error: 'EFT transfers can only be recorded on funded deals' }
 
-    // Add new transfer to the JSONB array
-    const existingTransfers = deal.eft_transfers || []
-    const newTransfer = {
-      amount: input.amount,
-      date: input.date,
-      confirmed: false,
-      ...(input.reference ? { reference: input.reference } : {}),
-    }
-    const updatedTransfers = [...existingTransfers, newTransfer]
-
-    const { data: updatedDeal, error: updateError } = await supabase
-      .from('deals')
-      .update({ eft_transfers: updatedTransfers })
-      .eq('id', input.dealId)
+    const { data: inserted, error: insertError } = await supabase
+      .from('eft_transfers')
+      .insert({
+        deal_id: input.dealId,
+        amount: input.amount,
+        transfer_date: input.date,
+        reference: input.reference || null,
+        recorded_by_user_id: user.id,
+      })
       .select()
       .single()
 
-    if (updateError) {
-      console.error('EFT transfer error:', updateError.message)
-      return { success: false, error: `Failed to record transfer: ${updateError.message}` }
+    if (insertError || !inserted) {
+      console.error('EFT transfer error:', insertError?.message)
+      return { success: false, error: `Failed to record transfer: ${insertError?.message || 'unknown error'}` }
     }
+
+    const { data: updatedDeal } = await supabase
+      .from('deals')
+      .select(EFT_DEAL_SELECT)
+      .eq('id', input.dealId)
+      .single()
 
     await logAuditEvent({
       action: 'eft.record',
       entityType: 'deal',
       entityId: input.dealId,
-      metadata: { amount: input.amount, date: input.date },
+      severity: 'critical',
+      metadata: { transfer_id: inserted.id, amount: input.amount, date: input.date },
     })
 
     return { success: true, data: updatedDeal }
@@ -1753,45 +1762,47 @@ export async function recordEftTransfer(input: {
 }
 
 export async function confirmEftTransfer(input: {
-  dealId: string
-  transferIndex: number
+  transferId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (!input.transferId) return { success: false, error: 'Transfer id is required' }
+
   try {
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('id, eft_transfers')
-      .eq('id', input.dealId)
-      .single()
-
-    if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-    const transfers = deal.eft_transfers || []
-    if (input.transferIndex < 0 || input.transferIndex >= transfers.length) {
-      return { success: false, error: 'Invalid transfer index' }
-    }
-
-    transfers[input.transferIndex].confirmed = true
-
-    const { data: updatedDeal, error: updateError } = await supabase
-      .from('deals')
-      .update({ eft_transfers: transfers })
-      .eq('id', input.dealId)
+    // CAS guard: only flip from confirmed=false. maybeSingle() returns null
+    // for a 0-row update (already confirmed) rather than throwing.
+    const { data: confirmed, error: updateError } = await supabase
+      .from('eft_transfers')
+      .update({
+        confirmed: true,
+        confirmed_at: new Date().toISOString(),
+        confirmed_by_user_id: user.id,
+      })
+      .eq('id', input.transferId)
+      .eq('confirmed', false)
       .select()
-      .single()
+      .maybeSingle()
 
     if (updateError) {
       return { success: false, error: `Failed to confirm transfer: ${updateError.message}` }
     }
+    if (!confirmed) {
+      return { success: false, error: 'This transfer is missing or has already been confirmed' }
+    }
+
+    const { data: updatedDeal } = await supabase
+      .from('deals')
+      .select(EFT_DEAL_SELECT)
+      .eq('id', confirmed.deal_id)
+      .single()
 
     await logAuditEvent({
       action: 'eft.confirm',
       entityType: 'deal',
-      entityId: input.dealId,
+      entityId: confirmed.deal_id,
       severity: 'critical',
-      metadata: { transfer_index: input.transferIndex, transfer: transfers[input.transferIndex] },
+      metadata: { transfer_id: input.transferId, transfer: confirmed },
     })
 
     return { success: true, data: updatedDeal }
@@ -1801,46 +1812,42 @@ export async function confirmEftTransfer(input: {
 }
 
 export async function removeEftTransfer(input: {
-  dealId: string
-  transferIndex: number
+  transferId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (!input.transferId) return { success: false, error: 'Transfer id is required' }
+
   try {
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('id, eft_transfers')
-      .eq('id', input.dealId)
-      .single()
-
-    if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-    const transfers = deal.eft_transfers || []
-    if (input.transferIndex < 0 || input.transferIndex >= transfers.length) {
-      return { success: false, error: 'Invalid transfer index' }
-    }
-
-    const removedTransfer = transfers[input.transferIndex]
-    transfers.splice(input.transferIndex, 1)
-
-    const { data: updatedDeal, error: updateError } = await supabase
-      .from('deals')
-      .update({ eft_transfers: transfers })
-      .eq('id', input.dealId)
+    // DELETE ... RETURNING in one shot so the audit log captures the full row
+    // contents and no concurrent confirm can race between our SELECT and DELETE.
+    const { data: removed, error: deleteError } = await supabase
+      .from('eft_transfers')
+      .delete()
+      .eq('id', input.transferId)
       .select()
-      .single()
+      .maybeSingle()
 
-    if (updateError) {
-      return { success: false, error: `Failed to remove transfer: ${updateError.message}` }
+    if (deleteError) {
+      return { success: false, error: `Failed to remove transfer: ${deleteError.message}` }
     }
+    if (!removed) {
+      return { success: false, error: 'Transfer not found' }
+    }
+
+    const { data: updatedDeal } = await supabase
+      .from('deals')
+      .select(EFT_DEAL_SELECT)
+      .eq('id', removed.deal_id)
+      .single()
 
     await logAuditEvent({
       action: 'eft.remove',
       entityType: 'deal',
-      entityId: input.dealId,
+      entityId: removed.deal_id,
       severity: 'critical',
-      metadata: { transfer_index: input.transferIndex, removed_transfer: removedTransfer },
+      metadata: { transfer_id: input.transferId, removed_transfer: removed },
     })
 
     return { success: true, data: updatedDeal }
