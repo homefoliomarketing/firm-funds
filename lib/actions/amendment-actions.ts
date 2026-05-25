@@ -27,6 +27,35 @@ interface ActionResult {
   data?: any
 }
 
+/**
+ * Closing-date amendment fee delta for a FUNDED deal.
+ *
+ * The agent has already paid the discount fee for the funding-to-current-
+ * closing window. Amending the closing date should only adjust the fee for
+ * the ADDITIONAL calendar days between the current closing date and the
+ * new closing date — not re-price the deal from today onward.
+ *
+ * Without this distinction, a missed closing that gets amended months
+ * later would credit the agent for time they have actually held the funds
+ * (e.g. original closing 4 months ago, new closing 7 days out → re-pricing
+ * from today produces a refund instead of a charge for the extra 4 months).
+ *
+ * Positive delta = closing extended → additional charge.
+ * Negative delta = closing pulled earlier → credit.
+ */
+function computeFundedAmendmentDelta(
+  netCommission: number | null | undefined,
+  currentClosingIso: string,
+  newClosingIso: string
+): { extraDays: number; feeAdjustment: number } {
+  const oldClosing = new Date(currentClosingIso + 'T00:00:00Z')
+  const newClosing = new Date(newClosingIso + 'T00:00:00Z')
+  const extraDays = Math.round((newClosing.getTime() - oldClosing.getTime()) / 86400000)
+  const dailyRate = DISCOUNT_RATE_PER_1000_PER_DAY / 1000
+  const feeAdjustment = Math.round((netCommission || 0) * dailyRate * extraDays * 100) / 100
+  return { extraDays, feeAdjustment }
+}
+
 // ============================================================================
 // Agent Action: Submit Closing Date Amendment Request
 // ============================================================================
@@ -162,16 +191,32 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
 
     // Determine scenario and fee adjustment
     // For APPROVED deals: fully recalculate, no adjustment to agent account
-    // For FUNDED deals: fees are LOCKED, only closing_date/due_date change,
-    //   discount fee delta is charged to (extended) or credited from (earlier) the agent's account
+    // For FUNDED deals: fees are LOCKED, only closing_date/due_date change.
+    //   The discount-fee delta is the additional charge (or credit) for the
+    //   calendar days between the current closing date and the new closing
+    //   date — not a wholesale re-pricing from today. See
+    //   computeFundedAmendmentDelta above.
     let scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' = 'approved_recalc'
     let feeAdjustment = 0
+    let newDiscountFeeStored = newCalc.discountFee
+    let newSettlementFeeStored = newCalc.settlementPeriodFee
+    let newAdvanceAmountStored = newCalc.advanceAmount
 
     if (deal.status === 'funded') {
-      // Calculate the difference between what the new discount fee WOULD be and the original
       const oldDiscountFee = deal.discount_fee || 0
-      feeAdjustment = newCalc.discountFee - oldDiscountFee
-      // Positive = extra charge to agent (extended closing), negative = credit (earlier closing)
+      const delta = computeFundedAmendmentDelta(
+        deal.net_commission,
+        deal.closing_date,
+        newClosingDate,
+      )
+      feeAdjustment = delta.feeAdjustment
+      // Show the resulting TOTAL discount fee (old + delta) so admin / agent
+      // UI displays a consistent picture: this is what they'll have paid in
+      // total once the amendment is approved.
+      newDiscountFeeStored = Math.round((oldDiscountFee + feeAdjustment) * 100) / 100
+      // Settlement period fee and advance are locked at funding — no change.
+      newSettlementFeeStored = deal.settlement_period_fee || 0
+      newAdvanceAmountStored = deal.advance_amount
       scenario = feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier'
     }
 
@@ -186,11 +231,11 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
         status: 'pending',
         amendment_document_id: docRecord.id,
         old_discount_fee: deal.discount_fee,
-        new_discount_fee: newCalc.discountFee,
+        new_discount_fee: newDiscountFeeStored,
         old_settlement_period_fee: deal.settlement_period_fee || 0,
-        new_settlement_period_fee: newCalc.settlementPeriodFee,
+        new_settlement_period_fee: newSettlementFeeStored,
         old_advance_amount: deal.advance_amount,
-        new_advance_amount: newCalc.advanceAmount,
+        new_advance_amount: newAdvanceAmountStored,
         old_due_date: deal.due_date,
         new_due_date: newDueDateStr,
         fee_adjustment_amount: feeAdjustment,
@@ -370,10 +415,21 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
 
     let scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' = 'approved_recalc'
     let feeAdjustment = 0
+    let newDiscountFeeStored = newCalc.discountFee
+    let newSettlementFeeStored = newCalc.settlementPeriodFee
+    let newAdvanceAmountStored = newCalc.advanceAmount
 
     if (deal.status === 'funded') {
       const oldDiscountFee = deal.discount_fee || 0
-      feeAdjustment = newCalc.discountFee - oldDiscountFee
+      const delta = computeFundedAmendmentDelta(
+        deal.net_commission,
+        deal.closing_date,
+        newClosingDate,
+      )
+      feeAdjustment = delta.feeAdjustment
+      newDiscountFeeStored = Math.round((oldDiscountFee + feeAdjustment) * 100) / 100
+      newSettlementFeeStored = deal.settlement_period_fee || 0
+      newAdvanceAmountStored = deal.advance_amount
       scenario = feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier'
     }
 
@@ -387,11 +443,11 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
         status: 'pending',
         amendment_document_id: docRecord.id,
         old_discount_fee: deal.discount_fee,
-        new_discount_fee: newCalc.discountFee,
+        new_discount_fee: newDiscountFeeStored,
         old_settlement_period_fee: deal.settlement_period_fee || 0,
-        new_settlement_period_fee: newCalc.settlementPeriodFee,
+        new_settlement_period_fee: newSettlementFeeStored,
         old_advance_amount: deal.advance_amount,
-        new_advance_amount: newCalc.advanceAmount,
+        new_advance_amount: newAdvanceAmountStored,
         old_due_date: deal.due_date,
         new_due_date: newDueDateStr,
         fee_adjustment_amount: feeAdjustment,
@@ -521,7 +577,18 @@ export async function approveClosingDateAmendment(input: {
     // Branch: approved deal (full recalc) vs funded deal (lock fees, adjust balance)
     const isFunded = deal.status === 'funded'
     const oldDiscountFee = deal.discount_fee || 0
-    const feeAdjustment = isFunded ? newCalc.discountFee - oldDiscountFee : 0
+    // For funded deals, charge only the additional days between the deal's
+    // current closing date and the new closing date — not a re-priced fee
+    // from today onward. See computeFundedAmendmentDelta near the top of
+    // this file. Approved (not-yet-funded) deals still get the full recalc
+    // since no fee has been charged to the agent yet.
+    const delta = isFunded
+      ? computeFundedAmendmentDelta(deal.net_commission, deal.closing_date, amendment.new_closing_date)
+      : { extraDays: 0, feeAdjustment: 0 }
+    const feeAdjustment = delta.feeAdjustment
+    const fundedNewDiscountFee = isFunded
+      ? Math.round((oldDiscountFee + feeAdjustment) * 100) / 100
+      : oldDiscountFee
 
     // Claim the amendment atomically via CAS on status='pending'. Without
     // this guard, two admins clicking Approve at the same time both pass
@@ -533,7 +600,7 @@ export async function approveClosingDateAmendment(input: {
           status: 'approved' as const,
           reviewed_by: user.id,
           reviewed_at: new Date().toISOString(),
-          new_discount_fee: newCalc.discountFee,
+          new_discount_fee: fundedNewDiscountFee,
           new_settlement_period_fee: deal.settlement_period_fee || 0,
           new_advance_amount: deal.advance_amount,
           new_due_date: newDueDateStr,
@@ -587,14 +654,16 @@ export async function approveClosingDateAmendment(input: {
       // from migration 054 and was vulnerable to the same race that
       // migration 052 was created to prevent.
       if (Math.abs(feeAdjustment) > 0.005) {
+        const extraDays = delta.extraDays
+        const dayLabel = Math.abs(extraDays) === 1 ? 'day' : 'days'
         const { error: rpcErr } = await serviceClient
           .rpc('apply_agent_balance_delta', {
             p_agent_id: deal.agent_id,
             p_delta: feeAdjustment,
             p_type: feeAdjustment > 0 ? 'adjustment' : 'credit',
             p_description: feeAdjustment > 0
-              ? `Closing date extension — additional discount fee (${deal.property_address}, new closing ${amendment.new_closing_date})`
-              : `Closing date moved earlier — discount fee credit (${deal.property_address}, new closing ${amendment.new_closing_date})`,
+              ? `Closing date extension — additional discount fee for ${extraDays} extra ${dayLabel} (${deal.property_address}, new closing ${amendment.new_closing_date})`
+              : `Closing date moved earlier — discount fee credit for ${Math.abs(extraDays)} fewer ${dayLabel} (${deal.property_address}, new closing ${amendment.new_closing_date})`,
             p_deal_id: deal.id,
             p_created_by: user.id,
             p_reference_id: input.amendmentId,
