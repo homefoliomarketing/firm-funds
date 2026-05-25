@@ -71,7 +71,7 @@ If you'd strongly recommend a different stack for any layer, explain why in your
 - Centralized in one module, imported everywhere
 - Recalculation on funding (uses actual days from funding date to closing, not original submission date)
 - Live preview in agent form (debounced 400ms with race condition protection)
-- Discount rate: $0.75 per $1,000 of net commission per day until closing
+- Discount rate: $0.80 per $1,000 of net commission per day until closing
 - Brokerage referral fee: configurable per brokerage (default 20%)
 
 ### Server Actions (8 total)

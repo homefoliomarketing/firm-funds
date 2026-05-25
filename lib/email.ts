@@ -25,6 +25,16 @@ const FROM_ADDRESS = 'Firm Funds <notifications@firmfunds.ca>'
 const ADMIN_EMAIL = 'bud@firmfunds.ca'
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
 
+// sanitizeSubject strips CR/LF from email subject lines to prevent header
+// injection (a CRLF inside a user-controlled subject could split the header
+// and craft a fake one). escapeHtml lives further down the file and handles
+// HTML entity encoding for body interpolations.
+
+function sanitizeSubject(value: string | null | undefined): string {
+  if (value === null || value === undefined) return ''
+  return String(value).replace(/[\r\n]+/g, ' ').slice(0, 200)
+}
+
 // ============================================================================
 // Branded HTML wrapper
 // ============================================================================
@@ -822,24 +832,24 @@ export async function sendDealMessageNotification(params: {
       from: FROM_ADDRESS,
       replyTo: 'support@firmfunds.ca',
       to: params.agentEmail,
-      subject: `Message from Firm Funds — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Message from Firm Funds — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Message</h2>
         <p style="margin:0 0 20px; color:#999;">
-          Hi ${params.agentFirstName}, you have a new message regarding your deal.
+          Hi ${escapeHtml(params.agentFirstName)}, you have a new message regarding your deal.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
           <tr>
             <td style="padding:8px 0; color:#737373; font-size:13px; width:100px;">Property</td>
-            <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.propertyAddress}</td>
+            <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress)}</td>
           </tr>
           <tr>
             <td style="padding:8px 0; color:#737373; font-size:13px;">From</td>
-            <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.senderName}</td>
+            <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${escapeHtml(params.senderName)}</td>
           </tr>
         </table>
         <div style="margin:16px 0; padding:12px 16px; background:#1E1E1E; border-left:3px solid #5FA873; border-radius:0 10px 10px 0; border:1px solid #2A2A2A; border-left:3px solid #5FA873;">
-          <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.6;">${params.message.replace(/\n/g, '<br>')}</p>
+          <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.6;">${escapeHtml(params.message).replace(/\n/g, '<br>')}</p>
         </div>
         <div style="margin-top:24px;">
           <a href="${APP_URL}/agent/deals/${params.dealId}#messages" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
@@ -953,12 +963,12 @@ export async function sendBrokerageMessageNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Brokerage message: ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Brokerage message: ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">New Message from Brokerage</h2>
-        <p style="margin:0 0 8px; color:#E5E5E5;">${params.senderName} sent a message about <strong>${params.propertyAddress}</strong>:</p>
+        <p style="margin:0 0 8px; color:#E5E5E5;">${escapeHtml(params.senderName)} sent a message about <strong>${escapeHtml(params.propertyAddress)}</strong>:</p>
         <div style="margin:16px 0; padding:16px; background:#1A1A1A; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
-          <p style="margin:0; color:#E5E5E5; font-size:14px; white-space:pre-wrap;">${params.message}</p>
+          <p style="margin:0; color:#E5E5E5; font-size:14px; white-space:pre-wrap;">${escapeHtml(params.message)}</p>
         </div>
         <div style="margin-top:24px;">
           <a href="${APP_URL}/admin/deals/${params.dealId}#messages" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
@@ -1325,18 +1335,18 @@ export async function sendAgentMessageNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Message from ${params.agentName} — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Message from ${params.agentName} — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
           New Message from Agent
         </h2>
         <p style="margin:0 0 8px; color:#BCBBB8; font-size:14px;">
-          <strong style="color:#7B9FE0;">${params.agentName}</strong> sent a message about <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>:
+          <strong style="color:#7B9FE0;">${escapeHtml(params.agentName)}</strong> sent a message about <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress)}</strong>:
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
           <tr>
             <td style="padding:12px 16px; background:#1A2240; border-left:3px solid #7B9FE0; border-radius:0 8px 8px 0;">
-              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5; white-space:pre-wrap;">${params.message.replace(/\n/g, '<br/>')}</p>
+              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5; white-space:pre-wrap;">${escapeHtml(params.message).replace(/\n/g, '<br/>')}</p>
             </td>
           </tr>
         </table>

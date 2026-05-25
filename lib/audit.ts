@@ -1,4 +1,13 @@
-'use server'
+import 'server-only'
+
+// IMPORTANT: this file is NOT a `'use server'` module — that directive turns
+// every exported async function into a Server Action callable from the
+// client. logAuditEventServiceRole accepts caller-supplied user_id,
+// actor_email, and actor_role; if exposed as a server action it lets any
+// signed-in user fabricate audit log entries impersonating any role
+// (including super_admin). `import 'server-only'` instead ensures the
+// module is only bundled server-side and any accidental client import
+// errors at build time.
 
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'

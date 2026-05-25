@@ -1,7 +1,9 @@
 'use server'
 
+import { headers } from 'next/headers'
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { checkPasswordRateLimit } from '@/lib/rate-limit'
 
 // ============================================================================
 // Password Change
@@ -14,6 +16,16 @@ export async function changePassword(data: {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !user.email) return { success: false, error: 'Not authenticated' }
+
+  // Rate-limit the wrong-current-password path. Without this, a stolen
+  // session cookie lets an attacker brute-force the current password by
+  // repeatedly calling this action.
+  const hdrs = await headers()
+  const ip = (hdrs.get('x-forwarded-for') || hdrs.get('x-real-ip') || 'unknown').split(',')[0].trim()
+  const rateCheck = await checkPasswordRateLimit(ip)
+  if (!rateCheck.allowed) {
+    return { success: false, error: 'Too many password change attempts. Try again in a few minutes.' }
+  }
 
   // Verify current password by attempting sign-in
   const { error: signInError } = await supabase.auth.signInWithPassword({

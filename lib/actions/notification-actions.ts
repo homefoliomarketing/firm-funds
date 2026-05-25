@@ -13,6 +13,10 @@ interface ActionResult {
   data?: any
 }
 
+// Cap inbound message body. Without this, a single multi-MB message bloats
+// every admin inbox load and Resend email payload.
+const MAX_MESSAGE_LENGTH = 5000
+
 export interface InboxDeal {
   deal_id: string
   property_address: string
@@ -32,8 +36,9 @@ export interface InboxDeal {
 // ============================================================================
 
 export async function getAgentNotificationCounts(agentId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.agent_id !== agentId) return { success: false, error: 'Access denied' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -107,8 +112,9 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
 // ============================================================================
 
 export async function getAgentInbox(agentId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.agent_id !== agentId) return { success: false, error: 'Access denied' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -237,12 +243,26 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
 // ============================================================================
 
 export async function getDealMessages(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Ownership check: agent must own the deal, brokerage_admin must be on
+    // the deal's brokerage. Without this, any logged-in user can read any
+    // deal's messages by passing an arbitrary dealId.
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('agent_id, brokerage_id')
+      .eq('id', dealId)
+      .single()
+    if (!deal) return { success: false, error: 'Deal not found' }
+    const isOwner =
+      (profile?.role === 'agent' && deal.agent_id === profile.agent_id) ||
+      (profile?.role === 'brokerage_admin' && deal.brokerage_id === profile.brokerage_id)
+    if (!isOwner) return { success: false, error: 'Access denied' }
+
     const { data: messages, error } = await serviceClient
       .from('deal_messages')
       .select('*')
@@ -265,8 +285,9 @@ export async function markDealMessagesRead(input: {
   agentId: string
   dealId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.agent_id !== input.agentId) return { success: false, error: 'Access denied' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -306,15 +327,25 @@ export async function sendAgentReply(input: {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (typeof input.message !== 'string' || input.message.trim().length === 0) {
+    return { success: false, error: 'Message cannot be empty' }
+  }
+  if (input.message.length > MAX_MESSAGE_LENGTH) {
+    return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
+  }
+
   const serviceClient = createServiceRoleClient()
 
   try {
-    // Get deal for email notification
+    // Ownership check: prevent agent A from posting messages on agent B's deal.
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, property_address')
+      .select('id, property_address, agent_id')
       .eq('id', input.dealId)
       .single()
+
+    if (!deal) return { success: false, error: 'Deal not found' }
+    if (deal.agent_id !== profile?.agent_id) return { success: false, error: 'Access denied' }
 
     const { data: msg, error } = await serviceClient
       .from('deal_messages')
@@ -372,20 +403,40 @@ export async function getNewMessages(input: {
   dealId: string
   afterTimestamp: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent', 'super_admin', 'firm_funds_admin', 'brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent', 'super_admin', 'firm_funds_admin', 'brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
-  const { data: messages, error } = await serviceClient
-    .from('deal_messages')
-    .select('id, deal_id, sender_id, sender_role, sender_name, message, is_email_reply, file_path, file_name, file_size, file_type, created_at')
-    .eq('deal_id', input.dealId)
-    .gt('created_at', input.afterTimestamp)
-    .order('created_at', { ascending: true })
+  try {
+    // Ownership check: this is a polling endpoint, so missing ownership
+    // verification lets any logged-in user enumerate deals by UUID.
+    const isAdmin = profile?.role === 'super_admin' || profile?.role === 'firm_funds_admin'
+    if (!isAdmin) {
+      const { data: deal } = await serviceClient
+        .from('deals')
+        .select('agent_id, brokerage_id')
+        .eq('id', input.dealId)
+        .single()
+      if (!deal) return { success: false, error: 'Deal not found' }
+      const isOwner =
+        (profile?.role === 'agent' && deal.agent_id === profile.agent_id) ||
+        (profile?.role === 'brokerage_admin' && deal.brokerage_id === profile.brokerage_id)
+      if (!isOwner) return { success: false, error: 'Access denied' }
+    }
 
-  if (error) return { success: false, error: error.message }
-  return { success: true, data: messages || [] }
+    const { data: messages, error } = await serviceClient
+      .from('deal_messages')
+      .select('id, deal_id, sender_id, sender_role, sender_name, message, is_email_reply, file_path, file_name, file_size, file_type, created_at')
+      .eq('deal_id', input.dealId)
+      .gt('created_at', input.afterTimestamp)
+      .order('created_at', { ascending: true })
+
+    if (error) return { success: false, error: error.message }
+    return { success: true, data: messages || [] }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to load messages' }
+  }
 }
 
 // ============================================================================
@@ -396,13 +447,32 @@ export async function autoResolvePendingReturns(input: {
   dealId: string
   newDocumentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
-    // Resolve all pending returns for this deal
+    // Without ownership checks, an agent can clear another agent's pending
+    // document returns and stamp them with an arbitrary document UUID,
+    // poisoning the audit trail of which doc satisfied which return.
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('agent_id')
+      .eq('id', input.dealId)
+      .single()
+    if (!deal) return { success: false, error: 'Deal not found' }
+    if (deal.agent_id !== profile?.agent_id) return { success: false, error: 'Access denied' }
+
+    const { data: newDoc } = await serviceClient
+      .from('deal_documents')
+      .select('id, deal_id')
+      .eq('id', input.newDocumentId)
+      .single()
+    if (!newDoc || newDoc.deal_id !== input.dealId) {
+      return { success: false, error: 'Document does not belong to this deal' }
+    }
+
     const { data: resolved, error } = await serviceClient
       .from('document_returns')
       .update({
@@ -601,6 +671,13 @@ export async function sendAdminMessage(input: {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (typeof input.message !== 'string' || input.message.trim().length === 0) {
+    return { success: false, error: 'Message cannot be empty' }
+  }
+  if (input.message.length > MAX_MESSAGE_LENGTH) {
+    return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
+  }
+
   const serviceClient = createServiceRoleClient()
 
   try {
@@ -679,6 +756,13 @@ export async function sendBrokerageMessage(input: {
 }): Promise<ActionResult> {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (typeof input.message !== 'string' || input.message.trim().length === 0) {
+    return { success: false, error: 'Message cannot be empty' }
+  }
+  if (input.message.length > MAX_MESSAGE_LENGTH) {
+    return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
+  }
 
   const serviceClient = createServiceRoleClient()
 

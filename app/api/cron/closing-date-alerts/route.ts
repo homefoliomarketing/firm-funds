@@ -110,20 +110,11 @@ export async function GET(request: Request) {
       await sendClosingDateAlertDigest({ approachingDeals, overdueDeals })
     }
 
-    // Update days_until_closing for all active deals
-    for (const deal of activeDeals) {
-      const closingDate = new Date(deal.closing_date + 'T00:00:00')
-      const todayDate = new Date(today + 'T00:00:00')
-      const diffMs = closingDate.getTime() - todayDate.getTime()
-      const currentDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
-
-      if (currentDays !== deal.days_until_closing) {
-        await supabase
-          .from('deals')
-          .update({ days_until_closing: currentDays })
-          .eq('id', deal.id)
-      }
-    }
+    // Batched recompute: replaces a per-deal UPDATE loop with one set-based
+    // UPDATE in the recompute_active_deal_days_until_closing RPC (migration
+    // 057). Same GREATEST(0, ...) clamp; only rows whose computed value
+    // actually changed get written.
+    await supabase.rpc('recompute_active_deal_days_until_closing')
 
     // =======================================================================
     // 2. Settlement Period Reminders (new)

@@ -40,6 +40,13 @@ export async function getAuthenticatedAdmin(): Promise<AuthResult> {
     return { error: 'User profile not found', user, profile: null, supabase }
   }
 
+  // Deactivated admins cannot perform privileged actions even if their auth
+  // user still has a valid session. Middleware handles UI bouncing; this is
+  // belt-and-suspenders for server actions invoked before the next page load.
+  if (profile.is_active === false) {
+    return { error: 'Account deactivated', user, profile, supabase }
+  }
+
   if (!['super_admin', 'firm_funds_admin'].includes(profile.role)) {
     return { error: 'Insufficient permissions', user, profile, supabase }
   }
@@ -67,6 +74,10 @@ export async function getAuthenticatedUser(requiredRoles?: string[]): Promise<Au
 
   if (!profile) {
     return { error: 'User profile not found', user, profile: null, supabase }
+  }
+
+  if (profile.is_active === false) {
+    return { error: 'Account deactivated', user, profile, supabase }
   }
 
   if (requiredRoles && !requiredRoles.includes(profile.role)) {

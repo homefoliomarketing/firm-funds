@@ -32,6 +32,23 @@ const nextConfig: NextConfig = {
             value: 'camera=(), microphone=(), geolocation=(), payment=()',
           },
           {
+            // Content Security Policy: defense-in-depth against XSS.
+            //
+            // script-src includes 'unsafe-inline' for two reasons:
+            //   1. Next.js 16's hydration scripts are inline and the framework
+            //      does not currently emit them with predictable hashes that
+            //      would let us use 'strict-dynamic' + hash allowlist.
+            //   2. Switching to nonce-based CSP requires middleware to set a
+            //      fresh nonce on every request, which forces every page to
+            //      render dynamically — killing static optimization for ~26
+            //      of 41 routes. That was attempted in session 6 and reverted
+            //      after the perf regression showed up in the build output.
+            //
+            // Defer hardening this until: (a) we have a measurable XSS attack
+            // surface that's not already mitigated by the email-escape /
+            // server-action ownership checks shipped in sessions 8–9, and
+            // (b) we can afford the static→dynamic perf hit (Netlify edge
+            // cache helps but TTFB increases). Track as a follow-up.
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",

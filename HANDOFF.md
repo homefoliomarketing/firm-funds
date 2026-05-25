@@ -26,7 +26,7 @@ This file is kept for historical reference only. Do not maintain or update it.
 - **Netlify** — Serverless functions. File uploads MUST use signed URLs (never send through Netlify functions). Auto-deploys from main branch. **Netlify's TypeScript checking is STRICTER than local `tsc --noEmit`** — be extra careful with null checks and unused imports. **Serverless functions kill execution context after response — always `await` async operations like email sends or they'll be terminated.**
 - **Theme** — Dark mode permanently locked. `useTheme()` hook. `colors.gold` is actually green (#5FA873).
 - **Audit logging** — `logAuditEvent()` / `logAuditEventServiceRole()` in `lib/audit.ts`. INSERT-only (DB triggers prevent UPDATE/DELETE).
-- **Financial calculations** — Discount rate: $0.75 per $1,000 per day. +1 day processing offset applied in `lib/calculations.ts`. Late payment interest: 24% per annum, starts the day after the 14-day settlement period expires (no grace period).
+- **Financial calculations** — Discount rate: $0.80 per $1,000 per day. Effective chargeable days = days_until_closing - 1 via `getChargeDays()` in `lib/calculations.ts` (closing day not charged). Late payment interest: 24% per annum compounded daily (true APR), accrual starts day 31 after closing (30-day grace).
 - **PowerShell** — Use semicolons not `&&`. Quote paths with parentheses (e.g. `"app/(dashboard)/admin/page.tsx"`).
 - **TypeScript** — Run `npx tsc --noEmit` to type-check. Exclude `.next/` errors (auto-generated route types). SWC binaries aren't available in sandbox, so `next build` won't work there.
 - **Email throttling** — Admin message emails are throttled to 1 per deal per 15 minutes to prevent spam during back-and-forth conversations. Status change emails (approved, funded, denied, etc.) are NOT throttled — they fire once per status change.
@@ -265,7 +265,7 @@ Bud mentioned this during Session 15 — "we will get into that in a bit." When 
 
 ### 3. 🔴 Funding Workflow / Commission Calculator
 Right now "Funded" is just a status change. Need to build:
-- Commission calculation engine: fee = $0.75 per $1,000/day from funding date to closing date + 10 business days
+- Commission calculation engine: fee = $0.80 per $1,000/day from funding date to closing date + settlement_days_at_funding
 - Clear breakdown visible to admin before clicking "Fund": agent receives X, fee is Y, brokerage referral is Z
 - Payment disbursement tracking (even if manual initially — mark when EFT sent, confirmation)
 

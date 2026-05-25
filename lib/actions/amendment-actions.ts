@@ -501,7 +501,7 @@ export async function approveClosingDateAmendment(input: {
 
     // Recalculate what fees WOULD be with the new closing date
     const newDays = calcDaysUntilClosing(amendment.new_closing_date)
-    const referralPct = deal.brokerage_referral_pct || 0.20
+    const referralPct = deal.brokerage_referral_pct ?? 0.20
     const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
 
     const newCalc = calculateDeal({
@@ -520,16 +520,53 @@ export async function approveClosingDateAmendment(input: {
 
     // Branch: approved deal (full recalc) vs funded deal (lock fees, adjust balance)
     const isFunded = deal.status === 'funded'
+    const oldDiscountFee = deal.discount_fee || 0
+    const feeAdjustment = isFunded ? newCalc.discountFee - oldDiscountFee : 0
+
+    // Claim the amendment atomically via CAS on status='pending'. Without
+    // this guard, two admins clicking Approve at the same time both pass
+    // the pre-check, both run the financial side effects, and the agent is
+    // charged twice. If 0 rows are affected, someone else already claimed
+    // it; abort before touching the deal or balance.
+    const claimFields = isFunded
+      ? {
+          status: 'approved' as const,
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+          new_discount_fee: newCalc.discountFee,
+          new_settlement_period_fee: deal.settlement_period_fee || 0,
+          new_advance_amount: deal.advance_amount,
+          new_due_date: newDueDateStr,
+          fee_adjustment_amount: feeAdjustment,
+          adjustment_scenario: feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier',
+        }
+      : {
+          status: 'approved' as const,
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+          new_discount_fee: newCalc.discountFee,
+          new_settlement_period_fee: newCalc.settlementPeriodFee,
+          new_advance_amount: newCalc.advanceAmount,
+          new_due_date: newDueDateStr,
+          fee_adjustment_amount: 0,
+          adjustment_scenario: 'approved_recalc',
+        }
+
+    const { data: claimed, error: claimErr } = await serviceClient
+      .from('closing_date_amendments')
+      .update(claimFields)
+      .eq('id', input.amendmentId)
+      .eq('status', 'pending')
+      .select()
+      .maybeSingle()
+
+    if (claimErr || !claimed) {
+      return { success: false, error: 'Amendment has already been reviewed' }
+    }
 
     if (isFunded) {
       // FUNDED: keep original Face Value, Purchase Price, and fees on the deal.
       // Only update closing_date, days_until_closing, and due_date.
-      // Charge or credit the agent's account balance for the discount fee delta.
-      const oldDiscountFee = deal.discount_fee || 0
-      const feeAdjustment = newCalc.discountFee - oldDiscountFee
-      // Positive = charge (extended closing, agent owes more)
-      // Negative = credit (earlier closing, agent gets refund after close)
-
       const { error: updateError } = await serviceClient
         .from('deals')
         .update({
@@ -544,54 +581,29 @@ export async function approveClosingDateAmendment(input: {
         return { success: false, error: 'Failed to update deal' }
       }
 
-      // Apply adjustment to agent's Firm Funds account
+      // Apply discount-fee delta via the atomic RPC. Replaces the prior
+      // read-modify-write on agents.account_balance + direct INSERT into
+      // agent_transactions, which violated the ledger-immutability rule
+      // from migration 054 and was vulnerable to the same race that
+      // migration 052 was created to prevent.
       if (Math.abs(feeAdjustment) > 0.005) {
-        const { data: agent } = await serviceClient
-          .from('agents')
-          .select('id, account_balance')
-          .eq('id', deal.agent_id)
-          .single()
-
-        if (agent) {
-          const currentBalance = agent.account_balance || 0
-          const newBalance = currentBalance + feeAdjustment
-
-          await serviceClient
-            .from('agents')
-            .update({ account_balance: newBalance })
-            .eq('id', agent.id)
-
-          await serviceClient
-            .from('agent_transactions')
-            .insert({
-              agent_id: agent.id,
-              deal_id: deal.id,
-              type: feeAdjustment > 0 ? 'adjustment' : 'credit',
-              amount: feeAdjustment,
-              running_balance: newBalance,
-              description: feeAdjustment > 0
-                ? `Closing date extension — additional discount fee (${deal.property_address}, new closing ${amendment.new_closing_date})`
-                : `Closing date moved earlier — discount fee credit (${deal.property_address}, new closing ${amendment.new_closing_date})`,
-              created_by: user.id,
-            })
+        const { error: rpcErr } = await serviceClient
+          .rpc('apply_agent_balance_delta', {
+            p_agent_id: deal.agent_id,
+            p_delta: feeAdjustment,
+            p_type: feeAdjustment > 0 ? 'adjustment' : 'credit',
+            p_description: feeAdjustment > 0
+              ? `Closing date extension — additional discount fee (${deal.property_address}, new closing ${amendment.new_closing_date})`
+              : `Closing date moved earlier — discount fee credit (${deal.property_address}, new closing ${amendment.new_closing_date})`,
+            p_deal_id: deal.id,
+            p_created_by: user.id,
+            p_reference_id: input.amendmentId,
+          })
+        if (rpcErr) {
+          console.error('Balance RPC error on funded amendment approve:', rpcErr.message)
+          return { success: false, error: 'Failed to apply discount fee adjustment' }
         }
       }
-
-      // Mark amendment as approved (store what the new fees WOULD be plus the adjustment)
-      await serviceClient
-        .from('closing_date_amendments')
-        .update({
-          status: 'approved',
-          reviewed_by: user.id,
-          reviewed_at: new Date().toISOString(),
-          new_discount_fee: newCalc.discountFee,
-          new_settlement_period_fee: deal.settlement_period_fee || 0, // locked, not recalculated
-          new_advance_amount: deal.advance_amount, // locked
-          new_due_date: newDueDateStr,
-          fee_adjustment_amount: feeAdjustment,
-          adjustment_scenario: feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier',
-        })
-        .eq('id', input.amendmentId)
     } else {
       // APPROVED (not yet funded): full recalculation, no account balance adjustment
       const { error: updateError } = await serviceClient
@@ -612,21 +624,6 @@ export async function approveClosingDateAmendment(input: {
         console.error('Deal update error on approved amendment approve:', updateError.message)
         return { success: false, error: 'Failed to update deal' }
       }
-
-      await serviceClient
-        .from('closing_date_amendments')
-        .update({
-          status: 'approved',
-          reviewed_by: user.id,
-          reviewed_at: new Date().toISOString(),
-          new_discount_fee: newCalc.discountFee,
-          new_settlement_period_fee: newCalc.settlementPeriodFee,
-          new_advance_amount: newCalc.advanceAmount,
-          new_due_date: newDueDateStr,
-          fee_adjustment_amount: 0,
-          adjustment_scenario: 'approved_recalc',
-        })
-        .eq('id', input.amendmentId)
     }
 
     // Generate and send amended CPA via DocuSign
@@ -709,7 +706,10 @@ export async function rejectClosingDateAmendment(input: {
       return { success: false, error: 'Amendment has already been reviewed' }
     }
 
-    await serviceClient
+    // CAS on status='pending' to prevent simultaneous reject/approve clicks
+    // from both running side effects. If 0 rows are affected, someone else
+    // already reviewed this amendment.
+    const { data: claimed } = await serviceClient
       .from('closing_date_amendments')
       .update({
         status: 'rejected',
@@ -718,6 +718,13 @@ export async function rejectClosingDateAmendment(input: {
         rejection_reason: input.reason.trim(),
       })
       .eq('id', input.amendmentId)
+      .eq('status', 'pending')
+      .select()
+      .maybeSingle()
+
+    if (!claimed) {
+      return { success: false, error: 'Amendment has already been reviewed' }
+    }
 
     await logAuditEvent({
       action: 'amendment.rejected',
@@ -754,9 +761,36 @@ export async function rejectClosingDateAmendment(input: {
 // ============================================================================
 
 export async function getDealAmendments(dealId: string): Promise<ActionResult> {
+  // Authorization: previously this action was unauthenticated. Any logged-in
+  // user (and arguably any unauthenticated caller able to invoke server
+  // actions) could enumerate amendments for any deal by UUID — leaking
+  // financial data (old/new closing dates, discount fees, fee adjustments,
+  // rejection reasons).
+  const { error: authErr, user, profile } = await getAuthenticatedUser([
+    'agent',
+    'brokerage_admin',
+    'super_admin',
+    'firm_funds_admin',
+  ])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
   const serviceClient = createServiceRoleClient()
 
   try {
+    const isAdmin = profile?.role === 'super_admin' || profile?.role === 'firm_funds_admin'
+    if (!isAdmin) {
+      const { data: deal } = await serviceClient
+        .from('deals')
+        .select('agent_id, brokerage_id')
+        .eq('id', dealId)
+        .single()
+      if (!deal) return { success: false, error: 'Deal not found' }
+      const isOwner =
+        (profile?.role === 'agent' && deal.agent_id === profile.agent_id) ||
+        (profile?.role === 'brokerage_admin' && deal.brokerage_id === profile.brokerage_id)
+      if (!isOwner) return { success: false, error: 'Access denied' }
+    }
+
     const { data, error } = await serviceClient
       .from('closing_date_amendments')
       .select('*')
