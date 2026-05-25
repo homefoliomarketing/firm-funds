@@ -21,9 +21,19 @@ const SEED_KEY = process.env.SEED_SECRET || ''
 // Per-process random password so leaked seed data cannot be re-used to log in.
 const SEED_ADMIN_PASSWORD = `seed-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}!`
 
+// Belt-and-braces guard (Finding 26): Netlify preview branches sometimes run
+// with NODE_ENV unset, so also reject any request targeting the prod Supabase
+// project ref. Applies to both GET (seed insert) and DELETE (cleanup) via the
+// shared guardProduction() helper.
+const PROD_PROJECT_REF = 'bzijzmxhrpiwuhzhbiqc'
+
 function guardProduction() {
   if (process.env.NODE_ENV === 'production') {
     return Response.json({ error: 'Seed route is disabled in production' }, { status: 403 })
+  }
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  if (supabaseUrl.includes(PROD_PROJECT_REF)) {
+    return new Response('Seed route disabled when targeting production', { status: 403 })
   }
   if (!SEED_KEY) {
     return Response.json({ error: 'SEED_SECRET env var not configured' }, { status: 500 })

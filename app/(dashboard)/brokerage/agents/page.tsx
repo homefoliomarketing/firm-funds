@@ -77,11 +77,13 @@ export default function BrokerageAgentsPage() {
   const [resendingId, setResendingId] = useState<string | null>(null)
 
   const loadAgents = async (brokerageId: string) => {
+    // audit finding #16: hide soft-deleted agents from the brokerage list.
     const { data } = await supabase
       .from('agents')
       .select('id, first_name, last_name, email, phone, reco_number, status, kyc_status, banking_approval_status, account_activated_at, welcome_email_sent_at')
       .eq('brokerage_id', brokerageId)
       .neq('status', 'archived')
+      .is('deleted_at', null)
       .order('last_name')
     setAgents((data || []) as AgentRow[])
   }

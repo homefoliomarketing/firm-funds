@@ -111,6 +111,8 @@ export async function updateEmail(newEmail: string) {
     return { success: false, error: 'New email is the same as your current email' }
   }
 
+  const oldEmail = user.email ?? null
+
   // Update in Supabase Auth (sends confirmation email)
   const { error: authUpdateError } = await supabase.auth.updateUser({
     email: newEmail,
@@ -121,12 +123,27 @@ export async function updateEmail(newEmail: string) {
     return { success: false, error: 'Failed to update email. It may already be in use.' }
   }
 
-  // Also update in user_profiles
+  // Finding #42: do NOT mirror new email to user_profiles here. Magic-link
+  // and invite recovery flows key on user_profiles.email, so writing the
+  // unverified new address lets an attacker with a stolen session redirect
+  // recovery to themselves. user_profiles.email should remain pointing at
+  // the previously-verified address until Supabase confirms the change.
+  // TODO: add an auth event handler on EMAIL_CHANGE_CONFIRM (or a webhook
+  // from Supabase Auth) that mirrors auth.users.email to user_profiles.email
+  // ONLY after the user clicks the confirmation link on the new address.
+
+  // Audit log every change attempt with old + new addresses.
   const serviceClient = createServiceRoleClient()
-  await serviceClient
-    .from('user_profiles')
-    .update({ email: newEmail.toLowerCase() })
-    .eq('id', user.id)
+  void serviceClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'user.email_change_requested',
+    entity_type: 'user',
+    entity_id: user.id,
+    severity: 'warning',
+    actor_email: oldEmail,
+    actor_role: null,
+    metadata: { old_email: oldEmail, new_email: newEmail.toLowerCase() },
+  })
 
   return { success: true, message: 'A confirmation email has been sent to your new address. Please verify it to complete the change.' }
 }
@@ -153,14 +170,33 @@ export async function getNotificationPreferences() {
   return { success: true, data: data?.notification_preferences || getDefaultPrefs() }
 }
 
+// Finding #41: whitelist of valid notification preference keys. Anything not
+// in this set is silently dropped so users cannot opt out of legally-required
+// notices (late-payment warnings, demand letters, etc.) by smuggling extra
+// keys into this payload.
+const ALLOWED_PREF_KEYS = [
+  'email_deal_updates',
+  'email_new_messages',
+  'email_status_changes',
+  'email_document_requests',
+] as const
+
 export async function updateNotificationPreferences(prefs: Record<string, boolean>) {
   const { error: authError, user } = await getAuthenticatedUser()
   if (authError || !user) return { success: false, error: authError || 'Not authenticated' }
 
+  // Filter to allowlisted keys with boolean values; drop everything else.
+  const filtered: Record<string, boolean> = {}
+  for (const key of ALLOWED_PREF_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(prefs, key) && typeof prefs[key] === 'boolean') {
+      filtered[key] = prefs[key]
+    }
+  }
+
   const serviceClient = createServiceRoleClient()
   const { error } = await serviceClient
     .from('user_profiles')
-    .update({ notification_preferences: prefs })
+    .update({ notification_preferences: filtered })
     .eq('id', user.id)
 
   if (error) {
@@ -194,14 +230,61 @@ export async function updateBrokerageContactEmail(newEmail: string) {
   }
 
   const serviceClient = createServiceRoleClient()
+
+  // Finding #40: read the existing contact_email so we can audit-log the
+  // change and notify the OLD address. This gives the legitimate owner a
+  // chance to detect an attacker silently redirecting all brokerage
+  // notifications (deal status, invoices, settlement reminders) to a new
+  // inbox they control.
+  // TODO: require confirmation token from new address before persisting
+  // (see audit finding #40)
+  const { data: existing } = await serviceClient
+    .from('brokerages')
+    .select('contact_email, name')
+    .eq('id', profile.brokerage_id)
+    .single()
+
+  const oldEmail: string | null = existing?.contact_email ?? null
+  const brokerageName: string = existing?.name ?? 'Your brokerage'
+  const newEmailLc = newEmail.toLowerCase()
+
+  if (oldEmail && oldEmail.toLowerCase() === newEmailLc) {
+    return { success: true }
+  }
+
   const { error } = await serviceClient
     .from('brokerages')
-    .update({ contact_email: newEmail.toLowerCase() })
+    .update({ contact_email: newEmailLc })
     .eq('id', profile.brokerage_id)
 
   if (error) {
     console.error('Brokerage email update error:', error.message)
     return { success: false, error: 'Failed to update brokerage contact email' }
+  }
+
+  void serviceClient.from('audit_log').insert({
+    user_id: user.id,
+    action: 'brokerage.contact_email_change',
+    entity_type: 'brokerage',
+    entity_id: profile.brokerage_id,
+    severity: 'warning',
+    actor_email: user.email,
+    actor_role: 'brokerage_admin',
+    metadata: { old_email: oldEmail, new_email: newEmailLc, brokerage_name: brokerageName },
+  })
+
+  // Notify the OLD address so the legitimate owner can spot tampering.
+  if (oldEmail) {
+    try {
+      const { sendEmailChangeNotification } = await import('@/lib/email')
+      await sendEmailChangeNotification({
+        recipientName: brokerageName,
+        oldEmail,
+        newEmail: newEmailLc,
+      })
+    } catch (emailErr: any) {
+      console.error('Brokerage email change notification error (non-fatal):', emailErr?.message)
+    }
   }
 
   return { success: true }

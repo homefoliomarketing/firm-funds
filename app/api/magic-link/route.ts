@@ -109,11 +109,27 @@ export async function PUT(request: Request) {
     if (tokenError || !tokenRecord) {
       return NextResponse.json({ success: false, error: 'Invalid or expired invite link.' })
     }
-    if (tokenRecord.used_at) {
-      return NextResponse.json({ success: false, error: 'This invite link has already been used.' })
-    }
     if (new Date(tokenRecord.expires_at) < new Date()) {
       return NextResponse.json({ success: false, error: 'This invite link has expired.' })
+    }
+
+    // Atomic compare-and-swap claim on used_at (Finding 24). Previously we
+    // checked used_at IS NULL then later UPDATE'd it after updateUserById,
+    // leaving a TOCTOU window where two concurrent requests with the same
+    // token could both pass the check and both call updateUserById. The CAS
+    // below is a single statement: if used_at was already set, .maybeSingle()
+    // returns no row and we reject. Fail-safe direction: if updateUserById
+    // later fails, the token stays marked used and the user must request a
+    // new invite (better than letting it be reused).
+    const { data: claimed } = await serviceClient
+      .from('invite_tokens')
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', tokenRecord.id)
+      .is('used_at', null)
+      .select()
+      .maybeSingle()
+    if (!claimed) {
+      return NextResponse.json({ success: false, error: 'This invite link has already been used.' })
     }
 
     // Set the user's password via admin API
@@ -135,12 +151,6 @@ export async function PUT(request: Request) {
       .from('user_profiles')
       .update({ must_reset_password: false })
       .eq('id', tokenRecord.user_id)
-
-    // Mark token as used
-    await serviceClient
-      .from('invite_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', tokenRecord.id)
 
     // Audit log
     void serviceClient.from('audit_log').insert({

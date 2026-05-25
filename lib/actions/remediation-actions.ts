@@ -261,6 +261,16 @@ export async function markRemediationDealRemitted(input: {
     if (rem.status === 'remitted') return { success: false, error: 'Remediation deal is already marked remitted' }
     if (rem.status === 'cancelled') return { success: false, error: 'Cannot remit a cancelled remediation deal' }
 
+    // Capture prior status for CAS guard + revert path. The CHECK constraint
+    // on remediation_deals.status (migration 046) only allows pending /
+    // idp_sent / idp_signed / remitted / cancelled, so we cannot introduce
+    // a true 'remitting' intermediate state without a schema change. Instead,
+    // we atomically claim by flipping status directly to 'remitted' guarded
+    // on the prior status. Only ONE concurrent caller can win the CAS; the
+    // other gets zero rows and bails before touching the RPC. If the RPC
+    // subsequently fails we revert status back to priorStatus.
+    const priorStatus = rem.status as 'pending' | 'idp_sent' | 'idp_signed'
+
     const { data: failedDeal } = await serviceClient
       .from('deals')
       .select('id, outstanding_balance, failed_to_close_at, failed_deal_interest_charged, property_address')
@@ -309,18 +319,44 @@ export async function markRemediationDealRemitted(input: {
 
     const fullyCleared = newPrincipal < 0.005 && newFailedDealInterestCharged < 0.005
 
-    // -----------------------------------------------------------------------
-    // Apply the remittance: atomically post the unposted-interest catch-up
-    // (if any) AND the credit row in one transaction (RPC from migration 052).
-    // Replaces the prior two-step pattern that would leave a phantom credit
-    // when applyToUnposted > 0 — the original code debited the full credit
-    // amount but never recorded the matching interest row, so the agent's
-    // balance ended up understated by applyToUnposted permanently.
-    // -----------------------------------------------------------------------
     const creditAmount = Math.round((remittedAmount - surplus) * 100) / 100  // what actually paid down the failed deal
     const surplusAmount = surplus
-    const description = `Remediation IDP payment received — ${rem.property_address} (${rem.brokerage_legal_name}). Applied to ${failedDeal.property_address}.${surplusAmount > 0.005 ? ` Surplus ${formatMoney(surplusAmount)} to be refunded to agent.` : ''}`
+    const description = `Remediation IDP payment received - ${rem.property_address} (${rem.brokerage_legal_name}). Applied to ${failedDeal.property_address}.${surplusAmount > 0.005 ? ` Surplus ${formatMoney(surplusAmount)} to be refunded to agent.` : ''}`
 
+    // -----------------------------------------------------------------------
+    // STEP 1 — Atomically claim the remediation row via CAS on prior status.
+    // Two simultaneous "Mark Remitted" clicks both pass the pre-check above,
+    // but only one wins this CAS. The other gets zero rows and bails before
+    // calling the RPC, preventing a double credit.
+    // -----------------------------------------------------------------------
+    const remittedAtIso = new Date(input.remittedAt + 'T12:00:00Z').toISOString()
+    const { data: claimed, error: claimErr } = await serviceClient
+      .from('remediation_deals')
+      .update({
+        status: 'remitted',
+        remitted_amount: remittedAmount,
+        remitted_at: remittedAtIso,
+        notes: input.notes?.trim() || null,
+      })
+      .eq('id', rem.id)
+      .eq('status', priorStatus)
+      .select('id')
+      .maybeSingle()
+
+    if (claimErr) {
+      console.error('markRemediationDealRemitted CAS error:', claimErr.message)
+      return { success: false, error: 'Failed to claim remediation deal for remittance' }
+    }
+    if (!claimed) {
+      return { success: false, error: 'Remediation deal status changed concurrently. Refresh and try again.' }
+    }
+
+    // -----------------------------------------------------------------------
+    // STEP 2 — Apply the remittance via atomic RPC (migration 052). Posts
+    // the unposted-interest catch-up (if any) AND the credit row in one
+    // transaction. If this fails after the CAS, revert remediation status
+    // back to its prior value so a retry is possible.
+    // -----------------------------------------------------------------------
     const { data: remitResult, error: remitErr } = await serviceClient
       .rpc('apply_remediation_remittance', {
         p_agent_id: agent.id,
@@ -332,12 +368,27 @@ export async function markRemediationDealRemitted(input: {
       })
     if (remitErr) {
       console.error('applyFailedDealRemittance RPC error:', remitErr.message)
+      await serviceClient
+        .from('remediation_deals')
+        .update({
+          status: priorStatus,
+          remitted_amount: null,
+          remitted_at: null,
+        })
+        .eq('id', rem.id)
+        .eq('status', 'remitted')
       return { success: false, error: `Failed to apply remittance: ${remitErr.message}` }
     }
-    const newAgentBalance = Number((remitResult as any)?.new_balance) || 0
+    // The RPC returns the post-update agent balance in remitResult.new_balance;
+    // we don't surface it to the caller here, but ignore the value explicitly
+    // so the linter doesn't flag the unused destructure.
+    void remitResult
 
     // -----------------------------------------------------------------------
-    // Update the failed deal: drop principal/interest charged, set 'cured' if done
+    // STEP 3 — Update the failed deal: drop principal / interest charged,
+    // set 'cured' if done. CAS-guarded on the exact prior values we read
+    // above so a concurrent remittance against the same failed deal cannot
+    // silently overwrite a fresher balance with our stale snapshot.
     // -----------------------------------------------------------------------
     const failedDealPatch: Record<string, any> = {
       outstanding_balance: newPrincipal,
@@ -348,23 +399,45 @@ export async function markRemediationDealRemitted(input: {
       failedDealPatch.status = 'cured'
     }
 
-    await serviceClient
+    const { data: updatedDeal, error: dealUpdateErr } = await serviceClient
       .from('deals')
       .update(failedDealPatch)
       .eq('id', failedDeal.id)
+      .eq('outstanding_balance', principal)
+      .eq('failed_deal_interest_charged', postedInterest)
+      .select('id')
+      .maybeSingle()
 
-    // -----------------------------------------------------------------------
-    // Update the remediation deal record
-    // -----------------------------------------------------------------------
-    await serviceClient
-      .from('remediation_deals')
-      .update({
-        status: 'remitted',
-        remitted_amount: remittedAmount,
-        remitted_at: new Date(input.remittedAt + 'T12:00:00Z').toISOString(),
-        notes: input.notes?.trim() || null,
+    if (dealUpdateErr || !updatedDeal) {
+      // The credit was already posted via the RPC, so the agent's ledger is
+      // correct. But the failed deal's denormalized principal/interest
+      // counters did NOT update because another remittance landed between
+      // our read and write. Log loudly and surface the discrepancy so admin
+      // can reconcile manually.
+      console.error(
+        'markRemediationDealRemitted failed-deal CAS lost',
+        {
+          failed_deal_id: failedDeal.id,
+          remediation_deal_id: rem.id,
+          expected_principal: principal,
+          expected_posted_interest: postedInterest,
+          err: dealUpdateErr?.message,
+        },
+      )
+      await logAuditEvent({
+        action: 'remediation_deal.failed_deal_cas_lost',
+        entityType: 'deal',
+        entityId: failedDeal.id,
+        metadata: {
+          remediation_deal_id: rem.id,
+          expected_principal: principal,
+          expected_posted_interest: postedInterest,
+          credit_already_posted: creditAmount,
+          unposted_interest_posted: applyToUnposted,
+          error: dealUpdateErr?.message || 'CAS lost',
+        },
       })
-      .eq('id', rem.id)
+    }
 
     await logAuditEvent({
       action: 'remediation_deal.remitted',

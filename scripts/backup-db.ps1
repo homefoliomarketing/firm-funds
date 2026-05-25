@@ -11,6 +11,16 @@
 #   Arguments:  -NoProfile -ExecutionPolicy Bypass -File "C:\Users\randi\Dev\firm-funds\scripts\backup-db.ps1"
 #   Start in:   C:\Users\randi\Dev\firm-funds
 
+# TODO (audit finding #2 CRITICAL): OFF-SITE BACKUP NOT YET CONFIGURED.
+# This script writes to a local folder only. If this machine is lost,
+# destroyed, or ransomware'd, every backup is gone.
+# Pick ONE of these and wire it in below:
+#   Option A: AWS S3 -- aws s3 cp $BackupFile s3://firmfunds-backups/ --storage-class GLACIER_IR
+#   Option B: Cloudflare R2 -- rclone copy $BackupFile r2:firmfunds-backups/
+#   Option C: Backblaze B2 -- b2 upload-file firmfunds-backups $BackupFile
+# All three providers support Object Lock / immutability -- enable that.
+# Bud's PITR/Pro plan work may include this -- coordinate before duplicating.
+
 param(
     [int]$RetentionDays = 14,
     [string]$Label = "scheduled"

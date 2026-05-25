@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { logAuditEvent } from '@/lib/audit'
 
 // ============================================================================
 // Types
@@ -131,15 +132,27 @@ export async function fetchReportMetrics(input: {
         break
       }
       case 'all':
-      default:
         dateFilterStart = null
+        break
+      default: {
+        // Default window: last 12 months. Without this, an admin opening
+        // the reports page with no range selected pulls every deal in the
+        // database including agent + brokerage joins.
+        const d = new Date(now)
+        d.setMonth(d.getMonth() - 12)
+        dateFilterStart = d.toISOString()
+      }
     }
 
-    // Fetch all deals with agent and brokerage data, AND all brokerages
+    // Fetch all deals with agent and brokerage data, AND all brokerages.
+    // TODO: KPI aggregates (totals, counts, pipeline) should be computed via
+    // SQL GROUP BY instead of pulling every row into JS. The 10k cap below
+    // is a hard ceiling to prevent runaway memory + timeouts in the meantime.
     let query = supabase
       .from('deals')
       .select('*, agent:agents(first_name, last_name), brokerage:brokerages(name, brand)')
       .order('created_at', { ascending: false })
+      .limit(10000)
 
     if (dateFilterStart) {
       query = query.gte('created_at', dateFilterStart)
@@ -378,6 +391,15 @@ export async function fetchBrokerageDetail(input: {
 }): Promise<ActionResult<BrokerageDetail>> {
   const { error: authErr, supabase } = await getAuthenticatedAdmin()
   if (authErr || !supabase) return { success: false, error: authErr || 'Authentication failed' }
+
+  // Audit trail: admins pulling brokerage-level financials should leave a
+  // record. Logged after the auth check, before the data fetch.
+  await logAuditEvent({
+    action: 'admin.brokerage_report_viewed',
+    entityType: 'brokerage',
+    entityId: input.brokerageId,
+    metadata: { source: 'fetchBrokerageDetail' },
+  })
 
   try {
     // Fetch brokerage, its agents, and all its deals in parallel

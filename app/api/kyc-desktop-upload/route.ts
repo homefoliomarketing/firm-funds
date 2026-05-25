@@ -99,6 +99,20 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
     }
 
+    if (!Array.isArray(filePaths)) {
+      return NextResponse.json({ success: false, error: 'filePaths must be an array' }, { status: 400 })
+    }
+
+    // Validate every filePath starts with this agent's folder. Prevents an
+    // authenticated agent from pointing their KYC record at another agent's
+    // storage path (Finding 12).
+    const expectedPrefix = `${profile.agent_id}/`
+    for (const p of filePaths) {
+      if (typeof p !== 'string' || !p.startsWith(expectedPrefix)) {
+        return NextResponse.json({ error: 'Invalid file path' }, { status: 400 })
+      }
+    }
+
     const serviceClient = createServiceRoleClient()
 
     // Update agent record — server-derived agentId from auth, not from client

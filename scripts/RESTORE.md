@@ -12,7 +12,11 @@ node scripts/backup-db.mjs --label pre-restore-emergency
 ls -lt backups/db-*.json.gz | head -5
 
 # 3. Generate a restore SQL file for the affected table.
-node scripts/restore-db.mjs backups/db-<chosen>.json.gz --table <table_name>
+#    The script REQUIRES --confirm <hostname>, prompts you to re-type the hostname,
+#    and on production also requires --i-understand-this-is-production.
+TARGET=$(grep '^SUPABASE_DB_URL=' .env.local | cut -d= -f2- | sed -E 's|.*@([^:/]+).*|\1|')
+node scripts/restore-db.mjs backups/db-<chosen>.json.gz --table <table_name> \
+  --confirm "$TARGET" --i-understand-this-is-production
 
 # 4. READ the generated SQL. Look for surprising INSERTs.
 code backups/restore-<table>-<timestamp>.sql
@@ -42,10 +46,14 @@ Use the TL;DR above. Single-table restore is the safest because it doesn't touch
 Same as TL;DR, but generate the restore for all tables: omit `--table`.
 
 ```bash
-node scripts/restore-db.mjs backups/db-<chosen>.json.gz
+TARGET=$(grep '^SUPABASE_DB_URL=' .env.local | cut -d= -f2- | sed -E 's|.*@([^:/]+).*|\1|')
+node scripts/restore-db.mjs backups/db-<chosen>.json.gz \
+  --confirm "$TARGET" --i-understand-this-is-production
 ```
 
 The generated SQL will TRUNCATE CASCADE every table then re-insert. **Read it carefully.** The `SET session_replication_role = replica` line temporarily disables triggers and FK checks for a clean restore; it is reset to `origin` at the end of the transaction.
+
+The restore script will: (1) require `--confirm <hostname>` matching SUPABASE_DB_URL, (2) print a production warning banner when targeting `bzijzmxhrpiwuhzhbiqc` and require `--i-understand-this-is-production`, (3) interactively prompt you to type the hostname again, then (4) show a summary (tables, rows, mode) and require typing `yes`. Only then is the SQL file written. Nothing connects to the database; apply the SQL yourself with `npx supabase db query`.
 
 ### Entire database wiped
 1. Recreate the schema by running every migration in `supabase/migrations/` in order. Supabase Dashboard or `npx supabase db push` (if linked).

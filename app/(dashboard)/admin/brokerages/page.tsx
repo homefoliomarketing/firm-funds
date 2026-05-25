@@ -542,9 +542,13 @@ export default function BrokeragesPage() {
   }, [loading, brokerages.length])
 
   async function loadBrokerages() {
+    // audit finding #16: hide soft-deleted brokerages and agents from the
+    // default admin list. Recovery happens via a separate restore flow.
     const { data, error } = await supabase
       .from('brokerages')
       .select('*, agents(*)')
+      .is('deleted_at', null)
+      .is('agents.deleted_at', null)
       .order('name')
       .order('last_name', { referencedTable: 'agents', ascending: true })
 

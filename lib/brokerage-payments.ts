@@ -119,13 +119,18 @@ export async function deletePayment(
   paymentId: string,
   supabase: SupabaseClient,
 ): Promise<BrokeragePaymentRow> {
+  // audit finding #21: .eq('status', 'pending') precondition catches a
+  // concurrent confirm/reject between the caller's read and this DELETE.
+  // Migration 060 also blocks confirmed-row DELETE at the DB layer.
   const { data, error } = await supabase
     .from('brokerage_payments')
     .delete()
     .eq('id', paymentId)
+    .eq('status', 'pending')
     .select()
-    .single()
+    .maybeSingle()
   if (error) throw new Error(`deletePayment: ${error.message}`)
+  if (!data) throw new Error('deletePayment: payment is missing or no longer pending')
   return data as BrokeragePaymentRow
 }
 

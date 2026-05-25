@@ -33,6 +33,28 @@ export async function updateAgentProfile(data: {
 
   const serviceClient = createServiceRoleClient()
 
+  // Finding #43: validate phone format (Canadian E.164) before persisting.
+  // TODO: require SMS OTP before persisting phone changes
+  let phoneChanged = false
+  let oldPhoneLast4: string | null = null
+  let newPhoneLast4: string | null = null
+  if (data.phone !== undefined && data.phone !== null && data.phone !== '') {
+    if (!/^\+1[2-9]\d{9}$/.test(data.phone)) {
+      return { success: false, error: 'Phone must be a valid Canadian number in +1XXXXXXXXXX format' }
+    }
+    const { data: existing } = await serviceClient
+      .from('agents')
+      .select('phone')
+      .eq('id', data.agentId)
+      .single()
+    const prior: string | null = existing?.phone ?? null
+    if (prior !== data.phone) {
+      phoneChanged = true
+      oldPhoneLast4 = prior ? prior.slice(-4) : null
+      newPhoneLast4 = data.phone.slice(-4)
+    }
+  }
+
   // Only update fields that are explicitly provided (not undefined)
   const updates: Record<string, string | null> = {}
   if (data.phone !== undefined) updates.phone = data.phone || null
@@ -49,6 +71,19 @@ export async function updateAgentProfile(data: {
   if (error) {
     console.error('Profile update error:', error.message)
     return { success: false, error: 'Failed to update profile' }
+  }
+
+  if (phoneChanged) {
+    void serviceClient.from('audit_log').insert({
+      user_id: user.id,
+      action: 'agent.update_phone',
+      entity_type: 'agent',
+      entity_id: data.agentId,
+      severity: 'warning',
+      actor_email: user.email,
+      actor_role: 'agent',
+      metadata: { old_phone_last4: oldPhoneLast4, new_phone_last4: newPhoneLast4 },
+    })
   }
 
   return { success: true }
@@ -852,9 +887,15 @@ export async function getAgentProfile(agentId: string) {
     }
   }
 
+  // Finding #39: column allowlist. Admins and the agent themselves get the
+  // full row (banking + KYC PII). Everyone else (brokerage_admin) gets a
+  // safe subset only.
+  const SAFE_COLUMNS = 'id, first_name, last_name, email, phone, kyc_status, kyc_verified_at, status, created_at, brokerages(name)'
+  const columns = (isAdmin || isSelf) ? '*, brokerages(name)' : SAFE_COLUMNS
+
   const { data: agent, error } = await serviceClient
     .from('agents')
-    .select('*, brokerages(name)')
+    .select(columns)
     .eq('id', agentId)
     .single()
 

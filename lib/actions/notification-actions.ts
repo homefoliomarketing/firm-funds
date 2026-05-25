@@ -17,6 +17,19 @@ interface ActionResult {
 // every admin inbox load and Resend email payload.
 const MAX_MESSAGE_LENGTH = 5000
 
+// Validate that a message attachment path belongs to the message's deal.
+// uploadDocument writes to the `deal-documents` bucket under `${dealId}/...`.
+// Without this check, a caller could attach a path pointing to ANY other
+// deal's file (or another agent's KYC scan if it shared a bucket layout) by
+// posting the path string directly to sendAgentReply / sendBrokerageMessage.
+// Also strips `../` traversal sequences as defense in depth.
+function validateAttachmentPath(filePath: string | null | undefined, dealId: string): { ok: true } | { ok: false; error: string } {
+  if (!filePath) return { ok: true }
+  if (filePath.includes('..')) return { ok: false, error: 'Invalid attachment path' }
+  if (!filePath.startsWith(`${dealId}/`)) return { ok: false, error: 'Attachment does not belong to this deal' }
+  return { ok: true }
+}
+
 export interface InboxDeal {
   deal_id: string
   property_address: string
@@ -68,22 +81,21 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
       }
     }
 
-    // Count unread messages across all deals (messages from admin after last read)
+    // Count unread messages across all deals (messages from admin after last read).
+    // Single grouped fetch instead of N count() round-trips: a bell-icon poll on
+    // an agent with 100 deals previously fired 100 queries per tick.
+    const { data: adminMsgs } = await serviceClient
+      .from('deal_messages')
+      .select('deal_id, created_at')
+      .in('deal_id', dealIds)
+      .eq('sender_role', 'admin')
+
     let unreadMessages = 0
-    for (const dealId of dealIds) {
-      const lastRead = readMap.get(dealId)
-      let query = serviceClient
-        .from('deal_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('deal_id', dealId)
-        .eq('sender_role', 'admin')
-
-      if (lastRead) {
-        query = query.gt('created_at', lastRead)
+    for (const m of (adminMsgs || [])) {
+      const lastRead = readMap.get(m.deal_id)
+      if (!lastRead || new Date(m.created_at) > new Date(lastRead)) {
+        unreadMessages++
       }
-
-      const { count } = await query
-      unreadMessages += (count || 0)
     }
 
     // Count pending document returns
@@ -333,6 +345,10 @@ export async function sendAgentReply(input: {
   if (input.message.length > MAX_MESSAGE_LENGTH) {
     return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
   }
+
+  // Reject cross-deal / traversal attachment paths.
+  const pathCheck = validateAttachmentPath(input.filePath, input.dealId)
+  if (!pathCheck.ok) return { success: false, error: pathCheck.error }
 
   const serviceClient = createServiceRoleClient()
 
@@ -764,6 +780,10 @@ export async function sendBrokerageMessage(input: {
     return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
   }
 
+  // Reject cross-deal / traversal attachment paths.
+  const pathCheck = validateAttachmentPath(input.filePath, input.dealId)
+  if (!pathCheck.ok) return { success: false, error: pathCheck.error }
+
   const serviceClient = createServiceRoleClient()
 
   try {
@@ -937,22 +957,21 @@ export async function getBrokerageNotificationCounts(brokerageId: string): Promi
       }
     }
 
-    // Count unread admin messages across all deals
+    // Count unread admin messages across all deals. Single grouped fetch
+    // instead of N count() round-trips: previously a brokerage with 500
+    // deals fired 500 queries per bell-icon poll.
+    const { data: adminMsgs } = await serviceClient
+      .from('deal_messages')
+      .select('deal_id, created_at')
+      .in('deal_id', dealIds)
+      .eq('sender_role', 'admin')
+
     let unreadMessages = 0
-    for (const dealId of dealIds) {
-      const lastRead = readMap.get(dealId)
-      let query = serviceClient
-        .from('deal_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('deal_id', dealId)
-        .eq('sender_role', 'admin')
-
-      if (lastRead) {
-        query = query.gt('created_at', lastRead)
+    for (const m of (adminMsgs || [])) {
+      const lastRead = readMap.get(m.deal_id)
+      if (!lastRead || new Date(m.created_at) > new Date(lastRead)) {
+        unreadMessages++
       }
-
-      const { count } = await query
-      unreadMessages += (count || 0)
     }
 
     return {
@@ -970,12 +989,25 @@ export async function getBrokerageNotificationCounts(brokerageId: string): Promi
 // ============================================================================
 
 export async function markBrokerageMessagesRead(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Ownership check: without this, any brokerage_admin can pass an
+    // arbitrary deal UUID and pollute brokerage_message_reads, plus
+    // distinguish valid vs invalid deal IDs via FK error responses.
+    // Return opaque "Deal not found" for both missing and wrong-brokerage.
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('brokerage_id')
+      .eq('id', dealId)
+      .single()
+    if (!deal || deal.brokerage_id !== profile?.brokerage_id) {
+      return { success: false, error: 'Deal not found' }
+    }
+
     const { error } = await serviceClient
       .from('brokerage_message_reads')
       .upsert(

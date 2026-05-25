@@ -108,6 +108,43 @@ export async function POST(request: Request) {
 
     const supabase = createServiceRoleClient()
 
+    // Idempotency (Finding 10): DocuSign Connect retries any non-2xx delivery
+    // within ~100s and aggregate mode legitimately sends multiple events for
+    // the same envelope (recipient-completed + envelope-completed). Compose a
+    // canonical event_id from the Connect payload triple and INSERT into the
+    // dedup table; if it already exists (23505 unique_violation), bail with
+    // 200 so DocuSign stops retrying. Falls back to a random UUID only for
+    // unrecognized payload shapes, in which case dedup is best-effort.
+    const generatedDateTime: string | undefined =
+      payload?.generatedDateTime || payload?.eventDateTime
+    const eventId =
+      eventName && generatedDateTime && envelopeId
+        ? `${eventName}_${generatedDateTime}_${envelopeId}`
+        : crypto.randomUUID()
+    const eventType = eventName || envelopeStatus || 'unknown'
+
+    const { error: dedupeErr } = await supabase
+      .from('docusign_webhook_events')
+      .insert({
+        event_id: eventId,
+        envelope_id: envelopeId,
+        event_type: eventType,
+        payload_summary: {
+          event: eventName,
+          status: envelopeStatus,
+          generatedDateTime,
+          recipientCount: (payload?.recipients?.signers || payload?.data?.envelopeSummary?.recipients?.signers || []).length,
+        },
+      })
+    if (dedupeErr) {
+      if (dedupeErr.code === '23505') {
+        console.log(`DocuSign webhook: duplicate event ${eventId} for envelope ${redactEnvelopeId(envelopeId)} — already processed`)
+        return new Response('Already processed', { status: 200 })
+      }
+      console.error('DocuSign webhook: dedup table write failed:', dedupeErr.message)
+      return new Response('Dedup table write failed', { status: 500 })
+    }
+
     // Find our envelope records (one per document in this envelope)
     const { data: envelopes, error: fetchErr } = await supabase
       .from('esignature_envelopes')
@@ -163,11 +200,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Update all envelope records for this envelopeId
-    const { error: updateErr } = await supabase
+    // Update all envelope records for this envelopeId.
+    // Compare-and-swap on agent_signed_at when the new status is "signed" — if
+    // a prior delivery already marked it signed, leave the existing timestamp
+    // alone so re-arrivals (e.g. recipient-completed followed by
+    // envelope-completed) are no-ops on the timestamp field.
+    let envelopeUpdateQuery = supabase
       .from('esignature_envelopes')
       .update(updateData)
       .eq('envelope_id', envelopeId)
+
+    if (mappedStatus === 'signed') {
+      envelopeUpdateQuery = envelopeUpdateQuery.is('agent_signed_at', null)
+    }
+
+    const { error: updateErr } = await envelopeUpdateQuery
 
     if (updateErr) {
       console.error('DocuSign webhook: failed to update envelope:', updateErr.message)
@@ -362,6 +409,12 @@ export async function POST(request: Request) {
         console.log(`DocuSign webhook: completed processing for deal ${envelopes[0].deal_id}`)
       }
     }
+
+    // Mark dedup row as successfully processed for observability/audit.
+    await supabase
+      .from('docusign_webhook_events')
+      .update({ processed_at: new Date().toISOString(), processing_result: 'success' })
+      .eq('event_id', eventId)
 
     return new Response('OK', { status: 200 })
   } catch (err: any) {

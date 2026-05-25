@@ -9,7 +9,6 @@ import {
   failedDealAccrualStartDate,
   lateInterestAccrualStartDate,
 } from '@/lib/calculations'
-import { formatCurrency } from '@/lib/formatting'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
   sendDocumentReturnNotification,
@@ -49,48 +48,36 @@ export async function chargeLatePaymentInterest(input: {
   try {
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
-      .select('id, agent_id, advance_amount, closing_date, property_address, late_interest_charged')
+      .select('id, agent_id, advance_amount, closing_date, property_address')
       .eq('id', input.dealId)
       .single()
 
     if (dealErr || !deal) return { success: false, error: 'Deal not found' }
     if (!deal.closing_date) return { success: false, error: 'Deal has no closing date set' }
 
-    // Calculate total compound interest owed from day 31 after closing through throughDate
     const closingStr = typeof deal.closing_date === 'string'
       ? deal.closing_date.slice(0, 10)
       : new Date(deal.closing_date as any).toISOString().slice(0, 10)
 
     const totalInterestOwed = calculateLateInterest(deal.advance_amount, closingStr, input.throughDate)
-    const alreadyCharged = Number(deal.late_interest_charged) || 0
-    const interest = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
-
-    if (interest < 0.005) return { success: false, error: 'No additional late interest accrued (still in 30-day grace or already posted)' }
-
     const accrualStart = lateInterestAccrualStartDate(closingStr)
 
-    // Atomic balance + ledger write via RPC (migration 052). Replaces the
-    // prior read-modify-write that could race with the monthly cron.
-    const { data: txn, error: rpcErr } = await serviceClient
-      .rpc('apply_agent_balance_delta', {
-        p_agent_id: deal.agent_id,
-        p_delta: interest,
-        p_type: 'late_payment_interest',
-        p_description: `Late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily, accruing from ${accrualStart})`,
+    const { data: rpcResult, error: rpcErr } = await serviceClient
+      .rpc('apply_late_payment_interest', {
         p_deal_id: deal.id,
+        p_total_interest_owed_through: totalInterestOwed,
+        p_through_date: input.throughDate,
+        p_agent_id: deal.agent_id,
         p_created_by: user.id,
       })
 
-    if (rpcErr || !txn) return { success: false, error: `Failed to post interest: ${rpcErr?.message || 'unknown error'}` }
-    const newBalance = (txn as any).running_balance
+    if (rpcErr || !rpcResult) return { success: false, error: `Failed to post interest: ${rpcErr?.message || 'unknown error'}` }
 
-    await serviceClient
-      .from('deals')
-      .update({
-        late_interest_charged: totalInterestOwed,
-        late_interest_calculated_at: new Date().toISOString(),
-      })
-      .eq('id', deal.id)
+    const result = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
+
+    if (result.skipped) {
+      return { success: true, data: { interest: 0, alreadyCharged: true, newBalance: null } }
+    }
 
     await logAuditEvent({
       action: 'account.late_payment_interest',
@@ -98,16 +85,16 @@ export async function chargeLatePaymentInterest(input: {
       entityId: deal.id,
       metadata: {
         agent_id: deal.agent_id,
-        interest_amount: interest,
+        interest_amount: result.delta_posted,
         closing_date: closingStr,
         accrual_start: accrualStart,
         through_date: input.throughDate,
         rate: `${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily`,
-        new_balance: newBalance,
+        total_after: result.total_after,
       },
     })
 
-    return { success: true, data: { interest, newBalance } }
+    return { success: true, data: { interest: result.delta_posted, newBalance: result.total_after } }
   } catch (err: any) {
     console.error('Late payment interest error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
@@ -144,7 +131,7 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
   // charging interest on settled deals while admin paperwork lagged).
   const { data: overdueDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_charged, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments(amount, status)')
+    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments(amount, status)')
     .eq('status', 'funded')
     .not('closing_date', 'is', null)
 
@@ -192,37 +179,31 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
 
       const advance = Number(deal.advance_amount) || 0
       const totalInterestThroughLastMonth = calculateCompoundDailyInterest(advance, accrualStart, endOfLastMonth)
-      const alreadyCharged = Number(deal.late_interest_charged) || 0
-      const interestToCharge = Math.round((totalInterestThroughLastMonth - alreadyCharged) * 100) / 100
 
-      if (interestToCharge < 0.005) continue
-
-      // Atomic balance + ledger write via RPC (migration 052).
-      const { error: rpcErr } = await serviceClient
-        .rpc('apply_agent_balance_delta', {
-          p_agent_id: deal.agent_id,
-          p_delta: interestToCharge,
-          p_type: 'late_payment_interest',
-          p_description: `Late payment interest — ${lastMonthName} — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(advance)})`,
+      const { data: rpcResult, error: rpcErr } = await serviceClient
+        .rpc('apply_late_payment_interest', {
           p_deal_id: deal.id,
+          p_total_interest_owed_through: totalInterestThroughLastMonth,
+          p_through_date: endOfLastMonth,
+          p_agent_id: deal.agent_id,
+          p_created_by: null,
         })
-      if (rpcErr) {
-        console.error(`Auto-charge balance RPC failed for deal ${deal.id}:`, rpcErr.message)
+      if (rpcErr || !rpcResult) {
+        console.error(`Auto-charge late interest RPC failed for deal ${deal.id}:`, rpcErr?.message)
         result.errors++
         continue
       }
 
+      const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
+      if (rpcData.skipped) continue
+
       await serviceClient
         .from('deals')
-        .update({
-          late_interest_charged: totalInterestThroughLastMonth,
-          late_interest_calculated_at: new Date().toISOString(),
-          payment_status: 'overdue',
-        })
+        .update({ payment_status: 'overdue' })
         .eq('id', deal.id)
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: interestToCharge, postedFor: lastMonthName })
+      result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
     } catch (err) {
       console.error(`Auto-charge error for deal ${deal.id}:`, err)
       result.errors++
@@ -305,7 +286,7 @@ export async function autoChargeMonthlyFailedDealInterest(): Promise<{
 
   const { data: failedDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_charged, failed_deal_interest_calculated_at')
+    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_calculated_at')
     .eq('status', 'failed_to_close')
     .gt('outstanding_balance', 0)
 
@@ -336,40 +317,27 @@ export async function autoChargeMonthlyFailedDealInterest(): Promise<{
       }
 
       const principal = Number(deal.outstanding_balance) || 0
-      // Total compound interest owed THROUGH END OF LAST MONTH (not through today).
       const totalInterestThroughLastMonth = calculateCompoundDailyInterest(principal, accrualStart, endOfLastMonth)
-      const alreadyCharged = Number(deal.failed_deal_interest_charged) || 0
-      const interestToCharge = Math.round((totalInterestThroughLastMonth - alreadyCharged) * 100) / 100
 
-      // Nothing to charge: already at-or-above the through-last-month figure
-      // (e.g. cron run twice the same month, or a prior overshoot).
-      if (interestToCharge < 0.005) continue
-
-      // Atomic balance + ledger write via RPC (migration 052).
-      const { error: rpcErr } = await serviceClient
-        .rpc('apply_agent_balance_delta', {
-          p_agent_id: deal.agent_id,
-          p_delta: interestToCharge,
-          p_type: 'failed_deal_interest',
-          p_description: `Failed-deal interest — ${lastMonthName} — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(principal)})`,
+      const { data: rpcResult, error: rpcErr } = await serviceClient
+        .rpc('apply_failed_deal_interest', {
           p_deal_id: deal.id,
+          p_total_interest_owed_through: totalInterestThroughLastMonth,
+          p_through_date: endOfLastMonth,
+          p_agent_id: deal.agent_id,
+          p_created_by: null,
         })
-      if (rpcErr) {
-        console.error(`Failed-deal monthly interest RPC failed for deal ${deal.id}:`, rpcErr.message)
+      if (rpcErr || !rpcResult) {
+        console.error(`Failed-deal monthly interest RPC failed for deal ${deal.id}:`, rpcErr?.message)
         result.errors++
         continue
       }
 
-      await serviceClient
-        .from('deals')
-        .update({
-          failed_deal_interest_charged: totalInterestThroughLastMonth,
-          failed_deal_interest_calculated_at: new Date().toISOString(),
-        })
-        .eq('id', deal.id)
+      const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
+      if (rpcData.skipped) continue
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: interestToCharge, postedFor: lastMonthName })
+      result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
     } catch (err) {
       console.error(`Failed-deal monthly interest post error for deal ${deal.id}:`, err)
       result.errors++

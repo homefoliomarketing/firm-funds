@@ -3,6 +3,14 @@
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import type { AuditSeverity } from '@/lib/audit-labels'
 
+// Strip characters with special meaning to PostgREST's or() mini-DSL
+// (comma, parens, period, percent, asterisk, colon) before interpolating
+// user input into an .or() filter string. Matches the regex in
+// app/api/audit/export/route.ts so both search paths sanitize identically.
+function sanitizePostgrestOr(value: string): string {
+  return value.replace(/[,()%.*:]/g, '')
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -166,11 +174,15 @@ export async function queryAuditLogs(
       dataQuery = dataQuery.lt('created_at', endDate.toISOString())
     }
     if (filters.search) {
-      // Search across action, entity_type, actor_email, and metadata
-      const searchTerm = `%${filters.search}%`
-      const orFilter = `action.ilike.${searchTerm},entity_type.ilike.${searchTerm},actor_email.ilike.${searchTerm}`
-      countQuery = countQuery.or(orFilter)
-      dataQuery = dataQuery.or(orFilter)
+      // Search across action, entity_type, actor_email, and metadata.
+      // Sanitize before building the or() string — see sanitizePostgrestOr.
+      const safe = sanitizePostgrestOr(filters.search)
+      if (safe.length > 0) {
+        const searchTerm = `%${safe}%`
+        const orFilter = `action.ilike.${searchTerm},entity_type.ilike.${searchTerm},actor_email.ilike.${searchTerm}`
+        countQuery = countQuery.or(orFilter)
+        dataQuery = dataQuery.or(orFilter)
+      }
     }
 
     // Execute both queries in parallel
@@ -224,8 +236,11 @@ export async function exportAuditLogs(
       query = query.lt('created_at', endDate.toISOString())
     }
     if (filters.search) {
-      const searchTerm = `%${filters.search}%`
-      query = query.or(`action.ilike.${searchTerm},entity_type.ilike.${searchTerm},actor_email.ilike.${searchTerm}`)
+      const safe = sanitizePostgrestOr(filters.search)
+      if (safe.length > 0) {
+        const searchTerm = `%${safe}%`
+        query = query.or(`action.ilike.${searchTerm},entity_type.ilike.${searchTerm},actor_email.ilike.${searchTerm}`)
+      }
     }
 
     const { data, error } = await query
