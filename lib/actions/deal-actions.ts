@@ -718,8 +718,12 @@ export async function updateDealStatus(input: {
     }
 
     // see audit finding #5: only this caller has claimed the deal; safe to debit now.
-    if (pendingFundingDeduction) {
-      const { error: rpcErr } = await supabase
+    // RPC requires service role (migration 072 locked apply_agent_balance_delta to service_role).
+    const rpcClient = (pendingFundingDeduction || isFundedToApprovedReversal)
+      ? createServiceRoleClient()
+      : null
+    if (pendingFundingDeduction && rpcClient) {
+      const { error: rpcErr } = await rpcClient
         .rpc('apply_agent_balance_delta', {
           p_agent_id: pendingFundingDeduction.agentId,
           p_delta: -pendingFundingDeduction.amount,
@@ -748,8 +752,8 @@ export async function updateDealStatus(input: {
 
     // see audit finding #19: refund the previously deducted balance now that
     // the CAS demoted funded back to approved.
-    if (isFundedToApprovedReversal) {
-      const { error: refundErr } = await supabase
+    if (isFundedToApprovedReversal && rpcClient) {
+      const { error: refundErr } = await rpcClient
         .rpc('apply_agent_balance_delta', {
           p_agent_id: deal.agent_id,
           p_delta: prevBalanceDeducted,
