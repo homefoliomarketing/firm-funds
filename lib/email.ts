@@ -1180,6 +1180,118 @@ export async function sendEmailChangeNotification(params: {
 }
 
 // ============================================================================
+// Brokerage Contact Email — Confirm-New-Address (finding #40 follow-up)
+// ============================================================================
+//
+// Sent to the NEW address requested by a brokerage admin. The confirmation
+// URL carries a single-use token; clicking it flips brokerages.contact_email.
+// Until the recipient acts, the brokerage continues to receive notifications
+// at the previously-verified address.
+
+export async function sendBrokerageContactEmailConfirm(params: {
+  brokerageName: string
+  newEmail: string
+  confirmUrl: string
+  expiresAtIso: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const expiresLabel = new Date(params.expiresAtIso).toUTCString()
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.newEmail,
+      subject: sanitizeSubject(`Confirm new contact email for ${params.brokerageName}`),
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Confirm Your Email</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          A Firm Funds administrator at <strong>${escapeHtml(params.brokerageName)}</strong> requested that this address (${escapeHtml(params.newEmail)}) become the brokerage's primary contact email.
+        </p>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          Click the button below to confirm. The link expires on ${escapeHtml(expiresLabel)}.
+        </p>
+        <table cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+          <tr>
+            <td style="background:#5FA873; border-radius:8px;">
+              <a href="${escapeHtml(params.confirmUrl)}" style="display:inline-block; padding:12px 24px; color:#0A0A0A; font-weight:600; text-decoration:none;">Confirm Email Change</a>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 8px; color:#737373; font-size:13px;">
+          If you didn't request this change, simply ignore this email. The brokerage's contact address will remain unchanged.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage contact email confirm:', err)
+  }
+}
+
+// ============================================================================
+// Brokerage Contact Email — Change-Requested Warning (to OLD address)
+// ============================================================================
+//
+// Fires immediately when an admin requests the change, BEFORE the new address
+// confirms. Gives the legitimate owner early warning of a possible stolen
+// session even though the actual flip hasn't happened yet.
+
+export async function sendBrokerageContactEmailChangeRequested(params: {
+  brokerageName: string
+  oldEmail: string
+  newEmail: string
+  expiresAtIso: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const expiresLabel = new Date(params.expiresAtIso).toUTCString()
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.oldEmail,
+      subject: sanitizeSubject(`Contact email change requested for ${params.brokerageName}`),
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Contact Email Change Requested</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          Hi, a request was made to change the contact email for <strong>${escapeHtml(params.brokerageName)}</strong>.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Current Email</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.oldEmail)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Requested Email</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(params.newEmail)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Action Expires</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(expiresLabel)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          The change will only take effect once someone at the requested address clicks the confirmation link in their inbox. Your current address will continue receiving all brokerage notifications until then.
+        </p>
+        <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
+          If you didn't request this change, sign in immediately, change your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your administrator session may be compromised.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage contact email change-requested:', err)
+  }
+}
+
+// ============================================================================
 // Banking Submission Notification (to Admin)
 // ============================================================================
 

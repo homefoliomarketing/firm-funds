@@ -96,6 +96,11 @@ export async function middleware(request: NextRequest) {
     '/api/kyc-mobile-upload',
     '/api/kyc-desktop-upload',
     '/api/kyc-validate-token',
+    // Click-target for the brokerage contact-email confirmation flow. The
+    // single-use token is the authentication; no session is required (the
+    // recipient may not have a Firm Funds account at all). See
+    // app/api/brokerage/confirm-contact-email/route.ts.
+    '/api/brokerage/confirm-contact-email',
   ]
   const isPublic =
     PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/')) ||

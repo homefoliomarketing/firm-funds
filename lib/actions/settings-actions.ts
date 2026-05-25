@@ -4,6 +4,9 @@ import { headers } from 'next/headers'
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import { checkPasswordRateLimit } from '@/lib/rate-limit'
+import { logAuditEventServiceRole } from '@/lib/audit'
+
+const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
 
 // ============================================================================
 // Password Change
@@ -113,35 +116,32 @@ export async function updateEmail(newEmail: string) {
 
   const oldEmail = user.email ?? null
 
-  // Update in Supabase Auth (sends confirmation email)
-  const { error: authUpdateError } = await supabase.auth.updateUser({
-    email: newEmail,
-  })
+  // Update in Supabase Auth (sends confirmation email to the new address).
+  // emailRedirectTo points at our /auth/email-confirmed route so the redirect
+  // after the user clicks the link runs reconcileUserEmail and mirrors
+  // auth.users.email -> user_profiles.email. See lib/email-reconcile.ts.
+  const { error: authUpdateError } = await supabase.auth.updateUser(
+    { email: newEmail },
+    { emailRedirectTo: `${APP_URL}/auth/email-confirmed` }
+  )
 
   if (authUpdateError) {
     console.error('Email update auth error:', authUpdateError.message)
     return { success: false, error: 'Failed to update email. It may already be in use.' }
   }
 
-  // Finding #42: do NOT mirror new email to user_profiles here. Magic-link
-  // and invite recovery flows key on user_profiles.email, so writing the
-  // unverified new address lets an attacker with a stolen session redirect
-  // recovery to themselves. user_profiles.email should remain pointing at
-  // the previously-verified address until Supabase confirms the change.
-  // TODO: add an auth event handler on EMAIL_CHANGE_CONFIRM (or a webhook
-  // from Supabase Auth) that mirrors auth.users.email to user_profiles.email
-  // ONLY after the user clicks the confirmation link on the new address.
-
-  // Audit log every change attempt with old + new addresses.
-  const serviceClient = createServiceRoleClient()
-  void serviceClient.from('audit_log').insert({
-    user_id: user.id,
+  // Finding #42: do NOT mirror the new email to user_profiles here. Magic-link
+  // and invite recovery flows key on user_profiles.email; writing the
+  // unverified new address lets a stolen-session attacker redirect recovery
+  // to themselves. The mirror happens in reconcileUserEmail only after
+  // Supabase verifies the user actually owns the new inbox.
+  await logAuditEventServiceRole({
+    userId: user.id,
     action: 'user.email_change_requested',
-    entity_type: 'user',
-    entity_id: user.id,
+    entityType: 'user',
+    entityId: user.id,
     severity: 'warning',
-    actor_email: oldEmail,
-    actor_role: null,
+    actorEmail: oldEmail ?? undefined,
     metadata: { old_email: oldEmail, new_email: newEmail.toLowerCase() },
   })
 
@@ -231,13 +231,12 @@ export async function updateBrokerageContactEmail(newEmail: string) {
 
   const serviceClient = createServiceRoleClient()
 
-  // Finding #40: read the existing contact_email so we can audit-log the
-  // change and notify the OLD address. This gives the legitimate owner a
-  // chance to detect an attacker silently redirecting all brokerage
-  // notifications (deal status, invoices, settlement reminders) to a new
-  // inbox they control.
-  // TODO: require confirmation token from new address before persisting
-  // (see audit finding #40)
+  // Finding #40: do NOT flip brokerages.contact_email immediately. A stolen
+  // brokerage_admin session could otherwise silently redirect every brokerage
+  // notification to an attacker-owned inbox. Write the requested address to
+  // pending_contact_email + a hashed single-use token, email the raw token
+  // to the new address, and only flip on confirmation. The OLD address is
+  // notified immediately so the legitimate owner gets early warning.
   const { data: existing } = await serviceClient
     .from('brokerages')
     .select('contact_email, name')
@@ -252,40 +251,67 @@ export async function updateBrokerageContactEmail(newEmail: string) {
     return { success: true }
   }
 
+  const { randomBytes, createHash } = await import('node:crypto')
+  const rawToken = randomBytes(32).toString('hex')
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex')
+  const requestedAt = new Date()
+  const expiresAt = new Date(requestedAt.getTime() + 24 * 60 * 60 * 1000) // 24h
+
   const { error } = await serviceClient
     .from('brokerages')
-    .update({ contact_email: newEmailLc })
+    .update({
+      pending_contact_email: newEmailLc,
+      pending_contact_email_token_hash: tokenHash,
+      pending_contact_email_requested_at: requestedAt.toISOString(),
+      pending_contact_email_expires_at: expiresAt.toISOString(),
+    })
     .eq('id', profile.brokerage_id)
 
   if (error) {
-    console.error('Brokerage email update error:', error.message)
-    return { success: false, error: 'Failed to update brokerage contact email' }
+    console.error('Brokerage email pending-update error:', error.message)
+    return { success: false, error: 'Failed to start brokerage contact email change' }
   }
 
-  void serviceClient.from('audit_log').insert({
-    user_id: user.id,
-    action: 'brokerage.contact_email_change',
-    entity_type: 'brokerage',
-    entity_id: profile.brokerage_id,
+  await logAuditEventServiceRole({
+    userId: user.id,
+    action: 'brokerage.contact_email_change_requested',
+    entityType: 'brokerage',
+    entityId: profile.brokerage_id,
     severity: 'warning',
-    actor_email: user.email,
-    actor_role: 'brokerage_admin',
-    metadata: { old_email: oldEmail, new_email: newEmailLc, brokerage_name: brokerageName },
+    actorEmail: user.email ?? undefined,
+    actorRole: 'brokerage_admin',
+    metadata: {
+      old_email: oldEmail,
+      pending_email: newEmailLc,
+      brokerage_name: brokerageName,
+      expires_at: expiresAt.toISOString(),
+    },
   })
 
-  // Notify the OLD address so the legitimate owner can spot tampering.
-  if (oldEmail) {
-    try {
-      const { sendEmailChangeNotification } = await import('@/lib/email')
-      await sendEmailChangeNotification({
-        recipientName: brokerageName,
+  const confirmUrl = `${APP_URL}/api/brokerage/confirm-contact-email?token=${encodeURIComponent(rawToken)}`
+
+  try {
+    const { sendBrokerageContactEmailConfirm, sendBrokerageContactEmailChangeRequested } = await import('@/lib/email')
+    await sendBrokerageContactEmailConfirm({
+      brokerageName,
+      newEmail: newEmailLc,
+      confirmUrl,
+      expiresAtIso: expiresAt.toISOString(),
+    })
+    if (oldEmail) {
+      await sendBrokerageContactEmailChangeRequested({
+        brokerageName,
         oldEmail,
         newEmail: newEmailLc,
+        expiresAtIso: expiresAt.toISOString(),
       })
-    } catch (emailErr: any) {
-      console.error('Brokerage email change notification error (non-fatal):', emailErr?.message)
     }
+  } catch (emailErr: any) {
+    console.error('Brokerage email change notification error (non-fatal):', emailErr?.message)
   }
 
-  return { success: true }
+  return {
+    success: true,
+    message: `Confirmation email sent to ${newEmailLc}. The change will take effect only after the new address confirms.`,
+  }
 }
