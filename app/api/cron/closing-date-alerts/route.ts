@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder3Day } from '@/lib/email'
 import { autoChargeMonthlyLatePaymentInterest, autoChargeMonthlyFailedDealInterest } from '@/lib/actions/account-actions'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
+
+const JOB_NAME = 'closing_date_alerts'
 
 // =============================================================================
 // GET /api/cron/closing-date-alerts
@@ -42,6 +45,23 @@ export async function GET(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+  // Idempotency: claim (job_name, period) row. Period = calendar date (UTC) so
+  // duplicate runs on the same day no-op. See migration 074.
+  const serviceClient = createServiceRoleClient()
+  const period = new Date().toISOString().split('T')[0]
+  const { data: claimRow, error: claimErr } = await serviceClient
+    .from('cron_run_log')
+    .insert({ job_name: JOB_NAME, period })
+    .select('id')
+    .single()
+  if (claimErr && (claimErr as any).code === '23505') {
+    return Response.json({ already_ran: true, period }, { status: 200 })
+  }
+  if (claimErr || !claimRow) {
+    return Response.json({ error: 'Failed to claim cron run', detail: claimErr?.message }, { status: 500 })
+  }
+  const runId = claimRow.id
+
   try {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 
@@ -57,10 +77,18 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error('[cron] Failed to fetch deals:', error.message)
+      await serviceClient
+        .from('cron_run_log')
+        .update({ completed_at: new Date().toISOString(), outcome: 'error', details: { error: error.message } })
+        .eq('id', runId)
       return Response.json({ error: 'Failed to fetch deals' }, { status: 500 })
     }
 
     if (!activeDeals || activeDeals.length === 0) {
+      await serviceClient
+        .from('cron_run_log')
+        .update({ completed_at: new Date().toISOString(), outcome: 'success', details: { approaching: 0, overdue: 0, note: 'no active deals' } })
+        .eq('id', runId)
       return Response.json({ message: 'No active deals to check', approaching: 0, overdue: 0 })
     }
 
@@ -105,9 +133,18 @@ export async function GET(request: Request) {
       }
     }
 
+    // Per-iteration error isolation: collect failures, never throw out of the
+    // route. We still want late-interest posting to run even if some emails
+    // fail.
+    const failures: { stage: string; dealId?: string; error: string }[] = []
+
     // Send admin digest
     if (approachingDeals.length > 0 || overdueDeals.length > 0) {
-      await sendClosingDateAlertDigest({ approachingDeals, overdueDeals })
+      try {
+        await sendClosingDateAlertDigest({ approachingDeals, overdueDeals })
+      } catch (err: any) {
+        failures.push({ stage: 'digest', error: err?.message || 'send failed' })
+      }
     }
 
     // Batched recompute: replaces a per-deal UPDATE loop with one set-based
@@ -166,14 +203,22 @@ export async function GET(request: Request) {
         // Closing day (daysSinceClosing === 0): brokerage's settlement window starts today
         if (daysSinceClosing === 0) {
           reminderParams.daysRemaining = dealSettlementDays
-          await sendSettlementReminderClosingDay(reminderParams)
-          remindersSent++
+          try {
+            await sendSettlementReminderClosingDay(reminderParams)
+            remindersSent++
+          } catch (err: any) {
+            failures.push({ stage: 'reminder_closing_day', dealId: deal.id, error: err?.message || 'send failed' })
+          }
         }
         // Mid-window reminder: 3 days remaining in the deal's settlement window
         else if (daysSinceClosing === dealSettlementDays - 3) {
           reminderParams.daysRemaining = 3
-          await sendSettlementReminder3Day(reminderParams)
-          remindersSent++
+          try {
+            await sendSettlementReminder3Day(reminderParams)
+            remindersSent++
+          } catch (err: any) {
+            failures.push({ stage: 'reminder_3_day', dealId: deal.id, error: err?.message || 'send failed' })
+          }
         }
       }
     }
@@ -211,6 +256,26 @@ export async function GET(request: Request) {
 
     const failedDealInterestResult = await autoChargeMonthlyFailedDealInterest()
 
+    const partialFailure = failures.length > 0
+    const details = {
+      approaching: approachingDeals.length,
+      overdue: overdueDeals.length,
+      total_active: activeDeals.length,
+      reminders_sent: remindersSent,
+      late_interest: lateInterestResult,
+      failed_deal_interest: failedDealInterestResult,
+      failures,
+    }
+
+    await serviceClient
+      .from('cron_run_log')
+      .update({
+        completed_at: new Date().toISOString(),
+        outcome: partialFailure ? 'partial_success' : 'success',
+        details,
+      })
+      .eq('id', runId)
+
     return Response.json({
       message: 'Daily cron complete',
       approaching: approachingDeals.length,
@@ -227,9 +292,19 @@ export async function GET(request: Request) {
         errors: failedDealInterestResult.errors,
         details: failedDealInterestResult.details,
       },
+      failures,
+      partial_failure: partialFailure,
     })
   } catch (err: any) {
     console.error('[cron] Closing date alert error:', err?.message)
+    await serviceClient
+      .from('cron_run_log')
+      .update({
+        completed_at: new Date().toISOString(),
+        outcome: 'error',
+        details: { error: err?.message || 'unknown error' },
+      })
+      .eq('id', runId)
     return Response.json({ error: 'Internal error' }, { status: 500 })
   }
 }

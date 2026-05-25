@@ -197,10 +197,13 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
       const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
       if (rpcData.skipped) continue
 
+      // CAS on payment_status='pending' so a concurrent payment confirmation
+      // can't be clobbered back to overdue.
       await serviceClient
         .from('deals')
         .update({ payment_status: 'overdue' })
         .eq('id', deal.id)
+        .eq('payment_status', 'pending')
 
       result.charged++
       result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
@@ -363,39 +366,34 @@ export async function deductBalanceFromAdvance(input: {
   const serviceClient = createServiceRoleClient()
 
   try {
-    const { data: agent } = await serviceClient
-      .from('agents')
-      .select('id, account_balance, first_name, last_name')
-      .eq('id', input.agentId)
-      .single()
-
-    if (!agent) return { success: false, error: 'Agent not found' }
-    if ((agent.account_balance || 0) <= 0) return { success: false, error: 'No outstanding balance to deduct' }
-
-    const deductAmount = Math.min(input.amount, agent.account_balance || 0)
-
-    // Atomic balance + ledger write via RPC (migration 052).
-    const { data: txn, error: rpcErr } = await serviceClient
-      .rpc('apply_agent_balance_delta', {
-        p_agent_id: agent.id,
-        p_delta: -deductAmount,
+    // Atomic clamp + deduct via RPC (migration 073). Replaces the prior
+    // read-account_balance + Math.min + apply_agent_balance_delta sequence,
+    // which could race with concurrent interest accruals between the read
+    // and the write.
+    const { data: rpcResult, error: rpcErr } = await serviceClient
+      .rpc('apply_agent_balance_delta_capped', {
+        p_agent_id: input.agentId,
+        p_delta_magnitude: input.amount,
         p_type: 'balance_deduction',
         p_description: 'Balance deduction from advance',
         p_deal_id: input.dealId,
         p_created_by: user.id,
       })
 
-    if (rpcErr || !txn) return { success: false, error: `Failed to deduct balance: ${rpcErr?.message || 'unknown error'}` }
-    const newBalance = (txn as any).running_balance
+    if (rpcErr || !rpcResult) return { success: false, error: `Failed to deduct balance: ${rpcErr?.message || 'unknown error'}` }
+
+    const result = rpcResult as { deducted: number; new_balance: number; skipped: boolean; reason?: string }
+
+    if (result.skipped) return { success: false, error: 'No outstanding balance to deduct' }
 
     await logAuditEvent({
       action: 'account.balance_deduction',
       entityType: 'agent',
-      entityId: agent.id,
-      metadata: { deal_id: input.dealId, deducted: deductAmount, new_balance: newBalance },
+      entityId: input.agentId,
+      metadata: { deal_id: input.dealId, deducted: result.deducted, new_balance: result.new_balance },
     })
 
-    return { success: true, data: { deducted: deductAmount, newBalance } }
+    return { success: true, data: { deducted: result.deducted, newBalance: result.new_balance } }
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -410,6 +408,7 @@ export async function adjustAgentBalance(input: {
   amount: number
   description: string
   dealId?: string
+  idempotencyKey?: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -425,6 +424,31 @@ export async function adjustAgentBalance(input: {
 
     if (!agent) return { success: false, error: 'Agent not found' }
 
+    // Optional double-click guard. If the caller supplies idempotencyKey, we
+    // look for an existing txn by the same admin with the same reference_id
+    // posted in the last 60 seconds and return it instead of double-posting.
+    // 60s is wide enough to absorb a double-click or quick retry but narrow
+    // enough that a legitimate same-key adjustment later in the session will
+    // still post. Callers must opt in (UI passes the key); legacy callers
+    // that don't pass a key get the previous behaviour.
+    if (input.idempotencyKey) {
+      const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString()
+      const { data: existing } = await serviceClient
+        .from('agent_transactions')
+        .select('id, running_balance, amount')
+        .eq('agent_id', agent.id)
+        .eq('created_by', user.id)
+        .eq('reference_id', input.idempotencyKey)
+        .gte('created_at', sixtySecondsAgo)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existing) {
+        return { success: true, data: { newBalance: existing.running_balance, deduplicated: true } }
+      }
+    }
+
     // Atomic balance + ledger write via RPC (migration 052).
     const { data: txn, error: rpcErr } = await serviceClient
       .rpc('apply_agent_balance_delta', {
@@ -434,6 +458,7 @@ export async function adjustAgentBalance(input: {
         p_description: input.description,
         p_deal_id: input.dealId || null,
         p_created_by: user.id,
+        p_reference_id: input.idempotencyKey || null,
       })
 
     if (rpcErr || !txn) return { success: false, error: `Failed to adjust balance: ${rpcErr?.message || 'unknown error'}` }
@@ -595,6 +620,7 @@ export async function markInvoicePaid(input: {
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Pre-fetch for existence check and to default paidAmount to invoice.amount.
     const { data: invoice } = await serviceClient
       .from('agent_invoices')
       .select('*')
@@ -605,34 +631,38 @@ export async function markInvoicePaid(input: {
 
     const paidAmount = input.paidAmount || invoice.amount
 
-    // Update invoice
-    await serviceClient
-      .from('agent_invoices')
-      .update({ status: 'paid', paid_at: new Date().toISOString(), paid_amount: paidAmount })
-      .eq('id', input.invoiceId)
-
-    // Atomic balance + ledger write via RPC (migration 052). The previous
-    // read-modify-write could race with concurrent interest accruals.
-    const { error: rpcErr } = await serviceClient
-      .rpc('apply_agent_balance_delta', {
-        p_agent_id: invoice.agent_id,
-        p_delta: -paidAmount,
-        p_type: 'invoice_payment',
-        p_description: `Invoice payment — ${invoice.invoice_number}`,
-        p_deal_id: null,
+    // Atomic invoice flip + ledger post via RPC (migration 073). Replaces the
+    // prior two-write pattern, which could leave the invoice marked paid with
+    // no ledger entry (or vice versa) if the second write failed. CAS on
+    // invoice.status inside the RPC also serializes double-click attempts.
+    const { data: rpcResult, error: rpcErr } = await serviceClient
+      .rpc('mark_invoice_paid_atomic', {
+        p_invoice_id: input.invoiceId,
+        p_paid_amount: paidAmount,
         p_created_by: user.id,
-        p_reference_id: invoice.id,
       })
-    if (rpcErr) return { success: false, error: `Failed to apply invoice payment: ${rpcErr.message}` }
+    if (rpcErr || !rpcResult) return { success: false, error: `Failed to apply invoice payment: ${rpcErr?.message || 'unknown error'}` }
+
+    const result = rpcResult as {
+      skipped: boolean
+      paid_amount?: number
+      new_balance?: number
+      invoice_number?: string
+      reason?: string
+    }
+
+    if (result.skipped) {
+      return { success: true, data: { alreadyPaid: true } }
+    }
 
     await logAuditEvent({
       action: 'invoice.paid',
       entityType: 'agent',
       entityId: invoice.agent_id,
-      metadata: { invoice_id: invoice.id, paid_amount: paidAmount },
+      metadata: { invoice_id: invoice.id, paid_amount: result.paid_amount, new_balance: result.new_balance },
     })
 
-    return { success: true }
+    return { success: true, data: { paidAmount: result.paid_amount, newBalance: result.new_balance } }
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }

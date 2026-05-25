@@ -220,6 +220,66 @@ export async function brokerageUpdateAgentContact(input: {
 }
 
 // ============================================================================
+// Toggle the flagged_by_brokerage boolean on one of the brokerage's agents.
+// Direct UPDATE on agents from the browser is REVOKEd in migration 059 (the
+// kyc_modal RLS hole). All mutations to the agents table must route through
+// a server action that validates ownership and uses the service-role client.
+// ============================================================================
+
+export async function toggleAgentBrokerageFlag(input: {
+  agentId: string
+  flagged: boolean
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
+
+  if (!input.agentId) return { success: false, error: 'Agent id is required' }
+  const flagged = Boolean(input.flagged)
+
+  const serviceClient = createServiceRoleClient()
+
+  // Service-role lookup so the brokerage check can't be bypassed by RLS visibility.
+  const { data: agent, error: lookupErr } = await serviceClient
+    .from('agents')
+    .select('id, brokerage_id, first_name, last_name, flagged_by_brokerage')
+    .eq('id', input.agentId)
+    .single()
+
+  if (lookupErr || !agent) return { success: false, error: 'Agent not found' }
+  if (agent.brokerage_id !== profile.brokerage_id) {
+    return { success: false, error: 'Agent does not belong to your brokerage' }
+  }
+
+  if (agent.flagged_by_brokerage === flagged) {
+    return { success: true, data: { flagged } }
+  }
+
+  const { error: updateErr } = await serviceClient
+    .from('agents')
+    .update({ flagged_by_brokerage: flagged })
+    .eq('id', input.agentId)
+
+  if (updateErr) return { success: false, error: `Failed to update flag: ${updateErr.message}` }
+
+  await logAuditEvent({
+    action: 'agent.flag_toggled_by_brokerage',
+    entityType: 'agent',
+    entityId: input.agentId,
+    severity: 'warning',
+    oldValue: { flagged_by_brokerage: agent.flagged_by_brokerage },
+    newValue: { flagged_by_brokerage: flagged },
+    metadata: {
+      name: `${agent.first_name} ${agent.last_name}`,
+      brokerage_id: profile.brokerage_id,
+      toggled_by_user_id: user.id,
+    },
+  })
+
+  return { success: true, data: { flagged } }
+}
+
+// ============================================================================
 // Re-send the welcome email to one of the brokerage's own agents
 // (Wrapper around the admin variant — restricts to the calling brokerage's roster)
 // ============================================================================

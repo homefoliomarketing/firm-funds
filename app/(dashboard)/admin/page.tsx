@@ -87,9 +87,13 @@ export default function AdminDashboard() {
         { data: allMsgs },
         { data: dismissals },
       ] = await Promise.all([
-        supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }),
-        supabase.from('agents').select('id, first_name, last_name, email, banking_submitted_transit, banking_submitted_institution, banking_submitted_account, banking_submitted_at, banking_approval_status, preauth_form_path, brokerage_id, brokerages(name)').eq('banking_approval_status', 'pending'),
-        supabase.from('agents').select('id, first_name, last_name, email, kyc_status, kyc_submitted_at, kyc_document_path, kyc_document_type, brokerage_id, brokerages(name)').eq('kyc_status', 'submitted'),
+        // Safety cap. Long-term this should paginate/aggregate server-side.
+        supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }).limit(500),
+        // TODO: banking_submitted_transit/institution/account should be fetched
+        // lazily when an admin clicks into a specific pending row, not bulk-loaded
+        // on dashboard mount. Removed from this query to limit PII exposure.
+        supabase.from('agents').select('id, first_name, last_name, email, banking_submitted_at, banking_approval_status, preauth_form_path, brokerage_id, brokerages(name)').eq('banking_approval_status', 'pending').limit(500),
+        supabase.from('agents').select('id, first_name, last_name, email, kyc_status, kyc_submitted_at, kyc_document_path, kyc_document_type, brokerage_id, brokerages(name)').eq('kyc_status', 'submitted').limit(500),
         supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
         supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
       ])

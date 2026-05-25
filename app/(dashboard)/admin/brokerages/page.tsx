@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument } from '@/lib/actions/admin-actions'
 import { getAgentTransactions } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
@@ -915,18 +915,17 @@ export default function BrokeragesPage() {
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { setStatusMessage({ type: 'error', text: 'File must be under 10MB' }); return }
     setUploadingBrokerageDoc(true)
-    const filePath = `brokerages/${brokerageId}/${Date.now()}_${file.name}`
-    const { error: uploadErr } = await supabase.storage.from('deal-documents').upload(filePath, file)
-    if (uploadErr) { setStatusMessage({ type: 'error', text: `Upload failed: ${uploadErr.message}` }); setUploadingBrokerageDoc(false); return }
-    const { error: dbErr } = await supabase.from('brokerage_documents').insert({
-      brokerage_id: brokerageId,
-      document_type: docType,
-      file_name: file.name,
-      file_path: filePath,
-      file_size: file.size,
-      uploaded_by: user?.id,
-    })
-    if (dbErr) { setStatusMessage({ type: 'error', text: `Failed to save record: ${dbErr.message}` }); setUploadingBrokerageDoc(false); return }
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('brokerageId', brokerageId)
+    formData.append('documentType', docType)
+    const result = await uploadBrokerageDocument(formData)
+    if (!result.success) {
+      setStatusMessage({ type: 'error', text: result.error || 'Upload failed' })
+      setUploadingBrokerageDoc(false)
+      e.target.value = ''
+      return
+    }
     setStatusMessage({ type: 'success', text: `${file.name} uploaded` })
     await loadBrokerageDocs(brokerageId)
     setUploadingBrokerageDoc(false)
@@ -935,8 +934,11 @@ export default function BrokeragesPage() {
 
   const handleBrokerageDocDelete = async (doc: { id: string; file_path: string; file_name: string }, brokerageId: string) => {
     if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
-    await supabase.storage.from('deal-documents').remove([doc.file_path])
-    await supabase.from('brokerage_documents').delete().eq('id', doc.id)
+    const result = await deleteBrokerageDocument({ documentId: doc.id })
+    if (!result.success) {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to delete document' })
+      return
+    }
     setStatusMessage({ type: 'success', text: 'Document deleted' })
     await loadBrokerageDocs(brokerageId)
   }

@@ -87,6 +87,9 @@ export default function CureElectionPage({ params }: PageProps) {
 
       if (dealErr || !dealData) {
         setError('Deal not found, or you do not have access to it.')
+      } else if (dealData.agent_id !== profileData.agent_id) {
+        // Defence in depth: do not trust RLS alone for ownership.
+        setError('Deal not found')
       } else if (dealData.status !== 'failed_to_close') {
         setError('This deal is not in a failed-to-close state.')
       } else {

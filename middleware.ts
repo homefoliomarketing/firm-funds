@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isAllowedOrigin } from '@/lib/csrf'
 
 // Role-to-route mapping for authorization
 const ROUTE_ROLES: Record<string, string[]> = {
@@ -8,7 +9,50 @@ const ROUTE_ROLES: Record<string, string[]> = {
   '/agent': ['agent'],
 }
 
+// State-changing HTTP verbs that require an Origin/Referer match for /api/*
+// routes. GET/HEAD/OPTIONS are exempt (idempotent + preflight semantics).
+const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+// API routes that legitimately receive state-changing requests from non-browser
+// callers and therefore have no browser Origin to compare against. Each MUST
+// have its own out-of-band auth (HMAC, bearer secret, etc.).
+//
+// To add a new exemption: document the alternate auth mechanism inline
+// (e.g. "HMAC-verified", "Bearer CRON_SECRET") and prefer an exact path
+// match over a wildcard.
+const API_CSRF_EXEMPT_EXACT = new Set<string>([
+  // DocuSign Connect — HMAC-SHA256 verified in the route handler
+  '/api/docusign/webhook',
+])
+const API_CSRF_EXEMPT_PREFIX = [
+  // Netlify-scheduled cron jobs — Bearer CRON_SECRET in handler
+  '/api/cron/',
+]
+
+function isApiCsrfExempt(pathname: string): boolean {
+  if (API_CSRF_EXEMPT_EXACT.has(pathname)) return true
+  return API_CSRF_EXEMPT_PREFIX.some(p => pathname.startsWith(p))
+}
+
 export async function middleware(request: NextRequest) {
+  // CSRF enforcement for state-changing /api/* requests. Runs BEFORE the
+  // Supabase client is built and BEFORE auth checks so a forged POST never
+  // touches the auth subsystem and is rejected with 403 (not 302'd to /login).
+  // Per-handler validateOrigin() calls in routes are kept as defense in depth;
+  // this closes the gap where a new route forgets to call it.
+  const csrfPath = request.nextUrl.pathname
+  if (
+    csrfPath.startsWith('/api/') &&
+    STATE_CHANGING_METHODS.has(request.method) &&
+    !isApiCsrfExempt(csrfPath) &&
+    !isAllowedOrigin(request)
+  ) {
+    return NextResponse.json(
+      { error: 'Forbidden: invalid or missing Origin' },
+      { status: 403 }
+    )
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -83,11 +127,37 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Check if user must reset their password (first login after invite)
-    // Skip if user already changed password (metadata flag set client-side)
-    if (!pathname.startsWith('/change-password') && !pathname.startsWith('/api/') && !pathname.startsWith('/login') && !pathname.startsWith('/auth')) {
+    // Check if user must reset their password (first login after invite).
+    // Skip if user already changed password (metadata flag set client-side).
+    //
+    // SECURITY: previously this blanket-excluded all `/api/*`, meaning a user
+    // with must_reset_password=true could call API routes (fund deals, upload
+    // docs, etc.) using their temp password. The exclusion is now limited to
+    // the few endpoints the /change-password flow itself needs.
+    const RESET_ALLOWED_API_PATHS = [
+      '/api/clear-reset-flag',   // the endpoint that actually clears the flag
+      '/api/rate-limit',          // change-password page pre-checks rate limit
+      '/api/session-heartbeat',   // keep session alive while user resets
+    ]
+    const isResetAllowedApi = RESET_ALLOWED_API_PATHS.some(
+      p => pathname === p || pathname.startsWith(p + '/')
+    )
+    if (
+      !pathname.startsWith('/change-password') &&
+      !isResetAllowedApi &&
+      !pathname.startsWith('/login') &&
+      !pathname.startsWith('/auth')
+    ) {
       const hasChangedPassword = user.user_metadata?.password_changed === true
       if (!hasChangedPassword && profile?.must_reset_password) {
+        // For API requests, return 403 JSON instead of an HTML redirect so
+        // clients (fetch callers) get a clear error rather than a redirect chain.
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json(
+            { error: 'Password reset required' },
+            { status: 403 }
+          )
+        }
         const url = request.nextUrl.clone()
         url.pathname = '/change-password'
         return NextResponse.redirect(url)

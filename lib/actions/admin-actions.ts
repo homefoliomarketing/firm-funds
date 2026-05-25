@@ -14,7 +14,11 @@ import {
 } from '@/lib/validations'
 import {
   BROKERAGE_LATE_STRIKE_THRESHOLD,
+  MAX_UPLOAD_SIZE_BYTES,
+  ALLOWED_UPLOAD_MIME_TYPES,
+  ALLOWED_UPLOAD_EXTENSIONS,
 } from '@/lib/constants'
+import { verifyFileMagicBytes } from '@/lib/file-validation'
 import {
   insertPayment,
   deletePayment,
@@ -1613,39 +1617,30 @@ export async function resendAgentWelcomeEmail(input: {
     // Get the user ID for the magic link token
     const userId = profile ? profile.id : (await serviceClient.from('user_profiles').select('id').eq('agent_id', agent.id).single()).data?.id
 
-    if (userId) {
-      // Generate magic link invite token (72-hour expiry)
-      const inviteToken = crypto.randomBytes(32).toString('hex')
-      const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
-
-      await serviceClient
-        .from('invite_tokens')
-        .insert({
-          token: inviteToken,
-          user_id: userId,
-          agent_id: agent.id,
-          email: agent.email,
-          expires_at: expiresAt,
-        })
-
-      // Send magic link invite email (no temp password)
-      await sendAgentInviteNotification({
-        agentFirstName: agent.first_name,
-        agentEmail: agent.email,
-        brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.logo_url,
-        inviteToken,
-      })
-    } else {
-      // Fallback: send legacy temp password email
-      await sendAgentInviteNotification({
-        agentFirstName: agent.first_name,
-        agentEmail: agent.email,
-        brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.logo_url,
-        tempPassword,
-      })
+    if (!userId) {
+      return { success: false, error: 'Could not resolve user_profile to issue invite token. The agent record may need manual cleanup.' }
     }
+
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: userId,
+        agent_id: agent.id,
+        email: agent.email,
+        expires_at: expiresAt,
+      })
+
+    await sendAgentInviteNotification({
+      agentFirstName: agent.first_name,
+      agentEmail: agent.email,
+      brokerageName: brokerage?.name || 'Your Brokerage',
+      brokerageLogoUrl: brokerage?.logo_url,
+      inviteToken,
+    })
 
     // Stamp welcome_email_sent_at on the agent
     await serviceClient
@@ -2785,6 +2780,177 @@ export async function resendBrokerageSetupLink(input: {
     return { success: true }
   } catch (err: any) {
     console.error('Resend brokerage setup link error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Brokerage Documents — upload + delete via server actions so every mutation
+// gets an audit log entry (who uploaded / deleted what, when) and goes through
+// the service-role client. Previous client-side INSERT/DELETE on
+// brokerage_documents from the admin browser left no audit trail.
+// ============================================================================
+
+const BROKERAGE_DOCUMENT_TYPES = [
+  'cooperation_agreement',
+  'white_label_agreement',
+  'banking_info',
+  'kyc_business',
+  'other',
+] as const
+
+export async function uploadBrokerageDocument(formData: FormData): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const file = formData.get('file') as File | null
+    const brokerageId = formData.get('brokerageId') as string | null
+    const documentType = formData.get('documentType') as string | null
+
+    if (!file || !brokerageId || !documentType) {
+      return { success: false, error: 'Missing required fields' }
+    }
+    if (!(BROKERAGE_DOCUMENT_TYPES as readonly string[]).includes(documentType)) {
+      return { success: false, error: 'Invalid document type' }
+    }
+    if (file.size === 0) return { success: false, error: 'File is empty' }
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      return { success: false, error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)}MB` }
+    }
+
+    const fileName = file.name.toLowerCase()
+    const ext = '.' + fileName.split('.').pop()
+    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+      return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
+    }
+    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+      return { success: false, error: 'File MIME type not allowed' }
+    }
+    const magicBytesValid = await verifyFileMagicBytes(file)
+    if (!magicBytesValid) {
+      return { success: false, error: 'File content does not match its declared type' }
+    }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Verify the brokerage exists before touching storage.
+    const { data: brokerage, error: brokerageErr } = await serviceClient
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', brokerageId)
+      .single()
+    if (brokerageErr || !brokerage) return { success: false, error: 'Brokerage not found' }
+
+    const safeBase = file.name.replace(/[^\w.\-]/g, '_')
+    const filePath = `brokerages/${brokerageId}/${Date.now()}_${safeBase}`
+
+    const { error: uploadError } = await serviceClient.storage
+      .from('deal-documents')
+      .upload(filePath, file)
+
+    if (uploadError) {
+      console.error('Brokerage doc storage upload error:', uploadError.message)
+      return { success: false, error: 'Failed to upload file. Please try again.' }
+    }
+
+    const { data: inserted, error: dbErr } = await serviceClient
+      .from('brokerage_documents')
+      .insert({
+        brokerage_id: brokerageId,
+        document_type: documentType,
+        file_name: file.name,
+        file_path: filePath,
+        file_size: file.size,
+        uploaded_by: user.id,
+      })
+      .select()
+      .single()
+
+    if (dbErr || !inserted) {
+      // Best-effort cleanup of the orphaned storage object.
+      await serviceClient.storage.from('deal-documents').remove([filePath])
+      console.error('Brokerage doc insert error:', dbErr?.message)
+      return { success: false, error: `Failed to save record: ${dbErr?.message || 'unknown error'}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_uploaded',
+      entityType: 'brokerage',
+      entityId: brokerageId,
+      severity: 'info',
+      metadata: {
+        document_id: inserted.id,
+        document_type: documentType,
+        file_name: file.name,
+        file_size: file.size,
+        brokerage_name: brokerage.name,
+        uploaded_by_user_id: user.id,
+      },
+    })
+
+    return { success: true, data: { document: inserted } }
+  } catch (err: any) {
+    console.error('uploadBrokerageDocument error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function deleteBrokerageDocument(input: {
+  documentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!input.documentId) return { success: false, error: 'Document id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    const { data: doc, error: lookupErr } = await serviceClient
+      .from('brokerage_documents')
+      .select('id, brokerage_id, document_type, file_name, file_path, file_size')
+      .eq('id', input.documentId)
+      .single()
+
+    if (lookupErr || !doc) return { success: false, error: 'Document not found' }
+
+    // Remove the storage object first; if it fails we still want to attempt
+    // the DB row delete so we don't leave a row pointing at a missing file.
+    const { error: storageErr } = await serviceClient.storage
+      .from('deal-documents')
+      .remove([doc.file_path])
+    if (storageErr) {
+      console.warn('Brokerage doc storage remove warning:', storageErr.message)
+    }
+
+    const { error: deleteErr } = await serviceClient
+      .from('brokerage_documents')
+      .delete()
+      .eq('id', doc.id)
+
+    if (deleteErr) {
+      return { success: false, error: `Failed to delete document: ${deleteErr.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_deleted',
+      entityType: 'brokerage',
+      entityId: doc.brokerage_id,
+      severity: 'warning',
+      metadata: {
+        document_id: doc.id,
+        document_type: doc.document_type,
+        file_name: doc.file_name,
+        file_size: doc.file_size,
+        deleted_by_user_id: user.id,
+        storage_remove_warning: storageErr?.message || null,
+      },
+    })
+
+    return { success: true, data: { brokerageId: doc.brokerage_id } }
+  } catch (err: any) {
+    console.error('deleteBrokerageDocument error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
