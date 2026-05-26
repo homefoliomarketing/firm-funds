@@ -29,14 +29,16 @@ You don't need to ask permission to push to git. Just send it if we are completi
 
 ## Financial Rules
 
-- Discount rate: $0.75 per $1,000 per day. +1 day processing offset in `lib/calculations.ts`
-- Late payment interest: 24% per annum, starts the day after the 14-day settlement period expires (no grace period)
-- Deal status flow: `under_review → approved → funded → completed`
+- Discount rate: $0.80 per $1,000 per day. Effective chargeable days = days_until_closing - 1 via `getChargeDays()` in `lib/calculations.ts` (closing day not charged)
+- Late payment interest: 24% per annum **true APR**, compounded daily as `(1.24)^(1/365) - 1`, accrual starts day 31 after closing (30-day grace)
+- Settlement window: 7 days standard, snapshotted at submission into `deals.settlement_days_at_funding`. Auto-bumps to 14 days after 5 manual strikes on a brokerage.
+- Deal status flow: `under_review → approved → funded → completed`. Failed deals: `funded → failed_to_close → cured` (after remediation IDP fully paid).
 - `brokerage_split_pct` stores whole numbers (5 = 5%), NOT decimals. Do NOT multiply by 100.
+- All agent balance writes MUST go through `apply_agent_balance_delta` RPC (migration 052) — never read-modify-write directly. Same for `record_brokerage_late_strike` and `apply_remediation_remittance`.
 
 ## Middleware Warning
 
-If you create API routes that accept external POSTs (webhooks, callbacks), add them to the exclusion list in `middleware.ts` or they'll get 302'd to `/login`. Current exclusions: `/login`, `/auth`, `/kyc-upload`, `/api/kyc-*`, `/invite`, `/api/magic-link`, `/api/rate-limit`, `/api/docusign/webhook`
+If you create API routes that accept external POSTs (webhooks, callbacks), add them to the EXPLICIT allowlist in `middleware.ts` (PUBLIC_PATHS array) or they'll get 302'd to `/login`. Current exclusions: `/login`, `/auth`, `/kyc-upload`, `/api/kyc-mobile-upload`, `/api/kyc-desktop-upload`, `/api/kyc-validate-token`, `/invite`, `/api/magic-link`, `/api/rate-limit`, `/api/docusign/webhook`, `/api/cron/*`. The `/api/kyc-*` wildcard was replaced with exact matches in Session 6 — add new KYC routes explicitly.
 
 ## Working with Bud
 

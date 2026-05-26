@@ -7,7 +7,7 @@ import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upl
 import { submitDeal, calculateDealPreview, uploadDocument } from '@/lib/actions/deal-actions'
 import { formatCurrency } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
-import { KYC_STATUSES } from '@/lib/constants'
+import { KYC_STATUSES, DISCOUNT_RATE_PER_1000_PER_DAY, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -112,6 +112,7 @@ export default function NewDealPage() {
     effectiveDays: number
     discountFee: number
     settlementPeriodFee: number
+    settlementPeriodDays?: number
     totalFees: number
     advanceAmount: number
     brokerageReferralFee: number
@@ -138,7 +139,7 @@ export default function NewDealPage() {
       setProfile(profileData)
       if (profileData?.role !== 'agent') { router.push('/login'); return }
       if (profileData?.agent_id) {
-        const { data: agentData } = await supabase.from('agents').select('*, brokerages(*)').eq('id', profileData.agent_id).single()
+        const { data: agentData } = await supabase.from('agents').select(`*, brokerages(${BROKERAGE_PUBLIC_COLUMNS})`).eq('id', profileData.agent_id).single()
         setAgent(agentData)
         const { count } = await supabase.from('deals').select('*', { count: 'exact', head: true }).eq('agent_id', profileData.agent_id).in('status', ['funded', 'completed'])
         setIsFirstAdvance(!count || count === 0)
@@ -163,6 +164,7 @@ export default function NewDealPage() {
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
           effectiveDays: result.data.effectiveDays,
           discountFee: result.data.discountFee, settlementPeriodFee: result.data.settlementPeriodFee,
+          settlementPeriodDays: result.data.settlementPeriodDays,
           totalFees: result.data.totalFees, advanceAmount: result.data.advanceAmount,
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
           outstandingBalance: result.data.outstandingBalance || 0,
@@ -214,6 +216,7 @@ export default function NewDealPage() {
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
           effectiveDays: result.data.effectiveDays,
           discountFee: result.data.discountFee, settlementPeriodFee: result.data.settlementPeriodFee,
+          settlementPeriodDays: result.data.settlementPeriodDays,
           totalFees: result.data.totalFees, advanceAmount: result.data.advanceAmount,
           brokerageReferralFee: result.data.brokerageReferralFee, amountDueFromBrokerage: result.data.amountDueFromBrokerage,
           outstandingBalance: result.data.outstandingBalance || 0,
@@ -552,11 +555,11 @@ export default function NewDealPage() {
                     <span className="font-medium text-foreground">{preview.daysUntilClosing} days</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount Fee ($0.75/$1,000/day × {preview.effectiveDays}d)</span>
+                    <span className="text-muted-foreground">Discount Fee (${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1,000/day × {preview.effectiveDays}d)</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.discountFee)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Settlement Period Fee</span>
+                    <span className="text-muted-foreground">Settlement Period Fee{preview.settlementPeriodDays ? ` (${preview.settlementPeriodDays}d)` : ''}</span>
                     <span className="font-medium text-destructive">-{formatCurrency(preview.settlementPeriodFee)}</span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-border/50">

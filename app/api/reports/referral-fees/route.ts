@@ -60,6 +60,14 @@ export async function GET(request: Request) {
   const monthParam = url.searchParams.get('month') // YYYY-MM format
   const allTime = url.searchParams.get('all') === 'true'
 
+  // Validate the YYYY-MM month parameter before reaching Date(): a missing
+  // year/month silently coerces to NaN and the resulting Date is "Invalid
+  // Date", which then turns into a 500 deep in the PDF generator. Reject
+  // the request up front so the error is actionable for the caller.
+  if (monthParam && !allTime && !/^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)) {
+    return new Response('month must be in YYYY-MM format (e.g. 2026-05)', { status: 400 })
+  }
+
   // Build query — funded/completed deals only (earned referral fees)
   let query = supabase
     .from('deals')

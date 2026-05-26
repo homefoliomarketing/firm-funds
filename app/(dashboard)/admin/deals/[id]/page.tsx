@@ -31,12 +31,13 @@ import {
   chargeLatePaymentInterest,
 } from '@/lib/actions/account-actions'
 import { dismissDealMessages } from '@/lib/actions/notification-actions'
-import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment } from '@/lib/actions/admin-actions'
-import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes, getEligibleRemediationSourceDeals, sendRemediationIdpForSignature } from '@/lib/actions/esign-actions'
+import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment, recordLateStrike } from '@/lib/actions/admin-actions'
+import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
+import RemediationDealsPanel from './RemediationDealsPanel'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT } from '@/lib/constants'
-import { calculateDeal, getChargeDays } from '@/lib/calculations'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
+import { calculateDeal, getChargeDays, liveFailedDealInterestOwed } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
 import { Button } from '@/components/ui/button'
@@ -341,13 +342,15 @@ interface Deal {
   property_address: string; closing_date: string; gross_commission: number
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
   discount_fee: number; settlement_period_fee: number; advance_amount: number
+  settlement_days_at_funding: number | null
+  late_strike_recorded: boolean
   brokerage_referral_fee: number; brokerage_referral_pct: number | null
   amount_due_from_brokerage: number; balance_deducted: number
   due_date: string | null; payment_status: string
   funding_date: string | null
   repayment_date: string | null; repayment_amount: number | null
-  eft_transfers: { amount: number; date: string; confirmed: boolean; reference?: string }[] | null
-  brokerage_payments: { amount: number; date: string; reference?: string; method?: string }[] | null
+  eft_transfers: { id: string; amount: number; transfer_date: string; confirmed: boolean; reference?: string | null }[] | null
+  brokerage_payments: { id: string; amount: number; date: string; reference?: string | null; method?: string | null; status: 'pending' | 'confirmed' | 'rejected'; submitted_by_role?: string | null }[] | null
   source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
   admin_notes: string | null
@@ -363,7 +366,7 @@ interface Deal {
   failure_type: 'non_closing' | 'commission_deficiency' | null
   failure_reason: string | null
   outstanding_balance: number | null
-  cure_election: 'cash' | 'commission_assignment' | null
+  cure_election: 'cash_repayment' | 'commission_assignment' | null
   cure_election_at: string | null
   cure_election_deadline: string | null
   failed_deal_interest_charged: number | null
@@ -426,8 +429,10 @@ interface Agent {
 
 interface Brokerage {
   id: string; name: string; brand: string | null; address: string | null
+  city: string | null; province: string | null; postal_code: string | null
   phone: string | null; email: string | null; status: string
   referral_fee_percentage: number | null; transaction_system: string | null
+  broker_of_record_name: string | null; broker_of_record_email: string | null
 }
 
 const STATUS_FLOW: Record<string, string[]> = {
@@ -448,6 +453,7 @@ const STATUS_LABELS: Record<string, string> = {
   submitted: 'Submitted', under_review: 'Under Review', approved: 'Approved',
   funded: 'Funded', completed: 'Completed', denied: 'Denied', cancelled: 'Cancelled',
   failed_to_close: 'Failed to Close',
+  cured: 'Cured',
 }
 
 interface ChecklistCategory {
@@ -599,22 +605,17 @@ export default function DealDetailPage() {
   // Unread = last message from agent AND not yet dismissed locally
   const hasUnreadMessages = !messagesDismissed && messages.length > 0 && messages[messages.length - 1].sender_role !== 'admin'
   const [lateInterestExpanded, setLateInterestExpanded] = useState(false)
+  // Late settlement strike state
+  const [showStrikeForm, setShowStrikeForm] = useState(false)
+  const [strikeReason, setStrikeReason] = useState('')
+  const [strikeSubmitting, setStrikeSubmitting] = useState(false)
+  const [strikeError, setStrikeError] = useState<string | null>(null)
   // Failed-to-close cure election modal
   const [showFailedToCloseModal, setShowFailedToCloseModal] = useState(false)
   const [failedToCloseType, setFailedToCloseType] = useState<'non_closing' | 'commission_deficiency'>('non_closing')
   const [failedToCloseAmount, setFailedToCloseAmount] = useState('')
   const [failedToCloseReason, setFailedToCloseReason] = useState('')
   const [failedToCloseSaving, setFailedToCloseSaving] = useState(false)
-  // Remediation IDP — send to agent + brokerage to satisfy outstanding balance
-  // from a future commission (CPA 5.5(b), BCA 3.5)
-  const [showRemediationModal, setShowRemediationModal] = useState(false)
-  const [remediationLoading, setRemediationLoading] = useState(false)
-  const [remediationSaving, setRemediationSaving] = useState(false)
-  const [remediationError, setRemediationError] = useState<string | null>(null)
-  const [remediationSourceDeals, setRemediationSourceDeals] = useState<{
-    id: string; property_address: string; advance_amount: number; net_commission: number; closing_date: string; funding_date: string | null
-  }[]>([])
-  const [selectedRemediationSourceId, setSelectedRemediationSourceId] = useState<string | null>(null)
   // Drag-and-drop
   const [draggingDocId, setDraggingDocId] = useState<string | null>(null)
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null)
@@ -658,7 +659,11 @@ export default function DealDetailPage() {
     if (!user) { router.push('/login'); return }
     const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
     if (!profile || (profile.role !== 'super_admin' && profile.role !== 'firm_funds_admin')) { router.push('/login'); return }
-    const { data: dealData, error: dealError } = await supabase.from('deals').select('*').eq('id', dealId).single()
+    const { data: dealData, error: dealError } = await supabase
+      .from('deals')
+      .select('*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role), eft_transfers(id, amount, transfer_date, confirmed, reference)')
+      .eq('id', dealId)
+      .single()
     if (dealError || !dealData) { router.push('/admin'); return }
     setDeal(dealData)
     setAdminNotes(dealData.admin_notes || '')
@@ -937,47 +942,6 @@ export default function DealDetailPage() {
     setFailedToCloseSaving(false)
   }
 
-  const openRemediationModal = async () => {
-    if (!deal) return
-    setRemediationError(null)
-    setSelectedRemediationSourceId(null)
-    setShowRemediationModal(true)
-    setRemediationLoading(true)
-    const result = await getEligibleRemediationSourceDeals(deal.id)
-    if (result.success) {
-      setRemediationSourceDeals(result.data || [])
-      if (!result.data || result.data.length === 0) {
-        setRemediationError('No eligible funded deals to assign. The agent needs a currently-funded deal that does not already have a Remediation IDP pending.')
-      }
-    } else {
-      setRemediationError(result.error || 'Failed to load eligible deals')
-      setRemediationSourceDeals([])
-    }
-    setRemediationLoading(false)
-  }
-
-  const handleSendRemediationIdp = async () => {
-    if (!deal || !selectedRemediationSourceId) return
-    setRemediationSaving(true)
-    setRemediationError(null)
-    const result = await sendRemediationIdpForSignature({
-      failedDealId: deal.id,
-      sourceDealId: selectedRemediationSourceId,
-    })
-    if (result.success) {
-      const directed = result.data?.directedAmount
-      setStatusMessage({
-        type: 'success',
-        text: `Remediation IDP sent for ${formatCurrency(directed || 0)}. Agent and brokerage will receive DocuSign emails shortly.`,
-      })
-      setShowRemediationModal(false)
-      setSelectedRemediationSourceId(null)
-      await loadDealData()
-    } else {
-      setRemediationError(result.error || 'Failed to send Remediation IDP')
-    }
-    setRemediationSaving(false)
-  }
 
   const handleSendForSignature = async () => {
     if (!deal) return
@@ -1382,17 +1346,6 @@ export default function DealDetailPage() {
                 </button>
               )}
 
-              {/* Send Remediation IDP — only for failed deals where agent elected commission assignment */}
-              {deal.status === 'failed_to_close' && deal.cure_election === 'commission_assignment' && (
-                <button
-                  onClick={openRemediationModal}
-                  disabled={updating}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-amber-950/40 text-amber-300 border border-amber-800/50 hover:bg-amber-950/60"
-                >
-                  <FileSignature className="w-4 h-4" />
-                  Send Remediation IDP
-                </button>
-              )}
 
               {/* E-Signature Button */}
               {deal.status === 'approved' && (() => {
@@ -1509,13 +1462,15 @@ export default function DealDetailPage() {
               daysUntilClosing,
               discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
               brokerageReferralPct: referralPct,
+              settlementPeriodDays: deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS,
             })
             const chargeDays = getChargeDays(daysUntilClosing)
             const today = new Date()
             const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
             const closingDate = new Date(deal.closing_date + 'T00:00:00')
-            // Due date = closing + 14 calendar days (matches server calculation)
-            const dueDate = new Date(closingDate.getTime() + 14 * 24 * 60 * 60 * 1000)
+            // Due date = closing + the deal's effective settlement window (matches server)
+            const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
+            const dueDate = new Date(closingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
             const fmtDate = (d: Date) => d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
             return (
               <div className="mt-4 pt-4 border-t border-border/50">
@@ -1562,11 +1517,11 @@ export default function DealDetailPage() {
                         </tr>
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Discount Fee ({chargeDays}d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-muted-foreground">Discount Fee ({chargeDays}d × ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1k)</td>
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.discountFee)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Settlement Period Fee (14d x $0.75/$1k)</td>
+                          <td className="py-1.5 text-muted-foreground">Settlement Period Fee ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d × ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1k)</td>
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.settlementPeriodFee)}</td>
                         </tr>
                         <tr>
@@ -1685,6 +1640,31 @@ export default function DealDetailPage() {
           )}
         </div>
 
+        {/* REMEDIATION DEALS — only for failed_to_close / cured deals */}
+        {(deal.status === 'failed_to_close' || deal.status === 'cured') && (() => {
+          const principal = Number(deal.outstanding_balance) || 0
+          const liveInterest = deal.failed_to_close_at
+            ? liveFailedDealInterestOwed(principal, deal.failed_to_close_at)
+            : 0
+          const liveBalanceOwed = Math.round((principal + liveInterest) * 100) / 100
+          const brokerageDefaults = brokerage ? {
+            brokerageId: brokerage.id,
+            brokerageName: brokerage.name || '',
+            brokerageAddress: [brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', '),
+            brokerOfRecordName: brokerage.broker_of_record_name || '',
+            brokerOfRecordEmail: brokerage.broker_of_record_email || '',
+          } : null
+          return (
+            <RemediationDealsPanel
+              failedDealId={deal.id}
+              liveBalanceOwed={liveBalanceOwed}
+              brokerageDefaults={brokerageDefaults}
+              onCured={loadDealData}
+              onChange={loadDealData}
+            />
+          )
+        })()}
+
         {/* EFT SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
           <div className="mb-4 rounded-xl p-4 bg-card border border-border/50 ff-card-elevated">
@@ -1749,7 +1729,7 @@ export default function DealDetailPage() {
 
             {/* EFT TOTAL TRACKER */}
             {(() => {
-              const eftTotal = (deal.eft_transfers || []).reduce((sum, t) => sum + t.amount, 0)
+              const eftTotal = (deal.eft_transfers || []).reduce((sum, t) => sum + Number(t.amount || 0), 0)
               const expected = deal.advance_amount
               const diff = expected - eftTotal
               const isMatch = Math.abs(diff) < 0.01
@@ -1775,12 +1755,12 @@ export default function DealDetailPage() {
 
             {deal.eft_transfers && deal.eft_transfers.length > 0 ? (
               <div className="space-y-2">
-                {deal.eft_transfers.map((eft, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
+                {deal.eft_transfers.map((eft) => (
+                  <div key={eft.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
                     <div>
-                      <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(eft.amount)}</p>
+                      <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(Number(eft.amount || 0))}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(eft.date)}{eft.reference ? ` · Ref: ${eft.reference}` : ''}
+                        {formatDate(eft.transfer_date)}{eft.reference ? ` · Ref: ${eft.reference}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1794,7 +1774,7 @@ export default function DealDetailPage() {
                           variant="outline"
                           size="sm"
                           onClick={async () => {
-                            const result = await confirmEftTransfer({ dealId: deal.id, transferIndex: idx })
+                            const result = await confirmEftTransfer({ transferId: eft.id })
                             if (result.success) {
                               setDeal(prev => prev ? { ...prev, ...result.data } : null)
                             }
@@ -1809,7 +1789,7 @@ export default function DealDetailPage() {
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         onClick={async () => {
-                          const result = await removeEftTransfer({ dealId: deal.id, transferIndex: idx })
+                          const result = await removeEftTransfer({ transferId: eft.id })
                           if (result.success) {
                             setDeal(prev => prev ? { ...prev, ...result.data } : null)
                           }
@@ -1937,8 +1917,8 @@ export default function DealDetailPage() {
 
             {deal.brokerage_payments && deal.brokerage_payments.length > 0 && (
               <div className="space-y-2">
-                {deal.brokerage_payments.map((payment, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
+                {deal.brokerage_payments.map((payment) => (
+                  <div key={payment.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 transition-all duration-200 hover:border-primary/30 hover:bg-primary/[0.03] group">
                     <div>
                       <p className="font-semibold tabular-nums text-foreground transition-colors group-hover:text-primary">{formatCurrency(payment.amount)}</p>
                       <p className="text-xs text-muted-foreground">
@@ -1953,7 +1933,7 @@ export default function DealDetailPage() {
                       className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={async () => {
                         if (!confirm('Remove this payment?')) return
-                        const result = await removeBrokeragePayment({ dealId: deal.id, paymentIndex: idx })
+                        const result = await removeBrokeragePayment({ dealId: deal.id, paymentId: payment.id })
                         if (result.success) {
                           setDeal(prev => prev ? { ...prev, ...result.data } : null)
                           setStatusMessage({ type: 'success', text: 'Payment removed' })
@@ -2227,7 +2207,7 @@ export default function DealDetailPage() {
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
                 { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
-                { label: 'Settlement Period Fee (14d)', value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
+                { label: `Settlement Period Fee (${deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d)`, value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
                 { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
@@ -2907,7 +2887,7 @@ export default function DealDetailPage() {
                         className="px-2 py-1 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground [color-scheme:dark]"
                       />
                     </div>
-                    <p className="text-[10px] text-muted-foreground">$0.75 per $1,000/day · starts day after 14-day settlement period ends</p>
+                    <p className="text-[10px] text-muted-foreground">24% p.a. compounded daily · starts day {LATE_INTEREST_GRACE_DAYS_FROM_CLOSING + 1} after closing</p>
                     <div className="flex gap-1.5">
                       <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
                         className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors">
@@ -2922,6 +2902,83 @@ export default function DealDetailPage() {
             )}
           </div>
         )}
+
+        {/* LATE SETTLEMENT STRIKE */}
+        {deal && ['funded', 'completed'].includes(deal.status) && deal.due_date && (() => {
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+          const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as any).toISOString().slice(0, 10)
+          const isPastDue = todayStr > dueDateStr
+          if (!isPastDue && !deal.late_strike_recorded) return null
+          return (
+            <div className="rounded-xl mb-3 overflow-hidden bg-card border border-border/50 ff-card-elevated">
+              <div className="px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-500/5 border-b border-amber-500/10">
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Late Settlement Strike
+                  {deal.late_strike_recorded && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950/30 text-destructive">
+                      Recorded
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Brokerage settlement was due {formatDate(dueDateStr)} ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}-day window). Recording a strike contributes toward the brokerage's auto-bump to a {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day window after {BROKERAGE_LATE_STRIKE_THRESHOLD} total strikes. Only record when you've confirmed the brokerage actually paid late (or hasn't paid).
+                </p>
+                {deal.late_strike_recorded ? (
+                  <p className="text-[11px] text-amber-300/80">
+                    A strike has already been recorded for this deal. To undo, reset the brokerage's strikes from /admin/brokerages.
+                  </p>
+                ) : !showStrikeForm ? (
+                  <button
+                    onClick={() => { setShowStrikeForm(true); setStrikeReason(''); setStrikeError(null) }}
+                    className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+                  >
+                    Record Late Strike
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Reason (required, audit-logged)</label>
+                    <input
+                      type="text"
+                      value={strikeReason}
+                      onChange={(e) => setStrikeReason(e.target.value)}
+                      placeholder="e.g. Brokerage confirmed payment will be 5 days late"
+                      className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                    />
+                    {strikeError && <p className="text-[11px] text-destructive">{strikeError}</p>}
+                    <div className="flex items-center gap-2">
+                      <button
+                        disabled={strikeSubmitting || !strikeReason.trim()}
+                        onClick={async () => {
+                          setStrikeSubmitting(true); setStrikeError(null)
+                          const res = await recordLateStrike({ dealId: deal.id, reason: strikeReason.trim() })
+                          if (res.success) {
+                            setDeal(prev => prev ? { ...prev, late_strike_recorded: true } : prev)
+                            setShowStrikeForm(false); setStrikeReason('')
+                          } else {
+                            setStrikeError(res.error || 'Failed to record strike')
+                          }
+                          setStrikeSubmitting(false)
+                        }}
+                        className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                      >
+                        {strikeSubmitting ? 'Recording…' : 'Confirm strike'}
+                      </button>
+                      <button
+                        onClick={() => { setShowStrikeForm(false); setStrikeReason(''); setStrikeError(null) }}
+                        className="px-3 py-1.5 rounded text-xs text-muted-foreground bg-muted hover:bg-muted/70 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ADMIN NOTES */}
         <div className="rounded-xl overflow-hidden mb-3 bg-card border border-border/50 ff-card-elevated">
@@ -3111,120 +3168,6 @@ export default function DealDetailPage() {
         </div>
       )}
 
-      {/* Send Remediation IDP — Modal */}
-      {showRemediationModal && deal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => !remediationSaving && setShowRemediationModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="remediation-modal-title"
-        >
-          <div
-            className="w-full max-w-2xl rounded-2xl bg-card border border-amber-800/50 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
-              <FileSignature className="w-5 h-5 text-amber-400" />
-              <h2 id="remediation-modal-title" className="text-base font-bold text-amber-300">Send Remediation Direction to Pay</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <div className="rounded-lg bg-muted/40 border border-border/40 p-4 space-y-1">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 font-semibold">Outstanding Balance — Failed Deal</p>
-                <p className="text-2xl font-bold tabular-nums text-amber-300">
-                  {formatCurrency((Number(deal.outstanding_balance) || 0) + (Number(deal.failed_deal_interest_charged) || 0))}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {formatCurrency(Number(deal.outstanding_balance) || 0)} principal
-                  {Number(deal.failed_deal_interest_charged) > 0
-                    ? ` + ${formatCurrency(Number(deal.failed_deal_interest_charged) || 0)} accrued interest`
-                    : ''}
-                  {' '}from {deal.property_address}
-                </p>
-              </div>
-
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Pick a currently-funded deal whose commission will be assigned to clear this balance. The agent will receive a DocuSign envelope to sign the Remediation IDP, with the brokerage CC'd. <strong className="text-foreground">No discount, settlement fee, or referral fee applies</strong> (CPA 5.6, BCA 3.5(a)).
-              </p>
-
-              {remediationLoading ? (
-                <div className="rounded-lg bg-muted/40 border border-border/40 p-6 text-center">
-                  <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground mb-2" />
-                  <p className="text-xs text-muted-foreground">Loading eligible deals...</p>
-                </div>
-              ) : remediationSourceDeals.length === 0 ? (
-                <div className="rounded-lg bg-muted/40 border border-border/40 p-4">
-                  <p className="text-sm text-muted-foreground">
-                    {remediationError || 'No eligible funded deals to assign.'}
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                    Source Deal — Commission to Assign
-                  </label>
-                  <div className="space-y-2 max-h-72 overflow-y-auto">
-                    {remediationSourceDeals.map(srcDeal => {
-                      const selected = selectedRemediationSourceId === srcDeal.id
-                      return (
-                        <button
-                          key={srcDeal.id}
-                          type="button"
-                          onClick={() => setSelectedRemediationSourceId(srcDeal.id)}
-                          disabled={remediationSaving}
-                          className={`w-full text-left rounded-lg border transition-all p-3 ${
-                            selected
-                              ? 'border-amber-500/60 bg-amber-500/10 ring-2 ring-amber-500/30'
-                              : 'border-border/40 bg-muted/30 hover:border-border'
-                          }`}
-                          aria-pressed={selected}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-foreground truncate">{srcDeal.property_address}</p>
-                              <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Closing {formatDate(srcDeal.closing_date)}
-                                {srcDeal.funding_date && ` · Funded ${formatDate(srcDeal.funding_date)}`}
-                              </p>
-                            </div>
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Net Commission</p>
-                              <p className="text-sm font-bold tabular-nums text-foreground">{formatCurrency(srcDeal.net_commission)}</p>
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {remediationError && remediationSourceDeals.length > 0 && (
-                <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                  <p className="text-xs text-destructive">{remediationError}</p>
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowRemediationModal(false)}
-                disabled={remediationSaving}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSendRemediationIdp}
-                disabled={remediationSaving || !selectedRemediationSourceId || remediationSourceDeals.length === 0}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-amber-600 hover:bg-amber-600/90 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {remediationSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                {remediationSaving ? 'Sending...' : 'Send Remediation IDP'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   )

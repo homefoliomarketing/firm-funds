@@ -9,6 +9,7 @@ import {
 import {
   addAgentAsBrokerage, brokerageResendWelcomeEmail, brokerageUpdateAgentContact,
 } from '@/lib/actions/brokerage-actions'
+import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -76,11 +77,13 @@ export default function BrokerageAgentsPage() {
   const [resendingId, setResendingId] = useState<string | null>(null)
 
   const loadAgents = async (brokerageId: string) => {
+    // audit finding #16: hide soft-deleted agents from the brokerage list.
     const { data } = await supabase
       .from('agents')
       .select('id, first_name, last_name, email, phone, reco_number, status, kyc_status, banking_approval_status, account_activated_at, welcome_email_sent_at')
       .eq('brokerage_id', brokerageId)
       .neq('status', 'archived')
+      .is('deleted_at', null)
       .order('last_name')
     setAgents((data || []) as AgentRow[])
   }
@@ -92,7 +95,7 @@ export default function BrokerageAgentsPage() {
       const { data: prof } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
       if (!prof || prof.role !== 'brokerage_admin' || !prof.brokerage_id) { router.push('/login'); return }
       setProfile(prof)
-      const { data: brok } = await supabase.from('brokerages').select('*').eq('id', prof.brokerage_id).single()
+      const { data: brok } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', prof.brokerage_id).single()
       setBrokerage(brok)
       await loadAgents(prof.brokerage_id)
       setLoading(false)

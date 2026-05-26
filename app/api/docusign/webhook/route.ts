@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getValidAccessToken } from '@/lib/docusign'
 
@@ -6,10 +7,67 @@ import { getValidAccessToken } from '@/lib/docusign'
 // URL: https://firmfunds.ca/api/docusign/webhook
 // Data Format: REST v2.1 (JSON)
 // Event Delivery Mode: Aggregate
+// HMAC Security: REQUIRED in DocuSign Connect Configuration. The secret is
+// stored as DOCUSIGN_HMAC_SECRET in Netlify env. The webhook fails closed
+// (returns 401) if the env var is missing or the signature doesn't match.
+
+/**
+ * Redact an envelope ID for logging — show first/last 4 chars only.
+ * Envelope IDs are the secret an attacker needs to spoof completion events;
+ * the unredacted ID appearing in Netlify function logs is itself a leak.
+ */
+function redactEnvelopeId(id: string | null | undefined): string {
+  if (!id) return '<none>'
+  if (id.length <= 8) return '****'
+  return `${id.slice(0, 4)}...${id.slice(-4)}`
+}
+
+/**
+ * Verify the DocuSign Connect HMAC signature on a webhook payload. DocuSign
+ * computes base64(HMAC-SHA256(secret, rawBody)) and sends it in the
+ * X-DocuSign-Signature-1 header. Returns false if env is unset, header is
+ * missing, or signature does not match. Constant-time comparison.
+ *
+ * Dev escape hatch: if DOCUSIGN_HMAC_DEV_BYPASS=1, verification is skipped.
+ * Never set this in production.
+ */
+function verifyDocusignSignature(rawBody: string, headerSig: string | null): boolean {
+  if (process.env.DOCUSIGN_HMAC_DEV_BYPASS === '1') {
+    console.warn('DocuSign webhook: HMAC verification BYPASSED via DOCUSIGN_HMAC_DEV_BYPASS — never enable in production')
+    return true
+  }
+  const secret = process.env.DOCUSIGN_HMAC_SECRET
+  if (!secret) {
+    console.error('DocuSign webhook: DOCUSIGN_HMAC_SECRET not configured — rejecting all webhooks (fail closed)')
+    return false
+  }
+  if (!headerSig) {
+    return false
+  }
+  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
+  const expectedBuf = Buffer.from(expected, 'utf8')
+  const actualBuf = Buffer.from(headerSig, 'utf8')
+  if (expectedBuf.length !== actualBuf.length) return false
+  return timingSafeEqual(expectedBuf, actualBuf)
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.text()
+
+    // HMAC verification (Finding 1). Previously the webhook trusted any
+    // POST that contained a recognizable envelope_id, letting an attacker
+    // with a leaked envelope ID flip deals to "signed" and fast-track them
+    // to funding.
+    const headerSig =
+      request.headers.get('x-docusign-signature-1') ||
+      request.headers.get('X-DocuSign-Signature-1') ||
+      null
+    if (!verifyDocusignSignature(body, headerSig)) {
+      console.error('DocuSign webhook: HMAC verification failed — rejecting')
+      return new Response('Unauthorized', { status: 401 })
+    }
+
     let payload: any
 
     // DocuSign sends JSON when configured for REST v2.1
@@ -46,9 +104,46 @@ export async function POST(request: Request) {
       return new Response('OK', { status: 200 })
     }
 
-    console.log(`DocuSign webhook: envelope ${envelopeId} status: ${envelopeStatus}`)
+    console.log(`DocuSign webhook: envelope ${redactEnvelopeId(envelopeId)} status: ${envelopeStatus}`)
 
     const supabase = createServiceRoleClient()
+
+    // Idempotency (Finding 10): DocuSign Connect retries any non-2xx delivery
+    // within ~100s and aggregate mode legitimately sends multiple events for
+    // the same envelope (recipient-completed + envelope-completed). Compose a
+    // canonical event_id from the Connect payload triple and INSERT into the
+    // dedup table; if it already exists (23505 unique_violation), bail with
+    // 200 so DocuSign stops retrying. Falls back to a random UUID only for
+    // unrecognized payload shapes, in which case dedup is best-effort.
+    const generatedDateTime: string | undefined =
+      payload?.generatedDateTime || payload?.eventDateTime
+    const eventId =
+      eventName && generatedDateTime && envelopeId
+        ? `${eventName}_${generatedDateTime}_${envelopeId}`
+        : crypto.randomUUID()
+    const eventType = eventName || envelopeStatus || 'unknown'
+
+    const { error: dedupeErr } = await supabase
+      .from('docusign_webhook_events')
+      .insert({
+        event_id: eventId,
+        envelope_id: envelopeId,
+        event_type: eventType,
+        payload_summary: {
+          event: eventName,
+          status: envelopeStatus,
+          generatedDateTime,
+          recipientCount: (payload?.recipients?.signers || payload?.data?.envelopeSummary?.recipients?.signers || []).length,
+        },
+      })
+    if (dedupeErr) {
+      if (dedupeErr.code === '23505') {
+        console.log(`DocuSign webhook: duplicate event ${eventId} for envelope ${redactEnvelopeId(envelopeId)} — already processed`)
+        return new Response('Already processed', { status: 200 })
+      }
+      console.error('DocuSign webhook: dedup table write failed:', dedupeErr.message)
+      return new Response('Dedup table write failed', { status: 500 })
+    }
 
     // Find our envelope records (one per document in this envelope)
     const { data: envelopes, error: fetchErr } = await supabase
@@ -57,7 +152,7 @@ export async function POST(request: Request) {
       .eq('envelope_id', envelopeId)
 
     if (fetchErr || !envelopes || envelopes.length === 0) {
-      console.error('DocuSign webhook: envelope not found in DB:', envelopeId)
+      console.error('DocuSign webhook: envelope not found in DB:', redactEnvelopeId(envelopeId))
       return new Response('OK', { status: 200 })
     }
 
@@ -105,11 +200,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Update all envelope records for this envelopeId
-    const { error: updateErr } = await supabase
+    // Update all envelope records for this envelopeId.
+    // Compare-and-swap on agent_signed_at when the new status is "signed" — if
+    // a prior delivery already marked it signed, leave the existing timestamp
+    // alone so re-arrivals (e.g. recipient-completed followed by
+    // envelope-completed) are no-ops on the timestamp field.
+    let envelopeUpdateQuery = supabase
       .from('esignature_envelopes')
       .update(updateData)
       .eq('envelope_id', envelopeId)
+
+    if (mappedStatus === 'signed') {
+      envelopeUpdateQuery = envelopeUpdateQuery.is('agent_signed_at', null)
+    }
+
+    const { error: updateErr } = await envelopeUpdateQuery
 
     if (updateErr) {
       console.error('DocuSign webhook: failed to update envelope:', updateErr.message)
@@ -304,6 +409,12 @@ export async function POST(request: Request) {
         console.log(`DocuSign webhook: completed processing for deal ${envelopes[0].deal_id}`)
       }
     }
+
+    // Mark dedup row as successfully processed for observability/audit.
+    await supabase
+      .from('docusign_webhook_events')
+      .update({ processed_at: new Date().toISOString(), processing_result: 'success' })
+      .eq('event_id', eventId)
 
     return new Response('OK', { status: 200 })
   } catch (err: any) {

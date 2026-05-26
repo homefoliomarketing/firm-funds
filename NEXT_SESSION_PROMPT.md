@@ -35,7 +35,7 @@ You are continuing development on Firm Funds (firmfunds.ca), a commission advanc
 
 ## Planned next steps (discussed with Bud)
 1. **E-Signature Integration** — Agents/brokerages need to sign Commission Purchase Agreement and Irrevocable Direction to Pay digitally before funding. DocuSign or equivalent.
-2. **Funding Workflow / Commission Calculator** — "Funded" is currently just a status change. Need: fee calculation engine ($0.75/$1,000/day), breakdown visible before funding (agent gets X, fee is Y, brokerage referral is Z), disbursement tracking.
+2. **Funding Workflow / Commission Calculator** — "Funded" is currently just a status change. Need: fee calculation engine ($0.80/$1,000/day), breakdown visible before funding (agent gets X, fee is Y, brokerage referral is Z), disbursement tracking.
 3. **Portfolio / Collections Dashboard** — Outstanding advances, aging, upcoming closings, capital deployed overview.
 4. **White-Label Branding** — Brokerage-specific logos/colors on the agent-facing experience.
 

@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { reconcileUserEmail } from '@/lib/email-reconcile'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 
 // ============================================================================
@@ -40,9 +41,18 @@ export async function getAuthenticatedAdmin(): Promise<AuthResult> {
     return { error: 'User profile not found', user, profile: null, supabase }
   }
 
+  // Deactivated admins cannot perform privileged actions even if their auth
+  // user still has a valid session. Middleware handles UI bouncing; this is
+  // belt-and-suspenders for server actions invoked before the next page load.
+  if (profile.is_active === false) {
+    return { error: 'Account deactivated', user, profile, supabase }
+  }
+
   if (!['super_admin', 'firm_funds_admin'].includes(profile.role)) {
     return { error: 'Insufficient permissions', user, profile, supabase }
   }
+
+  await maybeReconcileEmail(user, profile)
 
   return { error: null, user, profile, supabase }
 }
@@ -69,9 +79,40 @@ export async function getAuthenticatedUser(requiredRoles?: string[]): Promise<Au
     return { error: 'User profile not found', user, profile: null, supabase }
   }
 
+  if (profile.is_active === false) {
+    return { error: 'Account deactivated', user, profile, supabase }
+  }
+
   if (requiredRoles && !requiredRoles.includes(profile.role)) {
     return { error: 'Insufficient permissions', user, profile, supabase }
   }
 
+  await maybeReconcileEmail(user, profile)
+
   return { error: null, user, profile, supabase }
+}
+
+// Finding #42 follow-up: safety net for the cross-device case. If the user
+// initiated an email change here but confirmed it on a phone that isn't
+// logged in to this app, the dedicated /auth/email-confirmed route never
+// runs. Reconcile on the next authenticated server-action call instead.
+async function maybeReconcileEmail(user: User, profile: any): Promise<void> {
+  const authEmail = user.email ?? null
+  const profileEmail = profile?.email ?? null
+  if (!authEmail || !profile?.id) return
+  if (authEmail.toLowerCase() === (profileEmail ?? '').toLowerCase()) return
+
+  try {
+    const result = await reconcileUserEmail({
+      userId: profile.id,
+      authEmail,
+      profileEmail,
+    })
+    if (result.changed) {
+      profile.email = result.newEmail
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.warn(`[auth-helpers] email reconcile failed: ${message}`)
+  }
 }

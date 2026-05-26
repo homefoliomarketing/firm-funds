@@ -8,7 +8,14 @@ let resendClient: Resend | null = null
 
 function getResend(): Resend | null {
   if (!process.env.RESEND_API_KEY) {
-    console.warn('[email] RESEND_API_KEY not set — emails disabled')
+    // In production, missing key means transactional emails would silently
+    // disappear. Throw so the call site logs an error (and Netlify alerting
+    // picks it up). In dev we stay tolerant so local builds keep working.
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[email] RESEND_API_KEY missing in production — refusing to silently drop email')
+      throw new Error('RESEND_API_KEY is not configured')
+    }
+    console.error('[email] RESEND_API_KEY not set — emails disabled (dev only)')
     return null
   }
   if (!resendClient) {
@@ -24,6 +31,16 @@ function getResend(): Resend | null {
 const FROM_ADDRESS = 'Firm Funds <notifications@firmfunds.ca>'
 const ADMIN_EMAIL = 'bud@firmfunds.ca'
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
+
+// sanitizeSubject strips CR/LF from email subject lines to prevent header
+// injection (a CRLF inside a user-controlled subject could split the header
+// and craft a fake one). escapeHtml lives further down the file and handles
+// HTML entity encoding for body interpolations.
+
+function sanitizeSubject(value: string | null | undefined): string {
+  if (value === null || value === undefined) return ''
+  return String(value).replace(/[\r\n]+/g, ' ').slice(0, 200)
+}
 
 // ============================================================================
 // Branded HTML wrapper
@@ -149,7 +166,7 @@ export async function sendNewDealNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `New Deal Submitted — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`New Deal Submitted — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Deal Submitted</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
@@ -161,15 +178,15 @@ export async function sendNewDealNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${params.propertyAddress}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Agent</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.agentName}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentName ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.brokerageName}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Advance Amount</td>
@@ -209,11 +226,11 @@ export async function sendBrokerageAdminNewDealNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.brokerageAdminEmail,
-      subject: `New Advance Request — ${params.agentName} — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`New Advance Request — ${params.agentName} — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Advance Request</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${params.brokerageAdminFirstName}, one of your agents has submitted a commission advance request through Firm Funds.
+          Hi ${escapeHtml(params.brokerageAdminFirstName ?? '')}, one of your agents has submitted a commission advance request through Firm Funds.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
           <tr>
@@ -221,11 +238,11 @@ export async function sendBrokerageAdminNewDealNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Agent</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${params.agentName}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.agentName ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.propertyAddress}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Advance Amount</td>
@@ -284,7 +301,7 @@ export async function sendStatusChangeNotification(params: {
     extraMessage = `
       <div style="margin:16px 0 0; padding:12px 16px; background:#241010; border:1px solid #422020; border-radius:8px;">
         <p style="margin:0 0 4px; color:#F87171; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Reason</p>
-        <p style="margin:0; color:#E5E5E5; font-size:14px;">${params.denialReason}</p>
+        <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.denialReason)}</p>
       </div>`
   }
 
@@ -292,30 +309,32 @@ export async function sendStatusChangeNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: params.newStatus === 'approved'
-        ? `Good News — Your Advance for ${params.propertyAddress} is Approved!`
-        : params.newStatus === 'funded'
-        ? `Funds on the Way — ${params.propertyAddress}`
-        : params.newStatus === 'denied'
-        ? `Advance Update — ${params.propertyAddress}`
-        : `Deal Update: ${params.propertyAddress} — ${label}`,
+      subject: sanitizeSubject(
+        params.newStatus === 'approved'
+          ? `Good News — Your Advance for ${params.propertyAddress} is Approved!`
+          : params.newStatus === 'funded'
+          ? `Funds on the Way — ${params.propertyAddress}`
+          : params.newStatus === 'denied'
+          ? `Advance Update — ${params.propertyAddress}`
+          : `Deal Update: ${params.propertyAddress} — ${label}`
+      ),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Deal Status Updated</h2>
         <p style="margin:0 0 20px; color:#999;">
-          Hi ${params.agentFirstName}, the status of your deal has been updated.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, the status of your deal has been updated.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
             <td style="padding:16px; background:#222; border-radius:8px;">
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:15px; font-weight:600;">${params.propertyAddress}</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:15px; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</p>
               <table cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:4px 12px; background:rgba(136,136,136,0.15); border-radius:6px; color:#888; font-size:13px; font-weight:600;">
-                    ${statusLabel(params.oldStatus)}
+                    ${escapeHtml(statusLabel(params.oldStatus))}
                   </td>
                   <td style="padding:0 12px; color:#666; font-size:16px;">&rarr;</td>
                   <td style="padding:4px 12px; background:${color}22; border-radius:6px; color:${color}; font-size:13px; font-weight:600;">
-                    ${label}
+                    ${escapeHtml(label)}
                   </td>
                 </tr>
               </table>
@@ -352,7 +371,7 @@ export async function sendDocumentRequestNotification(params: {
 
   const messageBlock = params.message
     ? `<div style="margin:16px 0 0; padding:12px 16px; background:#1E1E1E; border-left:3px solid #5FA873; border-radius:0 10px 10px 0; border:1px solid #2A2A2A; border-left:3px solid #5FA873;">
-        <p style="margin:0; color:#E5E5E5; font-size:14px;">${params.message}</p>
+        <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.message)}</p>
        </div>`
     : ''
 
@@ -360,11 +379,11 @@ export async function sendDocumentRequestNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Document Requested — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Document Requested — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Requested</h2>
         <p style="margin:0 0 20px; color:#999;">
-          Hi ${params.agentFirstName}, Firm Funds has requested a document for your deal.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, Firm Funds has requested a document for your deal.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -372,11 +391,11 @@ export async function sendDocumentRequestNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.propertyAddress}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Document Type</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${escapeHtml(params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</td>
                 </tr>
               </table>
             </td>
@@ -399,13 +418,19 @@ export async function sendDocumentRequestNotification(params: {
 // Email: Agent Invite → New Agent
 // ============================================================================
 
+// TODO(callers): the legacy `tempPassword` parameter was removed for security
+// (Finding #69 — plaintext credentials in email). All callers must pass
+// `inviteToken` instead. The remaining stale call site that still passes
+// `tempPassword` is in `lib/actions/admin-actions.ts` around line 1641 (the
+// `else` branch of the `if (inviteToken)` block in the resend-invite flow).
+// That branch must be deleted or refactored to mint a fresh invite token via
+// the existing token-issuance helper before it is shipped.
 export async function sendAgentInviteNotification(params: {
   agentFirstName: string
   agentEmail: string
   brokerageName: string
   brokerageLogoUrl?: string | null
-  tempPassword?: string  // DEPRECATED — kept for backward compat, prefer inviteToken
-  inviteToken?: string
+  inviteToken: string
 }): Promise<void> {
   const resend = getResend()
   if (!resend) return
@@ -414,64 +439,16 @@ export async function sendAgentInviteNotification(params: {
     ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
     : null
 
-  // Magic link invite (new flow) — no temp password in email
-  if (params.inviteToken) {
-    const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
-    try {
-      await resend.emails.send({
-        from: FROM_ADDRESS,
-        to: params.agentEmail,
-        subject: `Welcome to ${params.brokerageName} — Set Up Your Account`,
-        html: wrap(`
-          <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to ${escapeHtml(params.brokerageName)}!</h2>
-          <p style="margin:0 0 20px; color:#E5E5E5;">
-            Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf — powered by Firm Funds.
-          </p>
-          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-            <tr>
-              <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-                <table width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Brokerage</td>
-                    <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName)}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:8px 0; color:#737373; font-size:13px;">Email</td>
-                    <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentEmail)}</td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-          <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-            Click the button below to set your password and finish setup (ID verification + banking). This link expires in 72 hours.
-          </p>
-          <div style="text-align:center; margin:28px 0;">
-            <a href="${inviteUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
-              Activate My Account
-            </a>
-          </div>
-          <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
-            <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
-          </p>
-        `, branding),
-      })
-    } catch (err) {
-      console.error('[email] Failed to send agent invite notification:', err)
-    }
-    return
-  }
-
-  // Legacy temp password flow (fallback, should not be used for new invites)
+  const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
   try {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Welcome to Firm Funds — Your Account is Ready`,
+      subject: sanitizeSubject(`Welcome to ${params.brokerageName} — Set Up Your Account`),
       html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to Firm Funds!</h2>
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to ${escapeHtml(params.brokerageName)}!</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${params.agentFirstName}, your Firm Funds portal account has been created. You can now submit commission advance requests online.
+          Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf — powered by Firm Funds.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -479,26 +456,27 @@ export async function sendAgentInviteNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.brokerageName}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Email</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.agentEmail}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Temporary Password</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.tempPassword}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentEmail)}</td>
                 </tr>
               </table>
             </td>
           </tr>
         </table>
         <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          Please change your password after your first login.
+          Click the button below to set your password and finish setup (ID verification + banking). This link expires in 72 hours.
         </p>
-        <a href="${APP_URL}/login" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-          Log In to Firm Funds
-        </a>
+        <div style="text-align:center; margin:28px 0;">
+          <a href="${inviteUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
+            Activate My Account
+          </a>
+        </div>
+        <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
+          <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
+        </p>
       `, branding),
     })
   } catch (err) {
@@ -522,18 +500,19 @@ export async function sendDocumentUploadedNotification(params: {
   const resend = getResend()
   if (!resend) return
 
-  // Generate role-aware message
+  // Build escaped uploader name once; role labels are server-controlled so safe.
+  const safeUploaderName = escapeHtml(params.uploaderName ?? '')
+
   let uploadedByText: string
   if (params.uploaderRole === 'brokerage_admin') {
-    uploadedByText = `A brokerage admin (${params.uploaderName}) has uploaded a new document for review.`
+    uploadedByText = `A brokerage admin (${safeUploaderName}) has uploaded a new document for review.`
   } else if (params.uploaderRole === 'agent') {
-    uploadedByText = `${params.uploaderName} (Agent) has uploaded a new document for review.`
+    uploadedByText = `${safeUploaderName} (Agent) has uploaded a new document for review.`
   } else {
-    uploadedByText = `${params.uploaderName} has uploaded a new document for review.`
+    uploadedByText = `${safeUploaderName} has uploaded a new document for review.`
   }
 
-  // Generate uploaded by label
-  let uploadedByLabel = `${params.uploaderName}`
+  let uploadedByLabel = safeUploaderName
   if (params.uploaderRole === 'agent') {
     uploadedByLabel += ' (Agent)'
   } else if (params.uploaderRole === 'brokerage_admin') {
@@ -544,7 +523,7 @@ export async function sendDocumentUploadedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Document Uploaded — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Document Uploaded — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Uploaded</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
@@ -556,7 +535,7 @@ export async function sendDocumentUploadedNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.propertyAddress}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Uploaded By</td>
@@ -564,11 +543,11 @@ export async function sendDocumentUploadedNotification(params: {
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Document Type</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">File</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.fileName}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.fileName ?? '')}</td>
                 </tr>
               </table>
             </td>
@@ -600,24 +579,24 @@ export async function sendClosingDateAlertDigest(params: {
   const overdueRows = params.overdueDeals.map(d => `
     <tr>
       <td style="padding:8px 12px; border-bottom:1px solid #333; color:#F87171; font-size:13px;">
-        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#F87171; text-decoration:none; font-weight:600;">${d.property_address}</a>
+        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#F87171; text-decoration:none; font-weight:600;">${escapeHtml(d.property_address ?? '')}</a>
       </td>
       <td style="padding:8px 12px; border-bottom:1px solid #333; color:#F87171; font-size:13px;">${d.days_overdue} days overdue</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${d.agent_name}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${escapeHtml(d.agent_name ?? '')}</td>
       <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${formatCurrency(d.advance_amount)}</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px; text-transform:capitalize;">${d.status.replace(/_/g, ' ')}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px; text-transform:capitalize;">${escapeHtml((d.status ?? '').replace(/_/g, ' '))}</td>
     </tr>
   `).join('')
 
   const approachingRows = params.approachingDeals.map(d => `
     <tr>
       <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">
-        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#5FA873; text-decoration:none; font-weight:600;">${d.property_address}</a>
+        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#5FA873; text-decoration:none; font-weight:600;">${escapeHtml(d.property_address ?? '')}</a>
       </td>
       <td style="padding:8px 12px; border-bottom:1px solid #333; color:#FCD34D; font-size:13px;">${d.days_until_closing} days</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${d.agent_name}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${escapeHtml(d.agent_name ?? '')}</td>
       <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${formatCurrency(d.advance_amount)}</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px; text-transform:capitalize;">${d.status.replace(/_/g, ' ')}</td>
+      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px; text-transform:capitalize;">${escapeHtml((d.status ?? '').replace(/_/g, ' '))}</td>
     </tr>
   `).join('')
 
@@ -657,7 +636,7 @@ export async function sendClosingDateAlertDigest(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Closing Date Alert — ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`,
+      subject: sanitizeSubject(`Closing Date Alert — ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`),
       html: wrap(body),
     })
   } catch (err) {
@@ -680,7 +659,7 @@ export async function sendKycMobileUploadLink(params: {
 
   const body = `
     <h2 style="margin:0 0 16px; color:#fff; font-size:20px;">Upload Your ID</h2>
-    <p>Hi ${params.agentFirstName},</p>
+    <p>Hi ${escapeHtml(params.agentFirstName ?? '')},</p>
     <p>You requested to upload your government-issued photo ID from your mobile device. Tap the button below to open the secure upload page.</p>
     <div style="text-align:center; margin:28px 0;">
       <a href="${params.uploadUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
@@ -694,7 +673,7 @@ export async function sendKycMobileUploadLink(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: 'Firm Funds — Upload Your ID From Your Phone',
+      subject: sanitizeSubject('Firm Funds — Upload Your ID From Your Phone'),
       html: wrap(body),
     })
   } catch (err) {
@@ -717,14 +696,14 @@ export async function sendKycApprovedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `You're Verified — Start Submitting Advances on Firm Funds!`,
+      subject: sanitizeSubject(`You're Verified — Start Submitting Advances on Firm Funds!`),
       html: wrap(`
         <div style="text-align:center; padding:12px 0 24px;">
           <div style="display:inline-block; width:56px; height:56px; border-radius:50%; background:#0D2818; border:2px solid #1A4D2E; line-height:56px; font-size:28px;">✓</div>
         </div>
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; text-align:center;">Identity Verified!</h2>
         <p style="margin:0 0 20px; color:#E5E5E5; text-align:center;">
-          Hi ${params.agentFirstName}, your government-issued ID has been verified successfully. Your account is now fully active.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, your government-issued ID has been verified successfully. Your account is now fully active.
         </p>
         <div style="padding:20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; margin-bottom:24px;">
           <p style="margin:0 0 8px; color:#5FA873; font-weight:600; font-size:15px;">What you can do now:</p>
@@ -764,11 +743,11 @@ export async function sendDocumentReturnNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Action Required — Document Returned for ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Action Required — Document Returned for ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#F87171; font-size:20px;">Document Returned</h2>
         <p style="margin:0 0 20px; color:#999;">
-          Hi ${params.agentFirstName}, a document for your deal has been returned and needs attention. This may cause delays in processing your advance.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, a document for your deal has been returned and needs attention. This may cause delays in processing your advance.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -776,11 +755,11 @@ export async function sendDocumentReturnNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.propertyAddress}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Document</td>
-                  <td style="padding:6px 0; color:#F87171; font-size:14px; font-weight:600;">${params.documentName}</td>
+                  <td style="padding:6px 0; color:#F87171; font-size:14px; font-weight:600;">${escapeHtml(params.documentName ?? '')}</td>
                 </tr>
               </table>
             </td>
@@ -788,7 +767,7 @@ export async function sendDocumentReturnNotification(params: {
         </table>
         <div style="margin:16px 0; padding:12px 16px; background:#2A1212; border-left:3px solid #F87171; border-radius:0 8px 8px 0;">
           <p style="margin:0 0 4px; color:#F87171; font-size:12px; font-weight:600;">REASON FOR RETURN</p>
-          <p style="margin:0; color:#E5E5E5; font-size:14px;">${params.reason}</p>
+          <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.reason ?? '')}</p>
         </div>
         <div style="margin-top:24px;">
           <a href="${APP_URL}/agent/deals/${params.dealId}#returned-docs" style="display:inline-block; padding:12px 28px; background:#F87171; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
@@ -822,24 +801,24 @@ export async function sendDealMessageNotification(params: {
       from: FROM_ADDRESS,
       replyTo: 'support@firmfunds.ca',
       to: params.agentEmail,
-      subject: `Message from Firm Funds — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Message from Firm Funds — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Message</h2>
         <p style="margin:0 0 20px; color:#999;">
-          Hi ${params.agentFirstName}, you have a new message regarding your deal.
+          Hi ${escapeHtml(params.agentFirstName)}, you have a new message regarding your deal.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
           <tr>
             <td style="padding:8px 0; color:#737373; font-size:13px; width:100px;">Property</td>
-            <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.propertyAddress}</td>
+            <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress)}</td>
           </tr>
           <tr>
             <td style="padding:8px 0; color:#737373; font-size:13px;">From</td>
-            <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${params.senderName}</td>
+            <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${escapeHtml(params.senderName)}</td>
           </tr>
         </table>
         <div style="margin:16px 0; padding:12px 16px; background:#1E1E1E; border-left:3px solid #5FA873; border-radius:0 10px 10px 0; border:1px solid #2A2A2A; border-left:3px solid #5FA873;">
-          <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.6;">${params.message.replace(/\n/g, '<br>')}</p>
+          <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.6;">${escapeHtml(params.message).replace(/\n/g, '<br>')}</p>
         </div>
         <div style="margin-top:24px;">
           <a href="${APP_URL}/agent/deals/${params.dealId}#messages" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
@@ -873,7 +852,7 @@ export async function sendInvoiceNotification(params: {
 
   const lineItemsHtml = params.lineItems.map(item => `
     <tr>
-      <td style="padding:8px 12px; color:#E5E5E5; font-size:13px; border-bottom:1px solid #333;">${item.description}</td>
+      <td style="padding:8px 12px; color:#E5E5E5; font-size:13px; border-bottom:1px solid #333;">${escapeHtml(item.description ?? '')}</td>
       <td style="padding:8px 12px; color:#E5E5E5; font-size:13px; text-align:right; border-bottom:1px solid #333;">${formatMoney(item.amount)}</td>
     </tr>
   `).join('')
@@ -882,11 +861,11 @@ export async function sendInvoiceNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`,
+      subject: sanitizeSubject(`Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`),
       html: wrap(`
-        <h2 style="margin:0 0 16px; color:#D4A04A; font-size:20px;">Invoice ${params.invoiceNumber}</h2>
+        <h2 style="margin:0 0 16px; color:#D4A04A; font-size:20px;">Invoice ${escapeHtml(params.invoiceNumber ?? '')}</h2>
         <p style="margin:0 0 20px; color:#999;">
-          Hi ${params.agentName}, please find your invoice below for outstanding charges on your Firm Funds account.
+          Hi ${escapeHtml(params.agentName ?? '')}, please find your invoice below for outstanding charges on your Firm Funds account.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -894,7 +873,7 @@ export async function sendInvoiceNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Invoice #</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${params.invoiceNumber}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.invoiceNumber ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Amount Due</td>
@@ -902,7 +881,7 @@ export async function sendInvoiceNotification(params: {
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Due Date</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${formatDateStr(params.dueDate)}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(formatDateStr(params.dueDate))}</td>
                 </tr>
               </table>
             </td>
@@ -953,12 +932,12 @@ export async function sendBrokerageMessageNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Brokerage message: ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Brokerage message: ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">New Message from Brokerage</h2>
-        <p style="margin:0 0 8px; color:#E5E5E5;">${params.senderName} sent a message about <strong>${params.propertyAddress}</strong>:</p>
+        <p style="margin:0 0 8px; color:#E5E5E5;">${escapeHtml(params.senderName)} sent a message about <strong>${escapeHtml(params.propertyAddress)}</strong>:</p>
         <div style="margin:16px 0; padding:16px; background:#1A1A1A; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
-          <p style="margin:0; color:#E5E5E5; font-size:14px; white-space:pre-wrap;">${params.message}</p>
+          <p style="margin:0; color:#E5E5E5; font-size:14px; white-space:pre-wrap;">${escapeHtml(params.message)}</p>
         </div>
         <div style="margin-top:24px;">
           <a href="${APP_URL}/admin/deals/${params.dealId}#messages" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
@@ -1011,7 +990,7 @@ export async function sendBrokerageStatusNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.brokerageEmail,
-      subject: `Deal ${label}: ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Deal ${label}: ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">Deal Status Update</h2>
         <p style="margin:0 0 16px; color:#E5E5E5;">A deal submitted by one of your agents has been updated.</p>
@@ -1021,16 +1000,16 @@ export async function sendBrokerageStatusNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:4px 0; color:#737373; font-size:13px;">Property</td>
-                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right; font-weight:600;">${params.propertyAddress}</td>
+                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:4px 0; color:#737373; font-size:13px;">Agent</td>
-                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right;">${params.agentName}</td>
+                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right;">${escapeHtml(params.agentName ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:4px 0; color:#737373; font-size:13px;">New Status</td>
                   <td style="padding:4px 0; font-size:13px; text-align:right;">
-                    <span style="display:inline-block; padding:4px 12px; background:${color}20; color:${color}; border-radius:4px; font-weight:600; font-size:12px;">${label}</span>
+                    <span style="display:inline-block; padding:4px 12px; background:${color}20; color:${color}; border-radius:4px; font-weight:600; font-size:12px;">${escapeHtml(label)}</span>
                   </td>
                 </tr>
               </table>
@@ -1068,11 +1047,11 @@ export async function sendBrokerageInviteNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.adminEmail,
-      subject: `Welcome to Firm Funds — Set Up Your Brokerage Portal`,
+      subject: sanitizeSubject(`Welcome to Firm Funds — Set Up Your Brokerage Portal`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to Firm Funds!</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${params.adminName}, your Firm Funds Brokerage Portal account has been created for <strong>${params.brokerageName}</strong>. You can now manage your agents' commission advance activity online.
+          Hi ${escapeHtml(params.adminName ?? '')}, your Firm Funds Brokerage Portal account has been created for <strong>${escapeHtml(params.brokerageName ?? '')}</strong>. You can now manage your agents' commission advance activity online.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -1080,11 +1059,11 @@ export async function sendBrokerageInviteNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.brokerageName}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">Email</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.adminEmail}</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.adminEmail ?? '')}</td>
                 </tr>
               </table>
             </td>
@@ -1127,11 +1106,11 @@ export async function sendPasswordResetNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.recipientEmail,
-      subject: `Firm Funds — Password Reset`,
+      subject: sanitizeSubject(`Firm Funds — Password Reset`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Password Reset</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${params.recipientName}, a Firm Funds administrator has reset your password. Please click the button below to set a new password.
+          Hi ${escapeHtml(params.recipientName ?? '')}, a Firm Funds administrator has reset your password. Please click the button below to set a new password.
         </p>
         <p style="margin:0 0 20px; color:#737373; font-size:13px;">
           This link expires in 72 hours. If you did not request this, please contact your administrator.
@@ -1168,11 +1147,11 @@ export async function sendEmailChangeNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.oldEmail,
-      subject: `Firm Funds — Your Login Email Has Been Changed`,
+      subject: sanitizeSubject(`Firm Funds — Your Login Email Has Been Changed`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Email Address Changed</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${params.recipientName}, your Firm Funds login email has been changed by an administrator.
+          Hi ${escapeHtml(params.recipientName ?? '')}, your Firm Funds login email has been changed by an administrator.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -1180,11 +1159,11 @@ export async function sendEmailChangeNotification(params: {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Old Email</td>
-                  <td style="padding:6px 0; color:#EF4444; font-size:14px;">${params.oldEmail}</td>
+                  <td style="padding:6px 0; color:#EF4444; font-size:14px;">${escapeHtml(params.oldEmail ?? '')}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0; color:#737373; font-size:13px;">New Email</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${params.newEmail}</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(params.newEmail ?? '')}</td>
                 </tr>
               </table>
             </td>
@@ -1197,6 +1176,180 @@ export async function sendEmailChangeNotification(params: {
     })
   } catch (err) {
     console.error('[email] Failed to send email change notification:', err)
+  }
+}
+
+// ============================================================================
+// Agent Phone Number Changed (finding #43 follow-up)
+// ============================================================================
+//
+// Sent to the agent's verified Firm Funds email whenever their on-file phone
+// changes. The full numbers are masked to the last 4 digits so the email is
+// useful for detecting tampering without re-leaking the PII back to whichever
+// inbox the email lands in (forwarded mail, mailing lists, etc).
+
+export async function sendAgentPhoneChangedNotification(params: {
+  recipientEmail: string
+  recipientName: string
+  oldPhoneLast4: string | null
+  newPhoneLast4: string | null
+  changedAtIso: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const oldDisplay = params.oldPhoneLast4 ? `*** *** ${params.oldPhoneLast4}` : 'not on file'
+  const newDisplay = params.newPhoneLast4 ? `*** *** ${params.newPhoneLast4}` : 'cleared'
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.recipientEmail,
+      subject: sanitizeSubject('Your Firm Funds phone number was updated'),
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Phone Number Updated</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          Hi ${escapeHtml(params.recipientName)}, the phone number on your Firm Funds agent profile was just updated.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Previous</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(oldDisplay)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Updated To</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(newDisplay)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">When</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(new Date(params.changedAtIso).toUTCString())}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
+          If you didn't make this change, sign in, reset your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your session may be compromised.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send phone-changed notification:', err)
+  }
+}
+
+// ============================================================================
+// Brokerage Contact Email Confirm-New-Address (finding #40 follow-up)
+// ============================================================================
+//
+// Sent to the NEW address requested by a brokerage admin. The confirmation
+// URL carries a single-use token; clicking it flips brokerages.email.
+// Until the recipient acts, the brokerage continues to receive notifications
+// at the previously-verified address.
+
+export async function sendBrokerageContactEmailConfirm(params: {
+  brokerageName: string
+  newEmail: string
+  confirmUrl: string
+  expiresAtIso: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const expiresLabel = new Date(params.expiresAtIso).toUTCString()
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.newEmail,
+      subject: sanitizeSubject(`Confirm new contact email for ${params.brokerageName}`),
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Confirm Your Email</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          A Firm Funds administrator at <strong>${escapeHtml(params.brokerageName)}</strong> requested that this address (${escapeHtml(params.newEmail)}) become the brokerage's primary contact email.
+        </p>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          Click the button below to confirm. The link expires on ${escapeHtml(expiresLabel)}.
+        </p>
+        <table cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+          <tr>
+            <td style="background:#5FA873; border-radius:8px;">
+              <a href="${escapeHtml(params.confirmUrl)}" style="display:inline-block; padding:12px 24px; color:#0A0A0A; font-weight:600; text-decoration:none;">Confirm Email Change</a>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 8px; color:#737373; font-size:13px;">
+          If you didn't request this change, simply ignore this email. The brokerage's contact address will remain unchanged.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage contact email confirm:', err)
+  }
+}
+
+// ============================================================================
+// Brokerage Contact Email Change-Requested Warning (to OLD address)
+// ============================================================================
+//
+// Fires immediately when an admin requests the change, BEFORE the new address
+// confirms. Gives the legitimate owner early warning of a possible stolen
+// session even though the actual flip hasn't happened yet.
+
+export async function sendBrokerageContactEmailChangeRequested(params: {
+  brokerageName: string
+  oldEmail: string
+  newEmail: string
+  expiresAtIso: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const expiresLabel = new Date(params.expiresAtIso).toUTCString()
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.oldEmail,
+      subject: sanitizeSubject(`Contact email change requested for ${params.brokerageName}`),
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Contact Email Change Requested</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          Hi, a request was made to change the contact email for <strong>${escapeHtml(params.brokerageName)}</strong>.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Current Email</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.oldEmail)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Requested Email</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(params.newEmail)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Action Expires</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(expiresLabel)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          The change will only take effect once someone at the requested address clicks the confirmation link in their inbox. Your current address will continue receiving all brokerage notifications until then.
+        </p>
+        <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
+          If you didn't request this change, sign in immediately, change your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your administrator session may be compromised.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send brokerage contact email change-requested:', err)
   }
 }
 
@@ -1215,13 +1368,13 @@ export async function sendBankingSubmittedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Banking Info Submitted — ${params.agentName}`,
+      subject: sanitizeSubject(`Banking Info Submitted — ${params.agentName}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
           Banking Info Submitted
         </h2>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          <strong style="color:#E5E5E5;">${params.agentName}</strong> (${params.agentEmail}) has submitted their banking information for review and approval.
+          <strong style="color:#E5E5E5;">${escapeHtml(params.agentName ?? '')}</strong> (${escapeHtml(params.agentEmail ?? '')}) has submitted their banking information for review and approval.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
@@ -1263,7 +1416,7 @@ export async function sendBankingApprovalNotification(params: {
           Banking Info Approved
         </h2>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          Hi ${params.agentName}, your banking information has been verified and approved. You're all set to receive commission advances!
+          Hi ${escapeHtml(params.agentName ?? '')}, your banking information has been verified and approved. You're all set to receive commission advances!
         </p>
       `
       : `
@@ -1271,14 +1424,14 @@ export async function sendBankingApprovalNotification(params: {
           Banking Info Not Approved
         </h2>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          Hi ${params.agentName}, your banking information could not be approved at this time.
+          Hi ${escapeHtml(params.agentName ?? '')}, your banking information could not be approved at this time.
         </p>
         ${params.reason ? `
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
             <td style="padding:12px 16px; background:#2A1212; border:1px solid #4A2020; border-radius:8px;">
               <p style="margin:0; color:#E07B7B; font-size:13px; font-weight:600;">Reason:</p>
-              <p style="margin:4px 0 0; color:#BCBBB8; font-size:14px;">${params.reason}</p>
+              <p style="margin:4px 0 0; color:#BCBBB8; font-size:14px;">${escapeHtml(params.reason)}</p>
             </td>
           </tr>
         </table>
@@ -1300,7 +1453,7 @@ export async function sendBankingApprovalNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject,
+      subject: sanitizeSubject(subject),
       html: wrap(body),
     })
   } catch (err) {
@@ -1325,18 +1478,18 @@ export async function sendAgentMessageNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Message from ${params.agentName} — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Message from ${params.agentName} — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
           New Message from Agent
         </h2>
         <p style="margin:0 0 8px; color:#BCBBB8; font-size:14px;">
-          <strong style="color:#7B9FE0;">${params.agentName}</strong> sent a message about <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>:
+          <strong style="color:#7B9FE0;">${escapeHtml(params.agentName)}</strong> sent a message about <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress)}</strong>:
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
           <tr>
             <td style="padding:12px 16px; background:#1A2240; border-left:3px solid #7B9FE0; border-radius:0 8px 8px 0;">
-              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5; white-space:pre-wrap;">${params.message.replace(/\n/g, '<br/>')}</p>
+              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5; white-space:pre-wrap;">${escapeHtml(params.message).replace(/\n/g, '<br/>')}</p>
             </td>
           </tr>
         </table>
@@ -1383,7 +1536,7 @@ function formatReminderCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
 }
 
-/** Closing day reminder — "Deal closed! Brokerage has 14 days to remit payment." */
+/** Closing day reminder — "Deal closed! Brokerage has the settlement window to remit payment." */
 export async function sendSettlementReminderClosingDay(params: SettlementReminderParams) {
   const resend = getResend()
   if (!resend) return
@@ -1393,21 +1546,21 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
       Closing Day — Payment Reminder
     </h2>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${params.agentFirstName}, the expected closing date for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> has arrived.
+      Hi ${escapeHtml(params.agentFirstName ?? '')}, the expected closing date for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> has arrived.
     </p>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Your brokerage has <strong style="color:#5FA873;">14 days</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds.
+      Your brokerage has <strong style="color:#5FA873;">${params.daysRemaining} days</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
       <tr>
         <td style="padding:16px;">
           <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Due Date</p>
-          <p style="margin:0; color:#5FA873; font-size:18px; font-weight:600;">${formatReminderDate(params.dueDate)}</p>
+          <p style="margin:0; color:#5FA873; font-size:18px; font-weight:600;">${escapeHtml(formatReminderDate(params.dueDate))}</p>
         </td>
       </tr>
     </table>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-      If payment is not received by the due date, late payment interest at 24% per annum will begin accruing on your Firm Funds account.
+      Late payment interest at 24% per annum (compounded daily) only begins accruing if the payment remains outstanding 30 days after closing. We will be in touch with your brokerage if payment is delayed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
@@ -1425,7 +1578,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
       html: agentBody,
     })
   } catch (err) {
@@ -1438,16 +1591,16 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
       await resend.emails.send({
         from: FROM_ADDRESS,
         to: params.brokerageEmail,
-        subject: `Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
+        subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
         html: wrap(`
           <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
             Closing Day — Payment Reminder
           </h2>
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            The expected closing date for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> (${params.agentFirstName}'s deal) has arrived.
+            The expected closing date for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> (${escapeHtml(params.agentFirstName ?? '')}'s deal) has arrived.
           </p>
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            Please remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds by <strong style="color:#5FA873;">${formatReminderDate(params.dueDate)}</strong>.
+            Please remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds by <strong style="color:#5FA873;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
           </p>
         `),
       })
@@ -1457,69 +1610,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
   }
 }
 
-/** 7-day reminder — "7 days remaining for brokerage payment." */
-export async function sendSettlementReminder7Day(params: SettlementReminderParams) {
-  const resend = getResend()
-  if (!resend) return
-
-  const agentBody = wrap(`
-    <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-      7 Days Remaining — Payment Reminder
-    </h2>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${params.agentFirstName}, there are <strong style="color:#E8B54A;">7 days remaining</strong> for your brokerage to remit payment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
-    </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-      <tr>
-        <td style="padding:16px;">
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount Due</p>
-          <p style="margin:0 0 12px; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amountDueFromBrokerage)}</p>
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Due Date</p>
-          <p style="margin:0; color:#E8B54A; font-size:18px; font-weight:600;">${formatReminderDate(params.dueDate)}</p>
-        </td>
-      </tr>
-    </table>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-      If payment is not received by the due date, late payment interest at 24% per annum will begin accruing on your Firm Funds account.
-    </p>
-  `)
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: `7 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
-      html: agentBody,
-    })
-  } catch (err) {
-    console.error('[email] Failed to send 7-day reminder to agent:', err)
-  }
-
-  if (params.brokerageEmail) {
-    try {
-      await resend.emails.send({
-        from: FROM_ADDRESS,
-        to: params.brokerageEmail,
-        subject: `7 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
-        html: wrap(`
-          <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-            7 Days Remaining — Payment Reminder
-          </h2>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            There are <strong style="color:#E8B54A;">7 days remaining</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> for ${params.agentFirstName}'s deal at <strong>${params.propertyAddress}</strong>.
-          </p>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            Due date: <strong style="color:#E8B54A;">${formatReminderDate(params.dueDate)}</strong>
-          </p>
-        `),
-      })
-    } catch (err) {
-      console.error('[email] Failed to send 7-day reminder to brokerage:', err)
-    }
-  }
-}
-
-/** 3-day reminder — "3 days remaining! Late interest will apply after due date." */
+/** 3-day reminder — "3 days remaining! Payment due soon." */
 export async function sendSettlementReminder3Day(params: SettlementReminderParams) {
   const resend = getResend()
   if (!resend) return
@@ -1529,7 +1620,7 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
       3 Days Remaining — Urgent Payment Reminder
     </h2>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${params.agentFirstName}, there are only <strong style="color:#E54B4B;">3 days remaining</strong> for your brokerage to remit payment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
+      Hi ${escapeHtml(params.agentFirstName ?? '')}, there are only <strong style="color:#E54B4B;">3 days remaining</strong> for your brokerage to remit payment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:8px;">
       <tr>
@@ -1537,12 +1628,12 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
           <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount Due</p>
           <p style="margin:0 0 12px; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amountDueFromBrokerage)}</p>
           <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Due Date</p>
-          <p style="margin:0; color:#E54B4B; font-size:18px; font-weight:600;">${formatReminderDate(params.dueDate)}</p>
+          <p style="margin:0; color:#E54B4B; font-size:18px; font-weight:600;">${escapeHtml(formatReminderDate(params.dueDate))}</p>
         </td>
       </tr>
     </table>
-    <p style="margin:0 0 12px; color:#E54B4B; font-size:14px; font-weight:600; line-height:1.5;">
-      If payment is not received by ${formatReminderDate(params.dueDate)}, late payment interest at 24% per annum will begin accruing daily on your Firm Funds account.
+    <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
+      If payment is still outstanding 30 days after closing, late payment interest at 24% per annum (compounded daily) will begin accruing on your Firm Funds account. We will be in touch with your brokerage if payment is delayed.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
@@ -1559,7 +1650,7 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
       html: agentBody,
     })
   } catch (err) {
@@ -1571,16 +1662,16 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
       await resend.emails.send({
         from: FROM_ADDRESS,
         to: params.brokerageEmail,
-        subject: `URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`,
+        subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
         html: wrap(`
           <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
             3 Days Remaining — Urgent Payment Reminder
           </h2>
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            There are only <strong style="color:#E54B4B;">3 days remaining</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> for ${params.agentFirstName}'s deal at <strong>${params.propertyAddress}</strong>.
+            There are only <strong style="color:#E54B4B;">3 days remaining</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> for ${escapeHtml(params.agentFirstName ?? '')}'s deal at <strong>${escapeHtml(params.propertyAddress ?? '')}</strong>.
           </p>
-          <p style="margin:0 0 12px; color:#E54B4B; font-size:14px; font-weight:600; line-height:1.5;">
-            Due date: ${formatReminderDate(params.dueDate)}. Late payment interest will apply after this date.
+          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+            Due date: <strong style="color:#E54B4B;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
           </p>
         `),
       })
@@ -1609,21 +1700,21 @@ export async function sendAmendmentRequestedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `Closing Date Amendment Requested — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Closing Date Amendment Requested — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           Closing Date Amendment Requested
         </h2>
         <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          <strong style="color:#7B9FE0;">${params.agentName}</strong> has requested a closing date amendment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
+          <strong style="color:#7B9FE0;">${escapeHtml(params.agentName ?? '')}</strong> has requested a closing date amendment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
           <tr>
             <td style="padding:16px;">
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Original Closing Date</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:16px; font-weight:600;">${formatReminderDate(params.oldClosingDate)}</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:16px; font-weight:600;">${escapeHtml(formatReminderDate(params.oldClosingDate))}</p>
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Proposed New Closing Date</p>
-              <p style="margin:0; color:#5FA873; font-size:16px; font-weight:600;">${formatReminderDate(params.newClosingDate)}</p>
+              <p style="margin:0; color:#5FA873; font-size:16px; font-weight:600;">${escapeHtml(formatReminderDate(params.newClosingDate))}</p>
             </td>
           </tr>
         </table>
@@ -1662,19 +1753,19 @@ export async function sendAmendmentApprovedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Amendment Approved — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Amendment Approved — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           Closing Date Amendment Approved
         </h2>
         <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          Hi ${params.agentFirstName}, your closing date amendment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> has been approved.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, your closing date amendment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> has been approved.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
           <tr>
             <td style="padding:16px;">
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">New Closing Date</p>
-              <p style="margin:0 0 12px; color:#5FA873; font-size:16px; font-weight:600;">${formatReminderDate(params.newClosingDate)}</p>
+              <p style="margin:0 0 12px; color:#5FA873; font-size:16px; font-weight:600;">${escapeHtml(formatReminderDate(params.newClosingDate))}</p>
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Updated Advance Amount</p>
               <p style="margin:0; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.newAdvanceAmount)}</p>
             </td>
@@ -1733,7 +1824,7 @@ export async function sendMonthlyBrokerStatement(params: {
       <tr>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.propertyAddress)}</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.agentName)}</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${r.fundingDate || '—'}</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.fundingDate ?? '—')}</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${formatCurrency(r.discountFee)}</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${r.pct.toFixed(1)}%</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:${r.remitted ? '#888' : '#5FA873'}; font-size:13px; text-align:right; font-weight:600;">
@@ -1786,7 +1877,7 @@ export async function sendMonthlyBrokerStatement(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.toEmail,
-      subject: `${params.brokerageName} — Profit-Share Statement (${params.periodLabel})`,
+      subject: sanitizeSubject(`${params.brokerageName} — Profit-Share Statement (${params.periodLabel})`),
       html: wrap(body, branding),
     })
   } catch (err) {
@@ -1809,19 +1900,19 @@ export async function sendAmendmentRejectedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Amendment Rejected — ${params.propertyAddress}`,
+      subject: sanitizeSubject(`Amendment Rejected — ${params.propertyAddress}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           Closing Date Amendment Rejected
         </h2>
         <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          Hi ${params.agentFirstName}, your closing date amendment for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> was not approved.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, your closing date amendment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> was not approved.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:8px;">
           <tr>
             <td style="padding:16px;">
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Reason</p>
-              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5;">${params.reason}</p>
+              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5;">${escapeHtml(params.reason ?? '')}</p>
             </td>
           </tr>
         </table>
@@ -1876,13 +1967,13 @@ export async function sendPaymentClaimSubmittedNotification(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: ADMIN_EMAIL,
-      subject: `New payment claim — ${params.brokerageName} — ${formatReminderCurrency(params.amount)}`,
+      subject: sanitizeSubject(`New payment claim — ${params.brokerageName} — ${formatReminderCurrency(params.amount)}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           New Payment Claim Submitted
         </h2>
         <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          <strong style="color:#7B9FE0;">${params.brokerageName}</strong> has submitted a payment claim for <strong style="color:#E5E5E5;">${params.propertyAddress}</strong>.
+          <strong style="color:#7B9FE0;">${escapeHtml(params.brokerageName ?? '')}</strong> has submitted a payment claim for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
           <tr>
@@ -1890,14 +1981,14 @@ export async function sendPaymentClaimSubmittedNotification(params: {
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount</p>
               <p style="margin:0 0 12px; color:#5FA873; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amount)}</p>
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Agent</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${params.agentName}</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.agentName ?? '')}</p>
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Date</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${formatReminderDate(params.paymentDate)}</p>
+              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(formatReminderDate(params.paymentDate))}</p>
               <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Method</p>
               <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${methodLabel}</p>
               ${params.reference ? `
                 <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Reference</p>
-                <p style="margin:0; color:#E5E5E5; font-size:14px; font-weight:600;">${params.reference}</p>
+                <p style="margin:0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.reference)}</p>
               ` : ''}
             </td>
           </tr>
@@ -1962,11 +2053,11 @@ export async function sendFailedToCloseElectionEmail(params: {
     await resend.emails.send({
       from: FROM_ADDRESS,
       to: params.agentEmail,
-      subject: `Action required: Your funded deal at ${params.propertyAddress} ${failureLabel}`,
+      subject: sanitizeSubject(`Action required: Your funded deal at ${params.propertyAddress} ${failureLabel}`),
       html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Action Required — Choose Your Repayment Method</h2>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
-          Hi ${params.agentFirstName}, we wanted to let you know that your funded deal at <strong style="color:#E5E5E5;">${params.propertyAddress}</strong> ${failureLabel}.
+          Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to let you know that your funded deal at <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> ${failureLabel}.
         </p>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
           ${failureExplanation}

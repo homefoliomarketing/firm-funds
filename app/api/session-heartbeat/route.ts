@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { validateOrigin } from '@/lib/csrf'
+import { checkApiRateLimit } from '@/lib/rate-limit'
+import { logAuditEventServiceRole, extractRequestContext } from '@/lib/audit'
 
 /**
  * Session Heartbeat API Route
@@ -12,6 +15,14 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
  * the server tracks last_active_at so middleware can optionally
  * reject stale sessions.
  */
+
+// Accepted reasons for DELETE (session-end audit events).
+const ALLOWED_REASONS = ['timeout', 'inactivity', 'manual', 'forced'] as const
+type SessionEndReason = (typeof ALLOWED_REASONS)[number]
+
+function isAllowedReason(value: unknown): value is SessionEndReason {
+  return typeof value === 'string' && (ALLOWED_REASONS as readonly string[]).includes(value)
+}
 
 // POST: Update last_active_at
 export async function POST() {
@@ -38,54 +49,87 @@ export async function POST() {
 
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
-    console.warn('[SESSION HEARTBEAT] Error:', err instanceof Error ? err.message : 'Unknown')
+    console.error('[SESSION HEARTBEAT] POST error:', err instanceof Error ? err.message : 'Unknown')
     return NextResponse.json({ ok: true }) // Fail open
   }
 }
 
 // DELETE: Log session timeout to audit trail
 export async function DELETE(request: Request) {
+  // CSRF: only accept requests coming from our own origin. Defense in depth —
+  // middleware.ts also enforces this for every state-changing /api/* request.
+  // Kept so the route is safe if it's ever called outside the middleware
+  // matcher.
+  const originError = validateOrigin(request)
+  if (originError) return originError
+
+  // Rate limit: a logged-in user could otherwise spam the audit log.
+  const ip =
+    request.headers.get('x-nf-client-connection-ip') ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    '127.0.0.1'
+  const rl = await checkApiRateLimit(ip)
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
+
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    // Even if user session is already expired, try to log
+    // Parse + validate body. Even if user session is already expired, try to log.
     const body = await request.json().catch(() => ({}))
-    const reason = body?.reason || 'timeout'
+    const rawReason = body?.reason ?? 'timeout'
+    if (!isAllowedReason(rawReason)) {
+      return NextResponse.json(
+        { error: 'Invalid reason', allowed: ALLOWED_REASONS },
+        { status: 400 }
+      )
+    }
+    const reason: SessionEndReason = rawReason
 
-    const serviceClient = createServiceRoleClient()
-
-    // Get actor info for audit log
-    let actorEmail: string | null = null
-    let actorRole: string | null = null
+    // Fetch actor profile (email + role) for the audit row.
+    let actorEmail: string | undefined
+    let actorRole: string | undefined
     if (user) {
-      actorEmail = user.email || null
+      actorEmail = user.email || undefined
+      const serviceClient = createServiceRoleClient()
       const { data: profile } = await serviceClient
         .from('user_profiles')
         .select('role, email')
         .eq('id', user.id)
         .single()
       if (profile) {
-        actorRole = profile.role
+        actorRole = profile.role || undefined
         if (profile.email) actorEmail = profile.email
       }
     }
 
-    // Log session timeout event
-    await serviceClient.from('audit_log').insert({
-      user_id: user?.id || null,
-      action: 'auth.session_timeout',
-      entity_type: 'session',
-      entity_id: user?.id || null,
-      metadata: { reason, timestamp: new Date().toISOString() },
-      severity: 'warning',
-      actor_email: actorEmail,
-      actor_role: actorRole,
-    })
+    const ctx = await extractRequestContext(request)
+
+    // Canonical audit path — handles severity, denormalized actor fields,
+    // and visible warnings on insert failure.
+    await logAuditEventServiceRole(
+      {
+        userId: user?.id,
+        action: 'auth.session_timeout',
+        entityType: 'session',
+        entityId: user?.id,
+        metadata: { reason, timestamp: new Date().toISOString() },
+        actorEmail,
+        actorRole,
+      },
+      ctx
+    )
 
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {
-    console.warn('[SESSION HEARTBEAT] Audit log error:', err instanceof Error ? err.message : 'Unknown')
-    return NextResponse.json({ ok: true }) // Fail open
+    // Log loud — silently swallowing this is what caused the original audit
+    // blind spot. Still respond 200 so the client-side logout flow proceeds.
+    console.error(
+      '[SESSION HEARTBEAT] DELETE audit log error:',
+      err instanceof Error ? err.stack || err.message : err
+    )
+    return NextResponse.json({ ok: true })
   }
 }

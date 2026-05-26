@@ -11,9 +11,34 @@ import {
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
   SETTLEMENT_PERIOD_DAYS,
+  BROKERAGE_BUMPED_SETTLEMENT_DAYS,
   LATE_INTEREST_RATE_PER_ANNUM,
+  LATE_INTEREST_GRACE_DAYS_FROM_CLOSING,
   RETURN_PROCESSING_DAYS,
 } from './constants'
+
+/**
+ * The brokerage settlement-window inputs that influence `effectiveSettlementDays`.
+ * Matches the shape of the `brokerages` row columns added in migration 047.
+ */
+export interface BrokerageSettlementInputs {
+  settlement_days_override?: number | null
+  auto_bumped_to_14_days_at?: string | null
+}
+
+/**
+ * Resolve the brokerage's effective settlement window (in days), in priority order:
+ *   1. Admin manual override (`settlement_days_override`)
+ *   2. Auto-bump after BROKERAGE_LATE_STRIKE_THRESHOLD strikes (`auto_bumped_to_14_days_at` non-null)
+ *   3. Standard SETTLEMENT_PERIOD_DAYS (currently 7)
+ */
+export function effectiveSettlementDays(brokerage: BrokerageSettlementInputs | null | undefined): number {
+  if (!brokerage) return SETTLEMENT_PERIOD_DAYS
+  const override = brokerage.settlement_days_override
+  if (override != null && override > 0) return override
+  if (brokerage.auto_bumped_to_14_days_at) return BROKERAGE_BUMPED_SETTLEMENT_DAYS
+  return SETTLEMENT_PERIOD_DAYS
+}
 
 export interface DealCalculation {
   grossCommission: number
@@ -21,6 +46,12 @@ export interface DealCalculation {
   daysUntilClosing: number
   discountRate?: number
   brokerageReferralPct?: number // per-deal negotiable (0-1 decimal)
+  /**
+   * Override the settlement-period days used for the settlement-period fee.
+   * Defaults to SETTLEMENT_PERIOD_DAYS (7). Set to BROKERAGE_BUMPED_SETTLEMENT_DAYS (14)
+   * when the brokerage has been auto-bumped after the 5-strike threshold.
+   */
+  settlementPeriodDays?: number
 }
 
 export interface DealResult {
@@ -76,86 +107,110 @@ export function calculateDeal(input: DealCalculation): DealResult {
 
   const rate = input.discountRate ?? DISCOUNT_RATE_PER_1000_PER_DAY
   const referralPct = input.brokerageReferralPct ?? DEFAULT_BROKERAGE_REFERRAL_PCT
+  const settlementDays = input.settlementPeriodDays ?? SETTLEMENT_PERIOD_DAYS
 
-  // Agent's net commission after brokerage split
-  const netCommission = input.grossCommission * (1 - input.brokerageSplitPct / 100)
-
-  // Discount fee: net commission × ($0.75 / $1,000) × days
   // -1 because: agent receives funds day AFTER funding, and closing day is repayment (not charged)
   // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS (see getChargeDays)
   const effectiveDays = getChargeDays(input.daysUntilClosing)
-  const discountFee = netCommission * (rate / 1000) * effectiveDays
 
-  // Settlement Period Fee: same rate × 14 days
-  // This is a flat, non-refundable fee that covers the 14-day brokerage payment window
-  const settlementPeriodFee = netCommission * (rate / 1000) * SETTLEMENT_PERIOD_DAYS
+  // Round in dependency order so the returned cent values satisfy the
+  // accounting identities exactly (no ¢ drift from independent rounding):
+  //   discountFee + settlementPeriodFee === totalFees
+  //   netCommission - totalFees === advanceAmount
+  //   brokerageReferralFee + firmFundsProfit === totalFees
+  //   netCommission - brokerageReferralFee === amountDueFromBrokerage
 
-  // Total fees charged to the agent
+  // 1. Net commission after brokerage split (anchor for everything downstream).
+  const netCommission = roundToCents(input.grossCommission * (1 - input.brokerageSplitPct / 100))
+
+  // 2. Discount fee: net commission × ($0.80 / $1,000) × effective days.
+  //    Settlement Period Fee: same rate × settlement-window days (7 standard,
+  //    14 for brokerages auto-bumped after 5 strikes). Flat, non-refundable
+  //    fee covering the brokerage payment window after closing.
+  //    Both rounded against unrounded netCommission for accuracy.
+  const unroundedNet = input.grossCommission * (1 - input.brokerageSplitPct / 100)
+  const discountFee = roundToCents(unroundedNet * (rate / 1000) * effectiveDays)
+  const settlementPeriodFee = roundToCents(unroundedNet * (rate / 1000) * settlementDays)
+
+  // 3. Sum of two 2-decimal numbers is exact, no re-round.
   const totalFees = discountFee + settlementPeriodFee
 
-  // What the agent receives
+  // 4. Derived from rounded values, no re-round.
   const advanceAmount = netCommission - totalFees
 
-  // Brokerage (white-label partner) gets a cut of the TOTAL fees — both the
-  // discount fee AND the 14-day settlement period fee.
-  const brokerageReferralFee = totalFees * referralPct
+  // 5. Brokerage (white-label partner) gets a cut of the TOTAL fees.
+  //    Round once; firmFundsProfit derives from the rounded value.
+  const brokerageReferralFee = roundToCents(totalFees * referralPct)
 
-  // Firm Funds keeps whatever's left of the total fees after the brokerage share.
+  // 6. Firm Funds keeps whatever's left of total fees after the brokerage share.
   const firmFundsProfit = totalFees - brokerageReferralFee
 
-  // What brokerage sends to Firm Funds at closing (net commission minus their referral fee)
+  // 7. What brokerage sends to Firm Funds at closing.
   const amountDueFromBrokerage = netCommission - brokerageReferralFee
 
   // How many days of EFT transfers needed
   const eftTransferDays = Math.ceil(advanceAmount / MAX_DAILY_EFT)
 
   return {
-    netCommission: roundToCents(netCommission),
-    discountFee: roundToCents(discountFee),
-    settlementPeriodFee: roundToCents(settlementPeriodFee),
-    totalFees: roundToCents(totalFees),
-    advanceAmount: roundToCents(advanceAmount),
-    brokerageReferralFee: roundToCents(brokerageReferralFee),
-    firmFundsProfit: roundToCents(firmFundsProfit),
-    amountDueFromBrokerage: roundToCents(amountDueFromBrokerage),
+    netCommission,
+    discountFee,
+    settlementPeriodFee,
+    totalFees,
+    advanceAmount,
+    brokerageReferralFee,
+    firmFundsProfit,
+    amountDueFromBrokerage,
     eftTransferDays,
     effectiveDays,
   }
 }
 
 /**
- * Calculate late payment interest.
- * 24% per annum, charged daily, starting the day after the 14-day settlement period expires.
- * @param advanceAmount - The amount advanced to the agent
- * @param dueDate - Payment due date (closing_date + 14 days) — YYYY-MM-DD
- * @param currentDate - The date to calculate interest through — YYYY-MM-DD
- * @returns Interest amount (0 if not yet past due date)
+ * Late-payment interest grace start: interest does not accrue until the deal is
+ * 30 days past the closing date. The 7-day settlement window and the 8-30 day
+ * follow-up window are penalty-free.
+ *
+ * @param closingDate - YYYY-MM-DD, the deal's closing date
+ * @returns YYYY-MM-DD, the day interest first begins accruing (closing + 30)
  */
-export function calculateLateInterest(
-  advanceAmount: number,
-  dueDate: string,
-  currentDate: string,
-): number {
-  const dueMs = new Date(dueDate + 'T00:00:00Z').getTime()
-  const currentMs = new Date(currentDate + 'T00:00:00Z').getTime()
-  const daysOverdue = Math.floor((currentMs - dueMs) / (1000 * 60 * 60 * 24))
-
-  // No interest if on or before due date
-  if (daysOverdue <= 0) return 0
-
-  // 24% per annum, simple daily rate
-  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
-  const interest = advanceAmount * dailyRate * daysOverdue
-
-  return roundToCents(interest)
+export function lateInterestAccrualStartDate(closingDate: string): string {
+  const closingMs = new Date(closingDate + 'T00:00:00Z').getTime()
+  const accrualStartMs = closingMs + LATE_INTEREST_GRACE_DAYS_FROM_CLOSING * 24 * 60 * 60 * 1000
+  return new Date(accrualStartMs).toISOString().slice(0, 10)
 }
 
 /**
- * Calculate 1 day of late payment interest (for daily cron charging).
+ * Calculate total compound late-payment interest accrued from day 31 after
+ * closing through `currentDate`. Returns 0 while still in the 30-day grace.
+ *
+ * Math: 24% per annum compounded daily on the advance amount, identical to
+ * `calculateCompoundDailyInterest` but anchored to the closing date + 30 days.
+ *
+ * @param advanceAmount - The amount advanced to the agent
+ * @param closingDate - YYYY-MM-DD, the deal's closing date
+ * @param currentDate - YYYY-MM-DD, the day to compute total accrued through
  */
-export function calculateDailyLateInterest(advanceAmount: number): number {
-  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
-  return roundToCents(advanceAmount * dailyRate)
+export function calculateLateInterest(
+  advanceAmount: number,
+  closingDate: string,
+  currentDate: string,
+): number {
+  const accrualStart = lateInterestAccrualStartDate(closingDate)
+  return calculateCompoundDailyInterest(advanceAmount, accrualStart, currentDate)
+}
+
+/**
+ * Total compound late-payment interest owed RIGHT NOW on a still-unpaid deal.
+ * Computed live (includes accrual not yet posted to the ledger by the monthly
+ * cron). Use for the live liability shown in admin/agent UI.
+ */
+export function liveLateInterestOwed(
+  advanceAmount: number,
+  closingDate: string,
+  asOfDate?: string,
+): number {
+  const today = asOfDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  return calculateLateInterest(advanceAmount, closingDate, today)
 }
 
 /**
@@ -186,9 +241,43 @@ export function calculateCompoundDailyInterest(
 
   if (daysOverdue <= 0) return 0
 
-  const dailyRate = LATE_INTEREST_RATE_PER_ANNUM / 365
+  // Daily rate that compounds to exactly LATE_INTEREST_RATE_PER_ANNUM (24%)
+  // over 365 days. The naive `rate / 365` decomposition compounds to ~27.1%
+  // effective APR over the year — matching the contract's plain reading of
+  // "24% per annum compounded daily" requires (1 + r_annual)^(1/365) - 1.
+  const dailyRate = Math.pow(1 + LATE_INTEREST_RATE_PER_ANNUM, 1 / 365) - 1
   const totalBalance = principal * Math.pow(1 + dailyRate, daysOverdue)
   return roundToCents(totalBalance - principal)
+}
+
+/**
+ * Failed-deal interest accrual: days 1-30 after `failed_to_close_at` are
+ * grace (CPA 5.3); accrual begins on day 31 ("the thirty-first (31st) day").
+ */
+export const FAILED_DEAL_GRACE_DAYS = 30
+
+/** Day-31 accrual-start date (YYYY-MM-DD, Toronto) for a failed deal. */
+export function failedDealAccrualStartDate(failedToCloseAt: string): string {
+  const failedAt = new Date(failedToCloseAt)
+  const accrualStartMs = failedAt.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
+  return new Date(accrualStartMs).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+}
+
+/**
+ * Total compound interest owed RIGHT NOW on a failed deal — principal × growth
+ * from day 31 to `asOfDate`. Use this for the live liability shown in the
+ * admin Remediation IDP modal and as the directed amount on a Remediation IDP
+ * at signing time. Includes accrual that hasn't yet been posted to the ledger
+ * (interest posts monthly via the daily cron's month-boundary check).
+ */
+export function liveFailedDealInterestOwed(
+  principal: number,
+  failedToCloseAt: string,
+  asOfDate?: string,
+): number {
+  const today = asOfDate || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  const accrualStart = failedDealAccrualStartDate(failedToCloseAt)
+  return calculateCompoundDailyInterest(principal, accrualStart, today)
 }
 
 // Format currency for display

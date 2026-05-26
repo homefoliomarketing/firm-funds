@@ -1,5 +1,6 @@
 'use server'
 
+import { Client } from 'pg'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
 // ============================================================================
@@ -9,21 +10,40 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 const DOCUSIGN_INTEGRATION_KEY = process.env.DOCUSIGN_INTEGRATION_KEY!
 const DOCUSIGN_SECRET_KEY = process.env.DOCUSIGN_SECRET_KEY!
 const DOCUSIGN_ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID!
+
+// In production, all three URLs MUST be set explicitly. Defaulting to
+// demo.docusign.net / account-d.docusign.com silently routes signed CPAs
+// through the sandbox, where they are not legally enforceable. Dev keeps
+// the sandbox defaults for local testing.
 const DOCUSIGN_AUTH_URL = process.env.DOCUSIGN_AUTH_URL || 'https://account-d.docusign.com'
-const DOCUSIGN_BASE_URL = process.env.DOCUSIGN_BASE_URL || 'https://demo.docusign.net/restapi'
-const DOCUSIGN_REDIRECT_URI = process.env.DOCUSIGN_REDIRECT_URI || 'http://localhost:3000/api/docusign/callback'
+const DOCUSIGN_BASE_URL = process.env.DOCUSIGN_BASE_URL
+const DOCUSIGN_REDIRECT_URI = process.env.DOCUSIGN_REDIRECT_URI
 
-// ============================================================================
-// OAuth — Consent URL
-// ============================================================================
-
-export async function getConsentUrl(): Promise<string> {
-  const scopes = 'signature impersonation'
-  return `${DOCUSIGN_AUTH_URL}/oauth/auth?response_type=code&scope=${encodeURIComponent(scopes)}&client_id=${DOCUSIGN_INTEGRATION_KEY}&redirect_uri=${encodeURIComponent(DOCUSIGN_REDIRECT_URI)}`
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.DOCUSIGN_AUTH_URL) {
+    throw new Error('DOCUSIGN_AUTH_URL not configured for production')
+  }
+  if (!DOCUSIGN_BASE_URL) {
+    throw new Error('DOCUSIGN_BASE_URL not configured for production')
+  }
+  if (!DOCUSIGN_REDIRECT_URI) {
+    throw new Error('DOCUSIGN_REDIRECT_URI not configured for production')
+  }
+  if (DOCUSIGN_AUTH_URL.includes('account-d.docusign.com')) {
+    throw new Error('DOCUSIGN_AUTH_URL points at sandbox in production')
+  }
+  if (DOCUSIGN_BASE_URL.includes('demo.docusign.net')) {
+    throw new Error('DOCUSIGN_BASE_URL points at sandbox in production')
+  }
 }
 
 // ============================================================================
 // OAuth — Exchange Code for Tokens
+//
+// Note: the consent URL is built by /api/docusign/connect, which also sets a
+// one-time CSRF state cookie before redirecting to DocuSign. The /callback
+// route verifies the cookie. Do not construct an auth URL elsewhere — that
+// path skips the state check.
 // ============================================================================
 
 export async function exchangeCodeForTokens(code: string): Promise<{
@@ -43,7 +63,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: DOCUSIGN_REDIRECT_URI,
+      redirect_uri: DOCUSIGN_REDIRECT_URI || 'http://localhost:3000/api/docusign/callback',
     }),
   })
 
@@ -140,6 +160,37 @@ export async function saveTokens(tokens: {
   }
 }
 
+// Token refresh is serialized with a Postgres advisory lock so two parallel
+// callers (e.g. concurrent webhook invocations) can't both call DocuSign's
+// /oauth/token endpoint. DocuSign rotates refresh tokens — if two callers
+// race, the second's refresh_token is invalidated server-side and future
+// refreshes break until an admin re-authorizes.
+//
+// The lock is held inside an explicit transaction during the entire HTTP
+// refresh, so a concurrent caller blocks at pg_advisory_xact_lock until the
+// winner commits. The loser then re-reads inside its own lock and finds the
+// freshly-refreshed token, returning without calling DocuSign.
+const DOCUSIGN_TOKEN_LOCK_KEY = 'docusign_token_singleton'
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
+
+function tokenIsFresh(expiresAt: string | Date): boolean {
+  const ms = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime()
+  return ms - Date.now() > TOKEN_REFRESH_BUFFER_MS
+}
+
+// Fail closed if the saved DocuSign account is null/missing or sandbox-bound
+// while we're running in production. A misconfigured base_uri silently routes
+// signed CPAs through demo.docusign.net where they are not enforceable.
+function assertNotSandboxInProd(baseUri: string | null | undefined): void {
+  if (process.env.NODE_ENV !== 'production') return
+  if (!baseUri || baseUri.includes('demo.docusign.net')) {
+    throw new Error(
+      'DocuSign integration is pointing at SANDBOX in production. ' +
+      'Re-link via /api/docusign/connect with the production account.'
+    )
+  }
+}
+
 export async function getValidAccessToken(): Promise<{
   accessToken: string
   accountId: string
@@ -158,12 +209,8 @@ export async function getValidAccessToken(): Promise<{
     return null
   }
 
-  const expiresAt = new Date(tokenRow.expires_at)
-  const now = new Date()
-  const bufferMs = 5 * 60 * 1000 // 5 minutes buffer
-
-  // Token still valid
-  if (expiresAt.getTime() - now.getTime() > bufferMs) {
+  if (tokenIsFresh(tokenRow.expires_at)) {
+    assertNotSandboxInProd(tokenRow.base_uri)
     return {
       accessToken: tokenRow.access_token,
       accountId: tokenRow.account_id,
@@ -171,26 +218,59 @@ export async function getValidAccessToken(): Promise<{
     }
   }
 
-  // Token expired or about to — refresh it
-  try {
-    const refreshed = await refreshAccessToken(tokenRow.refresh_token)
-    await saveTokens({
-      access_token: refreshed.access_token,
-      refresh_token: refreshed.refresh_token,
-      expires_in: refreshed.expires_in,
-      token_type: refreshed.token_type,
-      account_id: tokenRow.account_id,
-      base_uri: tokenRow.base_uri,
-    })
+  const dbUrl = process.env.SUPABASE_DB_URL
+  if (!dbUrl) {
+    console.error('SUPABASE_DB_URL not set — cannot acquire token refresh lock')
+    return null
+  }
 
+  const client = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
+  try {
+    await client.connect()
+    await client.query('BEGIN')
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [DOCUSIGN_TOKEN_LOCK_KEY])
+
+    const { rows } = await client.query('SELECT * FROM docusign_tokens WHERE id = 1')
+    if (rows.length === 0) {
+      await client.query('ROLLBACK')
+      return null
+    }
+    const row = rows[0]
+
+    if (tokenIsFresh(row.expires_at)) {
+      await client.query('COMMIT')
+      assertNotSandboxInProd(row.base_uri)
+      return {
+        accessToken: row.access_token,
+        accountId: row.account_id,
+        baseUri: row.base_uri,
+      }
+    }
+
+    const refreshed = await refreshAccessToken(row.refresh_token)
+    const newExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
+
+    await client.query(
+      `UPDATE docusign_tokens
+       SET access_token = $1, refresh_token = $2, token_type = $3, expires_at = $4, updated_at = now()
+       WHERE id = 1`,
+      [refreshed.access_token, refreshed.refresh_token, refreshed.token_type, newExpiresAt]
+    )
+
+    await client.query('COMMIT')
+
+    assertNotSandboxInProd(row.base_uri)
     return {
       accessToken: refreshed.access_token,
-      accountId: tokenRow.account_id,
-      baseUri: tokenRow.base_uri,
+      accountId: row.account_id,
+      baseUri: row.base_uri,
     }
-  } catch (err) {
-    console.error('Failed to refresh DocuSign token — admin needs to re-authorize')
+  } catch (err: any) {
+    console.error('Failed to refresh DocuSign token — admin may need to re-authorize:', err?.message)
+    try { await client.query('ROLLBACK') } catch { /* nothing to roll back */ }
     return null
+  } finally {
+    try { await client.end() } catch { /* already closed */ }
   }
 }
 

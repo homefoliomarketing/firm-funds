@@ -12,12 +12,28 @@ import { calcDaysUntilClosing } from '@/lib/constants'
 // Protected by a secret query param: ?key=firmfunds-seed-2026
 // =============================================================================
 
-// SECURITY: Seed route disabled in production. Use local scripts for seeding.
+// SECURITY (Finding 16): Seed route is HARD-DISABLED in production. The prior
+// ENABLE_SEED bypass meant a misconfigured env var (or temporary debug flag)
+// would expose the seeder over HTTP, including the hardcoded brokerage_admin
+// password. There is no scenario where seeding via HTTP in production is
+// correct — run scripts locally with the service role key if needed.
 const SEED_KEY = process.env.SEED_SECRET || ''
+// Per-process random password so leaked seed data cannot be re-used to log in.
+const SEED_ADMIN_PASSWORD = `seed-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}!`
+
+// Belt-and-braces guard (Finding 26): Netlify preview branches sometimes run
+// with NODE_ENV unset, so also reject any request targeting the prod Supabase
+// project ref. Applies to both GET (seed insert) and DELETE (cleanup) via the
+// shared guardProduction() helper.
+const PROD_PROJECT_REF = 'bzijzmxhrpiwuhzhbiqc'
 
 function guardProduction() {
-  if (process.env.NODE_ENV === 'production' && !process.env.ENABLE_SEED) {
+  if (process.env.NODE_ENV === 'production') {
     return Response.json({ error: 'Seed route is disabled in production' }, { status: 403 })
+  }
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  if (supabaseUrl.includes(PROD_PROJECT_REF)) {
+    return new Response('Seed route disabled when targeting production', { status: 403 })
   }
   if (!SEED_KEY) {
     return Response.json({ error: 'SEED_SECRET env var not configured' }, { status: 500 })
@@ -144,7 +160,7 @@ export async function GET(request: Request) {
       // 2. Create brokerage admin user (for portal login)
       // =====================================================================
       const adminEmail = brokDef.email
-      const adminPassword = 'TestPass123!'
+      const adminPassword = SEED_ADMIN_PASSWORD
 
       const { data: authUser, error: authErr } = await supabase.auth.admin.createUser({
         email: adminEmail,
@@ -271,7 +287,7 @@ export async function GET(request: Request) {
       loginCredentials: BROKERAGES.map(b => ({
         brokerage: b.name,
         email: b.email,
-        password: 'TestPass123!',
+        password: SEED_ADMIN_PASSWORD,
       })),
       details: results,
     }, { status: 200 })

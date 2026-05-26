@@ -136,6 +136,8 @@ export interface Deal {
   brokerage_referral_fee: number
   amount_due_from_brokerage: number
   settlement_period_fee: number
+  settlement_days_at_funding: number | null  // 7 standard, 14 for brokerages auto-bumped after 5 strikes
+  late_strike_recorded: boolean
   due_date: string | null
   brokerage_referral_pct: number | null
   balance_deducted: number
@@ -144,6 +146,8 @@ export interface Deal {
   repayment_date: string | null
   repayment_amount: number | null
   admin_notes_timeline: { id: string; text: string; author_name: string; created_at: string }[] | null
+  // EFT transfers live in their own table as of migration 058 — query via
+  // `.select('*, eft_transfers(*)')` to populate this field on the deal.
   eft_transfers: EftTransfer[] | null
   brokerage_payments: BrokeragePayment[] | null
   source: DealSource
@@ -169,11 +173,16 @@ export interface BrokeragePayment {
   method?: string
 }
 
+// Migration 058 promoted eft_transfers from a JSONB array on deals to its own
+// table. The Deal.eft_transfers field above is populated via a PostgREST embed
+// (e.g. select('*, eft_transfers(id, amount, transfer_date, confirmed, reference)'))
+// and contains the fields below.
 export interface EftTransfer {
+  id: string
   amount: number
-  date: string
+  transfer_date: string
   confirmed: boolean
-  reference?: string
+  reference?: string | null
 }
 
 export interface DealDocument {

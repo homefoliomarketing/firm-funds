@@ -2,7 +2,14 @@
 
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
-import { sendBankingSubmittedNotification, sendBankingApprovalNotification, sendBrokerageInviteNotification, sendKycApprovedNotification } from '@/lib/email'
+import {
+  sendBankingSubmittedNotification,
+  sendBankingApprovalNotification,
+  sendBrokerageInviteNotification,
+  sendKycApprovedNotification,
+  sendAgentPhoneChangedNotification,
+} from '@/lib/email'
+import { logAuditEventServiceRole } from '@/lib/audit'
 
 // ============================================================================
 // Agent Profile Actions
@@ -33,6 +40,38 @@ export async function updateAgentProfile(data: {
 
   const serviceClient = createServiceRoleClient()
 
+  // Finding #43: validate phone format (Canadian E.164) before persisting.
+  // SMS OTP on change was discussed and deferred: phone is not an auth factor
+  // anywhere in this app (no SMS recovery, no SMS OTP, no SMS notifications),
+  // so paying for Twilio would defend against an attack we are not exposed
+  // to. The cheap mitigation (audit-log + notify the agent's verified email)
+  // is below; revisit if SMS-based recovery is ever added.
+  let phoneChanged = false
+  let priorPhone: string | null = null
+  let newPhone: string | null = null
+  let oldPhoneLast4: string | null = null
+  let newPhoneLast4: string | null = null
+
+  // Read prior phone regardless of whether the new value is set/cleared, so a
+  // change-to-empty (clear the phone) is also detected and audited.
+  if (data.phone !== undefined) {
+    if (data.phone !== null && data.phone !== '' && !/^\+1[2-9]\d{9}$/.test(data.phone)) {
+      return { success: false, error: 'Phone must be a valid Canadian number in +1XXXXXXXXXX format' }
+    }
+    const { data: existing } = await serviceClient
+      .from('agents')
+      .select('phone')
+      .eq('id', data.agentId)
+      .single()
+    priorPhone = existing?.phone ?? null
+    newPhone = data.phone || null
+    if (priorPhone !== newPhone) {
+      phoneChanged = true
+      oldPhoneLast4 = priorPhone ? priorPhone.slice(-4) : null
+      newPhoneLast4 = newPhone ? newPhone.slice(-4) : null
+    }
+  }
+
   // Only update fields that are explicitly provided (not undefined)
   const updates: Record<string, string | null> = {}
   if (data.phone !== undefined) updates.phone = data.phone || null
@@ -49,6 +88,48 @@ export async function updateAgentProfile(data: {
   if (error) {
     console.error('Profile update error:', error.message)
     return { success: false, error: 'Failed to update profile' }
+  }
+
+  if (phoneChanged) {
+    const changedAt = new Date().toISOString()
+
+    await logAuditEventServiceRole({
+      userId: user.id,
+      action: 'agent.update_phone',
+      entityType: 'agent',
+      entityId: data.agentId,
+      severity: 'warning',
+      actorEmail: user.email ?? undefined,
+      actorRole: 'agent',
+      metadata: { old_phone_last4: oldPhoneLast4, new_phone_last4: newPhoneLast4 },
+    })
+
+    // Notify the agent's verified Firm Funds email so silent tampering by a
+    // stolen-session attacker is visible to the legitimate owner.
+    try {
+      const { data: agent } = await serviceClient
+        .from('agents')
+        .select('first_name, last_name')
+        .eq('id', data.agentId)
+        .single()
+
+      const recipientEmail = user.email
+      const recipientName = agent
+        ? `${agent.first_name ?? ''} ${agent.last_name ?? ''}`.trim() || 'there'
+        : 'there'
+
+      if (recipientEmail) {
+        await sendAgentPhoneChangedNotification({
+          recipientEmail,
+          recipientName,
+          oldPhoneLast4,
+          newPhoneLast4,
+          changedAtIso: changedAt,
+        })
+      }
+    } catch (notifyErr: any) {
+      console.error('Phone-changed notification error (non-fatal):', notifyErr?.message)
+    }
   }
 
   return { success: true }
@@ -819,9 +900,48 @@ export async function getAgentProfile(agentId: string) {
 
   const serviceClient = createServiceRoleClient()
 
+  // Authorization check (Finding 10): the previous version only verified that
+  // the caller was logged in, not that they had any right to see this agent's
+  // banking + KYC info. An agent could pass any UUID and get back bank
+  // transit, institution, and account numbers.
+  const { data: callerProfile } = await serviceClient
+    .from('user_profiles')
+    .select('role, agent_id, brokerage_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!callerProfile) {
+    return { success: false, error: 'Caller profile not found', data: null }
+  }
+
+  const isAdmin = ['super_admin', 'firm_funds_admin'].includes(callerProfile.role)
+  const isSelf = callerProfile.role === 'agent' && callerProfile.agent_id === agentId
+
+  if (!isAdmin && !isSelf) {
+    // Brokerage admin can see agents in their brokerage.
+    if (callerProfile.role === 'brokerage_admin' && callerProfile.brokerage_id) {
+      const { data: targetAgent } = await serviceClient
+        .from('agents')
+        .select('brokerage_id')
+        .eq('id', agentId)
+        .single()
+      if (!targetAgent || targetAgent.brokerage_id !== callerProfile.brokerage_id) {
+        return { success: false, error: 'Not authorized for this agent', data: null }
+      }
+    } else {
+      return { success: false, error: 'Not authorized for this agent', data: null }
+    }
+  }
+
+  // Finding #39: column allowlist. Admins and the agent themselves get the
+  // full row (banking + KYC PII). Everyone else (brokerage_admin) gets a
+  // safe subset only.
+  const SAFE_COLUMNS = 'id, first_name, last_name, email, phone, kyc_status, kyc_verified_at, status, created_at, brokerages(name)'
+  const columns = (isAdmin || isSelf) ? '*, brokerages(name)' : SAFE_COLUMNS
+
   const { data: agent, error } = await serviceClient
     .from('agents')
-    .select('*, brokerages(name)')
+    .select(columns)
     .eq('id', agentId)
     .single()
 

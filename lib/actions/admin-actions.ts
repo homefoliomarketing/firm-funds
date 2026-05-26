@@ -12,6 +12,207 @@ import {
   UpdateAgentSchema,
   CreateUserAccountSchema,
 } from '@/lib/validations'
+import {
+  BROKERAGE_LATE_STRIKE_THRESHOLD,
+  MAX_UPLOAD_SIZE_BYTES,
+  ALLOWED_UPLOAD_MIME_TYPES,
+  ALLOWED_UPLOAD_EXTENSIONS,
+} from '@/lib/constants'
+import { verifyFileMagicBytes } from '@/lib/file-validation'
+import {
+  insertPayment,
+  deletePayment,
+  reviewPayment,
+  fetchPaymentsForDeal,
+  sumConfirmedPayments,
+} from '@/lib/brokerage-payments'
+
+// ============================================================================
+// Admin: manually record a Late Settlement Strike against a brokerage for a
+// specific deal. Idempotent per deal — once a deal has late_strike_recorded
+// set, this is a no-op. Auto-bumps the brokerage to 14-day settlement on the
+// strike that brings them to BROKERAGE_LATE_STRIKE_THRESHOLD (5). Admin can
+// undo via resetBrokerageLateStrikes() if needed.
+//
+// Recorded manually (not on payment-record) because in-transit wires can
+// settle late through no fault of the brokerage; admin is the human judge.
+// ============================================================================
+
+export async function recordLateStrike(input: {
+  dealId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data: deal, error: dealErr } = await serviceClient
+      .from('deals')
+      .select('id, brokerage_id, status, closing_date, settlement_days_at_funding, due_date, property_address, late_strike_recorded')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealErr || !deal) return { success: false, error: 'Deal not found' }
+    if (deal.late_strike_recorded) return { success: false, error: 'A strike has already been recorded for this deal' }
+    if (deal.status !== 'funded' && deal.status !== 'completed') {
+      return { success: false, error: 'Strikes can only be recorded against funded or completed deals' }
+    }
+    if (!deal.brokerage_id || !deal.due_date) {
+      return { success: false, error: 'Deal is missing required brokerage or due-date info' }
+    }
+
+    // Sanity: only allow strike if the deal is actually past its due_date
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+    const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as any).toISOString().slice(0, 10)
+    if (today <= dueDateStr) {
+      return { success: false, error: 'Deal is not yet past its Payment Due Date' }
+    }
+
+    // audit finding #18: CAS-flip late_strike_recorded so two concurrent
+    // strike clicks can't both pass the precheck and both call the RPC.
+    const { data: claimed, error: claimErr } = await serviceClient
+      .from('deals')
+      .update({ late_strike_recorded: true })
+      .eq('id', deal.id)
+      .eq('late_strike_recorded', false)
+      .select('id')
+      .maybeSingle()
+
+    if (claimErr) {
+      return { success: false, error: `Failed to record strike: ${claimErr.message}` }
+    }
+    if (!claimed) {
+      return { success: true, data: { idempotent: true } }
+    }
+
+    // Atomic strike increment + conditional bump via RPC (migration 052).
+    const { data: strikeRows, error: strikeErr } = await serviceClient
+      .rpc('record_brokerage_late_strike', {
+        p_brokerage_id: deal.brokerage_id,
+        p_strike_threshold: BROKERAGE_LATE_STRIKE_THRESHOLD,
+      })
+
+    if (strikeErr || !strikeRows || !Array.isArray(strikeRows) || strikeRows.length === 0) {
+      return { success: false, error: `Failed to record strike: ${strikeErr?.message || 'unknown error'}` }
+    }
+
+    const newCount = Number((strikeRows[0] as any).new_strike_count) || 0
+    const shouldBump = Boolean((strikeRows[0] as any).bumped_now)
+
+    // Fetch brokerage name for audit metadata (no longer pre-fetched above).
+    const { data: brokerage } = await serviceClient
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', deal.brokerage_id)
+      .single()
+    if (!brokerage) return { success: false, error: 'Brokerage not found' }
+
+    await logAuditEvent({
+      action: 'brokerage.late_strike_recorded',
+      entityType: 'deal',
+      entityId: deal.id,
+      severity: 'warning',
+      metadata: {
+        brokerage_id: brokerage.id,
+        brokerage_name: brokerage.name,
+        property_address: deal.property_address,
+        due_date: dueDateStr,
+        reason: reason.slice(0, 500),
+        new_strike_count: newCount,
+        auto_bumped: shouldBump,
+        threshold: BROKERAGE_LATE_STRIKE_THRESHOLD,
+      },
+    })
+
+    if (shouldBump) {
+      await logAuditEvent({
+        action: 'brokerage.auto_bumped_to_14_days',
+        entityType: 'brokerage',
+        entityId: brokerage.id,
+        severity: 'warning',
+        metadata: { trigger_deal_id: deal.id, threshold: BROKERAGE_LATE_STRIKE_THRESHOLD },
+      })
+    }
+
+    return { success: true, data: { newStrikeCount: newCount, bumped: shouldBump } }
+  } catch (err: any) {
+    console.error('recordLateStrike error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Admin: list funded deals that are past their Payment Due Date and have not
+// yet had a Late Settlement Strike recorded. Drives the dashboard banner so
+// the admin knows which deals need a strike-or-no-strike judgement call.
+// ============================================================================
+
+export async function getOverdueSettlementDeals(): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+
+  try {
+    const { data, error } = await serviceClient
+      .from('deals')
+      .select(`
+        id,
+        property_address,
+        closing_date,
+        due_date,
+        amount_due_from_brokerage,
+        brokerage_payments ( amount, status ),
+        settlement_days_at_funding,
+        agents:agent_id ( first_name, last_name ),
+        brokerages:brokerage_id ( id, name )
+      `)
+      .eq('status', 'funded')
+      .eq('late_strike_recorded', false)
+      .lt('due_date', today)
+      .order('due_date', { ascending: true })
+
+    if (error) {
+      console.error('getOverdueSettlementDeals error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    const rows = (data || []).map((d: any) => {
+      const amountDue = Number(d.amount_due_from_brokerage) || 0
+      const confirmedTotal = sumConfirmedPayments(d.brokerage_payments)
+      const outstanding = Math.max(0, Math.round((amountDue - confirmedTotal) * 100) / 100)
+      const dueDateStr = d.due_date ? (d.due_date as string).slice(0, 10) : null
+      const daysOverdue = dueDateStr
+        ? Math.floor((new Date(today + 'T00:00:00Z').getTime() - new Date(dueDateStr + 'T00:00:00Z').getTime()) / 86400000)
+        : 0
+      return {
+        deal_id: d.id,
+        property_address: d.property_address,
+        closing_date: d.closing_date,
+        due_date: dueDateStr,
+        days_overdue: daysOverdue,
+        amount_due: amountDue,
+        confirmed_total: confirmedTotal,
+        outstanding,
+        settlement_days: d.settlement_days_at_funding,
+        agent_name: d.agents ? `${d.agents.first_name || ''} ${d.agents.last_name || ''}`.trim() : null,
+        brokerage_id: d.brokerages?.id || null,
+        brokerage_name: d.brokerages?.name || null,
+      }
+    })
+
+    return { success: true, data: rows }
+  } catch (err: any) {
+    console.error('getOverdueSettlementDeals error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}
 
 // ============================================================================
 // Types
@@ -631,9 +832,68 @@ export async function archiveAgent(input: {
 }
 
 // ============================================================================
+// Soft-Delete Agent (archived only) — finding #16
+// Sets deleted_at and audit-logs. Reversible until permanentlyDeleteAgent runs.
+// ============================================================================
+
+export async function softDeleteAgent(input: {
+  agentId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
+
+  try {
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, status, brokerage_id, deleted_at')
+      .eq('id', input.agentId)
+      .single()
+
+    if (agentError || !agent) return { success: false, error: 'Agent not found' }
+    if (agent.status !== 'archived') return { success: false, error: 'Only archived agents can be soft-deleted' }
+    if (agent.deleted_at) return { success: false, error: 'Agent is already soft-deleted' }
+
+    const serviceClient = createServiceRoleClient()
+    const { error: updateError } = await serviceClient
+      .from('agents')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', input.agentId)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      console.error('Agent soft delete error:', updateError.message)
+      return { success: false, error: `Failed to soft-delete agent: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'agent.soft_delete',
+      entityType: 'agent',
+      entityId: input.agentId,
+      metadata: {
+        name: `${agent.first_name} ${agent.last_name}`,
+        email: agent.email,
+        brokerage_id: agent.brokerage_id,
+        deleted_by: user.id,
+        reason: reason.slice(0, 500),
+      },
+    })
+
+    return { success: true, data: { agentId: input.agentId } }
+  } catch (err: any) {
+    console.error('Agent soft delete error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Permanently Delete Agent (archived only)
 // ============================================================================
 
+// finding #16: hard-delete is now gated on soft-delete + 30-day quarantine.
 export async function permanentlyDeleteAgent(input: {
   agentId: string
 }): Promise<ActionResult> {
@@ -644,12 +904,21 @@ export async function permanentlyDeleteAgent(input: {
     // Fetch agent — must be archived
     const { data: agent, error: agentError } = await supabase
       .from('agents')
-      .select('id, first_name, last_name, email, status, brokerage_id')
+      .select('id, first_name, last_name, email, status, brokerage_id, deleted_at')
       .eq('id', input.agentId)
       .single()
 
     if (agentError || !agent) return { success: false, error: 'Agent not found' }
     if (agent.status !== 'archived') return { success: false, error: 'Only archived agents can be permanently deleted' }
+    if (!agent.deleted_at) {
+      return { success: false, error: 'Agent must be soft-deleted first. Use Soft Delete and wait 30 days before purging.' }
+    }
+    const deletedAt = new Date(agent.deleted_at as string).getTime()
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    if (deletedAt > cutoff) {
+      const daysLeft = Math.ceil((deletedAt - cutoff) / (24 * 60 * 60 * 1000))
+      return { success: false, error: `Agent was soft-deleted less than 30 days ago. ${daysLeft} day(s) remaining in the quarantine window.` }
+    }
 
     const serviceClient = createServiceRoleClient()
 
@@ -807,9 +1076,88 @@ export async function archiveBrokerage(input: {
 }
 
 // ============================================================================
+// Soft-Delete Brokerage (archived only, no active agents/deals) — finding #16
+// Sets deleted_at and audit-logs. Reversible until permanentlyDeleteBrokerage runs.
+// ============================================================================
+
+export async function softDeleteBrokerage(input: {
+  brokerageId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
+
+  try {
+    const { data: brokerage, error: brokerageError } = await supabase
+      .from('brokerages')
+      .select('id, name, email, status, deleted_at')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (brokerage.status !== 'archived') return { success: false, error: 'Only archived brokerages can be soft-deleted' }
+    if (brokerage.deleted_at) return { success: false, error: 'Brokerage is already soft-deleted' }
+
+    const serviceClient = createServiceRoleClient()
+
+    const { count: activeAgentCount } = await serviceClient
+      .from('agents')
+      .select('*', { count: 'exact', head: true })
+      .eq('brokerage_id', input.brokerageId)
+      .is('deleted_at', null)
+
+    if (activeAgentCount && activeAgentCount > 0) {
+      return { success: false, error: 'Cannot soft-delete a brokerage with active (non-deleted) agents. Soft-delete the agents first.' }
+    }
+
+    const { count: dealCount } = await serviceClient
+      .from('deals')
+      .select('*', { count: 'exact', head: true })
+      .eq('brokerage_id', input.brokerageId)
+
+    if (dealCount && dealCount > 0) {
+      return { success: false, error: 'Cannot soft-delete a brokerage with deal history.' }
+    }
+
+    const { error: updateError } = await serviceClient
+      .from('brokerages')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', input.brokerageId)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      console.error('Brokerage soft delete error:', updateError.message)
+      return { success: false, error: `Failed to soft-delete brokerage: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.soft_delete',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      metadata: {
+        name: brokerage.name,
+        email: brokerage.email,
+        deleted_by: user.id,
+        reason: reason.slice(0, 500),
+      },
+    })
+
+    return { success: true, data: { brokerageId: input.brokerageId } }
+  } catch (err: any) {
+    console.error('Brokerage soft delete error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Permanently Delete Brokerage (archived only, no deal history)
 // ============================================================================
 
+// finding #16: hard-delete is now gated on soft-delete + 30-day quarantine.
+// finding #17: SQL-side mutations are wrapped in delete_brokerage_atomic (migration 069).
 export async function permanentlyDeleteBrokerage(input: {
   brokerageId: string
 }): Promise<ActionResult> {
@@ -819,21 +1167,25 @@ export async function permanentlyDeleteBrokerage(input: {
   try {
     const { data: brokerage, error: brokerageError } = await supabase
       .from('brokerages')
-      .select('id, name, email, status')
+      .select('id, name, email, status, deleted_at')
       .eq('id', input.brokerageId)
       .single()
 
     if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (brokerage.status !== 'archived') {
+      return { success: false, error: 'Only archived brokerages can be permanently deleted' }
+    }
+    if (!brokerage.deleted_at) {
+      return { success: false, error: 'Brokerage must be soft-deleted first. Use Soft Delete and wait 30 days before purging.' }
+    }
+    const deletedAt = new Date(brokerage.deleted_at as string).getTime()
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    if (deletedAt > cutoff) {
+      const daysLeft = Math.ceil((deletedAt - cutoff) / (24 * 60 * 60 * 1000))
+      return { success: false, error: `Brokerage was soft-deleted less than 30 days ago. ${daysLeft} day(s) remaining in the quarantine window.` }
+    }
 
     const serviceClient = createServiceRoleClient()
-
-    // Auto-archive if not already archived (skip requiring manual archive first)
-    if (brokerage.status !== 'archived') {
-      await serviceClient
-        .from('brokerages')
-        .update({ status: 'archived' })
-        .eq('id', input.brokerageId)
-    }
 
     // Check for deal history — brokerages with deals cannot be permanently deleted
     const { count: dealCount } = await serviceClient
@@ -845,83 +1197,66 @@ export async function permanentlyDeleteBrokerage(input: {
       return { success: false, error: 'Cannot permanently delete a brokerage with deal history. The brokerage will remain archived.' }
     }
 
-    // Delete all agents first (user_profiles FK requires this order)
-    const { data: agents } = await serviceClient
+    // audit finding #17: collect every profile (agent-linked + brokerage-linked)
+    // BEFORE the atomic SQL purge so we can still hit auth.users after the
+    // user_profiles rows are gone. auth.users can't be touched from SQL so it
+    // stays outside the transaction (failures are logged, not fatal).
+    const { data: agentRows } = await serviceClient
       .from('agents')
       .select('id')
       .eq('brokerage_id', input.brokerageId)
+    const agentIds = (agentRows || []).map(a => a.id)
 
-    if (agents && agents.length > 0) {
-      for (const agent of agents) {
-        const { data: profile } = await serviceClient
+    const { data: agentProfiles } = agentIds.length > 0
+      ? await serviceClient
           .from('user_profiles')
           .select('id, email')
-          .eq('agent_id', agent.id)
-          .maybeSingle()
+          .in('agent_id', agentIds)
+      : { data: [] as Array<{ id: string; email: string | null }> }
 
-        if (profile) {
-          await serviceClient.from('user_profiles').delete().eq('id', profile.id)
-          try {
-            await serviceClient.auth.admin.deleteUser(profile.id)
-          } catch (authErr: any) {
-            console.warn(`Auth user delete failed for agent profile ${profile.id} (${profile.email}):`, authErr?.message)
-          }
-        }
-      }
-      await serviceClient.from('agents').delete().eq('brokerage_id', input.brokerageId)
-    }
-
-    // Delete ALL user_profiles linked to this brokerage (admins, any remaining)
     const { data: brokerageProfiles } = await serviceClient
       .from('user_profiles')
       .select('id, email')
       .eq('brokerage_id', input.brokerageId)
 
-    if (brokerageProfiles && brokerageProfiles.length > 0) {
-      for (const profile of brokerageProfiles) {
-        await serviceClient.from('user_profiles').delete().eq('id', profile.id)
-        try {
-          await serviceClient.auth.admin.deleteUser(profile.id)
-        } catch (authErr: any) {
-          console.warn(`Auth user delete failed for brokerage profile ${profile.id} (${profile.email}):`, authErr?.message)
-          // Fallback: try to find and delete by email in case profile.id doesn't match auth user
-          if (profile.email) {
-            try {
-              const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
-              const match = users.find((u: any) => u.email === profile.email)
-              if (match) {
-                await serviceClient.auth.admin.deleteUser(match.id)
-                console.log(`Auth user cleaned up via email fallback for ${profile.email}`)
-              }
-            } catch (fallbackErr: any) {
-              console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackErr?.message)
+    const allProfiles = [...(agentProfiles || []), ...(brokerageProfiles || [])]
+    const seenIds = new Set<string>()
+    const profilesForAuthCleanup = allProfiles.filter(p => {
+      if (seenIds.has(p.id)) return false
+      seenIds.add(p.id)
+      return true
+    })
+
+    // Atomic SQL purge inside a single PL/pgSQL function (migration 069).
+    // All deletions either commit together or roll back.
+    const { error: atomicError } = await serviceClient.rpc('delete_brokerage_atomic', {
+      p_brokerage_id: input.brokerageId,
+    })
+
+    if (atomicError) {
+      console.error('Brokerage permanent delete (atomic) error:', atomicError.message)
+      return { success: false, error: `Failed to delete brokerage: ${atomicError.message}` }
+    }
+
+    // auth.users live outside Postgres — best-effort cleanup, failures logged.
+    for (const profile of profilesForAuthCleanup) {
+      try {
+        await serviceClient.auth.admin.deleteUser(profile.id)
+      } catch (authErr: any) {
+        console.warn(`Auth user delete failed for profile ${profile.id} (${profile.email}):`, authErr?.message)
+        if (profile.email) {
+          try {
+            const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
+            const match = users.find((u: any) => u.email === profile.email)
+            if (match) {
+              await serviceClient.auth.admin.deleteUser(match.id)
+              console.log(`Auth user cleaned up via email fallback for ${profile.email}`)
             }
+          } catch (fallbackErr: any) {
+            console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackErr?.message)
           }
         }
       }
-    }
-
-    // Explicitly delete esignature envelopes (belt + suspenders with CASCADE)
-    await serviceClient
-      .from('esignature_envelopes')
-      .delete()
-      .eq('brokerage_id', input.brokerageId)
-
-    // Delete any pending invite tokens for users in this brokerage
-    await serviceClient
-      .from('invite_tokens')
-      .delete()
-      .in('email', (brokerageProfiles ?? []).map(p => p.email).filter(Boolean))
-
-    // Delete the brokerage record — FK cascades handle brokerage_documents etc.
-    const { error: deleteError } = await serviceClient
-      .from('brokerages')
-      .delete()
-      .eq('id', input.brokerageId)
-
-    if (deleteError) {
-      console.error('Brokerage permanent delete error:', deleteError.message)
-      return { success: false, error: `Failed to delete brokerage: ${deleteError.message}` }
     }
 
     await logAuditEvent({
@@ -1282,39 +1617,30 @@ export async function resendAgentWelcomeEmail(input: {
     // Get the user ID for the magic link token
     const userId = profile ? profile.id : (await serviceClient.from('user_profiles').select('id').eq('agent_id', agent.id).single()).data?.id
 
-    if (userId) {
-      // Generate magic link invite token (72-hour expiry)
-      const inviteToken = crypto.randomBytes(32).toString('hex')
-      const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
-
-      await serviceClient
-        .from('invite_tokens')
-        .insert({
-          token: inviteToken,
-          user_id: userId,
-          agent_id: agent.id,
-          email: agent.email,
-          expires_at: expiresAt,
-        })
-
-      // Send magic link invite email (no temp password)
-      await sendAgentInviteNotification({
-        agentFirstName: agent.first_name,
-        agentEmail: agent.email,
-        brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.logo_url,
-        inviteToken,
-      })
-    } else {
-      // Fallback: send legacy temp password email
-      await sendAgentInviteNotification({
-        agentFirstName: agent.first_name,
-        agentEmail: agent.email,
-        brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.logo_url,
-        tempPassword,
-      })
+    if (!userId) {
+      return { success: false, error: 'Could not resolve user_profile to issue invite token. The agent record may need manual cleanup.' }
     }
+
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: userId,
+        agent_id: agent.id,
+        email: agent.email,
+        expires_at: expiresAt,
+      })
+
+    await sendAgentInviteNotification({
+      agentFirstName: agent.first_name,
+      agentEmail: agent.email,
+      brokerageName: brokerage?.name || 'Your Brokerage',
+      brokerageLogoUrl: brokerage?.logo_url,
+      inviteToken,
+    })
 
     // Stamp welcome_email_sent_at on the agent
     await serviceClient
@@ -1505,6 +1831,12 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
 // EFT Transfer Tracking
 // ============================================================================
 
+// Embed shape matches the loadDealData() select in app/(dashboard)/admin/deals/[id]/page.tsx.
+// Keeping the embed inside both the action response and the page reader avoids
+// drift between the two.
+const EFT_DEAL_SELECT =
+  '*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role), eft_transfers(id, amount, transfer_date, confirmed, reference)'
+
 export async function recordEftTransfer(input: {
   dealId: string
   amount: number
@@ -1518,43 +1850,46 @@ export async function recordEftTransfer(input: {
     if (input.amount <= 0) return { success: false, error: 'Amount must be greater than 0' }
     if (input.amount > 25000) return { success: false, error: 'Maximum EFT transfer is $25,000 per day' }
 
-    // Fetch current deal
+    // Verify the deal exists and is in funded status. The actual insert below
+    // touches a different table so it can't enforce the status itself.
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, status, advance_amount, eft_transfers')
+      .select('id, status')
       .eq('id', input.dealId)
       .single()
 
     if (dealError || !deal) return { success: false, error: 'Deal not found' }
     if (deal.status !== 'funded') return { success: false, error: 'EFT transfers can only be recorded on funded deals' }
 
-    // Add new transfer to the JSONB array
-    const existingTransfers = deal.eft_transfers || []
-    const newTransfer = {
-      amount: input.amount,
-      date: input.date,
-      confirmed: false,
-      ...(input.reference ? { reference: input.reference } : {}),
-    }
-    const updatedTransfers = [...existingTransfers, newTransfer]
-
-    const { data: updatedDeal, error: updateError } = await supabase
-      .from('deals')
-      .update({ eft_transfers: updatedTransfers })
-      .eq('id', input.dealId)
+    const { data: inserted, error: insertError } = await supabase
+      .from('eft_transfers')
+      .insert({
+        deal_id: input.dealId,
+        amount: input.amount,
+        transfer_date: input.date,
+        reference: input.reference || null,
+        recorded_by_user_id: user.id,
+      })
       .select()
       .single()
 
-    if (updateError) {
-      console.error('EFT transfer error:', updateError.message)
-      return { success: false, error: `Failed to record transfer: ${updateError.message}` }
+    if (insertError || !inserted) {
+      console.error('EFT transfer error:', insertError?.message)
+      return { success: false, error: `Failed to record transfer: ${insertError?.message || 'unknown error'}` }
     }
+
+    const { data: updatedDeal } = await supabase
+      .from('deals')
+      .select(EFT_DEAL_SELECT)
+      .eq('id', input.dealId)
+      .single()
 
     await logAuditEvent({
       action: 'eft.record',
       entityType: 'deal',
       entityId: input.dealId,
-      metadata: { amount: input.amount, date: input.date },
+      severity: 'critical',
+      metadata: { transfer_id: inserted.id, amount: input.amount, date: input.date },
     })
 
     return { success: true, data: updatedDeal }
@@ -1565,45 +1900,47 @@ export async function recordEftTransfer(input: {
 }
 
 export async function confirmEftTransfer(input: {
-  dealId: string
-  transferIndex: number
+  transferId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (!input.transferId) return { success: false, error: 'Transfer id is required' }
+
   try {
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('id, eft_transfers')
-      .eq('id', input.dealId)
-      .single()
-
-    if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-    const transfers = deal.eft_transfers || []
-    if (input.transferIndex < 0 || input.transferIndex >= transfers.length) {
-      return { success: false, error: 'Invalid transfer index' }
-    }
-
-    transfers[input.transferIndex].confirmed = true
-
-    const { data: updatedDeal, error: updateError } = await supabase
-      .from('deals')
-      .update({ eft_transfers: transfers })
-      .eq('id', input.dealId)
+    // CAS guard: only flip from confirmed=false. maybeSingle() returns null
+    // for a 0-row update (already confirmed) rather than throwing.
+    const { data: confirmed, error: updateError } = await supabase
+      .from('eft_transfers')
+      .update({
+        confirmed: true,
+        confirmed_at: new Date().toISOString(),
+        confirmed_by_user_id: user.id,
+      })
+      .eq('id', input.transferId)
+      .eq('confirmed', false)
       .select()
-      .single()
+      .maybeSingle()
 
     if (updateError) {
       return { success: false, error: `Failed to confirm transfer: ${updateError.message}` }
     }
+    if (!confirmed) {
+      return { success: false, error: 'This transfer is missing or has already been confirmed' }
+    }
+
+    const { data: updatedDeal } = await supabase
+      .from('deals')
+      .select(EFT_DEAL_SELECT)
+      .eq('id', confirmed.deal_id)
+      .single()
 
     await logAuditEvent({
       action: 'eft.confirm',
       entityType: 'deal',
-      entityId: input.dealId,
+      entityId: confirmed.deal_id,
       severity: 'critical',
-      metadata: { transfer_index: input.transferIndex, transfer: transfers[input.transferIndex] },
+      metadata: { transfer_id: input.transferId, transfer: confirmed },
     })
 
     return { success: true, data: updatedDeal }
@@ -1613,46 +1950,61 @@ export async function confirmEftTransfer(input: {
 }
 
 export async function removeEftTransfer(input: {
-  dealId: string
-  transferIndex: number
+  transferId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (!input.transferId) return { success: false, error: 'Transfer id is required' }
+
   try {
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('id, eft_transfers')
-      .eq('id', input.dealId)
-      .single()
+    // audit finding #4: upfront check for a friendlier error before the DB
+    // trigger (migration 060) rejects DELETE of a confirmed row.
+    const { data: existing, error: fetchError } = await supabase
+      .from('eft_transfers')
+      .select('id, confirmed')
+      .eq('id', input.transferId)
+      .maybeSingle()
 
-    if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-    const transfers = deal.eft_transfers || []
-    if (input.transferIndex < 0 || input.transferIndex >= transfers.length) {
-      return { success: false, error: 'Invalid transfer index' }
+    if (fetchError) {
+      return { success: false, error: `Failed to load transfer: ${fetchError.message}` }
+    }
+    if (!existing) {
+      return { success: false, error: 'Transfer not found' }
+    }
+    if (existing.confirmed) {
+      return { success: false, error: 'Cannot delete a confirmed EFT transfer. Use the void flow instead.' }
     }
 
-    const removedTransfer = transfers[input.transferIndex]
-    transfers.splice(input.transferIndex, 1)
-
-    const { data: updatedDeal, error: updateError } = await supabase
-      .from('deals')
-      .update({ eft_transfers: transfers })
-      .eq('id', input.dealId)
+    // audit finding #21: .eq('confirmed', false) precondition catches a
+    // concurrent confirm between the check above and this DELETE.
+    const { data: removed, error: deleteError } = await supabase
+      .from('eft_transfers')
+      .delete()
+      .eq('id', input.transferId)
+      .eq('confirmed', false)
       .select()
-      .single()
+      .maybeSingle()
 
-    if (updateError) {
-      return { success: false, error: `Failed to remove transfer: ${updateError.message}` }
+    if (deleteError) {
+      return { success: false, error: `Failed to remove transfer: ${deleteError.message}` }
     }
+    if (!removed) {
+      return { success: false, error: 'Transfer was just confirmed by another session. Refresh and try the void flow instead.' }
+    }
+
+    const { data: updatedDeal } = await supabase
+      .from('deals')
+      .select(EFT_DEAL_SELECT)
+      .eq('id', removed.deal_id)
+      .single()
 
     await logAuditEvent({
       action: 'eft.remove',
       entityType: 'deal',
-      entityId: input.dealId,
+      entityId: removed.deal_id,
       severity: 'critical',
-      metadata: { transfer_index: input.transferIndex, removed_transfer: removedTransfer },
+      metadata: { transfer_id: input.transferId, removed_transfer: removed },
     })
 
     return { success: true, data: updatedDeal }
@@ -1680,7 +2032,7 @@ export async function recordBrokeragePayment(input: {
 
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, status, amount_due_from_brokerage, brokerage_payments')
+      .select('id, status, brokerage_id, amount_due_from_brokerage')
       .eq('id', input.dealId)
       .single()
 
@@ -1688,108 +2040,96 @@ export async function recordBrokeragePayment(input: {
     if (!['funded', 'completed'].includes(deal.status)) {
       return { success: false, error: 'Brokerage payments can only be recorded on funded or completed deals' }
     }
-
-    const existingPayments = deal.brokerage_payments || []
-    const newPayment = {
-      amount: input.amount,
-      date: input.date,
-      ...(input.reference ? { reference: input.reference } : {}),
-      ...(input.method ? { method: input.method } : {}),
-      // Admin-recorded payments come straight from observed bank deposits.
-      status: 'confirmed' as const,
-      submitted_by_role: 'admin' as const,
-      submitted_by_user_id: user.id,
-      submitted_at: new Date().toISOString(),
+    if (!deal.brokerage_id) {
+      return { success: false, error: 'Deal has no brokerage assigned' }
     }
-    const updatedPayments = [...existingPayments, newPayment]
 
-    // Only confirmed (and legacy, which have no status field) entries count.
-    const newTotal = updatedPayments
-      .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-    const updateData: Record<string, any> = { brokerage_payments: updatedPayments }
+    const method = ['eft', 'wire', 'cheque', 'cash', 'other'].includes(input.method || '')
+      ? (input.method as 'eft' | 'wire' | 'cheque' | 'cash' | 'other')
+      : null
 
-    // Store total as repayment_amount for reporting
-    updateData.repayment_amount = newTotal
+    const newPayment = await insertPayment(
+      {
+        dealId: input.dealId,
+        brokerageId: deal.brokerage_id,
+        amount: input.amount,
+        paymentDate: input.date,
+        reference: input.reference || null,
+        method,
+        status: 'confirmed',
+        submittedByRole: 'admin',
+        submittedByUserId: user.id,
+      },
+      supabase,
+    )
 
-    const { data: updatedDeal, error: updateError } = await supabase
+    // The migration 055 trigger has already synced deals.repayment_amount.
+    // Refetch the deal so the caller gets the fresh total.
+    const { data: updatedDeal } = await supabase
       .from('deals')
-      .update(updateData)
+      .select('*, brokerage_payments(*)')
       .eq('id', input.dealId)
-      .select()
       .single()
 
-    if (updateError) {
-      console.error('Brokerage payment error:', updateError.message)
-      return { success: false, error: `Failed to record payment: ${updateError.message}` }
-    }
+    const newTotal = sumConfirmedPayments(updatedDeal?.brokerage_payments || [])
 
     await logAuditEvent({
       action: 'brokerage_payment.record',
       entityType: 'deal',
       entityId: input.dealId,
-      metadata: { amount: input.amount, date: input.date, new_total: newTotal, expected: deal.amount_due_from_brokerage },
+      metadata: {
+        payment_id: newPayment.id,
+        amount: input.amount,
+        date: input.date,
+        new_total: newTotal,
+        expected: deal.amount_due_from_brokerage,
+      },
     })
 
+    // NOTE: Late settlement strikes are NOT auto-recorded here. Admin reviews
+    // each overdue deal manually and records a strike via recordLateStrike()
+    // if appropriate (e.g., to allow for in-transit wires admin hasn't logged yet).
     return { success: true, data: updatedDeal }
   } catch (err: any) {
     console.error('Brokerage payment error:', err?.message)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
   }
 }
 
 export async function removeBrokeragePayment(input: {
   dealId: string
-  paymentIndex: number
+  paymentId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (!input.paymentId) return { success: false, error: 'Payment id is required' }
+
   try {
-    const { data: deal, error: dealError } = await supabase
-      .from('deals')
-      .select('id, brokerage_payments')
-      .eq('id', input.dealId)
-      .single()
-
-    if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-    const payments = deal.brokerage_payments || []
-    if (input.paymentIndex < 0 || input.paymentIndex >= payments.length) {
-      return { success: false, error: 'Invalid payment index' }
+    const removed = await deletePayment(input.paymentId, supabase)
+    if (removed.deal_id !== input.dealId) {
+      // Defensive: caller passed mismatched ids. Audit log captures the truth.
+      console.warn('[removeBrokeragePayment] deal_id mismatch', { input, removedDealId: removed.deal_id })
     }
 
-    const removedPayment = payments[input.paymentIndex]
-    payments.splice(input.paymentIndex, 1)
-    const newTotal = payments
-      .filter((p: any) => p.status === 'confirmed' || p.status === undefined)
-      .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-
-    const { data: updatedDeal, error: updateError } = await supabase
+    // Trigger has already synced deals.repayment_amount.
+    const { data: updatedDeal } = await supabase
       .from('deals')
-      .update({
-        brokerage_payments: payments,
-        repayment_amount: payments.length > 0 ? newTotal : null,
-      })
-      .eq('id', input.dealId)
-      .select()
+      .select('*, brokerage_payments(*)')
+      .eq('id', removed.deal_id)
       .single()
-
-    if (updateError) {
-      return { success: false, error: `Failed to remove payment: ${updateError.message}` }
-    }
 
     await logAuditEvent({
       action: 'brokerage_payment.remove',
       entityType: 'deal',
-      entityId: input.dealId,
+      entityId: removed.deal_id,
       severity: 'critical',
-      metadata: { payment_index: input.paymentIndex, removed_payment: removedPayment },
+      metadata: { payment_id: input.paymentId, removed_payment: removed },
     })
 
     return { success: true, data: updatedDeal }
   } catch (err: any) {
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
   }
 }
 
@@ -1801,82 +2141,35 @@ export async function removeBrokeragePayment(input: {
 // Confirmed claims count toward the repayment total; pending/rejected do not.
 // ============================================================================
 
-interface PaymentEntryShape {
-  amount: number
-  date: string
-  reference?: string
-  method?: string
-  notes?: string
-  status?: 'pending' | 'confirmed' | 'rejected'
-  submitted_by_role?: string
-  submitted_by_user_id?: string
-  submitted_at?: string
-  reviewed_by_user_id?: string
-  reviewed_at?: string
-  rejection_reason?: string
-}
-
 async function reviewBrokeragePaymentClaim(
-  dealId: string,
-  paymentIndex: number,
+  paymentId: string,
   decision: 'confirmed' | 'rejected',
-  rejectionReason: string | undefined,
+  rejectionReason: string | null,
   reviewerUserId: string,
   supabase: ReturnType<typeof createServiceRoleClient>,
 ): Promise<ActionResult> {
-  const { data: deal, error: dealError } = await supabase
+  const updated = await reviewPayment(paymentId, decision, reviewerUserId, rejectionReason, supabase)
+  if (!updated) {
+    // Row was either missing or already reviewed (status != pending).
+    return { success: false, error: 'This payment is missing or has already been reviewed' }
+  }
+
+  // Trigger keeps deals.repayment_amount in sync. Refetch deal for the caller.
+  const { data: updatedDeal } = await supabase
     .from('deals')
-    .select('id, brokerage_payments, amount_due_from_brokerage')
-    .eq('id', dealId)
+    .select('*, brokerage_payments(*)')
+    .eq('id', updated.deal_id)
     .single()
 
-  if (dealError || !deal) return { success: false, error: 'Deal not found' }
-
-  const payments: PaymentEntryShape[] = deal.brokerage_payments || []
-  if (paymentIndex < 0 || paymentIndex >= payments.length) {
-    return { success: false, error: 'Invalid payment index' }
-  }
-
-  const claim = payments[paymentIndex]
-  if (claim.status !== 'pending') {
-    return { success: false, error: 'This payment has already been reviewed' }
-  }
-
-  payments[paymentIndex] = {
-    ...claim,
-    status: decision,
-    reviewed_by_user_id: reviewerUserId,
-    reviewed_at: new Date().toISOString(),
-    ...(decision === 'rejected' && rejectionReason ? { rejection_reason: rejectionReason } : {}),
-  }
-
-  // Confirmed + legacy-no-status both count; pending/rejected do not.
-  const newTotal = payments
-    .filter(p => p.status === 'confirmed' || p.status === undefined)
-    .reduce((sum, p) => sum + (p.amount || 0), 0)
-
-  const { data: updatedDeal, error: updateError } = await supabase
-    .from('deals')
-    .update({
-      brokerage_payments: payments,
-      repayment_amount: newTotal > 0 ? newTotal : null,
-    })
-    .eq('id', dealId)
-    .select()
-    .single()
-
-  if (updateError) {
-    console.error('Payment claim review error:', updateError.message)
-    return { success: false, error: 'Failed to update payment claim' }
-  }
+  const newTotal = sumConfirmedPayments(updatedDeal?.brokerage_payments || [])
 
   await logAuditEvent({
     action: decision === 'confirmed' ? 'brokerage_payment.claim_confirmed' : 'brokerage_payment.claim_rejected',
     entityType: 'deal',
-    entityId: dealId,
+    entityId: updated.deal_id,
     metadata: {
-      payment_index: paymentIndex,
-      claim: payments[paymentIndex],
+      payment_id: paymentId,
+      claim: updated,
       new_total: newTotal,
       ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
     },
@@ -1887,15 +2180,15 @@ async function reviewBrokeragePaymentClaim(
 
 export async function confirmBrokeragePaymentClaim(input: {
   dealId: string
-  paymentIndex: number
+  paymentId: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (!input.paymentId) return { success: false, error: 'Payment id is required' }
   return reviewBrokeragePaymentClaim(
-    input.dealId,
-    input.paymentIndex,
+    input.paymentId,
     'confirmed',
-    undefined,
+    null,
     user.id,
     createServiceRoleClient(),
   )
@@ -1903,21 +2196,81 @@ export async function confirmBrokeragePaymentClaim(input: {
 
 export async function rejectBrokeragePaymentClaim(input: {
   dealId: string
-  paymentIndex: number
+  paymentId: string
   reason: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (!input.paymentId) return { success: false, error: 'Payment id is required' }
   const reason = (input.reason || '').trim()
   if (!reason) return { success: false, error: 'Rejection reason is required' }
   return reviewBrokeragePaymentClaim(
-    input.dealId,
-    input.paymentIndex,
+    input.paymentId,
     'rejected',
     reason.slice(0, 1000),
     user.id,
     createServiceRoleClient(),
   )
+}
+
+// ============================================================================
+// Admin: Reset a brokerage's late-payment strikes and optionally clear the
+// auto-bump back to 7-day settlement. Required because the 5-strike auto-bump
+// is permanent unless an admin resets it.
+// ============================================================================
+
+export async function resetBrokerageLateStrikes(input: {
+  brokerageId: string
+  clearAutoBump: boolean
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data: brokerage, error: getErr } = await serviceClient
+      .from('brokerages')
+      .select('id, late_strike_count, auto_bumped_to_14_days_at')
+      .eq('id', input.brokerageId)
+      .single()
+    if (getErr || !brokerage) return { success: false, error: 'Brokerage not found' }
+
+    const patch: Record<string, any> = {
+      late_strike_count: 0,
+      last_strike_reset_at: new Date().toISOString(),
+    }
+    if (input.clearAutoBump) patch.auto_bumped_to_14_days_at = null
+
+    const { error: updateErr } = await serviceClient
+      .from('brokerages')
+      .update(patch)
+      .eq('id', input.brokerageId)
+
+    if (updateErr) return { success: false, error: updateErr.message }
+
+    await logAuditEvent({
+      action: 'brokerage.late_strikes_reset',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      severity: 'warning',
+      metadata: {
+        reason: reason.slice(0, 500),
+        prior_strike_count: brokerage.late_strike_count || 0,
+        prior_auto_bumped_at: brokerage.auto_bumped_to_14_days_at,
+        cleared_auto_bump: input.clearAutoBump,
+      },
+    })
+
+    return { success: true, data: { brokerageId: input.brokerageId } }
+  } catch (err: any) {
+    console.error('resetBrokerageLateStrikes error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
 }
 
 // ============================================================================
@@ -2427,6 +2780,177 @@ export async function resendBrokerageSetupLink(input: {
     return { success: true }
   } catch (err: any) {
     console.error('Resend brokerage setup link error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Brokerage Documents — upload + delete via server actions so every mutation
+// gets an audit log entry (who uploaded / deleted what, when) and goes through
+// the service-role client. Previous client-side INSERT/DELETE on
+// brokerage_documents from the admin browser left no audit trail.
+// ============================================================================
+
+const BROKERAGE_DOCUMENT_TYPES = [
+  'cooperation_agreement',
+  'white_label_agreement',
+  'banking_info',
+  'kyc_business',
+  'other',
+] as const
+
+export async function uploadBrokerageDocument(formData: FormData): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const file = formData.get('file') as File | null
+    const brokerageId = formData.get('brokerageId') as string | null
+    const documentType = formData.get('documentType') as string | null
+
+    if (!file || !brokerageId || !documentType) {
+      return { success: false, error: 'Missing required fields' }
+    }
+    if (!(BROKERAGE_DOCUMENT_TYPES as readonly string[]).includes(documentType)) {
+      return { success: false, error: 'Invalid document type' }
+    }
+    if (file.size === 0) return { success: false, error: 'File is empty' }
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      return { success: false, error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)}MB` }
+    }
+
+    const fileName = file.name.toLowerCase()
+    const ext = '.' + fileName.split('.').pop()
+    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+      return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
+    }
+    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+      return { success: false, error: 'File MIME type not allowed' }
+    }
+    const magicBytesValid = await verifyFileMagicBytes(file)
+    if (!magicBytesValid) {
+      return { success: false, error: 'File content does not match its declared type' }
+    }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Verify the brokerage exists before touching storage.
+    const { data: brokerage, error: brokerageErr } = await serviceClient
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', brokerageId)
+      .single()
+    if (brokerageErr || !brokerage) return { success: false, error: 'Brokerage not found' }
+
+    const safeBase = file.name.replace(/[^\w.\-]/g, '_')
+    const filePath = `brokerages/${brokerageId}/${Date.now()}_${safeBase}`
+
+    const { error: uploadError } = await serviceClient.storage
+      .from('deal-documents')
+      .upload(filePath, file)
+
+    if (uploadError) {
+      console.error('Brokerage doc storage upload error:', uploadError.message)
+      return { success: false, error: 'Failed to upload file. Please try again.' }
+    }
+
+    const { data: inserted, error: dbErr } = await serviceClient
+      .from('brokerage_documents')
+      .insert({
+        brokerage_id: brokerageId,
+        document_type: documentType,
+        file_name: file.name,
+        file_path: filePath,
+        file_size: file.size,
+        uploaded_by: user.id,
+      })
+      .select()
+      .single()
+
+    if (dbErr || !inserted) {
+      // Best-effort cleanup of the orphaned storage object.
+      await serviceClient.storage.from('deal-documents').remove([filePath])
+      console.error('Brokerage doc insert error:', dbErr?.message)
+      return { success: false, error: `Failed to save record: ${dbErr?.message || 'unknown error'}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_uploaded',
+      entityType: 'brokerage',
+      entityId: brokerageId,
+      severity: 'info',
+      metadata: {
+        document_id: inserted.id,
+        document_type: documentType,
+        file_name: file.name,
+        file_size: file.size,
+        brokerage_name: brokerage.name,
+        uploaded_by_user_id: user.id,
+      },
+    })
+
+    return { success: true, data: { document: inserted } }
+  } catch (err: any) {
+    console.error('uploadBrokerageDocument error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function deleteBrokerageDocument(input: {
+  documentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!input.documentId) return { success: false, error: 'Document id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    const { data: doc, error: lookupErr } = await serviceClient
+      .from('brokerage_documents')
+      .select('id, brokerage_id, document_type, file_name, file_path, file_size')
+      .eq('id', input.documentId)
+      .single()
+
+    if (lookupErr || !doc) return { success: false, error: 'Document not found' }
+
+    // Remove the storage object first; if it fails we still want to attempt
+    // the DB row delete so we don't leave a row pointing at a missing file.
+    const { error: storageErr } = await serviceClient.storage
+      .from('deal-documents')
+      .remove([doc.file_path])
+    if (storageErr) {
+      console.warn('Brokerage doc storage remove warning:', storageErr.message)
+    }
+
+    const { error: deleteErr } = await serviceClient
+      .from('brokerage_documents')
+      .delete()
+      .eq('id', doc.id)
+
+    if (deleteErr) {
+      return { success: false, error: `Failed to delete document: ${deleteErr.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_deleted',
+      entityType: 'brokerage',
+      entityId: doc.brokerage_id,
+      severity: 'warning',
+      metadata: {
+        document_id: doc.id,
+        document_type: doc.document_type,
+        file_name: doc.file_name,
+        file_size: doc.file_size,
+        deleted_by_user_id: user.id,
+        storage_remove_warning: storageErr?.message || null,
+      },
+    })
+
+    return { success: true, data: { brokerageId: doc.brokerage_id } }
+  } catch (err: any) {
+    console.error('deleteBrokerageDocument error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

@@ -13,6 +13,23 @@ interface ActionResult {
   data?: any
 }
 
+// Cap inbound message body. Without this, a single multi-MB message bloats
+// every admin inbox load and Resend email payload.
+const MAX_MESSAGE_LENGTH = 5000
+
+// Validate that a message attachment path belongs to the message's deal.
+// uploadDocument writes to the `deal-documents` bucket under `${dealId}/...`.
+// Without this check, a caller could attach a path pointing to ANY other
+// deal's file (or another agent's KYC scan if it shared a bucket layout) by
+// posting the path string directly to sendAgentReply / sendBrokerageMessage.
+// Also strips `../` traversal sequences as defense in depth.
+function validateAttachmentPath(filePath: string | null | undefined, dealId: string): { ok: true } | { ok: false; error: string } {
+  if (!filePath) return { ok: true }
+  if (filePath.includes('..')) return { ok: false, error: 'Invalid attachment path' }
+  if (!filePath.startsWith(`${dealId}/`)) return { ok: false, error: 'Attachment does not belong to this deal' }
+  return { ok: true }
+}
+
 export interface InboxDeal {
   deal_id: string
   property_address: string
@@ -32,8 +49,9 @@ export interface InboxDeal {
 // ============================================================================
 
 export async function getAgentNotificationCounts(agentId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.agent_id !== agentId) return { success: false, error: 'Access denied' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -63,22 +81,21 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
       }
     }
 
-    // Count unread messages across all deals (messages from admin after last read)
+    // Count unread messages across all deals (messages from admin after last read).
+    // Single grouped fetch instead of N count() round-trips: a bell-icon poll on
+    // an agent with 100 deals previously fired 100 queries per tick.
+    const { data: adminMsgs } = await serviceClient
+      .from('deal_messages')
+      .select('deal_id, created_at')
+      .in('deal_id', dealIds)
+      .eq('sender_role', 'admin')
+
     let unreadMessages = 0
-    for (const dealId of dealIds) {
-      const lastRead = readMap.get(dealId)
-      let query = serviceClient
-        .from('deal_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('deal_id', dealId)
-        .eq('sender_role', 'admin')
-
-      if (lastRead) {
-        query = query.gt('created_at', lastRead)
+    for (const m of (adminMsgs || [])) {
+      const lastRead = readMap.get(m.deal_id)
+      if (!lastRead || new Date(m.created_at) > new Date(lastRead)) {
+        unreadMessages++
       }
-
-      const { count } = await query
-      unreadMessages += (count || 0)
     }
 
     // Count pending document returns
@@ -107,8 +124,9 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
 // ============================================================================
 
 export async function getAgentInbox(agentId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.agent_id !== agentId) return { success: false, error: 'Access denied' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -237,12 +255,26 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
 // ============================================================================
 
 export async function getDealMessages(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Ownership check: agent must own the deal, brokerage_admin must be on
+    // the deal's brokerage. Without this, any logged-in user can read any
+    // deal's messages by passing an arbitrary dealId.
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('agent_id, brokerage_id')
+      .eq('id', dealId)
+      .single()
+    if (!deal) return { success: false, error: 'Deal not found' }
+    const isOwner =
+      (profile?.role === 'agent' && deal.agent_id === profile.agent_id) ||
+      (profile?.role === 'brokerage_admin' && deal.brokerage_id === profile.brokerage_id)
+    if (!isOwner) return { success: false, error: 'Access denied' }
+
     const { data: messages, error } = await serviceClient
       .from('deal_messages')
       .select('*')
@@ -265,8 +297,9 @@ export async function markDealMessagesRead(input: {
   agentId: string
   dealId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  if (profile?.agent_id !== input.agentId) return { success: false, error: 'Access denied' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -306,15 +339,29 @@ export async function sendAgentReply(input: {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (typeof input.message !== 'string' || input.message.trim().length === 0) {
+    return { success: false, error: 'Message cannot be empty' }
+  }
+  if (input.message.length > MAX_MESSAGE_LENGTH) {
+    return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
+  }
+
+  // Reject cross-deal / traversal attachment paths.
+  const pathCheck = validateAttachmentPath(input.filePath, input.dealId)
+  if (!pathCheck.ok) return { success: false, error: pathCheck.error }
+
   const serviceClient = createServiceRoleClient()
 
   try {
-    // Get deal for email notification
+    // Ownership check: prevent agent A from posting messages on agent B's deal.
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, property_address')
+      .select('id, property_address, agent_id')
       .eq('id', input.dealId)
       .single()
+
+    if (!deal) return { success: false, error: 'Deal not found' }
+    if (deal.agent_id !== profile?.agent_id) return { success: false, error: 'Access denied' }
 
     const { data: msg, error } = await serviceClient
       .from('deal_messages')
@@ -372,20 +419,40 @@ export async function getNewMessages(input: {
   dealId: string
   afterTimestamp: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent', 'super_admin', 'firm_funds_admin', 'brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent', 'super_admin', 'firm_funds_admin', 'brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
-  const { data: messages, error } = await serviceClient
-    .from('deal_messages')
-    .select('id, deal_id, sender_id, sender_role, sender_name, message, is_email_reply, file_path, file_name, file_size, file_type, created_at')
-    .eq('deal_id', input.dealId)
-    .gt('created_at', input.afterTimestamp)
-    .order('created_at', { ascending: true })
+  try {
+    // Ownership check: this is a polling endpoint, so missing ownership
+    // verification lets any logged-in user enumerate deals by UUID.
+    const isAdmin = profile?.role === 'super_admin' || profile?.role === 'firm_funds_admin'
+    if (!isAdmin) {
+      const { data: deal } = await serviceClient
+        .from('deals')
+        .select('agent_id, brokerage_id')
+        .eq('id', input.dealId)
+        .single()
+      if (!deal) return { success: false, error: 'Deal not found' }
+      const isOwner =
+        (profile?.role === 'agent' && deal.agent_id === profile.agent_id) ||
+        (profile?.role === 'brokerage_admin' && deal.brokerage_id === profile.brokerage_id)
+      if (!isOwner) return { success: false, error: 'Access denied' }
+    }
 
-  if (error) return { success: false, error: error.message }
-  return { success: true, data: messages || [] }
+    const { data: messages, error } = await serviceClient
+      .from('deal_messages')
+      .select('id, deal_id, sender_id, sender_role, sender_name, message, is_email_reply, file_path, file_name, file_size, file_type, created_at')
+      .eq('deal_id', input.dealId)
+      .gt('created_at', input.afterTimestamp)
+      .order('created_at', { ascending: true })
+
+    if (error) return { success: false, error: error.message }
+    return { success: true, data: messages || [] }
+  } catch (err: any) {
+    return { success: false, error: 'Failed to load messages' }
+  }
 }
 
 // ============================================================================
@@ -396,13 +463,32 @@ export async function autoResolvePendingReturns(input: {
   dealId: string
   newDocumentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
-    // Resolve all pending returns for this deal
+    // Without ownership checks, an agent can clear another agent's pending
+    // document returns and stamp them with an arbitrary document UUID,
+    // poisoning the audit trail of which doc satisfied which return.
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('agent_id')
+      .eq('id', input.dealId)
+      .single()
+    if (!deal) return { success: false, error: 'Deal not found' }
+    if (deal.agent_id !== profile?.agent_id) return { success: false, error: 'Access denied' }
+
+    const { data: newDoc } = await serviceClient
+      .from('deal_documents')
+      .select('id, deal_id')
+      .eq('id', input.newDocumentId)
+      .single()
+    if (!newDoc || newDoc.deal_id !== input.dealId) {
+      return { success: false, error: 'Document does not belong to this deal' }
+    }
+
     const { data: resolved, error } = await serviceClient
       .from('document_returns')
       .update({
@@ -601,6 +687,13 @@ export async function sendAdminMessage(input: {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  if (typeof input.message !== 'string' || input.message.trim().length === 0) {
+    return { success: false, error: 'Message cannot be empty' }
+  }
+  if (input.message.length > MAX_MESSAGE_LENGTH) {
+    return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
+  }
+
   const serviceClient = createServiceRoleClient()
 
   try {
@@ -679,6 +772,17 @@ export async function sendBrokerageMessage(input: {
 }): Promise<ActionResult> {
   const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (typeof input.message !== 'string' || input.message.trim().length === 0) {
+    return { success: false, error: 'Message cannot be empty' }
+  }
+  if (input.message.length > MAX_MESSAGE_LENGTH) {
+    return { success: false, error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` }
+  }
+
+  // Reject cross-deal / traversal attachment paths.
+  const pathCheck = validateAttachmentPath(input.filePath, input.dealId)
+  if (!pathCheck.ok) return { success: false, error: pathCheck.error }
 
   const serviceClient = createServiceRoleClient()
 
@@ -853,22 +957,21 @@ export async function getBrokerageNotificationCounts(brokerageId: string): Promi
       }
     }
 
-    // Count unread admin messages across all deals
+    // Count unread admin messages across all deals. Single grouped fetch
+    // instead of N count() round-trips: previously a brokerage with 500
+    // deals fired 500 queries per bell-icon poll.
+    const { data: adminMsgs } = await serviceClient
+      .from('deal_messages')
+      .select('deal_id, created_at')
+      .in('deal_id', dealIds)
+      .eq('sender_role', 'admin')
+
     let unreadMessages = 0
-    for (const dealId of dealIds) {
-      const lastRead = readMap.get(dealId)
-      let query = serviceClient
-        .from('deal_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('deal_id', dealId)
-        .eq('sender_role', 'admin')
-
-      if (lastRead) {
-        query = query.gt('created_at', lastRead)
+    for (const m of (adminMsgs || [])) {
+      const lastRead = readMap.get(m.deal_id)
+      if (!lastRead || new Date(m.created_at) > new Date(lastRead)) {
+        unreadMessages++
       }
-
-      const { count } = await query
-      unreadMessages += (count || 0)
     }
 
     return {
@@ -886,12 +989,25 @@ export async function getBrokerageNotificationCounts(brokerageId: string): Promi
 // ============================================================================
 
 export async function markBrokerageMessagesRead(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Ownership check: without this, any brokerage_admin can pass an
+    // arbitrary deal UUID and pollute brokerage_message_reads, plus
+    // distinguish valid vs invalid deal IDs via FK error responses.
+    // Return opaque "Deal not found" for both missing and wrong-brokerage.
+    const { data: deal } = await serviceClient
+      .from('deals')
+      .select('brokerage_id')
+      .eq('id', dealId)
+      .single()
+    if (!deal || deal.brokerage_id !== profile?.brokerage_id) {
+      return { success: false, error: 'Deal not found' }
+    }
+
     const { error } = await serviceClient
       .from('brokerage_message_reads')
       .upsert(

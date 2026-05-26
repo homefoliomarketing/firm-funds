@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { sendMonthlyBrokerStatement } from '@/lib/email'
 
 // =============================================================================
@@ -8,13 +9,20 @@ import { sendMonthlyBrokerStatement } from '@/lib/email'
 // Schedule externally (e.g. Netlify scheduled function, GitHub Actions, cron-job.org)
 // to fire on the LAST day of each month at ~18:00 ET.
 //
-// Idempotency: safe to call multiple times within the same period — emails will
-// re-send the same numbers. (Simple by design; can add a "last_statement_sent_at"
-// column later if Bud needs hard idempotency.)
+// Idempotency: claims a (job_name, period) row in cron_run_log at start.
+// Duplicate runs for the same period return { already_ran: true } without
+// re-sending. See migration 074.
+//
+// Period replay safety: ?period=YYYY-MM is restricted to the current month or
+// the previous 2 months. Older backfills require header
+// X-Admin-Backfill-Approved: <CRON_BACKFILL_SECRET>.
 //
 // Protected by CRON_SECRET header (Bearer).
 // Optional ?period=YYYY-MM query param overrides the default (current month).
 // =============================================================================
+
+const JOB_NAME = 'monthly_broker_statements'
+const PERIOD_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
 
 export async function GET(request: Request) {
   // Auth via CRON_SECRET — fail closed if not configured
@@ -37,23 +45,66 @@ export async function GET(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-  // Determine period (default: current calendar month, ET)
+  // Determine period (default: current calendar month). Strict YYYY-MM format
+  // — any other value is rejected so brokerage statements can't be replayed
+  // for an arbitrary past month.
   const url = new URL(request.url)
   const periodParam = url.searchParams.get('period')
   const now = new Date()
   let year: number, month: number
-  if (periodParam && /^\d{4}-\d{2}$/.test(periodParam)) {
+  let periodKey: string
+
+  if (periodParam) {
+    if (!PERIOD_REGEX.test(periodParam)) {
+      return Response.json({ error: 'Invalid period format. Expected YYYY-MM (months 01-12).' }, { status: 400 })
+    }
     year = parseInt(periodParam.slice(0, 4), 10)
     month = parseInt(periodParam.slice(5, 7), 10) - 1
+    periodKey = periodParam
   } else {
     year = now.getFullYear()
     month = now.getMonth()
+    periodKey = `${year}-${String(month + 1).padStart(2, '0')}`
   }
+
+  // Restrict replay window: only current month or the previous 2 months.
+  // Older backfills require X-Admin-Backfill-Approved header matching
+  // CRON_BACKFILL_SECRET env var.
+  const currentMonthIdx = now.getFullYear() * 12 + now.getMonth()
+  const requestedMonthIdx = year * 12 + month
+  const monthsBack = currentMonthIdx - requestedMonthIdx
+  if (monthsBack < 0 || monthsBack > 2) {
+    const backfillSecret = process.env.CRON_BACKFILL_SECRET
+    const backfillHeader = request.headers.get('x-admin-backfill-approved')
+    if (!backfillSecret) {
+      return Response.json({ error: 'Period outside allowed window. CRON_BACKFILL_SECRET not configured.' }, { status: 400 })
+    }
+    if (backfillHeader !== backfillSecret) {
+      return Response.json({ error: 'Period outside allowed window (current month or previous 2 only). Admin backfill header required.' }, { status: 403 })
+    }
+  }
+
   const periodStart = new Date(Date.UTC(year, month, 1))
   const periodEnd = new Date(Date.UTC(year, month + 1, 1))
   const periodLabel = periodStart.toLocaleDateString('en-CA', {
     year: 'numeric', month: 'long', timeZone: 'America/Toronto',
   })
+
+  // Idempotency claim: insert (job_name, period). 23505 means another run
+  // already handled this period — no-op.
+  const serviceClient = createServiceRoleClient()
+  const { data: claimRow, error: claimErr } = await serviceClient
+    .from('cron_run_log')
+    .insert({ job_name: JOB_NAME, period: periodKey })
+    .select('id')
+    .single()
+  if (claimErr && (claimErr as any).code === '23505') {
+    return Response.json({ already_ran: true, period: periodKey }, { status: 200 })
+  }
+  if (claimErr || !claimRow) {
+    return Response.json({ error: 'Failed to claim cron run', detail: claimErr?.message }, { status: 500 })
+  }
+  const runId = claimRow.id
 
   // 1. Fetch all brokerages with a profit-share arrangement
   const { data: brokerages, error: brokErr } = await supabase
@@ -64,9 +115,17 @@ export async function GET(request: Request) {
 
   if (brokErr) {
     console.error('[cron/monthly-broker-statements] Failed to fetch brokerages:', brokErr.message)
+    await serviceClient
+      .from('cron_run_log')
+      .update({ completed_at: new Date().toISOString(), outcome: 'error', details: { error: brokErr.message } })
+      .eq('id', runId)
     return Response.json({ error: 'Failed to fetch brokerages' }, { status: 500 })
   }
   if (!brokerages || brokerages.length === 0) {
+    await serviceClient
+      .from('cron_run_log')
+      .update({ completed_at: new Date().toISOString(), outcome: 'success', details: { brokeragesProcessed: 0 } })
+      .eq('id', runId)
     return Response.json({ ok: true, period: periodLabel, brokeragesProcessed: 0 })
   }
 
@@ -144,6 +203,22 @@ export async function GET(request: Request) {
       totalSkipped++
     }
   }
+
+  const outcome = errors.length === 0 ? 'success' : 'partial_success'
+  await serviceClient
+    .from('cron_run_log')
+    .update({
+      completed_at: new Date().toISOString(),
+      outcome,
+      details: {
+        period: periodKey,
+        brokeragesProcessed: brokerages.length,
+        sent: totalSent,
+        skipped: totalSkipped,
+        errors,
+      },
+    })
+    .eq('id', runId)
 
   return Response.json({
     ok: true,

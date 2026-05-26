@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { ArrowDownLeft, ArrowUpRight, Receipt, Clock, AlertTriangle, DollarSign, ArrowRight } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getAgentTransactions } from '@/lib/actions/account-actions'
+import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -35,6 +36,7 @@ const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; ic
   adjustment: { label: 'Adjustment', color: 'text-muted-foreground', icon: DollarSign },
   credit: { label: 'Credit', color: 'text-status-teal', icon: ArrowDownLeft },
   failed_deal_balance: { label: 'Failed Deal Balance', color: 'text-status-red', icon: AlertTriangle },
+  failed_deal_interest: { label: 'Failed Deal Interest', color: 'text-status-amber', icon: Clock },
 }
 
 export default function AgentAccountPage() {
@@ -64,7 +66,7 @@ export default function AgentAccountPage() {
       if (profileData?.agent_id) {
         const { data: agentData } = await supabase
           .from('agents')
-          .select('*, brokerages(*)')
+          .select(`*, brokerages(${BROKERAGE_PUBLIC_COLUMNS})`)
           .eq('id', profileData.agent_id)
           .single()
         setAgent(agentData)

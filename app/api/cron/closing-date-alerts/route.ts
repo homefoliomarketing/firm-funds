@@ -1,16 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
-import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder7Day, sendSettlementReminder3Day } from '@/lib/email'
-import { autoChargeDailyLateInterest, autoChargeDailyFailedDealInterest } from '@/lib/actions/account-actions'
+import { createServiceRoleClient } from '@/lib/supabase/server'
+import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder3Day } from '@/lib/email'
+import { autoChargeMonthlyLatePaymentInterest, autoChargeMonthlyFailedDealInterest } from '@/lib/actions/account-actions'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
+
+const JOB_NAME = 'closing_date_alerts'
 
 // =============================================================================
 // GET /api/cron/closing-date-alerts
 //
 // Daily cron job that handles:
 // 1. Closing date alerts — approaching and overdue deals → admin digest email
-// 2. Settlement period reminders — closing day, 7-day, 3-day → agent + brokerage
-// 3. Auto-charge late interest — 24% p.a. daily on overdue deals
-// 4. Update payment_status for overdue deals
+// 2. Settlement period reminders — closing day + 3-days-remaining → agent + brokerage
+// 3. Mark payment_status='overdue' once deals pass the 30-day late-interest grace
+// 4. Post monthly late-payment interest (24% p.a. compounded daily, starting
+//    day 31 after closing)
+// 5. Post monthly failed-deal interest (24% p.a. compounded daily, CPA 5.3)
 //
 // Protected by CRON_SECRET header.
 // =============================================================================
@@ -40,6 +45,23 @@ export async function GET(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
+  // Idempotency: claim (job_name, period) row. Period = calendar date (UTC) so
+  // duplicate runs on the same day no-op. See migration 074.
+  const serviceClient = createServiceRoleClient()
+  const period = new Date().toISOString().split('T')[0]
+  const { data: claimRow, error: claimErr } = await serviceClient
+    .from('cron_run_log')
+    .insert({ job_name: JOB_NAME, period })
+    .select('id')
+    .single()
+  if (claimErr && (claimErr as any).code === '23505') {
+    return Response.json({ already_ran: true, period }, { status: 200 })
+  }
+  if (claimErr || !claimRow) {
+    return Response.json({ error: 'Failed to claim cron run', detail: claimErr?.message }, { status: 500 })
+  }
+  const runId = claimRow.id
+
   try {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 
@@ -55,10 +77,18 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error('[cron] Failed to fetch deals:', error.message)
+      await serviceClient
+        .from('cron_run_log')
+        .update({ completed_at: new Date().toISOString(), outcome: 'error', details: { error: error.message } })
+        .eq('id', runId)
       return Response.json({ error: 'Failed to fetch deals' }, { status: 500 })
     }
 
     if (!activeDeals || activeDeals.length === 0) {
+      await serviceClient
+        .from('cron_run_log')
+        .update({ completed_at: new Date().toISOString(), outcome: 'success', details: { approaching: 0, overdue: 0, note: 'no active deals' } })
+        .eq('id', runId)
       return Response.json({ message: 'No active deals to check', approaching: 0, overdue: 0 })
     }
 
@@ -103,34 +133,38 @@ export async function GET(request: Request) {
       }
     }
 
+    // Per-iteration error isolation: collect failures, never throw out of the
+    // route. We still want late-interest posting to run even if some emails
+    // fail.
+    const failures: { stage: string; dealId?: string; error: string }[] = []
+
     // Send admin digest
     if (approachingDeals.length > 0 || overdueDeals.length > 0) {
-      await sendClosingDateAlertDigest({ approachingDeals, overdueDeals })
-    }
-
-    // Update days_until_closing for all active deals
-    for (const deal of activeDeals) {
-      const closingDate = new Date(deal.closing_date + 'T00:00:00')
-      const todayDate = new Date(today + 'T00:00:00')
-      const diffMs = closingDate.getTime() - todayDate.getTime()
-      const currentDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
-
-      if (currentDays !== deal.days_until_closing) {
-        await supabase
-          .from('deals')
-          .update({ days_until_closing: currentDays })
-          .eq('id', deal.id)
+      try {
+        await sendClosingDateAlertDigest({ approachingDeals, overdueDeals })
+      } catch (err: any) {
+        failures.push({ stage: 'digest', error: err?.message || 'send failed' })
       }
     }
+
+    // Batched recompute: replaces a per-deal UPDATE loop with one set-based
+    // UPDATE in the recompute_active_deal_days_until_closing RPC (migration
+    // 057). Same GREATEST(0, ...) clamp; only rows whose computed value
+    // actually changed get written.
+    await supabase.rpc('recompute_active_deal_days_until_closing')
 
     // =======================================================================
     // 2. Settlement Period Reminders (new)
     // =======================================================================
 
-    // Fetch funded deals with settlement info for reminders
+    // Fetch funded deals with settlement info for reminders.
+    // settlement_days_at_funding is the per-deal locked window (7 standard,
+    // 14 for brokerages auto-bumped after the 5-strike threshold). Use the
+    // snapshot, not the global constant, so reminders fire on the deal's
+    // actual deadline.
     const { data: fundedDeals } = await supabase
       .from('deals')
-      .select('id, property_address, closing_date, due_date, advance_amount, amount_due_from_brokerage, settlement_period_fee, agent_id, brokerage_id, agents(first_name, email), brokerages(name, email, broker_of_record_email)')
+      .select('id, property_address, closing_date, due_date, advance_amount, amount_due_from_brokerage, settlement_period_fee, settlement_days_at_funding, agent_id, brokerage_id, agents(first_name, email), brokerages(name, email, broker_of_record_email)')
       .eq('status', 'funded')
       .not('due_date', 'is', null)
 
@@ -144,6 +178,10 @@ export async function GET(request: Request) {
 
         // Skip pre-migration deals
         if (!deal.settlement_period_fee || deal.settlement_period_fee <= 0) continue
+
+        // Per-deal settlement window: 7 days standard, 14 for bumped brokerages.
+        // Fall back to the global constant for legacy deals with no snapshot.
+        const dealSettlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
 
         const closingDate = new Date(deal.closing_date + 'T00:00:00')
         const todayDate = new Date(today + 'T00:00:00')
@@ -162,46 +200,81 @@ export async function GET(request: Request) {
           daysRemaining: 0,
         }
 
-        // Closing day (daysSinceClosing === 0)
+        // Closing day (daysSinceClosing === 0): brokerage's settlement window starts today
         if (daysSinceClosing === 0) {
-          reminderParams.daysRemaining = SETTLEMENT_PERIOD_DAYS
-          await sendSettlementReminderClosingDay(reminderParams)
-          remindersSent++
+          reminderParams.daysRemaining = dealSettlementDays
+          try {
+            await sendSettlementReminderClosingDay(reminderParams)
+            remindersSent++
+          } catch (err: any) {
+            failures.push({ stage: 'reminder_closing_day', dealId: deal.id, error: err?.message || 'send failed' })
+          }
         }
-        // 7 days after closing (7 days remaining)
-        else if (daysSinceClosing === 7) {
-          reminderParams.daysRemaining = 7
-          await sendSettlementReminder7Day(reminderParams)
-          remindersSent++
-        }
-        // 11 days after closing (3 days remaining)
-        else if (daysSinceClosing === SETTLEMENT_PERIOD_DAYS - 3) {
+        // Mid-window reminder: 3 days remaining in the deal's settlement window
+        else if (daysSinceClosing === dealSettlementDays - 3) {
           reminderParams.daysRemaining = 3
-          await sendSettlementReminder3Day(reminderParams)
-          remindersSent++
+          try {
+            await sendSettlementReminder3Day(reminderParams)
+            remindersSent++
+          } catch (err: any) {
+            failures.push({ stage: 'reminder_3_day', dealId: deal.id, error: err?.message || 'send failed' })
+          }
         }
       }
     }
 
     // =======================================================================
-    // 3. Auto-charge Late Interest + Update Payment Status (new)
+    // 3. Post monthly late-payment interest + flag overdue deals
+    //
+    // Interest is 24% p.a. compounded daily starting day 31 after closing.
+    // Monthly posting cadence mirrors the failed-deal interest pattern: the
+    // ledger only gets ONE agent_transactions row per month per deal, posted
+    // on the first daily run after a month boundary crosses.
     // =======================================================================
 
-    const lateInterestResult = await autoChargeDailyLateInterest()
+    const lateInterestResult = await autoChargeMonthlyLatePaymentInterest()
 
-    // Update payment_status for deals past due date
+    // Mark deals past the 30-day late-interest grace as overdue
+    // (closing_date + 30 days < today). Earlier than the grace, they're still
+    // technically late on settlement but no interest has accrued yet.
+    const today30Ago = new Date(today + 'T00:00:00Z')
+    today30Ago.setUTCDate(today30Ago.getUTCDate() - 30)
+    const overdueThreshold = today30Ago.toISOString().slice(0, 10)
+
     await supabase
       .from('deals')
       .update({ payment_status: 'overdue' })
       .eq('status', 'funded')
       .eq('payment_status', 'pending')
-      .lt('due_date', today)
+      .lt('closing_date', overdueThreshold)
 
     // =======================================================================
-    // 4. Auto-charge daily failed-deal interest (CPA 5.3 — 24% p.a. from day 31)
+    // 4. Post monthly failed-deal interest (CPA 5.3 — 24% p.a. compounded
+    //    daily, posted to the ledger once per month on the first daily cron
+    //    run after a month boundary crosses)
     // =======================================================================
 
-    const failedDealInterestResult = await autoChargeDailyFailedDealInterest()
+    const failedDealInterestResult = await autoChargeMonthlyFailedDealInterest()
+
+    const partialFailure = failures.length > 0
+    const details = {
+      approaching: approachingDeals.length,
+      overdue: overdueDeals.length,
+      total_active: activeDeals.length,
+      reminders_sent: remindersSent,
+      late_interest: lateInterestResult,
+      failed_deal_interest: failedDealInterestResult,
+      failures,
+    }
+
+    await serviceClient
+      .from('cron_run_log')
+      .update({
+        completed_at: new Date().toISOString(),
+        outcome: partialFailure ? 'partial_success' : 'success',
+        details,
+      })
+      .eq('id', runId)
 
     return Response.json({
       message: 'Daily cron complete',
@@ -210,16 +283,28 @@ export async function GET(request: Request) {
       total_active: activeDeals.length,
       reminders_sent: remindersSent,
       late_interest: {
-        deals_charged: lateInterestResult.charged,
+        deals_posted: lateInterestResult.charged,
         errors: lateInterestResult.errors,
+        details: lateInterestResult.details,
       },
       failed_deal_interest: {
-        deals_charged: failedDealInterestResult.charged,
+        deals_posted: failedDealInterestResult.charged,
         errors: failedDealInterestResult.errors,
+        details: failedDealInterestResult.details,
       },
+      failures,
+      partial_failure: partialFailure,
     })
   } catch (err: any) {
     console.error('[cron] Closing date alert error:', err?.message)
+    await serviceClient
+      .from('cron_run_log')
+      .update({
+        completed_at: new Date().toISOString(),
+        outcome: 'error',
+        details: { error: err?.message || 'unknown error' },
+      })
+      .eq('id', runId)
     return Response.json({ error: 'Internal error' }, { status: 500 })
   }
 }

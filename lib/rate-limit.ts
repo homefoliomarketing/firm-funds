@@ -10,9 +10,18 @@ import { Redis } from '@upstash/redis'
 
 let redis: Redis | null = null
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
 function getRedis(): Redis | null {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    console.warn('[rate-limit] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN not set — rate limiting disabled')
+    if (isProduction()) {
+      // Production: rate limiting MUST be configured. Don't silently disable.
+      console.error('[rate-limit] CRITICAL: Upstash env vars missing in production. Rate limiting is OFF.')
+    } else {
+      console.warn('[rate-limit] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN not set — rate limiting disabled')
+    }
     return null
   }
   if (!redis) {
@@ -88,6 +97,27 @@ function getApiLimiter(): Ratelimit | null {
   return apiLimiter
 }
 
+/**
+ * Sensitive token / magic-link / unauthenticated-recovery endpoints.
+ * 5 requests per minute is tight enough to defeat enumeration scans while
+ * still permitting a legitimate user to retry a handful of times. Use this
+ * for any endpoint where the response distinguishes "valid token / known
+ * email" from "invalid / unknown" by content, status code, or timing.
+ */
+let sensitiveLimiter: Ratelimit | null = null
+function getSensitiveLimiter(): Ratelimit | null {
+  const r = getRedis()
+  if (!r) return null
+  if (!sensitiveLimiter) {
+    sensitiveLimiter = new Ratelimit({
+      redis: r,
+      limiter: Ratelimit.slidingWindow(5, '1 m'),
+      prefix: 'rl:sensitive',
+    })
+  }
+  return sensitiveLimiter
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -103,15 +133,28 @@ async function checkLimit(
   identifier: string
 ): Promise<RateLimitResult> {
   if (!limiter) {
-    // Rate limiting not configured — allow (fail open, but log warning)
+    // Production: fail CLOSED. A misconfigured Upstash means no rate
+    // limiting, which enables password spraying and token enumeration.
+    // Dev: fail open so local development isn't blocked.
+    if (isProduction()) {
+      return { allowed: false, remaining: 0, resetInSeconds: 60 }
+    }
     return { allowed: true, remaining: -1, resetInSeconds: 0 }
   }
 
-  const result = await limiter.limit(identifier)
-  return {
-    allowed: result.success,
-    remaining: result.remaining,
-    resetInSeconds: Math.ceil((result.reset - Date.now()) / 1000),
+  try {
+    const result = await limiter.limit(identifier)
+    return {
+      allowed: result.success,
+      remaining: result.remaining,
+      resetInSeconds: Math.ceil((result.reset - Date.now()) / 1000),
+    }
+  } catch (err) {
+    console.error('[rate-limit] Upstash limiter call threw:', err)
+    if (isProduction()) {
+      return { allowed: false, remaining: 0, resetInSeconds: 60 }
+    }
+    return { allowed: true, remaining: -1, resetInSeconds: 0 }
   }
 }
 
@@ -133,4 +176,14 @@ export async function checkResetRateLimit(ip: string): Promise<RateLimitResult> 
 /** Check API rate limit (30 per minute) */
 export async function checkApiRateLimit(ip: string): Promise<RateLimitResult> {
   return checkLimit(getApiLimiter(), ip)
+}
+
+/**
+ * Check sensitive endpoint rate limit (5/min). Use on routes that handle
+ * single-use tokens (kyc-validate-token, brokerage/confirm-contact-email)
+ * or unauthenticated recovery (magic-link validate, password-reset trigger)
+ * where the response leaks "token / email exists vs not" information.
+ */
+export async function checkSensitiveRateLimit(ip: string): Promise<RateLimitResult> {
+  return checkLimit(getSensitiveLimiter(), ip)
 }

@@ -75,27 +75,61 @@ export async function POST(request: Request) {
 // Step 3: After client uploads files directly to Supabase, update the DB records
 export async function PUT(request: Request) {
   try {
-    const { token, filePaths, documentType, tokenRecordId } = await request.json()
+    // Rate limit (Finding 3): PUT was unprotected; an attacker holding any
+    // leaked token (even expired/used) could spam this endpoint.
+    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
+    const rl = await checkApiRateLimit(ip)
+    if (!rl.allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
+    }
+
+    const { token, filePaths, documentType } = await request.json()
 
     if (!token || !filePaths?.length || !documentType) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 })
     }
 
+    if (!Array.isArray(filePaths)) {
+      return NextResponse.json({ success: false, error: 'filePaths must be an array' }, { status: 400 })
+    }
+
     const serviceClient = createServiceRoleClient()
 
-    // Validate token and derive agentId server-side (never trust client-provided agentId)
+    // Validate token and derive agentId server-side. Re-check expiry/used
+    // (Finding 3): the previous PUT skipped these so an attacker with any
+    // leaked KYC token, even one already used, could call PUT with arbitrary
+    // filePaths and overwrite another agent's KYC reference.
     const { data: tokenRecord, error: tokenError } = await serviceClient
       .from('kyc_upload_tokens')
-      .select('id, agent_id')
+      .select('id, agent_id, expires_at, used_at')
       .eq('token', token)
       .single()
 
     if (tokenError || !tokenRecord) {
       return NextResponse.json({ success: false, error: 'Invalid token.' })
     }
+    if (tokenRecord.used_at) {
+      return NextResponse.json({ success: false, error: 'This link has already been used.' })
+    }
+    if (new Date(tokenRecord.expires_at) < new Date()) {
+      return NextResponse.json({ success: false, error: 'This link has expired.' })
+    }
 
     // Server-derived agentId — not from client request body
     const agentId = tokenRecord.agent_id
+
+    // Validate every filePath starts with this token's agent folder. Prevents
+    // an attacker who controls the request body from pointing the KYC record
+    // at another agent's storage path (Finding 3 part c).
+    const expectedPrefix = `${agentId}/`
+    for (const p of filePaths) {
+      if (typeof p !== 'string' || !p.startsWith(expectedPrefix)) {
+        return NextResponse.json({
+          success: false,
+          error: 'File paths must belong to this token\'s agent.',
+        }, { status: 400 })
+      }
+    }
 
     // Update agent record
     const now = new Date().toISOString()

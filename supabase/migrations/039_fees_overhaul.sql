@@ -17,7 +17,7 @@ ALTER TABLE deals
   ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending'
     CHECK (payment_status IN ('pending', 'paid', 'overdue', 'not_applicable'));
 
-COMMENT ON COLUMN deals.settlement_period_fee IS '14-day settlement period fee ($0.75/$1,000/day × 14). Flat, non-refundable.';
+COMMENT ON COLUMN deals.settlement_period_fee IS 'Settlement period fee ($0.80/$1,000/day × settlement_days_at_funding). Flat, non-refundable. Settlement window snapshotted per deal at submission (default 7 days, auto-bump to 14 after 5 strikes on a brokerage).';
 COMMENT ON COLUMN deals.due_date IS 'Brokerage payment due date = closing_date + 14 calendar days';
 COMMENT ON COLUMN deals.brokerage_referral_pct IS 'Per-deal referral percentage snapshot (0-1 decimal). Copied from brokerage default at funding, can be overridden.';
 COMMENT ON COLUMN deals.balance_deducted IS 'Amount deducted from advance to pay agent outstanding balance';

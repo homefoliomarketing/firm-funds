@@ -5,10 +5,10 @@
 // anywhere else in the codebase. Import from this file.
 // =============================================================================
 
-/** Discount rate: $0.75 per $1,000 of net commission per day until closing */
-export const DISCOUNT_RATE_PER_1000_PER_DAY = 0.75
+/** Discount rate: $0.80 per $1,000 of net commission per day until closing */
+export const DISCOUNT_RATE_PER_1000_PER_DAY = 0.80
 
-/** Default brokerage referral fee: 20% of the total fees (discount fee + 14-day settlement period fee) */
+/** Default brokerage referral fee: 20% of the total fees (discount fee + settlement period fee) */
 export const DEFAULT_BROKERAGE_REFERRAL_PCT = 0.20
 
 /** Maximum daily EFT transfer amount */
@@ -17,10 +17,67 @@ export const MAX_DAILY_EFT = 25_000
 /** Additional days after closing date for return fund processing (0 = none, adjustable later) */
 export const RETURN_PROCESSING_DAYS = 0
 
-/** Settlement period: 14 calendar days after closing for brokerage to remit payment */
-export const SETTLEMENT_PERIOD_DAYS = 14
+/**
+ * Standard settlement period: 7 calendar days after closing for brokerage to remit payment.
+ * If a brokerage misses this deadline BROKERAGE_LATE_STRIKE_THRESHOLD times, their
+ * effective settlement period auto-bumps to BROKERAGE_BUMPED_SETTLEMENT_DAYS.
+ */
+export const SETTLEMENT_PERIOD_DAYS = 7
 
-/** Late payment interest rate: 24% per annum, charged daily after settlement period expires */
+/**
+ * Brokerage columns that are SAFE to expose to the brokerage's own portal and to agents.
+ * EXCLUDES the late_strike tracking columns (late_strike_count, auto_bumped_to_14_days_at,
+ * last_strike_reset_at, settlement_days_override) — those are internal Firm Funds data and
+ * should never be visible to the brokerage or its agents. Use this in any non-admin query
+ * against the `brokerages` table instead of `select('*')`.
+ */
+export const BROKERAGE_PUBLIC_COLUMNS = [
+  'id',
+  'name',
+  'brand',
+  'address',
+  'city',
+  'province',
+  'postal_code',
+  'phone',
+  'email',
+  'status',
+  'referral_fee_percentage',
+  'transaction_system',
+  'notes',
+  'broker_of_record_name',
+  'broker_of_record_email',
+  'logo_url',
+  'brand_color',
+  'bca_signed_at',
+  'is_white_label_partner',
+  'profit_share_pct',
+  'kyc_verified',
+  'kyc_verified_at',
+  'kyc_verified_by',
+  'reco_registration_number',
+  'reco_verification_date',
+  'reco_verification_notes',
+  'created_at',
+  'updated_at',
+].join(',')
+
+/** Bumped settlement period for chronically late brokerages (auto-applied after 5 strikes) */
+export const BROKERAGE_BUMPED_SETTLEMENT_DAYS = 14
+
+/** How many missed 7-day settlements trigger an auto-bump to 14-day settlement */
+export const BROKERAGE_LATE_STRIKE_THRESHOLD = 5
+
+/**
+ * Late-payment interest grace: no interest is charged on the agent's ledger
+ * until the deal is 30 days past the closing date. The 7-day settlement
+ * window is "owed but not yet penalized"; days 8-30 are a follow-up window
+ * where Firm Funds is meant to be in contact with the brokerage; day 31+
+ * accrues compound interest until cleared.
+ */
+export const LATE_INTEREST_GRACE_DAYS_FROM_CLOSING = 30
+
+/** Late payment interest rate: 24% per annum, COMPOUNDED daily, starting day 31 after closing */
 export const LATE_INTEREST_RATE_PER_ANNUM = 0.24
 
 /** Minimum days until closing for a deal to be eligible (must be ≥2: 1 day to receive funds + 1 chargeable day) */
@@ -123,6 +180,7 @@ export const STATUS_BADGE_CLASSES: Record<string, string> = {
   denied:          'bg-status-red-muted text-status-red border border-status-red-border',
   cancelled:       'bg-status-amber-muted text-status-amber border border-status-amber-border',
   failed_to_close: 'bg-status-red-muted text-status-red border border-status-red-border',
+  cured:           'bg-status-teal-muted text-status-teal border border-status-teal-border',
 }
 
 /** Helper: get Tailwind class string for a status badge */

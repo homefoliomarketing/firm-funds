@@ -167,7 +167,13 @@ export default function AgentDealDetailPage() {
     if (!user) { router.push('/login'); return }
     const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
     if (!profile || profile.role !== 'agent') { router.push('/login'); return }
-    const { data: dealData, error: dealError } = await supabase.from('deals').select('*').eq('id', dealId).single()
+    // PII allow-list: matches Deal interface visible-to-agent columns. Excludes
+    // admin_notes and admin_notes_timeline (admin's internal scratchpad).
+    const { data: dealData, error: dealError } = await supabase
+      .from('deals')
+      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at')
+      .eq('id', dealId)
+      .single()
     if (dealError || !dealData) { router.push('/agent'); return }
     if (dealData.agent_id !== profile.agent_id) { router.push('/agent'); return }
     setDeal(dealData)

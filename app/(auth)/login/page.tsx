@@ -32,6 +32,40 @@ function LoginPageInner() {
   const redirectTo = searchParams.get('redirect')
   const supabase = createClient()
 
+  // Status banners surfaced from query params that other routes set when
+  // bouncing the user back to /login (timeout, email-change confirmations,
+  // brokerage contact-email confirmations, etc). Tone: success / info /
+  // warning render differently from the destructive login error above.
+  const statusBanner = (() => {
+    const brokerageEmail = searchParams.get('brokerage_email')
+    if (brokerageEmail === 'confirmed') {
+      return { tone: 'success' as const, text: 'Brokerage contact email confirmed. Sign in to continue.' }
+    }
+    if (brokerageEmail === 'expired') {
+      return { tone: 'warning' as const, text: 'That confirmation link has expired. Request the change again from Brokerage Settings.' }
+    }
+    if (brokerageEmail === 'invalid') {
+      return { tone: 'warning' as const, text: 'That confirmation link is invalid or has already been used.' }
+    }
+    if (brokerageEmail === 'error') {
+      return { tone: 'error' as const, text: 'Something went wrong confirming the brokerage contact email. Please try again.' }
+    }
+    const emailChange = searchParams.get('email_change')
+    if (emailChange === 'confirmed') {
+      return { tone: 'success' as const, text: 'Email change confirmed. Sign in with your new email address.' }
+    }
+    if (emailChange === 'confirmed_login_required') {
+      return { tone: 'info' as const, text: 'Email change confirmed. Sign in to continue.' }
+    }
+    if (emailChange === 'failed') {
+      return { tone: 'error' as const, text: 'Email change could not be confirmed. The link may be invalid or expired.' }
+    }
+    if (searchParams.get('reason') === 'timeout') {
+      return { tone: 'info' as const, text: 'You were signed out due to inactivity.' }
+    }
+    return null
+  })()
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -184,6 +218,26 @@ function LoginPageInner() {
           <div className="h-[2px] bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
           <CardContent className="p-7 sm:p-9">
             <form onSubmit={handleLogin} className="space-y-6">
+              {statusBanner && (
+                <Alert
+                  className={
+                    statusBanner.tone === 'success'
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                      : statusBanner.tone === 'warning'
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                        : statusBanner.tone === 'error'
+                          ? 'bg-destructive/10 border-destructive/30 text-destructive'
+                          : 'bg-primary/10 border-primary/30 text-primary'
+                  }
+                >
+                  {statusBanner.tone === 'success' ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4" />
+                  )}
+                  <AlertDescription className="text-sm">{statusBanner.text}</AlertDescription>
+                </Alert>
+              )}
               {error && (
                 <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
                   <AlertCircle className="h-4 w-4" />

@@ -9,7 +9,7 @@ import {
   AlertTriangle, Shield,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
-import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import { markKycModalSeen } from '@/lib/actions/profile-actions'
 import { getAgentBalanceSummary } from '@/lib/actions/account-actions'
 import AgentKycGate from '@/components/AgentKycGate'
@@ -69,7 +69,7 @@ export default function AgentDashboard() {
       if (profile?.agent_id) {
         const { data: agentData } = await supabase
           .from('agents')
-          .select('*, brokerages(*)')
+          .select(`*, brokerages(${BROKERAGE_PUBLIC_COLUMNS})`)
           .eq('id', profile.agent_id)
           .single()
         setAgent(agentData)

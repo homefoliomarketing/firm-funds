@@ -5,14 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink } from '@/lib/actions/admin-actions'
-import { getAgentTransactions } from '@/lib/actions/account-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument } from '@/lib/actions/admin-actions'
+import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
-import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL } from '@/lib/constants'
+import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -84,6 +84,10 @@ interface Brokerage {
   brand_color: string | null
   is_white_label_partner: boolean
   profit_share_pct: number
+  late_strike_count: number
+  auto_bumped_to_14_days_at: string | null
+  last_strike_reset_at: string | null
+  settlement_days_override: number | null
   created_at: string
   updated_at: string
 }
@@ -135,6 +139,128 @@ function getLocalStatusBadgeClass(status: string): string {
     case 'archived': return 'bg-muted text-muted-foreground border border-border'
     default: return 'bg-muted text-muted-foreground border border-border'
   }
+}
+
+// ============================================================================
+// Late Settlement Strikes Section
+// ============================================================================
+
+function LateStrikeSection({ brokerage, onChange }: { brokerage: Brokerage; onChange: () => Promise<void> }) {
+  const [submitting, setSubmitting] = useState(false)
+  const [showResetUI, setShowResetUI] = useState(false)
+  const [reason, setReason] = useState('')
+  const [clearAutoBump, setClearAutoBump] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const strikeCount = brokerage.late_strike_count || 0
+  const autoBumped = !!brokerage.auto_bumped_to_14_days_at
+  const override = brokerage.settlement_days_override
+  const effectiveDays = override ?? (autoBumped ? BROKERAGE_BUMPED_SETTLEMENT_DAYS : SETTLEMENT_PERIOD_DAYS)
+  const lastReset = brokerage.last_strike_reset_at
+
+  const tone =
+    autoBumped
+      ? 'border-red-800/50 bg-red-950/15'
+      : strikeCount >= BROKERAGE_LATE_STRIKE_THRESHOLD - 2
+        ? 'border-amber-800/50 bg-amber-950/15'
+        : 'border-border/40 bg-card/60'
+
+  const handleReset = async () => {
+    setSubmitting(true)
+    setError(null)
+    const res = await resetBrokerageLateStrikes({
+      brokerageId: brokerage.id,
+      clearAutoBump,
+      reason: reason.trim(),
+    })
+    if (res.success) {
+      setShowResetUI(false)
+      setReason('')
+      await onChange()
+    } else {
+      setError(res.error || 'Failed to reset strikes')
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className={`px-6 py-4 border-b border-border/50`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Clock size={15} className="text-primary" />
+          <h4 className="text-sm font-bold text-foreground">Settlement Window</h4>
+        </div>
+        <span className="text-xs font-semibold tabular-nums text-foreground">
+          {effectiveDays} days
+          {autoBumped && <span className="ml-1.5 text-[10px] uppercase tracking-wider text-red-300/80">auto-bumped</span>}
+          {override != null && override > 0 && <span className="ml-1.5 text-[10px] uppercase tracking-wider text-blue-300/80">override</span>}
+        </span>
+      </div>
+      <div className={`rounded-lg border p-3 ${tone}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-semibold">Late strikes</p>
+            <p className="text-base font-bold tabular-nums text-foreground">
+              {strikeCount} / {BROKERAGE_LATE_STRIKE_THRESHOLD}
+              <span className="ml-2 text-[11px] font-normal text-muted-foreground/70">
+                {strikeCount >= BROKERAGE_LATE_STRIKE_THRESHOLD
+                  ? 'auto-bump triggered'
+                  : `${BROKERAGE_LATE_STRIKE_THRESHOLD - strikeCount} more before auto-bump`}
+              </span>
+            </p>
+            {lastReset && (
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                Last reset {new Date(lastReset).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => { setShowResetUI(v => !v); setError(null) }}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-border/50 hover:border-primary/40 hover:text-primary transition"
+            disabled={strikeCount === 0 && !autoBumped}
+          >
+            {showResetUI ? 'Cancel' : 'Reset strikes'}
+          </button>
+        </div>
+
+        {showResetUI && (
+          <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Reason (required, audit-logged)</label>
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Brokerage explained Aug payment delay; one-time"
+              className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-input text-foreground focus:outline-none focus:border-primary"
+            />
+            {autoBumped && (
+              <label className="flex items-center gap-2 text-xs text-foreground select-none cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={clearAutoBump}
+                  onChange={(e) => setClearAutoBump(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-border/60 bg-input text-primary"
+                />
+                Also clear the auto-bump (return to {SETTLEMENT_PERIOD_DAYS}-day settlement on new deals)
+              </label>
+            )}
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleReset}
+                disabled={submitting || !reason.trim()}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition"
+              >
+                {submitting ? 'Resetting…' : 'Confirm reset'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ============================================================================
@@ -373,6 +499,83 @@ export default function BrokeragesPage() {
   const [brokerageLoginForm, setBrokerageLoginForm] = useState({ fullName: '', email: '' })
   const [creatingBrokerageLogin, setCreatingBrokerageLogin] = useState(false)
   const [resendingSetupLink, setResendingSetupLink] = useState<string | null>(null)
+
+  // Balance adjustment modal (Firm Funds admin posts a credit or charge to an
+  // agent's ledger). idempotencyKey is generated once when the modal opens
+  // and re-sent on retries so a double-click or quick re-submit doesn't
+  // double-post the same adjustment.
+  const [adjustBalanceForAgentId, setAdjustBalanceForAgentId] = useState<string | null>(null)
+  const [adjustDirection, setAdjustDirection] = useState<'credit' | 'charge'>('credit')
+  const [adjustAmount, setAdjustAmount] = useState('')
+  const [adjustDescription, setAdjustDescription] = useState('')
+  const [adjustIdempotencyKey, setAdjustIdempotencyKey] = useState<string>('')
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false)
+  const [adjustError, setAdjustError] = useState<string | null>(null)
+
+  const openAdjustBalanceModal = (agentId: string) => {
+    setAdjustBalanceForAgentId(agentId)
+    setAdjustDirection('credit')
+    setAdjustAmount('')
+    setAdjustDescription('')
+    setAdjustError(null)
+    setAdjustIdempotencyKey(typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  }
+
+  const closeAdjustBalanceModal = () => {
+    setAdjustBalanceForAgentId(null)
+    setAdjustError(null)
+  }
+
+  const submitBalanceAdjustment = async () => {
+    if (!adjustBalanceForAgentId) return
+    const parsed = parseFloat(adjustAmount)
+    if (!isFinite(parsed) || parsed <= 0) {
+      setAdjustError('Enter a positive dollar amount.')
+      return
+    }
+    if (!adjustDescription.trim()) {
+      setAdjustError('Description is required so this adjustment is explainable later.')
+      return
+    }
+
+    setAdjustSubmitting(true)
+    setAdjustError(null)
+    try {
+      // Credit reduces what the agent owes (negative delta). Charge increases
+      // it (positive delta). The server-side ledger expects the signed value.
+      const signedAmount = adjustDirection === 'credit' ? -parsed : parsed
+      const result = await adjustAgentBalance({
+        agentId: adjustBalanceForAgentId,
+        amount: signedAmount,
+        description: adjustDescription.trim(),
+        idempotencyKey: adjustIdempotencyKey,
+      })
+      if (!result.success) {
+        setAdjustError(result.error || 'Failed to post adjustment.')
+        return
+      }
+      // Refresh transactions + balance for this agent.
+      const txnResult = await getAgentTransactions(adjustBalanceForAgentId)
+      if (txnResult.success && txnResult.data) {
+        setAgentTransactions(prev => ({ ...prev, [adjustBalanceForAgentId]: txnResult.data || [] }))
+      }
+      const newBalance = (result.data as any)?.newBalance
+      if (typeof newBalance === 'number') {
+        setBrokerages(prev => prev.map(b => ({
+          ...b,
+          agents: b.agents?.map(a => a.id === adjustBalanceForAgentId ? { ...a, account_balance: newBalance } : a),
+        })))
+      }
+      closeAdjustBalanceModal()
+    } catch (err: any) {
+      setAdjustError(err?.message || 'An unexpected error occurred.')
+    } finally {
+      setAdjustSubmitting(false)
+    }
+  }
+
   const kycPanelWidth = 520
   const closeKycPanel = () => {
     if (kycPreviewPanel) {
@@ -416,9 +619,13 @@ export default function BrokeragesPage() {
   }, [loading, brokerages.length])
 
   async function loadBrokerages() {
+    // audit finding #16: hide soft-deleted brokerages and agents from the
+    // default admin list. Recovery happens via a separate restore flow.
     const { data, error } = await supabase
       .from('brokerages')
       .select('*, agents(*)')
+      .is('deleted_at', null)
+      .is('agents.deleted_at', null)
       .order('name')
       .order('last_name', { referencedTable: 'agents', ascending: true })
 
@@ -785,18 +992,17 @@ export default function BrokeragesPage() {
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { setStatusMessage({ type: 'error', text: 'File must be under 10MB' }); return }
     setUploadingBrokerageDoc(true)
-    const filePath = `brokerages/${brokerageId}/${Date.now()}_${file.name}`
-    const { error: uploadErr } = await supabase.storage.from('deal-documents').upload(filePath, file)
-    if (uploadErr) { setStatusMessage({ type: 'error', text: `Upload failed: ${uploadErr.message}` }); setUploadingBrokerageDoc(false); return }
-    const { error: dbErr } = await supabase.from('brokerage_documents').insert({
-      brokerage_id: brokerageId,
-      document_type: docType,
-      file_name: file.name,
-      file_path: filePath,
-      file_size: file.size,
-      uploaded_by: user?.id,
-    })
-    if (dbErr) { setStatusMessage({ type: 'error', text: `Failed to save record: ${dbErr.message}` }); setUploadingBrokerageDoc(false); return }
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('brokerageId', brokerageId)
+    formData.append('documentType', docType)
+    const result = await uploadBrokerageDocument(formData)
+    if (!result.success) {
+      setStatusMessage({ type: 'error', text: result.error || 'Upload failed' })
+      setUploadingBrokerageDoc(false)
+      e.target.value = ''
+      return
+    }
     setStatusMessage({ type: 'success', text: `${file.name} uploaded` })
     await loadBrokerageDocs(brokerageId)
     setUploadingBrokerageDoc(false)
@@ -805,8 +1011,11 @@ export default function BrokeragesPage() {
 
   const handleBrokerageDocDelete = async (doc: { id: string; file_path: string; file_name: string }, brokerageId: string) => {
     if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
-    await supabase.storage.from('deal-documents').remove([doc.file_path])
-    await supabase.from('brokerage_documents').delete().eq('id', doc.id)
+    const result = await deleteBrokerageDocument({ documentId: doc.id })
+    if (!result.success) {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to delete document' })
+      return
+    }
     setStatusMessage({ type: 'success', text: 'Document deleted' })
     await loadBrokerageDocs(brokerageId)
   }
@@ -1448,7 +1657,7 @@ export default function BrokeragesPage() {
                             <div>
                               <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
                               <p className="text-xs text-muted-foreground mt-1">
-                                The brokerage&apos;s negotiated share of the advance fees (discount + 14-day settlement period). Submits deals on behalf of its agents.
+                                The brokerage&apos;s negotiated share of the advance fees (discount + settlement period). Submits deals on behalf of its agents.
                               </p>
                             </div>
                             <div className="pt-2 border-t border-border/40">
@@ -1635,6 +1844,9 @@ export default function BrokeragesPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Settlement Window + Late Strikes */}
+                      <LateStrikeSection brokerage={brokerage} onChange={loadBrokerages} />
 
                       {/* Brokerage Cooperation Agreement (BCA) */}
                       <BcaStatusSection brokerage={brokerage} />
@@ -2667,16 +2879,25 @@ export default function BrokeragesPage() {
                                               </div>
 
                                               {/* Account Balance & Transactions */}
-                                              {((agent.account_balance || 0) > 0 || (agentTransactions[agent.id]?.length ?? 0) > 0) && (
-                                                <div className="mb-5 p-3 rounded-lg bg-muted/20 border border-border">
+                                              <div className="mb-5 p-3 rounded-lg bg-muted/20 border border-border">
                                                   <div className="flex items-center justify-between mb-2">
                                                     <h4 className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
                                                       <DollarSign size={13} className="text-status-amber" />
                                                       Account Balance
                                                     </h4>
-                                                    <span className={`text-sm font-bold tabular-nums ${(agent.account_balance || 0) > 0 ? 'text-status-amber' : 'text-status-teal'}`}>
-                                                      {formatCurrency(agent.account_balance || 0)}
-                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className={`text-sm font-bold tabular-nums ${(agent.account_balance || 0) > 0 ? 'text-status-amber' : 'text-status-teal'}`}>
+                                                        {formatCurrency(agent.account_balance || 0)}
+                                                      </span>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => openAdjustBalanceModal(agent.id)}
+                                                        className="px-2 py-1 rounded text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-border/50 transition-colors"
+                                                        aria-label={`Adjust balance for ${agent.first_name} ${agent.last_name}`}
+                                                      >
+                                                        Adjust
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                   {(agentTransactions[agent.id]?.length ?? 0) > 0 && (
                                                     <div className="space-y-1.5">
@@ -2705,7 +2926,6 @@ export default function BrokeragesPage() {
                                                     </div>
                                                   )}
                                                 </div>
-                                              )}
 
                                               <h4 className="text-xs font-semibold mb-3 text-foreground">Deal History</h4>
                                               {(agentDeals[agent.id]?.length ?? 0) === 0 ? (
@@ -2911,6 +3131,103 @@ export default function BrokeragesPage() {
             ) : (
               <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 52px)' }} />
             )}
+          </div>
+        </div>
+      )}
+      {/* Balance Adjustment Modal */}
+      {adjustBalanceForAgentId && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={closeAdjustBalanceModal}>
+          <div className="relative w-full max-w-md mx-4 bg-card rounded-xl overflow-hidden border border-border/50" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <DollarSign size={14} className="text-status-amber" />
+                Adjust Agent Balance
+              </h3>
+              <button onClick={closeAdjustBalanceModal} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Direction</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustDirection('credit')}
+                    aria-pressed={adjustDirection === 'credit'}
+                    className={`px-3 py-2 rounded text-xs font-medium border transition-colors ${
+                      adjustDirection === 'credit'
+                        ? 'bg-status-teal/20 border-status-teal text-status-teal'
+                        : 'bg-muted/20 border-border/50 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Credit (reduce balance)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustDirection('charge')}
+                    aria-pressed={adjustDirection === 'charge'}
+                    className={`px-3 py-2 rounded text-xs font-medium border transition-colors ${
+                      adjustDirection === 'charge'
+                        ? 'bg-status-amber/20 border-status-amber text-status-amber'
+                        : 'bg-muted/20 border-border/50 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Charge (increase balance)
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="adjust-amount" className="block text-xs font-medium text-muted-foreground mb-1.5">Amount (CAD)</label>
+                <Input
+                  id="adjust-amount"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  step="0.01"
+                  value={adjustAmount}
+                  onChange={(e) => setAdjustAmount(e.target.value)}
+                  placeholder="0.00"
+                  disabled={adjustSubmitting}
+                />
+              </div>
+              <div>
+                <label htmlFor="adjust-description" className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
+                <textarea
+                  id="adjust-description"
+                  value={adjustDescription}
+                  onChange={(e) => setAdjustDescription(e.target.value)}
+                  placeholder="Reason for this adjustment (required, audit-logged)"
+                  disabled={adjustSubmitting}
+                  rows={3}
+                  className="w-full px-3 py-2 text-xs bg-muted/30 border border-border/50 rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-status-amber"
+                />
+              </div>
+              {adjustError && (
+                <div className="px-3 py-2 rounded text-xs bg-destructive/15 border border-destructive/30 text-destructive">
+                  {adjustError}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={closeAdjustBalanceModal}
+                  disabled={adjustSubmitting}
+                  className="px-3 py-1.5 rounded text-xs font-medium text-muted-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitBalanceAdjustment}
+                  disabled={adjustSubmitting || !adjustAmount || !adjustDescription.trim()}
+                  className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-status-amber hover:bg-status-amber/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {adjustSubmitting ? 'Posting...' : `Post ${adjustDirection === 'credit' ? 'Credit' : 'Charge'}`}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

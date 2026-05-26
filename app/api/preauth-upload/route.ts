@@ -87,6 +87,13 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: 'Missing file path' }, { status: 400 })
     }
 
+    // Validate filePath starts with this agent's folder. Prevents an
+    // authenticated agent from pointing their preauth record at another
+    // agent's storage path (Finding 13).
+    if (typeof filePath !== 'string' || !filePath.startsWith(`${profile.agent_id}/`)) {
+      return NextResponse.json({ error: 'Invalid file path' }, { status: 400 })
+    }
+
     const serviceClient = createServiceRoleClient()
     const now = new Date().toISOString()
 

@@ -1,11 +1,10 @@
 'use server'
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { calculateDeal } from '@/lib/calculations'
+import { calculateDeal, effectiveSettlementDays } from '@/lib/calculations'
 import { DealSubmissionSchema, DealStatusChangeSchema } from '@/lib/validations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
-  SETTLEMENT_PERIOD_DAYS,
   MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
   MAX_UPLOAD_SIZE_BYTES,
@@ -62,7 +61,7 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
     // Look up the agent's brokerage and account balance
     const { data: agentData } = await supabase
       .from('agents')
-      .select('brokerage_id, account_balance, brokerages(referral_fee_percentage)')
+      .select('brokerage_id, account_balance, brokerages(referral_fee_percentage, settlement_days_override, auto_bumped_to_14_days_at)')
       .eq('id', input.agentId)
       .single()
 
@@ -73,12 +72,15 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
       return { success: false, error: 'Brokerage referral fee not configured. Please contact support.' }
     }
 
+    const settlementDays = effectiveSettlementDays(brokerage)
+
     const result = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     // Check if agent has outstanding balance that will be deducted at funding
@@ -95,6 +97,7 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
         brokerageReferralPct: referralPct,
         outstandingBalance,
         estimatedBalanceDeduction,
+        settlementPeriodDays: settlementDays,
       },
     }
   } catch (err: any) {
@@ -162,6 +165,8 @@ export async function submitDeal(formData: {
     // Calculate days until closing (Eastern Time)
     const daysUntilClosing = calcDaysUntilClosing(formData.closingDate)
 
+    const settlementDays = effectiveSettlementDays(brokerage)
+
     // Server-side financial calculations using the shared library
     const calc = calculateDeal({
       grossCommission: formData.grossCommission,
@@ -169,6 +174,7 @@ export async function submitDeal(formData: {
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     if (calc.advanceAmount <= 0) {
@@ -178,7 +184,10 @@ export async function submitDeal(formData: {
     // Build notes with transaction type
     const noteText = `Transaction type: ${formData.transactionType}${formData.notes?.trim() ? '\n' + formData.notes.trim() : ''}`
 
-    // Insert the deal with server-calculated values
+    // Insert the deal with server-calculated values. Lock the settlement
+    // window at submission so the CPA the agent signs and the system's
+    // enforcement can never diverge if the brokerage's effective window
+    // changes later (e.g., a 5th strike auto-bumps them mid-flight).
     const { data: newDeal, error: insertError } = await supabase
       .from('deals')
       .insert({
@@ -193,6 +202,7 @@ export async function submitDeal(formData: {
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
         settlement_period_fee: calc.settlementPeriodFee,
+        settlement_days_at_funding: settlementDays,
         advance_amount: calc.advanceAmount,
         brokerage_referral_fee: calc.brokerageReferralFee,
         brokerage_referral_pct: referralPct,
@@ -285,7 +295,7 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
 
     const { data: agentData } = await supabase
       .from('agents')
-      .select('brokerage_id, account_balance, account_activated_at, brokerages(referral_fee_percentage)')
+      .select('brokerage_id, account_balance, account_activated_at, brokerages(referral_fee_percentage, settlement_days_override, auto_bumped_to_14_days_at)')
       .eq('id', input.agentId)
       .single()
 
@@ -300,12 +310,15 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
       return { success: false, error: 'Brokerage referral fee not configured.' }
     }
 
+    const settlementDays = effectiveSettlementDays(brokerage)
+
     const result = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     const outstandingBalance = agentData.account_balance || 0
@@ -321,6 +334,7 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
         brokerageReferralPct: referralPct,
         outstandingBalance,
         estimatedBalanceDeduction,
+        settlementPeriodDays: settlementDays,
         agentActivated: !!agentData.account_activated_at,
       },
     }
@@ -384,12 +398,14 @@ export async function submitDealAsBrokerage(formData: {
     }
 
     const daysUntilClosing = calcDaysUntilClosing(formData.closingDate)
+    const settlementDays = effectiveSettlementDays(brokerage)
     const calc = calculateDeal({
       grossCommission: formData.grossCommission,
       brokerageSplitPct: formData.brokerageSplitPct,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
     if (calc.advanceAmount <= 0) {
       return { success: false, error: 'The discount fee exceeds the net commission. This deal cannot be advanced.' }
@@ -400,6 +416,8 @@ export async function submitDealAsBrokerage(formData: {
     // Use service-role client for the INSERT — there is no RLS policy allowing
     // brokerage_admin role to write to `deals`. Auth + ownership checks above
     // already gate this path; we trust the verified inputs.
+    // Lock the settlement window at submission so the CPA the agent signs and
+    // the system's enforcement can never diverge later.
     const adminSupabase = createServiceRoleClient()
     const { data: newDeal, error: insertError } = await adminSupabase
       .from('deals')
@@ -415,6 +433,7 @@ export async function submitDealAsBrokerage(formData: {
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
         settlement_period_fee: calc.settlementPeriodFee,
+        settlement_days_at_funding: settlementDays,
         advance_amount: calc.advanceAmount,
         brokerage_referral_fee: calc.brokerageReferralFee,
         brokerage_referral_pct: referralPct,
@@ -562,17 +581,24 @@ export async function updateDealStatus(input: {
       updateData.payment_status = 'not_applicable'
     }
 
+    // Funding-only: precomputed payload for the post-CAS balance delta. We
+    // build all data here but defer the apply_agent_balance_delta call until
+    // after we have exclusively claimed the deal via the CAS update below.
+    // see audit finding #5
+    let pendingFundingDeduction: { agentId: string; amount: number; description: string } | null = null
+
     if (input.newStatus === 'funded') {
       updateData.funding_date = new Date().toISOString().split('T')[0]
 
       // Recalculate financials server-side using actual days from today (Eastern Time) to closing
       const actualDays = Math.max(1, calcDaysUntilClosing(deal.closing_date))
 
-      // Fetch brokerage incl. profit_share_pct (every onboarded brokerage is white-label;
-      // profit_share_pct == 0 means no profit-share arrangement)
+      // Fetch brokerage incl. profit_share_pct and settlement override columns.
+      // Every onboarded brokerage is white-label; profit_share_pct == 0 means
+      // no profit-share arrangement.
       const { data: brokerage } = await supabase
         .from('brokerages')
-        .select('referral_fee_percentage, profit_share_pct')
+        .select('referral_fee_percentage, profit_share_pct, settlement_days_override, auto_bumped_to_14_days_at')
         .eq('id', deal.brokerage_id)
         .single()
 
@@ -588,12 +614,19 @@ export async function updateDealStatus(input: {
         return { success: false, error: 'Brokerage referral fee percentage is not configured. Cannot fund deal.' }
       }
 
+      // Settlement window: prefer the snapshot taken at submission so the
+      // CPA the agent signed and the system enforcement stay consistent
+      // even if the brokerage's effective window changed between submission
+      // and funding (e.g., they hit strike #5 on a different deal).
+      const settlementDays = deal.settlement_days_at_funding ?? effectiveSettlementDays(brokerage)
+
       const calc = calculateDeal({
         grossCommission: deal.gross_commission,
         brokerageSplitPct: deal.brokerage_split_pct,
         daysUntilClosing: actualDays,
         discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
         brokerageReferralPct: referralPct,
+        settlementPeriodDays: settlementDays,
       })
 
       // Snapshot the profit share (whole pct) at funding so historical deals are
@@ -602,9 +635,12 @@ export async function updateDealStatus(input: {
         updateData.broker_share_pct_at_funding = profitSharePct
       }
 
-      // Calculate due date: closing + 14 calendar days
+      // Due date = closing + the brokerage's effective settlement window
+      // (7 standard, 14 if auto-bumped or overridden). Snapshot the days
+      // used onto the deal row so the value is stable for the life of the
+      // deal even if the brokerage's effective days later change.
       const closingDate = new Date(deal.closing_date + 'T00:00:00Z')
-      const dueDate = new Date(closingDate.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+      const dueDate = new Date(closingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
       const dueDateStr = dueDate.toISOString().split('T')[0]
 
       updateData.days_until_closing = actualDays
@@ -615,9 +651,10 @@ export async function updateDealStatus(input: {
       updateData.brokerage_referral_pct = referralPct
       updateData.amount_due_from_brokerage = calc.amountDueFromBrokerage
       updateData.due_date = dueDateStr
+      updateData.settlement_days_at_funding = settlementDays
       updateData.payment_status = 'pending'
 
-      // Balance deduction: if agent owes money, deduct from advance
+      // Defer the balance deduction until after the CAS update wins.
       const { data: agentForBalance } = await supabase
         .from('agents')
         .select('id, account_balance')
@@ -627,28 +664,12 @@ export async function updateDealStatus(input: {
       const outstandingBalance = agentForBalance?.account_balance || 0
       if (outstandingBalance > 0 && calc.advanceAmount > 0) {
         const deductAmount = Math.min(outstandingBalance, calc.advanceAmount)
-        const newBalance = outstandingBalance - deductAmount
-
-        // Update agent balance
-        await supabase
-          .from('agents')
-          .update({ account_balance: newBalance })
-          .eq('id', deal.agent_id)
-
-        // Record deduction in ledger
-        await supabase
-          .from('agent_transactions')
-          .insert({
-            agent_id: deal.agent_id,
-            deal_id: deal.id,
-            type: 'balance_deduction',
-            amount: -deductAmount,
-            running_balance: newBalance,
-            description: `Balance deduction from advance — ${deal.property_address}`,
-            created_by: user.id,
-          })
-
         updateData.balance_deducted = deductAmount
+        pendingFundingDeduction = {
+          agentId: deal.agent_id,
+          amount: deductAmount,
+          description: `Balance deduction from advance — ${deal.property_address}`,
+        }
       }
     }
 
@@ -669,6 +690,15 @@ export async function updateDealStatus(input: {
       }
     }
 
+    // Reverse balance deduction when reverting a funded deal back to approved
+    // so a subsequent re-funding doesn't deduct twice. see audit finding #19
+    const prevBalanceDeducted = Number(deal.balance_deducted || 0)
+    const isFundedToApprovedReversal =
+      deal.status === 'funded' && input.newStatus === 'approved' && prevBalanceDeducted > 0
+    if (isFundedToApprovedReversal) {
+      updateData.balance_deducted = 0
+    }
+
     // Execute update with optimistic lock: only update if status hasn't changed
     // This prevents two admins from simultaneously funding/approving the same deal
     const { data: updatedRows, error: updateError } = await supabase
@@ -685,6 +715,75 @@ export async function updateDealStatus(input: {
 
     if (!updatedRows || updatedRows.length === 0) {
       return { success: false, error: 'Deal status was changed by another user. Please refresh and try again.' }
+    }
+
+    // see audit finding #5: only this caller has claimed the deal; safe to debit now.
+    // RPC requires service role (migration 072 locked apply_agent_balance_delta to service_role).
+    const rpcClient = (pendingFundingDeduction || isFundedToApprovedReversal)
+      ? createServiceRoleClient()
+      : null
+    if (pendingFundingDeduction && rpcClient) {
+      const { error: rpcErr } = await rpcClient
+        .rpc('apply_agent_balance_delta', {
+          p_agent_id: pendingFundingDeduction.agentId,
+          p_delta: -pendingFundingDeduction.amount,
+          p_type: 'balance_deduction',
+          p_description: pendingFundingDeduction.description,
+          p_deal_id: deal.id,
+          p_created_by: user.id,
+        })
+      if (rpcErr) {
+        const { error: revertErr } = await supabase
+          .from('deals')
+          .update({
+            status: deal.status,
+            funding_date: null,
+            balance_deducted: 0,
+            payment_status: deal.payment_status,
+          })
+          .eq('id', deal.id)
+          .eq('status', 'funded')
+        if (revertErr) {
+          console.error('CRITICAL: funding balance debit failed AND status revert failed:', revertErr.message)
+        }
+        return { success: false, error: `Failed to deduct balance: ${rpcErr.message}` }
+      }
+    }
+
+    // see audit finding #19: refund the previously deducted balance now that
+    // the CAS demoted funded back to approved.
+    if (isFundedToApprovedReversal && rpcClient) {
+      const { error: refundErr } = await rpcClient
+        .rpc('apply_agent_balance_delta', {
+          p_agent_id: deal.agent_id,
+          p_delta: prevBalanceDeducted,
+          p_type: 'credit',
+          p_description: `Reversal of balance deduction for ${deal.property_address} (funded reverted to approved)`,
+          p_deal_id: deal.id,
+          p_created_by: user.id,
+        })
+      if (refundErr) {
+        const { error: revertErr } = await supabase
+          .from('deals')
+          .update({ status: 'funded', balance_deducted: prevBalanceDeducted })
+          .eq('id', deal.id)
+          .eq('status', 'approved')
+        if (revertErr) {
+          console.error('CRITICAL: balance refund failed AND status revert failed:', revertErr.message)
+        }
+        return { success: false, error: `Failed to refund balance deduction: ${refundErr.message}` }
+      }
+
+      await logAuditEvent({
+        action: 'deal.balance_deduction_reversed',
+        entityType: 'deal',
+        entityId: deal.id,
+        metadata: {
+          agent_id: deal.agent_id,
+          refunded_amount: prevBalanceDeducted,
+          reason: 'funded reverted to approved',
+        },
+      })
     }
 
     // Audit log
@@ -726,14 +825,14 @@ export async function updateDealStatus(input: {
     try {
       const { data: brokerageInfo } = await supabase
         .from('brokerages')
-        .select('name, contact_email')
+        .select('name, email')
         .eq('id', deal.brokerage_id)
         .single()
 
-      if (brokerageInfo?.contact_email) {
+      if (brokerageInfo?.email) {
         const { sendBrokerageStatusNotification } = await import('@/lib/email')
         sendBrokerageStatusNotification({
-          brokerageEmail: brokerageInfo.contact_email,
+          brokerageEmail: brokerageInfo.email,
           brokerageName: brokerageInfo.name,
           propertyAddress: deal.property_address,
           agentName: agentInfo ? `${agentInfo.first_name} ${agentInfo.last_name}` : 'Agent',
@@ -925,10 +1024,11 @@ export async function deleteDocument(input: {
   if (authErr) return { success: false, error: authErr }
 
   try {
-    // Delete from storage
-    await supabase.storage.from('deal-documents').remove([input.filePath])
-
-    // Delete metadata from DB
+    // Delete DB row FIRST, then storage file. If storage delete fails we have
+    // an orphaned file (recoverable via storage admin) instead of an orphan
+    // DB pointer to a missing file (which surfaces as a broken download for
+    // the user). Original order was reversed and would silently leave the
+    // metadata row pointing at a missing object when the DB delete failed.
     const { error: dbError } = await supabase
       .from('deal_documents')
       .delete()
@@ -939,12 +1039,19 @@ export async function deleteDocument(input: {
       return { success: false, error: 'Failed to delete document record' }
     }
 
+    const { error: storageError } = await supabase.storage.from('deal-documents').remove([input.filePath])
+    if (storageError) {
+      console.error('Document storage delete error (DB row already removed):', storageError.message)
+      // Best-effort: DB row is gone, the orphaned storage object is leaked
+      // but not user-facing. Don't fail the request.
+    }
+
     // Audit log
     await logAuditEvent({
       action: 'document.delete',
       entityType: 'document',
       entityId: input.documentId,
-      metadata: { file_path: input.filePath },
+      metadata: { file_path: input.filePath, storage_orphaned: Boolean(storageError) },
     })
 
     return { success: true }
@@ -989,6 +1096,12 @@ export async function getDocumentSignedUrl(input: {
       }
     }
     // super_admin and firm_funds_admin can access all deals
+
+    // see audit finding #11: storage paths are scoped by deal id; reject any
+    // request asking for a path that doesn't belong to the authorized deal.
+    if (!input.filePath.startsWith(input.dealId + '/')) {
+      return { success: false, error: 'File path does not belong to the requested deal' }
+    }
 
     // Use service role client to bypass RLS/storage policies
     const { createServiceRoleClient } = await import('@/lib/supabase/server')
@@ -1329,14 +1442,19 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
     const adminClient = createServiceRoleClient()
 
     if (deal.status === 'under_review') {
-      // Under review = hasn't been touched yet — delete it entirely
-      // Clean up related records first
+      // Under review = hasn't been touched yet — delete it entirely.
+      // CAPTURE storage paths BEFORE deleting the deal_documents rows.
+      // Previously the storage query ran AFTER the DELETE, returning zero
+      // rows and leaking the files in storage (which the migration 053
+      // bucket-policy tightening makes less dangerous, but still wasteful).
+      const { data: docs } = await adminClient.from('deal_documents').select('file_path').eq('deal_id', input.dealId)
+
+      // Now delete metadata rows
       await adminClient.from('document_requests').delete().eq('deal_id', input.dealId)
       await adminClient.from('deal_documents').delete().eq('deal_id', input.dealId)
       await adminClient.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
 
-      // Delete any uploaded files from storage
-      const { data: docs } = await adminClient.from('deal_documents').select('file_path').eq('deal_id', input.dealId)
+      // Then storage files (with the paths we captured above)
       if (docs && docs.length > 0) {
         await adminClient.storage.from('deal-documents').remove(docs.map(d => d.file_path))
       }
@@ -1390,33 +1508,83 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
 }
 
 // ============================================================================
-// Server Action: Delete deal (admin only — TEMPORARY for testing)
+// Server Action: Delete deal (admin only)
+// ============================================================================
+// Allowed only for non-financial statuses (under_review / cancelled / denied).
+// The DB trigger prevent_financial_deal_delete (migration 048) backstops this
+// in case the action guard is ever bypassed.
 // ============================================================================
 
+const DELETABLE_DEAL_STATUSES = ['under_review', 'cancelled', 'denied'] as const
+
 export async function deleteDeal(input: { dealId: string }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  // Mutations use the service-role client so we don't depend on admin RLS
+  // permitting DELETE on closing_date_amendments / deal_documents (migration
+  // 056 removed those). Authorization was already proven above.
+  const serviceClient = createServiceRoleClient()
+
   try {
-    // 1. Get all documents for this deal to clean up storage
-    const { data: docs } = await supabase
+    // 1. Verify deal is in a deletable status
+    const { data: deal, error: fetchErr } = await serviceClient
+      .from('deals')
+      .select('id, status, property_address')
+      .eq('id', input.dealId)
+      .single()
+
+    if (fetchErr || !deal) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    if (!DELETABLE_DEAL_STATUSES.includes(deal.status as typeof DELETABLE_DEAL_STATUSES[number])) {
+      return {
+        success: false,
+        error: `Cannot delete deal in status "${deal.status}". Only under_review, cancelled, or denied deals can be deleted.`,
+      }
+    }
+
+    // 2. Get storage paths for cleanup
+    const { data: docs } = await serviceClient
       .from('deal_documents')
       .select('file_path')
       .eq('deal_id', input.dealId)
 
-    // 2. Delete files from storage
+    // 3. Clean up RESTRICT-protected child records first (envelopes, amendments).
+    //    These are never expected on a deletable-status deal, but if they exist
+    //    they must be removed explicitly because their FKs are ON DELETE RESTRICT
+    //    (migration 049). remediation_deals is not cleaned up here: if one exists
+    //    against a deletable deal something is wrong; refuse the delete.
+    const { count: remediationCount } = await serviceClient
+      .from('remediation_deals')
+      .select('id', { count: 'exact', head: true })
+      .eq('failed_deal_id', input.dealId)
+
+    if ((remediationCount ?? 0) > 0) {
+      return {
+        success: false,
+        error: 'Deal has remediation_deals attached. Investigate before deleting.',
+      }
+    }
+
+    await serviceClient.from('esignature_envelopes').delete().eq('deal_id', input.dealId)
+    await serviceClient.from('closing_date_amendments').delete().eq('deal_id', input.dealId)
+
+    // 4. Cascading children (deal_documents, underwriting_checklist) will be
+    //    handled by ON DELETE CASCADE, but clear deal_documents first so we can
+    //    remove the storage files (DB row before storage avoids orphan refs).
+    await serviceClient.from('deal_documents').delete().eq('deal_id', input.dealId)
+    await serviceClient.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
+
     if (docs && docs.length > 0) {
-      await supabase.storage
+      await serviceClient.storage
         .from('deal-documents')
         .remove(docs.map(d => d.file_path))
     }
 
-    // 3. Delete related records (order matters for FK constraints)
-    await supabase.from('deal_documents').delete().eq('deal_id', input.dealId)
-    await supabase.from('underwriting_checklist').delete().eq('deal_id', input.dealId)
-
-    // 4. Delete the deal itself
-    const { error: deleteError } = await supabase
+    // 5. Delete the deal itself
+    const { error: deleteError } = await serviceClient
       .from('deals')
       .delete()
       .eq('id', input.dealId)
@@ -1430,7 +1598,11 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
       action: 'deal.delete',
       entityType: 'deal',
       entityId: input.dealId,
-      metadata: { deleted_by: user.id, note: 'Temporary testing feature' },
+      metadata: {
+        deleted_by: user.id,
+        prior_status: deal.status,
+        property_address: deal.property_address,
+      },
     })
 
     return { success: true }
@@ -1658,26 +1830,13 @@ export async function saveAdminNotes(input: { dealId: string; adminNotes: string
 // ============================================================================
 
 export async function addAdminNote(input: { dealId: string; note: string }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   const noteText = input.note.trim()
   if (!noteText) return { success: false, error: 'Note cannot be empty' }
 
   try {
-    // Fetch current timeline
-    const { data: deal, error: fetchError } = await supabase
-      .from('deals')
-      .select('admin_notes_timeline')
-      .eq('id', input.dealId)
-      .single()
-
-    if (fetchError) {
-      return { success: false, error: `Failed to fetch deal: ${fetchError.message}` }
-    }
-
-    const timeline = Array.isArray(deal?.admin_notes_timeline) ? deal.admin_notes_timeline : []
-
     const newEntry = {
       id: crypto.randomUUID(),
       text: noteText,
@@ -1686,16 +1845,21 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
       created_at: new Date().toISOString(),
     }
 
-    timeline.push(newEntry)
+    // Atomic append via migration 077 RPC. Replaces the previous
+    // read-modify-write which lost notes when two admins commented at
+    // the same time. The RPC runs a single UPDATE using jsonb
+    // concatenation against the live row, so row-level locking
+    // serializes concurrent appenders and both notes survive.
+    const serviceClient = createServiceRoleClient()
+    const { data: timeline, error: rpcError } = await serviceClient
+      .rpc('append_admin_note', {
+        p_deal_id: input.dealId,
+        p_entry: newEntry,
+      })
 
-    const { error: updateError } = await supabase
-      .from('deals')
-      .update({ admin_notes_timeline: timeline })
-      .eq('id', input.dealId)
-
-    if (updateError) {
-      console.error('Admin note add error:', updateError.message)
-      return { success: false, error: `Failed to add note: ${updateError.message}` }
+    if (rpcError) {
+      console.error('Admin note add error:', rpcError.message)
+      return { success: false, error: `Failed to add note: ${rpcError.message}` }
     }
 
     await logAuditEvent({
@@ -1705,7 +1869,7 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
       metadata: { author: profile.full_name, note_preview: noteText.substring(0, 100) },
     })
 
-    return { success: true, data: { timeline, newEntry } }
+    return { success: true, data: { timeline: timeline ?? [], newEntry } }
   } catch (err: any) {
     console.error('Admin note add error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
@@ -1727,7 +1891,7 @@ export async function updateClosingDate(input: {
     // Fetch the deal
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('*, brokerages(referral_fee_percentage)')
+      .select('*, brokerages(referral_fee_percentage, settlement_days_override, auto_bumped_to_14_days_at)')
       .eq('id', input.dealId)
       .single()
 
@@ -1745,6 +1909,11 @@ export async function updateClosingDate(input: {
       return { success: false, error: 'Brokerage referral fee not configured' }
     }
 
+    // Use the snapshotted settlement window if the deal has already been funded;
+    // otherwise compute from the brokerage's current effective settings.
+    const settlementDays = deal.settlement_days_at_funding
+      ?? effectiveSettlementDays((deal as any).brokerages)
+
     // Recalculate with new days
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
@@ -1752,6 +1921,7 @@ export async function updateClosingDate(input: {
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
     })
 
     // Store old values for comparison
@@ -1764,9 +1934,10 @@ export async function updateClosingDate(input: {
       amount_due_from_brokerage: deal.amount_due_from_brokerage,
     }
 
-    // Recalculate due date when closing date changes
+    // Recalculate due date when closing date changes — closing + the effective
+    // settlement window for this deal (snapshotted or computed)
     const newClosingDate = new Date(input.newClosingDate + 'T00:00:00Z')
-    const newDueDate = new Date(newClosingDate.getTime() + SETTLEMENT_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    const newDueDate = new Date(newClosingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
     const newDueDateStr = newDueDate.toISOString().split('T')[0]
 
     const { error: updateError } = await supabase
@@ -1869,6 +2040,8 @@ export async function markDealFailedToClose(input: {
     const now = new Date()
     const deadline = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000)
 
+    // see audit finding #6: claim the deal first; only then post the agent
+    // balance so a failed RPC can't leave a funded deal with no ledger entry.
     const { data: updatedRows, error: updateError } = await supabase
       .from('deals')
       .update({
@@ -1896,31 +2069,43 @@ export async function markDealFailedToClose(input: {
 
     const { data: agent } = await serviceClient
       .from('agents')
-      .select('id, account_balance, first_name, last_name, email')
+      .select('id, first_name, last_name, email')
       .eq('id', deal.agent_id)
       .single()
 
-    const currentBalance = Number(agent?.account_balance) || 0
-    const newBalance = currentBalance + input.outstandingAmount
-
-    await serviceClient
-      .from('agents')
-      .update({ account_balance: newBalance })
-      .eq('id', deal.agent_id)
-
-    await serviceClient
-      .from('agent_transactions')
-      .insert({
-        agent_id: deal.agent_id,
-        deal_id: deal.id,
-        type: 'failed_deal_balance',
-        amount: input.outstandingAmount,
-        running_balance: newBalance,
-        description: input.failureType === 'non_closing'
+    // Atomic balance + ledger write via RPC (migration 052). The previous
+    // read-modify-write could race with concurrent interest accruals.
+    const { error: rpcErr } = await serviceClient
+      .rpc('apply_agent_balance_delta', {
+        p_agent_id: deal.agent_id,
+        p_delta: input.outstandingAmount,
+        p_type: 'failed_deal_balance',
+        p_description: input.failureType === 'non_closing'
           ? `Failed deal — full Purchase Price owed (${deal.property_address})`
           : `Commission deficiency — shortfall owed (${deal.property_address})`,
-        created_by: user.id,
+        p_deal_id: deal.id,
+        p_created_by: user.id,
       })
+    if (rpcErr) {
+      console.error('markDealFailedToClose balance RPC error:', rpcErr.message)
+      const { error: revertErr } = await serviceClient
+        .from('deals')
+        .update({
+          status: 'funded',
+          failed_to_close_at: null,
+          failure_type: null,
+          failure_reason: null,
+          outstanding_balance: 0,
+          cure_election_deadline: null,
+          payment_status: deal.payment_status,
+        })
+        .eq('id', deal.id)
+        .eq('status', 'failed_to_close')
+      if (revertErr) {
+        console.error('CRITICAL: failed-to-close balance post failed AND status revert failed:', revertErr.message)
+      }
+      return { success: false, error: `Failed to record balance owed: ${rpcErr.message}` }
+    }
 
     await logAuditEvent({
       action: 'deal.failed_to_close',
@@ -1960,12 +2145,12 @@ export async function markDealFailedToClose(input: {
 
 export async function submitCureElection(input: {
   dealId: string
-  election: 'cash' | 'commission_assignment'
+  election: 'cash_repayment' | 'commission_assignment'
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
-  if (input.election !== 'cash' && input.election !== 'commission_assignment') {
+  if (input.election !== 'cash_repayment' && input.election !== 'commission_assignment') {
     return { success: false, error: 'Invalid election' }
   }
 
