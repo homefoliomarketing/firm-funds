@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
-  CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset
+  CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset, Inbox
 } from 'lucide-react'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
@@ -33,6 +33,7 @@ interface DashboardStats {
   pendingBankingCount: number
   unreadAgentMessages: number
   dealsWithUnreadMessages: string[]
+  firmDealPending: number
 }
 
 export default function AdminDashboard() {
@@ -44,6 +45,7 @@ export default function AdminDashboard() {
     pendingBankingCount: 0,
     unreadAgentMessages: 0,
     dealsWithUnreadMessages: [],
+    firmDealPending: 0,
   })
   const [allDeals, setAllDeals] = useState<any[]>([])
   const [overdueSettlements, setOverdueSettlements] = useState<any[]>([])
@@ -86,6 +88,7 @@ export default function AdminDashboard() {
         { data: kycAgents },
         { data: allMsgs },
         { data: dismissals },
+        { count: firmDealPendingCount },
       ] = await Promise.all([
         // Safety cap. Long-term this should paginate/aggregate server-side.
         supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }).limit(500),
@@ -96,6 +99,14 @@ export default function AdminDashboard() {
         supabase.from('agents').select('id, first_name, last_name, email, kyc_status, kyc_submitted_at, kyc_document_path, kyc_document_type, brokerage_id, brokerages(name)').eq('kyc_status', 'submitted').limit(500),
         supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
         supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
+        // Firm-deal review queue count. Three statuses sit in the queue
+        // waiting for the admin: unmatched (needs human resolver),
+        // awaiting_approval (parsed + matched, awaiting Send click), and
+        // errored. RLS limits this to firm_funds_admin / super_admin.
+        supabase
+          .from('firm_deal_events')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['unmatched', 'awaiting_approval', 'errored']),
       ])
 
       setPendingBankingAgents(bankingAgents || [])
@@ -126,6 +137,7 @@ export default function AdminDashboard() {
         pendingBankingCount: bankingAgents?.length || 0,
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
+        firmDealPending: firmDealPendingCount ?? 0,
       })
       setAllDeals(allDealsList)
 
@@ -138,14 +150,23 @@ export default function AdminDashboard() {
     loadDashboard()
   }, [])
 
-  // Poll for new messages every 30 seconds
+  // Poll for new messages + firm-deal review queue every 30 seconds. Cheap
+  // count queries — no row payload pulled across the wire for either.
   useEffect(() => {
     if (loading) return
     const interval = setInterval(async () => {
       try {
-        const [{ data: allMsgs }, { data: dismissals }] = await Promise.all([
+        const [
+          { data: allMsgs },
+          { data: dismissals },
+          { count: firmDealPendingCount },
+        ] = await Promise.all([
           supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
           supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
+          supabase
+            .from('firm_deal_events')
+            .select('id', { count: 'exact', head: true })
+            .in('status', ['unmatched', 'awaiting_approval', 'errored']),
         ])
         const dismissMap = new Map<string, string>()
         if (dismissals) {
@@ -167,6 +188,7 @@ export default function AdminDashboard() {
           ...prev,
           unreadAgentMessages: dealsWithUnread.length,
           dealsWithUnreadMessages: dealsWithUnread,
+          firmDealPending: firmDealPendingCount ?? prev.firmDealPending,
         }))
       } catch {
         // Silently fail — don't break the dashboard
@@ -276,6 +298,7 @@ export default function AdminDashboard() {
           <nav aria-label="Admin quick links" className="flex items-center gap-2 flex-wrap">
             {[
               { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
+              { label: 'Firm Deal Review', icon: Inbox, path: '/admin/firm-deal-review', badge: stats.firmDealPending },
               { label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
               { label: 'Payments', icon: DollarSign, path: '/admin/payments' },
