@@ -25,6 +25,7 @@ import { Resend } from 'resend'
 import { renderTriggerEmail } from './render-email'
 import { renderTriggerSms } from './render-sms'
 import { sendSms } from './twilio-client'
+import { mintFirmDealMagicLink } from './magic-link'
 import type { ParsedFirmDeal } from './parse-event'
 
 export interface DispatchResult {
@@ -155,7 +156,25 @@ async function dispatchWithContext(
       : 'sparse'
 
   const propertyAddress = parsed?.address || 'your recent deal'
-  const cta_url = `${APP_URL.replace(/\/$/, '')}/agent/dashboard?firm_deal=${encodeURIComponent(ctx.event.id)}`
+
+  // Mint a one-shot magic-link token so the agent does not hit the login
+  // wall on a phone they haven't logged in to in months. The token carries
+  // the firm_deal_event_id forward and expires in 7 days. If minting fails
+  // (DB hiccup), we fall back to the legacy deep link so dispatch still
+  // sends. The agent will just hit /login if their session is gone.
+  let cta_url = `${APP_URL.replace(/\/$/, '')}/agent/dashboard?firm_deal=${encodeURIComponent(ctx.event.id)}`
+  try {
+    const { token } = await mintFirmDealMagicLink(supabase, {
+      firm_deal_event_id: ctx.event.id,
+      agent_id: ctx.primary_agent.id,
+    })
+    cta_url = `${APP_URL.replace(/\/$/, '')}/agent/firm-deal/${token}`
+  } catch (err) {
+    console.warn(
+      '[dispatch] mintFirmDealMagicLink failed, falling back to deep link:',
+      err instanceof Error ? err.message : err
+    )
+  }
 
   // Render both
   const email = renderTriggerEmail({

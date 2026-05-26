@@ -101,6 +101,11 @@ export async function middleware(request: NextRequest) {
     // recipient may not have a Firm Funds account at all). See
     // app/api/brokerage/confirm-contact-email/route.ts.
     '/api/brokerage/confirm-contact-email',
+    // Firm-deal offer magic links: agent clicks the link in their email or
+    // SMS without an existing session, route mints a Supabase magic link and
+    // bounces them into the dashboard signed in. The token in the URL is the
+    // authentication. See app/agent/firm-deal/[token]/route.ts.
+    '/agent/firm-deal',
   ]
   const isPublic =
     PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/')) ||
