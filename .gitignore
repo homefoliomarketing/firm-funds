@@ -44,3 +44,6 @@ next-env.d.ts
 
 .env.local
 backups/
+
+# Local Netlify folder
+.netlify
