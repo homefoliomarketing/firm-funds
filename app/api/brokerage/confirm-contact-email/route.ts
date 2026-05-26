@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     .select(`
       id,
       name,
-      contact_email,
+      email,
       pending_contact_email,
       pending_contact_email_token_hash,
       pending_contact_email_expires_at
@@ -82,15 +82,15 @@ export async function GET(request: NextRequest) {
   }
 
   const newEmail = row.pending_contact_email
-  const oldEmail = row.contact_email
+  const oldEmail = row.email
 
-  // CAS: flip contact_email + clear pending fields in a single UPDATE that
+  // CAS: flip email + clear pending fields in a single UPDATE that
   // only matches if the hash is still the one we read. Prevents double-confirm
   // and races with a concurrent "request new change" that overwrote pending_*.
   const { data: claimed, error: updateError } = await service
     .from('brokerages')
     .update({
-      contact_email: newEmail,
+      email: newEmail,
       pending_contact_email: null,
       pending_contact_email_token_hash: null,
       pending_contact_email_requested_at: null,

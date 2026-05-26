@@ -90,7 +90,7 @@ export default function BrokerageSettingsPage() {
           .eq('id', profileData.brokerage_id)
           .single<any>()
         setBrokerage(brokerageData)
-        setContactEmail(brokerageData?.contact_email || '')
+        setContactEmail(brokerageData?.email || '')
       }
 
       const prefsResult = await getNotificationPreferences()
@@ -377,7 +377,7 @@ export default function BrokerageSettingsPage() {
               />
               <Button
                 onClick={handleContactEmailUpdate}
-                disabled={contactEmailSaving || !contactEmail.trim() || contactEmail === brokerage?.contact_email}
+                disabled={contactEmailSaving || !contactEmail.trim() || contactEmail === brokerage?.email}
                 size="sm"
               >
                 {contactEmailSaving ? 'Saving...' : 'Update'}

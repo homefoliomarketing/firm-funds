@@ -825,14 +825,14 @@ export async function updateDealStatus(input: {
     try {
       const { data: brokerageInfo } = await supabase
         .from('brokerages')
-        .select('name, contact_email')
+        .select('name, email')
         .eq('id', deal.brokerage_id)
         .single()
 
-      if (brokerageInfo?.contact_email) {
+      if (brokerageInfo?.email) {
         const { sendBrokerageStatusNotification } = await import('@/lib/email')
         sendBrokerageStatusNotification({
-          brokerageEmail: brokerageInfo.contact_email,
+          brokerageEmail: brokerageInfo.email,
           brokerageName: brokerageInfo.name,
           propertyAddress: deal.property_address,
           agentName: agentInfo ? `${agentInfo.first_name} ${agentInfo.last_name}` : 'Agent',

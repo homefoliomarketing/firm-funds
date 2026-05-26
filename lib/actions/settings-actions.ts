@@ -231,19 +231,21 @@ export async function updateBrokerageContactEmail(newEmail: string) {
 
   const serviceClient = createServiceRoleClient()
 
-  // Finding #40: do NOT flip brokerages.contact_email immediately. A stolen
+  // Finding #40: do NOT flip brokerages.email immediately. A stolen
   // brokerage_admin session could otherwise silently redirect every brokerage
   // notification to an attacker-owned inbox. Write the requested address to
   // pending_contact_email + a hashed single-use token, email the raw token
   // to the new address, and only flip on confirmation. The OLD address is
   // notified immediately so the legitimate owner gets early warning.
+  // (Column is brokerages.email; the pending_contact_email* naming on the
+  // staging fields is descriptive but not load-bearing.)
   const { data: existing } = await serviceClient
     .from('brokerages')
-    .select('contact_email, name')
+    .select('email, name')
     .eq('id', profile.brokerage_id)
     .single()
 
-  const oldEmail: string | null = existing?.contact_email ?? null
+  const oldEmail: string | null = existing?.email ?? null
   const brokerageName: string = existing?.name ?? 'Your brokerage'
   const newEmailLc = newEmail.toLowerCase()
 

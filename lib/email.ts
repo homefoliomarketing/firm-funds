@@ -1246,7 +1246,7 @@ export async function sendAgentPhoneChangedNotification(params: {
 // ============================================================================
 //
 // Sent to the NEW address requested by a brokerage admin. The confirmation
-// URL carries a single-use token; clicking it flips brokerages.contact_email.
+// URL carries a single-use token; clicking it flips brokerages.email.
 // Until the recipient acts, the brokerage continues to receive notifications
 // at the previously-verified address.
 
