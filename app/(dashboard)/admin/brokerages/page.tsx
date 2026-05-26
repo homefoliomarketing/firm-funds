@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
@@ -1582,6 +1582,14 @@ export default function BrokeragesPage() {
                         <Users size={13} className="text-muted-foreground" />
                         <span className="text-xs font-semibold text-foreground">{agentCount}</span>
                       </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); router.push(`/admin/brokerages/${brokerage.id}/firm-deal-pipe`) }}
+                        className="p-1.5 rounded-md transition-colors text-muted-foreground hover:bg-muted hover:text-primary"
+                        title="Firm deal pipe (Google Sheet connection)"
+                        aria-label="Configure firm deal pipe"
+                      >
+                        <Inbox size={14} />
+                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); openEditForm(brokerage) }}
                         className="p-1.5 rounded-md transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
