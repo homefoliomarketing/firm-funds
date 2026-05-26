@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -11,11 +11,10 @@ import {
   Send,
   X,
   Loader2,
-  ChevronRight,
+  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   getFirmDealReviewQueue,
@@ -47,35 +46,85 @@ const defaultDraft: UnmatchedDraft = {
   selling_remember: false,
 }
 
-function formatHumanDate(iso: string | null): string {
+function formatShortDate(iso: string | null): string {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+    // Bare YYYY-MM-DD values get parsed by Date as UTC midnight, which
+    // displays as the previous day in negative-offset timezones (ET).
+    // Construct via local-time fields to avoid the shift.
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+    const d = dateMatch
+      ? new Date(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
+      : new Date(iso)
+    return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
   } catch {
     return iso
   }
 }
 
-function agentDisplay(a: { first_name: string | null; last_name: string | null } | null): string {
-  if (!a) return '—'
-  return `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || '—'
+function agentName(a: { first_name: string | null; last_name: string | null } | null): string {
+  if (!a) return ''
+  return `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim()
 }
 
-function confidenceBadge(c: ReviewQueueRow['parser_confidence']) {
-  if (!c) return null
-  if (c === 'high') return <Badge className="bg-emerald-950/40 text-emerald-300 border-emerald-800/50">high confidence</Badge>
-  if (c === 'medium') return <Badge className="bg-amber-950/40 text-amber-300 border-amber-800/50">medium confidence</Badge>
-  return <Badge className="bg-red-950/40 text-red-300 border-red-800/50">low confidence</Badge>
+// One small inline pill describing status. Uses dot prefix instead of large
+// badge for compactness across many rows.
+function StatusDot({ status }: { status: ReviewQueueRow['status'] }) {
+  const map: Record<ReviewQueueRow['status'], { color: string; label: string }> = {
+    unmatched: { color: 'bg-amber-400', label: 'needs review' },
+    awaiting_approval: { color: 'bg-blue-400', label: 'ready to send' },
+    errored: { color: 'bg-red-400', label: 'error' },
+    offer_sent: { color: 'bg-emerald-400', label: 'sent' },
+    rejected: { color: 'bg-muted-foreground', label: 'rejected' },
+    duplicate: { color: 'bg-muted-foreground', label: 'duplicate' },
+  }
+  const { color, label } = map[status]
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className={`h-1.5 w-1.5 rounded-full ${color}`} aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  )
 }
 
-function statusBadge(s: ReviewQueueRow['status']) {
-  if (s === 'unmatched') return <Badge className="bg-amber-950/40 text-amber-300 border-amber-800/50">needs review</Badge>
-  if (s === 'awaiting_approval') return <Badge className="bg-blue-950/40 text-blue-300 border-blue-800/50">ready to send</Badge>
-  if (s === 'errored') return <Badge className="bg-red-950/40 text-red-300 border-red-800/50">error</Badge>
-  if (s === 'offer_sent') return <Badge className="bg-emerald-950/40 text-emerald-300 border-emerald-800/50">sent</Badge>
-  if (s === 'rejected') return <Badge className="bg-muted text-muted-foreground border-border/40">rejected</Badge>
-  if (s === 'duplicate') return <Badge className="bg-muted text-muted-foreground border-border/40">duplicate</Badge>
-  return null
+// Side chip: "Listing: \"Exit\" → outside" with appropriate color coding.
+function SideChip({
+  label,
+  raw,
+  matched,
+  outsideMark,
+}: {
+  label: string
+  raw: string | null | undefined
+  matched: { first_name: string | null; last_name: string | null } | null
+  // True when the side was matched to "outside brokerage" (no enrolled agent, but resolved).
+  outsideMark: boolean
+}) {
+  const matchedName = agentName(matched)
+  let resolutionEl: React.ReactNode
+  if (matchedName) {
+    resolutionEl = <span className="text-emerald-400">{matchedName}</span>
+  } else if (outsideMark) {
+    resolutionEl = <span className="text-muted-foreground">outside</span>
+  } else if (raw) {
+    resolutionEl = <span className="text-amber-400">unresolved</span>
+  } else {
+    resolutionEl = <span className="text-muted-foreground">(blank)</span>
+  }
+  return (
+    <span className="inline-flex items-baseline gap-1 text-sm">
+      <span className="text-muted-foreground text-xs uppercase tracking-wider">{label}</span>
+      {raw ? (
+        <>
+          <span className="font-medium">&ldquo;{raw}&rdquo;</span>
+          <span className="text-muted-foreground" aria-hidden="true">→</span>
+          {resolutionEl}
+        </>
+      ) : (
+        resolutionEl
+      )}
+    </span>
+  )
 }
 
 export default function FirmDealReviewPage() {
@@ -88,6 +137,7 @@ export default function FirmDealReviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [busyEventId, setBusyEventId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, UnmatchedDraft>>({})
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     async function checkAuth() {
@@ -136,6 +186,10 @@ export default function FirmDealReviewPage() {
       ...prev,
       [eventId]: { ...(prev[eventId] ?? defaultDraft), ...patch },
     }))
+  }
+
+  function toggleExpanded(eventId: string) {
+    setExpanded(prev => ({ ...prev, [eventId]: !prev[eventId] }))
   }
 
   async function handleSend(eventId: string) {
@@ -200,74 +254,72 @@ export default function FirmDealReviewPage() {
       delete next[row.id]
       return next
     })
+    setExpanded(prev => {
+      const next = { ...prev }
+      delete next[row.id]
+      return next
+    })
     await loadQueue()
-  }
-
-  if (!authChecked || loading) {
-    return (
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <Skeleton className="h-10 w-64 mb-6" />
-        <Skeleton className="h-40 w-full mb-3" />
-        <Skeleton className="h-40 w-full mb-3" />
-      </div>
-    )
   }
 
   const pending = data?.pending ?? []
   const resolved = data?.recently_resolved ?? []
-  const unmatchedCount = pending.filter(r => r.status === 'unmatched').length
-  const awaitingCount = pending.filter(r => r.status === 'awaiting_approval').length
-  const erroredCount = pending.filter(r => r.status === 'errored').length
+  const unmatchedCount = useMemo(() => pending.filter(r => r.status === 'unmatched').length, [pending])
+  const awaitingCount = useMemo(() => pending.filter(r => r.status === 'awaiting_approval').length, [pending])
+  const erroredCount = useMemo(() => pending.filter(r => r.status === 'errored').length, [pending])
+
+  if (!authChecked || loading) {
+    return (
+      <div className="container mx-auto px-4 py-6 max-w-5xl">
+        <Skeleton className="h-8 w-64 mb-4" />
+        <Skeleton className="h-16 w-full mb-2" />
+        <Skeleton className="h-16 w-full mb-2" />
+        <Skeleton className="h-16 w-full mb-2" />
+      </div>
+    )
+  }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Inbox className="h-6 w-6 text-primary" />
-            Firm Deal Review Queue
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Detected firm deals awaiting your review before notifying the agent.
-          </p>
+    <div className="container mx-auto px-4 py-6 max-w-5xl">
+      <header className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Inbox className="h-5 w-5 text-primary" aria-hidden="true" />
+          <h1 className="text-xl font-bold">Firm Deal Review</h1>
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            · {pending.length} pending · {resolved.length} recently resolved
+          </span>
         </div>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={loadQueue}
           disabled={refreshing}
+          aria-label="Refresh queue"
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
         </Button>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Needs review</p>
-            <p className="text-3xl font-bold mt-1">{unmatchedCount}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Ready to send</p>
-            <p className="text-3xl font-bold mt-1">{awaitingCount}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Errors</p>
-            <p className="text-3xl font-bold mt-1">{erroredCount}</p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-3 gap-2 mb-4 text-center">
+        <div className="rounded-md border bg-card px-3 py-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Needs review</p>
+          <p className="text-xl font-bold leading-tight">{unmatchedCount}</p>
+        </div>
+        <div className="rounded-md border bg-card px-3 py-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Ready to send</p>
+          <p className="text-xl font-bold leading-tight">{awaitingCount}</p>
+        </div>
+        <div className="rounded-md border bg-card px-3 py-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Errors</p>
+          <p className="text-xl font-bold leading-tight">{erroredCount}</p>
+        </div>
       </div>
 
       {error && (
-        <Card className="mb-4 border-destructive">
-          <CardContent className="pt-6">
+        <Card className="mb-3 border-destructive">
+          <CardContent className="py-3">
             <p className="text-sm text-destructive flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
               {error}
             </p>
           </CardContent>
@@ -275,153 +327,233 @@ export default function FirmDealReviewPage() {
       )}
 
       {pending.length === 0 && !error && (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-emerald-500" />
-            <p>Nothing to review.</p>
-          </CardContent>
-        </Card>
+        <div className="rounded-lg border bg-card py-10 text-center text-muted-foreground">
+          <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-500" aria-hidden="true" />
+          <p className="text-sm">Nothing to review.</p>
+        </div>
       )}
 
-      {pending.map(row => (
-        <EventCard
-          key={row.id}
-          row={row}
-          busy={busyEventId === row.id}
-          draft={drafts[row.id]}
-          onUpdateDraft={(patch) => updateDraft(row.id, patch)}
-          onSend={() => handleSend(row.id)}
-          onReject={() => handleReject(row.id)}
-          onResolve={() => handleResolve(row)}
-        />
-      ))}
+      <ul className="space-y-1.5">
+        {pending.map(row => (
+          <EventRow
+            key={row.id}
+            row={row}
+            busy={busyEventId === row.id}
+            draft={drafts[row.id]}
+            expanded={!!expanded[row.id] || row.status === 'unmatched'}
+            onToggleExpanded={() => toggleExpanded(row.id)}
+            onUpdateDraft={(patch) => updateDraft(row.id, patch)}
+            onSend={() => handleSend(row.id)}
+            onReject={() => handleReject(row.id)}
+            onResolve={() => handleResolve(row)}
+          />
+        ))}
+      </ul>
 
       {resolved.length > 0 && (
-        <>
-          <h2 className="text-lg font-semibold mt-10 mb-3 text-muted-foreground">Recently resolved (last 7 days)</h2>
-          {resolved.map(row => (
-            <Card key={row.id} className="mb-2">
-              <CardContent className="py-3 flex items-center justify-between text-sm">
-                <div className="flex items-center gap-3">
-                  {statusBadge(row.status)}
-                  <span className="font-medium">{row.parsed?.address ?? '—'}</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span className="text-muted-foreground">{formatHumanDate(row.processed_at)}</span>
-                </div>
-                <div className="text-muted-foreground">{row.brokerage_name}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </>
+        <section className="mt-8">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Recently resolved (last 7 days)
+          </h2>
+          <ul className="space-y-1">
+            {resolved.map(row => (
+              <li
+                key={row.id}
+                className="flex items-center gap-3 rounded-md border bg-card/40 px-3 py-2 text-sm"
+              >
+                <StatusDot status={row.status} />
+                <span className="font-medium truncate">{row.parsed?.address ?? '—'}</span>
+                <span className="text-muted-foreground text-xs truncate">{row.brokerage_name}</span>
+                <span className="text-muted-foreground text-xs ml-auto whitespace-nowrap">
+                  {formatShortDate(row.processed_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   )
 }
 
-interface EventCardProps {
+// ---------------------------------------------------------------------------
+// Single event row — compact card with optional inline resolver panel.
+// ---------------------------------------------------------------------------
+interface EventRowProps {
   row: ReviewQueueRow
   busy: boolean
   draft: UnmatchedDraft | undefined
+  expanded: boolean
+  onToggleExpanded: () => void
   onUpdateDraft: (patch: Partial<UnmatchedDraft>) => void
   onSend: () => void
   onReject: () => void
   onResolve: () => void
 }
 
-function EventCard({ row, busy, draft, onUpdateDraft, onSend, onReject, onResolve }: EventCardProps) {
+function EventRow({
+  row,
+  busy,
+  draft,
+  expanded,
+  onToggleExpanded,
+  onUpdateDraft,
+  onSend,
+  onReject,
+  onResolve,
+}: EventRowProps) {
   const d = draft ?? defaultDraft
   const parsed = row.parsed
+  // A side is "outside" iff there's a raw value but no agent match AND
+  // the event already left the unmatched bucket (i.e. the admin resolved
+  // it to outside, or matchEvent recognised it via the mapping table).
+  // For unmatched events we never show "outside" until resolution.
+  const resolvedToOutside = row.status !== 'unmatched'
+  const listingOutside =
+    resolvedToOutside && !row.listing_matched_agent && !!parsed?.listing_agent_raw
+  const sellingOutside =
+    resolvedToOutside && !row.selling_matched_agent && !!parsed?.selling_agent_raw
 
   return (
-    <Card className="mb-4">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-lg flex items-center gap-2">
-              {parsed?.address ?? '(no address parsed)'}
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground text-sm font-normal">{row.brokerage_name}</span>
-            </CardTitle>
-            <div className="flex flex-wrap gap-2 mt-2 text-xs text-muted-foreground">
-              {parsed?.mls_number && <span>MLS {parsed.mls_number}</span>}
-              {parsed?.closing_date_iso && <span>closes {formatHumanDate(parsed.closing_date_iso)}</span>}
-              {row.source_tab && <span>tab: {row.source_tab}</span>}
-              <span>received {formatHumanDate(row.received_at)}</span>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 items-end">
-            {statusBadge(row.status)}
-            {confidenceBadge(row.parser_confidence)}
-          </div>
+    <li className="rounded-lg border bg-card text-sm">
+      {/* Main row — collapsed summary */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+        <StatusDot status={row.status} />
+        <span className="font-semibold">{parsed?.address ?? '(no address)'}</span>
+        {parsed?.mls_number && (
+          <span className="text-xs text-muted-foreground">{parsed.mls_number}</span>
+        )}
+        <span className="text-xs text-muted-foreground truncate">{row.brokerage_name}</span>
+        {parsed?.closing_date_iso && (
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            closes {formatShortDate(parsed.closing_date_iso)}
+          </span>
+        )}
+        <span className="text-xs text-muted-foreground ml-auto hidden md:inline">
+          rec&apos;d {formatShortDate(row.received_at)}
+        </span>
+        <div className="flex items-center gap-1 ml-auto md:ml-0">
+          {row.status === 'awaiting_approval' && (
+            <Button
+              onClick={onSend}
+              disabled={busy}
+              size="sm"
+              className="h-7 px-2 text-xs"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              Send
+            </Button>
+          )}
+          {(row.status === 'unmatched' || row.status === 'awaiting_approval' || row.status === 'errored') && (
+            <Button
+              onClick={onReject}
+              disabled={busy}
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              aria-label="Reject"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          )}
+          {row.status === 'awaiting_approval' && (
+            <Button
+              onClick={onToggleExpanded}
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0"
+              aria-label={expanded ? 'Collapse details' : 'Expand details'}
+              aria-expanded={expanded}
+            >
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              />
+            </Button>
+          )}
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <SideSummary
-            label="Listing agent"
+      </div>
+
+      {/* Side summary — always visible. Compact line under the title row. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 pb-2">
+        <SideChip
+          label="Listing"
+          raw={parsed?.listing_agent_raw}
+          matched={row.listing_matched_agent}
+          outsideMark={listingOutside}
+        />
+        <SideChip
+          label="Selling"
+          raw={parsed?.selling_agent_raw}
+          matched={row.selling_matched_agent}
+          outsideMark={sellingOutside}
+        />
+      </div>
+
+      {/* Resolver panel — shown when row needs review, or when expanded */}
+      {expanded && row.status === 'unmatched' && (
+        <div className="border-t bg-muted/20 px-3 py-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <SideResolver
+            label="Listing"
             raw={parsed?.listing_agent_raw ?? null}
-            matched={row.matched_agent}
-            showResolver={row.status === 'unmatched'}
             draftAction={d.listing_action}
             draftAgentId={d.listing_agent_id}
             draftRemember={d.listing_remember}
             enrolledAgents={row.enrolled_agents}
-            onActionChange={a => onUpdateDraft({ listing_action: a })}
-            onAgentChange={id => onUpdateDraft({ listing_agent_id: id })}
-            onRememberChange={r => onUpdateDraft({ listing_remember: r })}
+            onActionChange={(a) => onUpdateDraft({ listing_action: a })}
+            onAgentChange={(id) => onUpdateDraft({ listing_agent_id: id })}
+            onRememberChange={(r) => onUpdateDraft({ listing_remember: r })}
           />
-          <SideSummary
-            label="Selling agent"
+          <SideResolver
+            label="Selling"
             raw={parsed?.selling_agent_raw ?? null}
-            matched={row.second_matched_agent}
-            showResolver={row.status === 'unmatched'}
             draftAction={d.selling_action}
             draftAgentId={d.selling_agent_id}
             draftRemember={d.selling_remember}
             enrolledAgents={row.enrolled_agents}
-            onActionChange={a => onUpdateDraft({ selling_action: a })}
-            onAgentChange={id => onUpdateDraft({ selling_agent_id: id })}
-            onRememberChange={r => onUpdateDraft({ selling_remember: r })}
+            onActionChange={(a) => onUpdateDraft({ selling_action: a })}
+            onAgentChange={(id) => onUpdateDraft({ selling_agent_id: id })}
+            onRememberChange={(r) => onUpdateDraft({ selling_remember: r })}
           />
-        </div>
-
-        {parsed?.parser_notes && (
-          <p className="text-xs text-muted-foreground mb-3 italic">Parser note: {parsed.parser_notes}</p>
-        )}
-        {row.error_message && (
-          <p className="text-xs text-destructive mb-3">Error: {row.error_message}</p>
-        )}
-
-        <div className="flex items-center gap-2 justify-end">
-          {row.status === 'unmatched' && (
-            <Button onClick={onResolve} disabled={busy} size="sm">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          <div className="md:col-span-2 flex justify-end">
+            <Button onClick={onResolve} disabled={busy} size="sm" className="h-7 px-3 text-xs">
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
               Save resolution
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Parser / error notes — only when present */}
+      {(parsed?.parser_notes || row.error_message) && (
+        <div className="border-t px-3 py-1.5 text-[11px]">
+          {parsed?.parser_notes && (
+            <p className="text-muted-foreground italic">Parser: {parsed.parser_notes}</p>
           )}
-          {row.status === 'awaiting_approval' && (
-            <Button onClick={onSend} disabled={busy} size="sm">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Send offer
-            </Button>
-          )}
-          {(row.status === 'unmatched' || row.status === 'awaiting_approval' || row.status === 'errored') && (
-            <Button onClick={onReject} disabled={busy} size="sm" variant="outline">
-              <X className="h-4 w-4" />
-              Reject
-            </Button>
+          {row.error_message && (
+            <p className="text-destructive">Error: {row.error_message}</p>
           )}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </li>
   )
 }
 
-interface SideSummaryProps {
+// ---------------------------------------------------------------------------
+// Inline side resolver — compact controls (action dropdown + agent picker +
+// "remember" toggle on a single line where possible).
+// ---------------------------------------------------------------------------
+interface SideResolverProps {
   label: string
   raw: string | null
-  matched: { id: string; first_name: string | null; last_name: string | null } | null
-  showResolver: boolean
   draftAction: SideAction
   draftAgentId: string
   draftRemember: boolean
@@ -431,11 +563,9 @@ interface SideSummaryProps {
   onRememberChange: (r: boolean) => void
 }
 
-function SideSummary({
+function SideResolver({
   label,
   raw,
-  matched,
-  showResolver,
   draftAction,
   draftAgentId,
   draftRemember,
@@ -443,64 +573,58 @@ function SideSummary({
   onActionChange,
   onAgentChange,
   onRememberChange,
-}: SideSummaryProps) {
+}: SideResolverProps) {
+  if (!raw) {
+    return (
+      <div className="text-xs text-muted-foreground">
+        <span className="uppercase tracking-wider">{label}</span>: (blank — nothing to resolve)
+      </div>
+    )
+  }
   return (
-    <div className="border rounded-lg p-3 bg-muted/30">
-      <p className="text-xs text-muted-foreground uppercase tracking-wider">{label}</p>
-      <p className="text-sm font-medium mt-1">
-        {raw ? <span>&quot;{raw}&quot;</span> : <span className="text-muted-foreground">(blank)</span>}
-      </p>
-      {matched ? (
-        <p className="text-xs text-emerald-400 mt-1">→ {agentDisplay(matched)}</p>
-      ) : raw ? (
-        <p className="text-xs text-amber-400 mt-1">→ unresolved</p>
-      ) : null}
-
-      {showResolver && raw && (
-        <div className="mt-3 space-y-2">
+    <div className="space-y-1.5">
+      <div className="flex items-baseline gap-2 text-xs">
+        <span className="text-muted-foreground uppercase tracking-wider">{label}</span>
+        <span className="font-medium">&ldquo;{raw}&rdquo;</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <select
+          value={draftAction}
+          onChange={(e) => onActionChange(e.target.value as SideAction)}
+          className="text-xs bg-background border border-border rounded px-2 py-1 flex-1 min-w-[140px]"
+          aria-label={`${label} resolution`}
+        >
+          <option value="leave">(no change)</option>
+          <option value="assign">Assign to agent…</option>
+          <option value="outside">Outside brokerage</option>
+        </select>
+        {draftAction === 'assign' && (
           <select
-            value={draftAction}
-            onChange={e => onActionChange(e.target.value as SideAction)}
-            className="w-full text-xs bg-background border border-border rounded px-2 py-1"
+            value={draftAgentId}
+            onChange={(e) => onAgentChange(e.target.value)}
+            className="text-xs bg-background border border-border rounded px-2 py-1 flex-1 min-w-[140px]"
+            aria-label={`${label} agent`}
           >
-            <option value="leave">(no change for this side)</option>
-            <option value="assign">Assign to enrolled agent…</option>
-            <option value="outside">Mark as outside brokerage</option>
+            <option value="">— pick agent —</option>
+            {enrolledAgents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {agentName(a) || a.id}
+              </option>
+            ))}
           </select>
-
-          {draftAction === 'assign' && (
-            <select
-              value={draftAgentId}
-              onChange={e => onAgentChange(e.target.value)}
-              className="w-full text-xs bg-background border border-border rounded px-2 py-1"
-            >
-              <option value="">— pick agent —</option>
-              {enrolledAgents.map(a => (
-                <option key={a.id} value={a.id}>{agentDisplay(a)}</option>
-              ))}
-            </select>
-          )}
-
-          {(draftAction === 'assign' || draftAction === 'outside') && (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={draftRemember}
-                onChange={e => onRememberChange(e.target.checked)}
-              />
-              Remember &quot;{raw}&quot; for next time
-            </label>
-          )}
-        </div>
+        )}
+      </div>
+      {(draftAction === 'assign' || draftAction === 'outside') && (
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={draftRemember}
+            onChange={(e) => onRememberChange(e.target.checked)}
+            className="h-3 w-3"
+          />
+          Remember &ldquo;{raw}&rdquo; next time
+        </label>
       )}
     </div>
   )
 }
-
-function agentDisplayInline(a: { first_name: string | null; last_name: string | null } | null): string {
-  if (!a) return '—'
-  return `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || '—'
-}
-
-// keep agentDisplayInline reachable for now; same purpose as agentDisplay above
-void agentDisplayInline

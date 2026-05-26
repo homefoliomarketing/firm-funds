@@ -158,14 +158,36 @@ export async function processFirmDealEvent(
     if (autoFire) finalStatus = 'approved'
   }
 
+  // Side-aware writes. listing_matched_agent_id is set only when the
+  // listing side resolved to a single enrolled agent (kind === 'agent');
+  // same for selling. Teams (kind === 'team') don't fit a single column
+  // so we leave the side column null and fall back to target_agent_ids
+  // for the dispatch primary. matched_agent_id is the dispatch recipient,
+  // derived as listing-first-then-selling so the existing dispatcher
+  // (which only emails matched_agent_id) keeps working.
+  const listingAgentId =
+    match.listing.kind === 'agent' && match.listing.agent_id
+      ? match.listing.agent_id
+      : null
+  const sellingAgentId =
+    match.selling.kind === 'agent' && match.selling.agent_id
+      ? match.selling.agent_id
+      : null
+  const primaryAgentId =
+    listingAgentId ?? sellingAgentId ?? match.target_agent_ids[0] ?? null
+  const secondaryAgentId =
+    match.target_agent_ids.find(id => id !== primaryAgentId) ?? null
+
   const updateFields: Record<string, unknown> = {
     parsed: parsed as unknown as Record<string, unknown>,
     parser_confidence: parsed.confidence,
     status: finalStatus,
     processed_at: new Date().toISOString(),
     error_message: null,
-    matched_agent_id: match.target_agent_ids[0] ?? null,
-    second_matched_agent_id: match.target_agent_ids[1] ?? null,
+    listing_matched_agent_id: listingAgentId,
+    selling_matched_agent_id: sellingAgentId,
+    matched_agent_id: primaryAgentId,
+    second_matched_agent_id: secondaryAgentId,
   }
 
   const { error: updErr } = await supabase

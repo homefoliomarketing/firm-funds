@@ -27,6 +27,8 @@ export type ReviewQueueRow = {
   error_message: string | null
   matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
   second_matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
+  listing_matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
+  selling_matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
   // Brokerage's enrolled agents — passed once per brokerage so the UI can
   // build picker dropdowns without a second round-trip
   enrolled_agents: { id: string; first_name: string | null; last_name: string | null }[]
@@ -45,15 +47,22 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
 
-  // Pending: anything needing admin action
+  // Pending: anything needing admin action.
+  // We join the side-specific agent columns (added in migration 079) so
+  // the UI knows which agent is on the listing vs selling side.
+  // matched_agent / second_matched_agent are kept for back-compat but the
+  // UI prefers the side-specific joins.
   const { data: pendingRows, error: pendingErr } = await supabase
     .from('firm_deal_events')
     .select(`
       id, brokerage_id, brokerage_pipe_id, status, parser_confidence,
       parsed, raw_payload, received_at, processed_at, error_message,
       matched_agent_id, second_matched_agent_id,
+      listing_matched_agent_id, selling_matched_agent_id,
       matched_agent:agents!firm_deal_events_matched_agent_id_fkey(id, first_name, last_name),
-      second_matched_agent:agents!firm_deal_events_second_matched_agent_id_fkey(id, first_name, last_name)
+      second_matched_agent:agents!firm_deal_events_second_matched_agent_id_fkey(id, first_name, last_name),
+      listing_matched_agent:agents!firm_deal_events_listing_matched_agent_id_fkey(id, first_name, last_name),
+      selling_matched_agent:agents!firm_deal_events_selling_matched_agent_id_fkey(id, first_name, last_name)
     `)
     .in('status', ['unmatched', 'awaiting_approval', 'errored'])
     .order('received_at', { ascending: false })
@@ -69,8 +78,11 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
       id, brokerage_id, brokerage_pipe_id, status, parser_confidence,
       parsed, raw_payload, received_at, processed_at, error_message,
       matched_agent_id, second_matched_agent_id,
+      listing_matched_agent_id, selling_matched_agent_id,
       matched_agent:agents!firm_deal_events_matched_agent_id_fkey(id, first_name, last_name),
-      second_matched_agent:agents!firm_deal_events_second_matched_agent_id_fkey(id, first_name, last_name)
+      second_matched_agent:agents!firm_deal_events_second_matched_agent_id_fkey(id, first_name, last_name),
+      listing_matched_agent:agents!firm_deal_events_listing_matched_agent_id_fkey(id, first_name, last_name),
+      selling_matched_agent:agents!firm_deal_events_selling_matched_agent_id_fkey(id, first_name, last_name)
     `)
     .in('status', ['offer_sent', 'rejected', 'duplicate'])
     .gte('processed_at', sevenDaysAgo)
@@ -137,6 +149,12 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
       second_matched_agent: Array.isArray(r.second_matched_agent)
         ? (r.second_matched_agent[0] as ReviewQueueRow['second_matched_agent']) ?? null
         : (r.second_matched_agent as ReviewQueueRow['second_matched_agent']),
+      listing_matched_agent: Array.isArray(r.listing_matched_agent)
+        ? (r.listing_matched_agent[0] as ReviewQueueRow['listing_matched_agent']) ?? null
+        : (r.listing_matched_agent as ReviewQueueRow['listing_matched_agent']),
+      selling_matched_agent: Array.isArray(r.selling_matched_agent)
+        ? (r.selling_matched_agent[0] as ReviewQueueRow['selling_matched_agent']) ?? null
+        : (r.selling_matched_agent as ReviewQueueRow['selling_matched_agent']),
       enrolled_agents: agentsByBrokerage.get(r.brokerage_id) ?? [],
     }
   }
@@ -249,26 +267,55 @@ export async function resolveUnmatchedFirmDealEvent(
 
   type Side = ResolveUnmatchedInput['listing_action']
 
-  // Determine new matched_agent_id and second_matched_agent_id from the
-  // listing + selling actions. Both contribute to the union of target
-  // agents. A matched_agent stays empty if both sides are 'mark_outside'.
-  const targetAgentIds = new Set<string>()
-  for (const action of [input.listing_action, input.selling_action]) {
-    if (action.kind === 'assign_agent') targetAgentIds.add(action.agent_id)
-    if (action.kind === 'assign_team') for (const id of action.agent_ids) targetAgentIds.add(id)
-    if (action.kind === 'leave_as_parsed') {
-      // Preserve whatever was previously matched on this side
-      // (matchEvent might have left one side resolved and the other
-      // unresolved). We don't differentiate by side; just keep the
-      // event's existing matched_agent_id / second_matched_agent_id.
-    }
-  }
-  if (input.listing_action.kind === 'leave_as_parsed' || input.selling_action.kind === 'leave_as_parsed') {
-    if (event.matched_agent_id) targetAgentIds.add(event.matched_agent_id)
-    if (event.second_matched_agent_id) targetAgentIds.add(event.second_matched_agent_id)
+  // Side-aware resolution. Each action maps to exactly one side's column.
+  // 'assign_agent' -> set side column to the picked agent.
+  // 'assign_team'  -> use the first agent (schema only has one side column);
+  //                   the existing target_agent_ids carries the full team for
+  //                   dispatch (a Phase-2 enhancement).
+  // 'mark_outside' / unresolved -> side column stays null.
+  // 'leave_as_parsed' -> reuse whatever was already on that side.
+  const fullEvent = await supabase
+    .from('firm_deal_events')
+    .select('listing_matched_agent_id, selling_matched_agent_id')
+    .eq('id', input.event_id)
+    .single()
+  const prevListing = (fullEvent.data?.listing_matched_agent_id as string | null) ?? null
+  const prevSelling = (fullEvent.data?.selling_matched_agent_id as string | null) ?? null
+
+  function resolveSide(action: Side, prev: string | null): string | null {
+    if (action.kind === 'assign_agent') return action.agent_id
+    if (action.kind === 'assign_team') return action.agent_ids[0] ?? null
+    if (action.kind === 'mark_outside') return null
+    return prev // leave_as_parsed
   }
 
-  const targetList = Array.from(targetAgentIds)
+  const listingAgentId = resolveSide(input.listing_action, prevListing)
+  const sellingAgentId = resolveSide(input.selling_action, prevSelling)
+
+  // Dispatch primary: listing wins if present, else selling.
+  const primaryAgentId = listingAgentId ?? sellingAgentId ?? null
+  const secondaryAgentId =
+    primaryAgentId === null
+      ? null
+      : primaryAgentId === listingAgentId
+        ? sellingAgentId
+        : listingAgentId
+
+  const targetList: string[] = []
+  if (primaryAgentId) targetList.push(primaryAgentId)
+  if (secondaryAgentId && secondaryAgentId !== primaryAgentId) {
+    targetList.push(secondaryAgentId)
+  }
+  // Teams may contribute extra IDs beyond the two side columns. Preserve
+  // them in target_agent_ids semantics by appending uniques (used by
+  // future multi-recipient dispatcher work).
+  for (const action of [input.listing_action, input.selling_action]) {
+    if (action.kind === 'assign_team') {
+      for (const id of action.agent_ids) {
+        if (!targetList.includes(id)) targetList.push(id)
+      }
+    }
+  }
 
   // Insert any "remember" mappings
   const mappingRows: Array<{
@@ -342,8 +389,10 @@ export async function resolveUnmatchedFirmDealEvent(
 
   const updateFields: Record<string, unknown> = {
     status: newStatus,
-    matched_agent_id: targetList[0] ?? null,
-    second_matched_agent_id: targetList[1] ?? null,
+    listing_matched_agent_id: listingAgentId,
+    selling_matched_agent_id: sellingAgentId,
+    matched_agent_id: primaryAgentId,
+    second_matched_agent_id: secondaryAgentId,
     reviewed_by: auth.user?.id ?? null,
     reviewed_at: new Date().toISOString(),
     error_message: null,
