@@ -48,6 +48,7 @@ export async function GET(
 
   const consumed = await consumeFirmDealMagicLink(supabase, token)
   if (!consumed.ok) {
+    console.error('[firm-deal-magic-link] consume failed', consumed.reason)
     return loginRedirect(consumed.reason === 'expired' ? 'expired' : 'invalid')
   }
 
@@ -65,12 +66,16 @@ export async function GET(
     console.error(
       '[firm-deal-magic-link] no user_profile for agent',
       consumed.agent_id,
-      profileErr?.message
+      'err=',
+      profileErr?.message,
+      'profile=',
+      JSON.stringify(profile)
     )
     return loginRedirect('invalid')
   }
 
   const redirectTo = `${APP_URL.replace(/\/$/, '')}/agent/dashboard?firm_deal=${encodeURIComponent(consumed.firm_deal_event_id)}`
+  console.log('[firm-deal-magic-link] generating link for', profile.email, 'redirectTo=', redirectTo)
 
   // Ask Supabase to issue a one-time sign-in URL for this email. Supabase
   // returns an action_link we redirect the browser to; Supabase's /verify
@@ -81,7 +86,18 @@ export async function GET(
     options: { redirectTo },
   })
   if (linkErr || !linkData?.properties?.action_link) {
-    console.error('[firm-deal-magic-link] generateLink failed', linkErr?.message)
+    console.error(
+      '[firm-deal-magic-link] generateLink failed status=',
+      linkErr?.status,
+      'code=',
+      linkErr?.code,
+      'message=',
+      linkErr?.message,
+      'hasData=',
+      !!linkData,
+      'hasProps=',
+      !!linkData?.properties
+    )
     return loginRedirect('invalid')
   }
 
