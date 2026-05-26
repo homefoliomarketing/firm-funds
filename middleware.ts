@@ -212,17 +212,23 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Check role-based access for protected routes
-    for (const [routePrefix, allowedRoles] of Object.entries(ROUTE_ROLES)) {
-      if (pathname.startsWith(routePrefix)) {
-        if (!profile || !allowedRoles.includes(profile.role)) {
-          // User doesn't have the right role or no profile — sign out and redirect to login
-          await supabase.auth.signOut()
-          const url = request.nextUrl.clone()
-          url.pathname = '/login'
-          return NextResponse.redirect(url)
+    // Check role-based access for protected routes. Public paths are
+    // exempt: PUBLIC_PATHS bypasses the unauthenticated redirect above and
+    // it must bypass the role gate here too, otherwise an admin clicking a
+    // firm-deal magic link (under /agent/firm-deal) gets signed out before
+    // the route handler ever runs.
+    if (!isPublic) {
+      for (const [routePrefix, allowedRoles] of Object.entries(ROUTE_ROLES)) {
+        if (pathname.startsWith(routePrefix)) {
+          if (!profile || !allowedRoles.includes(profile.role)) {
+            // User doesn't have the right role or no profile — sign out and redirect to login
+            await supabase.auth.signOut()
+            const url = request.nextUrl.clone()
+            url.pathname = '/login'
+            return NextResponse.redirect(url)
+          }
+          break
         }
-        break
       }
     }
   }
