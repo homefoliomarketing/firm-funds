@@ -1,7 +1,7 @@
 # Handoff — Firm Deal Detection Phase 1 Follow-ups
 
-**Date written:** 2026-05-26 (Session 33, refreshed end of session 34)
-**Status:** Phase 1 LIVE. All P0 items shipped. End-to-end verified on production with a second brokerage onboarded via the new wizard. This handoff covers the remaining P1/P2 items to make the system safer to send mail with, easier to scale, and easier to operate.
+**Date written:** 2026-05-26 (Session 33, refreshed end of session 34, P1 #5 + #6 shipped in session 35)
+**Status:** Phase 1 LIVE. All P0 items shipped. P1 #5 (Twilio Restricted key) and P1 #6 (tokenized magic links) shipped 2026-05-26 evening. Only P2 polish items remain.
 
 **For Bud:** Open this file in a new session and say "work through the firm deal handoff" — Claude will know what to do.
 
@@ -50,28 +50,22 @@ Resend already has `firmfunds.ca` verified with SPF/DKIM/DMARC; the earlier Hotm
 
 ---
 
-## TODO — P1 (worth doing before scaling)
+## DONE — P1 (shipped 2026-05-26 session 35)
 
-### P1 #5 — Tighten Twilio API key from Main → Restricted (SMS-only)
-**Why:** Current key (`firmfunds-sms`) has Main scope, which grants access to every Twilio resource on the account. We only use SMS via the Programmable Messaging API. Auto-recharge is OFF and balance is ~$20, so the blast radius is small, but this is good hygiene.
+### P1 #5 — Twilio key tightened to Restricted scope ✅
+New key `firmfunds-sms-restricted` (SID `SKe7…7186`) with **Messages: Read + List + Create** only. Old Main-scoped `firmfunds-sms` deleted. Netlify env vars updated, prod deployed, real SMS verified end-to-end to budj_12@hotmail.com via the smoke-test event pattern.
 
-**Steps for Bud (Twilio dashboard, not a code change):**
-1. Account → API Keys → Create new key with "Restricted" scope.
-2. Permissions: `Messages` (send and read), nothing else.
-3. Replace `TWILIO_API_KEY_SID` and `TWILIO_API_KEY_SECRET` on Netlify with the new key/secret.
-4. Trigger a deploy (or wait for the next push to main).
-5. Delete the old Main-scoped key.
+### P1 #6 — Tokenized magic-link CTAs ✅
+Shipped across commits `170b860` (feature), `695c5e1` (middleware fix), `ef81aeb` (verifyOtp), `1bf5399` (URL fix). End-to-end verified: cleared cookies → visited `/agent/firm-deal/<token>` → landed signed in on `/agent?firm_deal=<id>` with the agent dashboard rendering Bud's real data.
 
-**Effort:** 5 min on Twilio + 1 min on Netlify. No code change.
+Files:
+- `supabase/migrations/080_firm_deal_magic_links.sql` — new table, 7-day TTL, single-use via `used_at` CAS
+- `lib/firm-deal-detection/magic-link.ts` — `mintFirmDealMagicLink` + `consumeFirmDealMagicLink`
+- `app/agent/firm-deal/[token]/route.ts` — validates token, generateLink, **server-side** `verifyOtp` so SSR sees the session (NOT redirect to action_link, which puts JWT in URL hash invisible to the server)
+- `lib/firm-deal-detection/dispatch-notification.ts` — mints token per dispatch, falls back to deep link if minting fails
+- `middleware.ts` — `/agent/firm-deal` in PUBLIC_PATHS, role check skipped on public paths so admins clicking agent links don't get signed out
 
-### P1 #6 — Tokenized magic-link CTAs (BIGGEST CONVERSION WIN)
-**Why:** The offer email + SMS contain a link to `/agent/dashboard?firm_deal=<id>`. If the agent isn't already logged in (they almost certainly aren't on their phone, minutes after a deal goes firm), they hit the login wall and have to remember their Firm Funds password or do a password reset. That kills the funnel right when speed matters most.
-
-**Fix:** The dispatcher generates a one-shot signed token (JWT or random hex stored in a `magic_links` table with TTL ~7 days), embeds it as `/agent/firm-deal/<token>`. A new route at `app/agent/firm-deal/[token]/route.ts` validates the token, signs the agent in (short-lived session cookie), and redirects to their dashboard with `?firm_deal=<id>`.
-
-Check before reinventing: there may already be magic-link infrastructure in `lib/auth-helpers.ts` or the existing `/api/magic-link` route. The existing `magic-link` flow is used for KYC mobile uploads; reuse the token-issuing helper if possible.
-
-**Effort:** Half a day. Likely the single biggest conversion improvement available.
+**Note for future enhancement:** The redirect target `/agent?firm_deal=<id>` carries the param, but `/agent/page.tsx` doesn't yet consume it. To highlight the specific offer, the agent dashboard would need to read `firm_deal` from the query string, look up `firm_deal_events.offer_deal_id`, and either auto-scroll to that deal or show a banner. The original code was already broken here (linked to `/agent/dashboard` which 404'd). Magic link works correctly now; surfacing the specific offer is a separate UI task.
 
 ---
 
