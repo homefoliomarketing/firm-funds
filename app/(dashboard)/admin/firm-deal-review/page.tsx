@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   AlertTriangle,
@@ -128,8 +128,25 @@ function SideChip({
 }
 
 export default function FirmDealReviewPage() {
+  // Suspense boundary is required when reading URL search params from a
+  // client page in Next.js 16 (per node_modules/next/dist/docs/.../
+  // dynamic-rendering.mdx). The inner component owns all state + URL reads.
+  return (
+    <Suspense>
+      <FirmDealReviewPageInner />
+    </Suspense>
+  )
+}
+
+function FirmDealReviewPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
+
+  // Brokerage filter — persisted to URL so reloading + sharing a link keep
+  // the same filter. 'all' (or null) means show everything; otherwise it's
+  // a brokerage UUID matched against row.brokerage_id.
+  const brokerageFilter = searchParams.get('brokerage') ?? 'all'
   const [authChecked, setAuthChecked] = useState(false)
   const [data, setData] = useState<ReviewQueueResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -262,8 +279,43 @@ export default function FirmDealReviewPage() {
     await loadQueue()
   }
 
-  const pending = data?.pending ?? []
-  const resolved = data?.recently_resolved ?? []
+  const allPending = data?.pending ?? []
+  const allResolved = data?.recently_resolved ?? []
+
+  // Distinct brokerages across the combined queue — drives the selector
+  // dropdown. Only show the selector when >1 brokerage is represented,
+  // otherwise it's just noise.
+  const brokerageOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const r of [...allPending, ...allResolved]) {
+      if (!seen.has(r.brokerage_id)) seen.set(r.brokerage_id, r.brokerage_name)
+    }
+    return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
+  }, [allPending, allResolved])
+
+  // Client-side filter — the queue payload already has brokerage_id on
+  // every row so a fetch round-trip is unnecessary.
+  const pending = useMemo(
+    () => (brokerageFilter === 'all' ? allPending : allPending.filter(r => r.brokerage_id === brokerageFilter)),
+    [allPending, brokerageFilter]
+  )
+  const resolved = useMemo(
+    () => (brokerageFilter === 'all' ? allResolved : allResolved.filter(r => r.brokerage_id === brokerageFilter)),
+    [allResolved, brokerageFilter]
+  )
+
+  function setBrokerageFilter(next: string) {
+    // Build a new URLSearchParams off the existing one so we don't clobber
+    // any other params someone might add later.
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'all') params.delete('brokerage')
+    else params.set('brokerage', next)
+    const qs = params.toString()
+    router.replace(qs ? `/admin/firm-deal-review?${qs}` : '/admin/firm-deal-review', { scroll: false })
+  }
+
   const unmatchedCount = useMemo(() => pending.filter(r => r.status === 'unmatched').length, [pending])
   const awaitingCount = useMemo(() => pending.filter(r => r.status === 'awaiting_approval').length, [pending])
   const erroredCount = useMemo(() => pending.filter(r => r.status === 'errored').length, [pending])
@@ -281,23 +333,45 @@ export default function FirmDealReviewPage() {
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-5xl">
-      <header className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Inbox className="h-5 w-5 text-primary" aria-hidden="true" />
+      <header className="flex items-center justify-between mb-4 gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Inbox className="h-5 w-5 text-primary shrink-0" aria-hidden="true" />
           <h1 className="text-xl font-bold">Firm Deal Review</h1>
           <span className="text-xs text-muted-foreground hidden sm:inline">
             · {pending.length} pending · {resolved.length} recently resolved
           </span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={loadQueue}
-          disabled={refreshing}
-          aria-label="Refresh queue"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Only show the selector when more than one brokerage is in the
+              queue. Single-brokerage view stays clean. */}
+          {brokerageOptions.length > 1 && (
+            <>
+              <label htmlFor="brokerage-filter" className="sr-only">
+                Filter by brokerage
+              </label>
+              <select
+                id="brokerage-filter"
+                value={brokerageFilter}
+                onChange={(e) => setBrokerageFilter(e.target.value)}
+                className="text-xs bg-background border border-border rounded px-2 py-1 max-w-[200px]"
+              >
+                <option value="all">All brokerages ({brokerageOptions.length})</option>
+                {brokerageOptions.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={loadQueue}
+            disabled={refreshing}
+            aria-label="Refresh queue"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </header>
 
       <div className="grid grid-cols-3 gap-2 mb-4 text-center">
@@ -329,7 +403,11 @@ export default function FirmDealReviewPage() {
       {pending.length === 0 && !error && (
         <div className="rounded-lg border bg-card py-10 text-center text-muted-foreground">
           <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-500" aria-hidden="true" />
-          <p className="text-sm">Nothing to review.</p>
+          <p className="text-sm">
+            {brokerageFilter !== 'all'
+              ? 'Nothing to review for this brokerage.'
+              : 'Nothing to review.'}
+          </p>
         </div>
       )}
 
