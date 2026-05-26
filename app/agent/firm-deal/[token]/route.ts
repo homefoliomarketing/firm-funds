@@ -27,7 +27,7 @@
  * is guessing tokens.
  */
 import { NextResponse, type NextRequest } from 'next/server'
-import { createServiceRoleClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { consumeFirmDealMagicLink } from '@/lib/firm-deal-detection/magic-link'
 
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
@@ -44,11 +44,10 @@ export async function GET(
 ) {
   // Next.js 16: route params are async.
   const { token } = await params
-  const supabase = createServiceRoleClient()
+  const service = createServiceRoleClient()
 
-  const consumed = await consumeFirmDealMagicLink(supabase, token)
+  const consumed = await consumeFirmDealMagicLink(service, token)
   if (!consumed.ok) {
-    console.error('[firm-deal-magic-link] consume failed', consumed.reason)
     return loginRedirect(consumed.reason === 'expired' ? 'expired' : 'invalid')
   }
 
@@ -57,7 +56,7 @@ export async function GET(
   // by id). agents.email is the broker-supplied address and may be NULL
   // for agents we know about but who never signed up themselves; we treat
   // that as "no usable Firm Funds account" and bounce to login.
-  const { data: profile, error: profileErr } = await supabase
+  const { data: profile, error: profileErr } = await service
     .from('user_profiles')
     .select('id, email')
     .eq('agent_id', consumed.agent_id)
@@ -66,40 +65,40 @@ export async function GET(
     console.error(
       '[firm-deal-magic-link] no user_profile for agent',
       consumed.agent_id,
-      'err=',
-      profileErr?.message,
-      'profile=',
-      JSON.stringify(profile)
+      profileErr?.message
     )
     return loginRedirect('invalid')
   }
 
-  const redirectTo = `${APP_URL.replace(/\/$/, '')}/agent/dashboard?firm_deal=${encodeURIComponent(consumed.firm_deal_event_id)}`
-  console.log('[firm-deal-magic-link] generating link for', profile.email, 'redirectTo=', redirectTo)
-
-  // Ask Supabase to issue a one-time sign-in URL for this email. Supabase
-  // returns an action_link we redirect the browser to; Supabase's /verify
-  // endpoint then sets the session cookies and redirects to redirectTo.
-  const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+  // Ask Supabase to mint a one-time OTP for this email. We do not send the
+  // user to the action_link (that would put the JWT in the URL hash, which
+  // the server can never read, breaking SSR auth). Instead we keep the
+  // hashed_token server-side and call verifyOtp ourselves, which sets the
+  // session cookies on the SSR client. Same trick the @supabase/ssr docs
+  // recommend for server-driven magic-link flows.
+  const { data: linkData, error: linkErr } = await service.auth.admin.generateLink({
     type: 'magiclink',
     email: profile.email,
-    options: { redirectTo },
   })
-  if (linkErr || !linkData?.properties?.action_link) {
-    console.error(
-      '[firm-deal-magic-link] generateLink failed status=',
-      linkErr?.status,
-      'code=',
-      linkErr?.code,
-      'message=',
-      linkErr?.message,
-      'hasData=',
-      !!linkData,
-      'hasProps=',
-      !!linkData?.properties
-    )
+  if (linkErr || !linkData?.properties?.hashed_token) {
+    console.error('[firm-deal-magic-link] generateLink failed', linkErr?.message)
     return loginRedirect('invalid')
   }
 
-  return NextResponse.redirect(linkData.properties.action_link)
+  // The SSR client reads/writes the auth cookies on the response. verifyOtp
+  // sets the session cookies here; the redirect below sends them to the
+  // browser so the dashboard load sees an authenticated user.
+  const supabase = await createClient()
+  const { error: verifyErr } = await supabase.auth.verifyOtp({
+    token_hash: linkData.properties.hashed_token,
+    type: 'magiclink',
+  })
+  if (verifyErr) {
+    console.error('[firm-deal-magic-link] verifyOtp failed', verifyErr.message)
+    return loginRedirect('invalid')
+  }
+
+  const dashboard = new URL('/agent/dashboard', APP_URL)
+  dashboard.searchParams.set('firm_deal', consumed.firm_deal_event_id)
+  return NextResponse.redirect(dashboard)
 }
