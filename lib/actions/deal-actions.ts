@@ -1830,26 +1830,13 @@ export async function saveAdminNotes(input: { dealId: string; adminNotes: string
 // ============================================================================
 
 export async function addAdminNote(input: { dealId: string; note: string }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   const noteText = input.note.trim()
   if (!noteText) return { success: false, error: 'Note cannot be empty' }
 
   try {
-    // Fetch current timeline
-    const { data: deal, error: fetchError } = await supabase
-      .from('deals')
-      .select('admin_notes_timeline')
-      .eq('id', input.dealId)
-      .single()
-
-    if (fetchError) {
-      return { success: false, error: `Failed to fetch deal: ${fetchError.message}` }
-    }
-
-    const timeline = Array.isArray(deal?.admin_notes_timeline) ? deal.admin_notes_timeline : []
-
     const newEntry = {
       id: crypto.randomUUID(),
       text: noteText,
@@ -1858,16 +1845,21 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
       created_at: new Date().toISOString(),
     }
 
-    timeline.push(newEntry)
+    // Atomic append via migration 077 RPC. Replaces the previous
+    // read-modify-write which lost notes when two admins commented at
+    // the same time. The RPC runs a single UPDATE using jsonb
+    // concatenation against the live row, so row-level locking
+    // serializes concurrent appenders and both notes survive.
+    const serviceClient = createServiceRoleClient()
+    const { data: timeline, error: rpcError } = await serviceClient
+      .rpc('append_admin_note', {
+        p_deal_id: input.dealId,
+        p_entry: newEntry,
+      })
 
-    const { error: updateError } = await supabase
-      .from('deals')
-      .update({ admin_notes_timeline: timeline })
-      .eq('id', input.dealId)
-
-    if (updateError) {
-      console.error('Admin note add error:', updateError.message)
-      return { success: false, error: `Failed to add note: ${updateError.message}` }
+    if (rpcError) {
+      console.error('Admin note add error:', rpcError.message)
+      return { success: false, error: `Failed to add note: ${rpcError.message}` }
     }
 
     await logAuditEvent({
@@ -1877,7 +1869,7 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
       metadata: { author: profile.full_name, note_preview: noteText.substring(0, 100) },
     })
 
-    return { success: true, data: { timeline, newEntry } }
+    return { success: true, data: { timeline: timeline ?? [], newEntry } }
   } catch (err: any) {
     console.error('Admin note add error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }

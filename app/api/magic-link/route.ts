@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { checkApiRateLimit } from '@/lib/rate-limit'
+import { checkSensitiveRateLimit } from '@/lib/rate-limit'
+import { extractTrustedClientIpOrLocalhost } from '@/lib/request-helpers'
 
 // ============================================================================
 // Magic Link Token API
@@ -12,9 +13,11 @@ import { checkApiRateLimit } from '@/lib/rate-limit'
 /** POST: Validate token — returns agent info if valid */
 export async function POST(request: Request) {
   try {
-    // Rate limit
-    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
-    const rl = await checkApiRateLimit(ip)
+    // Sensitive bucket (5/min). The response shape leaks "token exists" vs
+    // "doesn't" by content, so this is enumeration-friendly and needs a
+    // tighter cap than the general API limit.
+    const ip = extractTrustedClientIpOrLocalhost(request)
+    const rl = await checkSensitiveRateLimit(ip)
     if (!rl.allowed) {
       return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
     }
@@ -72,9 +75,11 @@ export async function POST(request: Request) {
 /** PUT: Set password using the token */
 export async function PUT(request: Request) {
   try {
-    // Rate limit
-    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
-    const rl = await checkApiRateLimit(ip)
+    // Sensitive bucket (5/min). Same enumeration concern as POST plus a
+    // password-set side effect; tight cap prevents credential stuffing
+    // against guessed-token URLs.
+    const ip = extractTrustedClientIpOrLocalhost(request)
+    const rl = await checkSensitiveRateLimit(ip)
     if (!rl.allowed) {
       return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
     }

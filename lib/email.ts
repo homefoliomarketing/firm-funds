@@ -1292,7 +1292,7 @@ export async function sendBrokerageContactEmailConfirm(params: {
 }
 
 // ============================================================================
-// Brokerage Contact Email — Change-Requested Warning (to OLD address)
+// Brokerage Contact Email Change-Requested Warning (to OLD address)
 // ============================================================================
 //
 // Fires immediately when an admin requests the change, BEFORE the new address

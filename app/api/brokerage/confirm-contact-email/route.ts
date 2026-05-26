@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createHash } from 'node:crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEventServiceRole } from '@/lib/audit'
-import { checkApiRateLimit } from '@/lib/rate-limit'
+import { checkSensitiveRateLimit } from '@/lib/rate-limit'
 import { extractTrustedClientIpOrLocalhost } from '@/lib/request-helpers'
 
 // ============================================================================
@@ -33,7 +33,7 @@ function redirectWithStatus(status: string): NextResponse {
 
 export async function GET(request: NextRequest) {
   const ip = extractTrustedClientIpOrLocalhost(request as unknown as Request)
-  const rl = await checkApiRateLimit(ip)
+  const rl = await checkSensitiveRateLimit(ip)
   if (!rl.allowed) {
     return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
   }
