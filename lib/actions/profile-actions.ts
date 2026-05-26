@@ -2,7 +2,14 @@
 
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
-import { sendBankingSubmittedNotification, sendBankingApprovalNotification, sendBrokerageInviteNotification, sendKycApprovedNotification } from '@/lib/email'
+import {
+  sendBankingSubmittedNotification,
+  sendBankingApprovalNotification,
+  sendBrokerageInviteNotification,
+  sendKycApprovedNotification,
+  sendAgentPhoneChangedNotification,
+} from '@/lib/email'
+import { logAuditEventServiceRole } from '@/lib/audit'
 
 // ============================================================================
 // Agent Profile Actions
@@ -34,12 +41,21 @@ export async function updateAgentProfile(data: {
   const serviceClient = createServiceRoleClient()
 
   // Finding #43: validate phone format (Canadian E.164) before persisting.
-  // TODO: require SMS OTP before persisting phone changes
+  // SMS OTP on change was discussed and deferred: phone is not an auth factor
+  // anywhere in this app (no SMS recovery, no SMS OTP, no SMS notifications),
+  // so paying for Twilio would defend against an attack we are not exposed
+  // to. The cheap mitigation (audit-log + notify the agent's verified email)
+  // is below; revisit if SMS-based recovery is ever added.
   let phoneChanged = false
+  let priorPhone: string | null = null
+  let newPhone: string | null = null
   let oldPhoneLast4: string | null = null
   let newPhoneLast4: string | null = null
-  if (data.phone !== undefined && data.phone !== null && data.phone !== '') {
-    if (!/^\+1[2-9]\d{9}$/.test(data.phone)) {
+
+  // Read prior phone regardless of whether the new value is set/cleared, so a
+  // change-to-empty (clear the phone) is also detected and audited.
+  if (data.phone !== undefined) {
+    if (data.phone !== null && data.phone !== '' && !/^\+1[2-9]\d{9}$/.test(data.phone)) {
       return { success: false, error: 'Phone must be a valid Canadian number in +1XXXXXXXXXX format' }
     }
     const { data: existing } = await serviceClient
@@ -47,11 +63,12 @@ export async function updateAgentProfile(data: {
       .select('phone')
       .eq('id', data.agentId)
       .single()
-    const prior: string | null = existing?.phone ?? null
-    if (prior !== data.phone) {
+    priorPhone = existing?.phone ?? null
+    newPhone = data.phone || null
+    if (priorPhone !== newPhone) {
       phoneChanged = true
-      oldPhoneLast4 = prior ? prior.slice(-4) : null
-      newPhoneLast4 = data.phone.slice(-4)
+      oldPhoneLast4 = priorPhone ? priorPhone.slice(-4) : null
+      newPhoneLast4 = newPhone ? newPhone.slice(-4) : null
     }
   }
 
@@ -74,16 +91,45 @@ export async function updateAgentProfile(data: {
   }
 
   if (phoneChanged) {
-    void serviceClient.from('audit_log').insert({
-      user_id: user.id,
+    const changedAt = new Date().toISOString()
+
+    await logAuditEventServiceRole({
+      userId: user.id,
       action: 'agent.update_phone',
-      entity_type: 'agent',
-      entity_id: data.agentId,
+      entityType: 'agent',
+      entityId: data.agentId,
       severity: 'warning',
-      actor_email: user.email,
-      actor_role: 'agent',
+      actorEmail: user.email ?? undefined,
+      actorRole: 'agent',
       metadata: { old_phone_last4: oldPhoneLast4, new_phone_last4: newPhoneLast4 },
     })
+
+    // Notify the agent's verified Firm Funds email so silent tampering by a
+    // stolen-session attacker is visible to the legitimate owner.
+    try {
+      const { data: agent } = await serviceClient
+        .from('agents')
+        .select('first_name, last_name')
+        .eq('id', data.agentId)
+        .single()
+
+      const recipientEmail = user.email
+      const recipientName = agent
+        ? `${agent.first_name ?? ''} ${agent.last_name ?? ''}`.trim() || 'there'
+        : 'there'
+
+      if (recipientEmail) {
+        await sendAgentPhoneChangedNotification({
+          recipientEmail,
+          recipientName,
+          oldPhoneLast4,
+          newPhoneLast4,
+          changedAtIso: changedAt,
+        })
+      }
+    } catch (notifyErr: any) {
+      console.error('Phone-changed notification error (non-fatal):', notifyErr?.message)
+    }
   }
 
   return { success: true }

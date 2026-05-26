@@ -1180,7 +1180,69 @@ export async function sendEmailChangeNotification(params: {
 }
 
 // ============================================================================
-// Brokerage Contact Email — Confirm-New-Address (finding #40 follow-up)
+// Agent Phone Number Changed (finding #43 follow-up)
+// ============================================================================
+//
+// Sent to the agent's verified Firm Funds email whenever their on-file phone
+// changes. The full numbers are masked to the last 4 digits so the email is
+// useful for detecting tampering without re-leaking the PII back to whichever
+// inbox the email lands in (forwarded mail, mailing lists, etc).
+
+export async function sendAgentPhoneChangedNotification(params: {
+  recipientEmail: string
+  recipientName: string
+  oldPhoneLast4: string | null
+  newPhoneLast4: string | null
+  changedAtIso: string
+}): Promise<void> {
+  const resend = getResend()
+  if (!resend) return
+
+  const oldDisplay = params.oldPhoneLast4 ? `*** *** ${params.oldPhoneLast4}` : 'not on file'
+  const newDisplay = params.newPhoneLast4 ? `*** *** ${params.newPhoneLast4}` : 'cleared'
+
+  try {
+    await resend.emails.send({
+      from: FROM_ADDRESS,
+      to: params.recipientEmail,
+      subject: sanitizeSubject('Your Firm Funds phone number was updated'),
+      html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Phone Number Updated</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          Hi ${escapeHtml(params.recipientName)}, the phone number on your Firm Funds agent profile was just updated.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Previous</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(oldDisplay)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Updated To</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(newDisplay)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">When</td>
+                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(new Date(params.changedAtIso).toUTCString())}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
+          If you didn't make this change, sign in, reset your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your session may be compromised.
+        </p>
+      `),
+    })
+  } catch (err) {
+    console.error('[email] Failed to send phone-changed notification:', err)
+  }
+}
+
+// ============================================================================
+// Brokerage Contact Email Confirm-New-Address (finding #40 follow-up)
 // ============================================================================
 //
 // Sent to the NEW address requested by a brokerage admin. The confirmation
