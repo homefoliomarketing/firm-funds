@@ -109,48 +109,57 @@ export function calculateDeal(input: DealCalculation): DealResult {
   const referralPct = input.brokerageReferralPct ?? DEFAULT_BROKERAGE_REFERRAL_PCT
   const settlementDays = input.settlementPeriodDays ?? SETTLEMENT_PERIOD_DAYS
 
-  // Agent's net commission after brokerage split
-  const netCommission = input.grossCommission * (1 - input.brokerageSplitPct / 100)
-
-  // Discount fee: net commission × ($0.80 / $1,000) × days
   // -1 because: agent receives funds day AFTER funding, and closing day is repayment (not charged)
   // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS (see getChargeDays)
   const effectiveDays = getChargeDays(input.daysUntilClosing)
-  const discountFee = netCommission * (rate / 1000) * effectiveDays
 
-  // Settlement Period Fee: same rate × settlement-window days (7 standard, 14 for
-  // brokerages auto-bumped after 5 strikes). Flat, non-refundable fee covering
-  // the brokerage payment window after closing.
-  const settlementPeriodFee = netCommission * (rate / 1000) * settlementDays
+  // Round in dependency order so the returned cent values satisfy the
+  // accounting identities exactly (no ¢ drift from independent rounding):
+  //   discountFee + settlementPeriodFee === totalFees
+  //   netCommission - totalFees === advanceAmount
+  //   brokerageReferralFee + firmFundsProfit === totalFees
+  //   netCommission - brokerageReferralFee === amountDueFromBrokerage
 
-  // Total fees charged to the agent
+  // 1. Net commission after brokerage split (anchor for everything downstream).
+  const netCommission = roundToCents(input.grossCommission * (1 - input.brokerageSplitPct / 100))
+
+  // 2. Discount fee: net commission × ($0.80 / $1,000) × effective days.
+  //    Settlement Period Fee: same rate × settlement-window days (7 standard,
+  //    14 for brokerages auto-bumped after 5 strikes). Flat, non-refundable
+  //    fee covering the brokerage payment window after closing.
+  //    Both rounded against unrounded netCommission for accuracy.
+  const unroundedNet = input.grossCommission * (1 - input.brokerageSplitPct / 100)
+  const discountFee = roundToCents(unroundedNet * (rate / 1000) * effectiveDays)
+  const settlementPeriodFee = roundToCents(unroundedNet * (rate / 1000) * settlementDays)
+
+  // 3. Sum of two 2-decimal numbers is exact, no re-round.
   const totalFees = discountFee + settlementPeriodFee
 
-  // What the agent receives
+  // 4. Derived from rounded values, no re-round.
   const advanceAmount = netCommission - totalFees
 
-  // Brokerage (white-label partner) gets a cut of the TOTAL fees — both the
-  // discount fee AND the settlement-period fee.
-  const brokerageReferralFee = totalFees * referralPct
+  // 5. Brokerage (white-label partner) gets a cut of the TOTAL fees.
+  //    Round once; firmFundsProfit derives from the rounded value.
+  const brokerageReferralFee = roundToCents(totalFees * referralPct)
 
-  // Firm Funds keeps whatever's left of the total fees after the brokerage share.
+  // 6. Firm Funds keeps whatever's left of total fees after the brokerage share.
   const firmFundsProfit = totalFees - brokerageReferralFee
 
-  // What brokerage sends to Firm Funds at closing (net commission minus their referral fee)
+  // 7. What brokerage sends to Firm Funds at closing.
   const amountDueFromBrokerage = netCommission - brokerageReferralFee
 
   // How many days of EFT transfers needed
   const eftTransferDays = Math.ceil(advanceAmount / MAX_DAILY_EFT)
 
   return {
-    netCommission: roundToCents(netCommission),
-    discountFee: roundToCents(discountFee),
-    settlementPeriodFee: roundToCents(settlementPeriodFee),
-    totalFees: roundToCents(totalFees),
-    advanceAmount: roundToCents(advanceAmount),
-    brokerageReferralFee: roundToCents(brokerageReferralFee),
-    firmFundsProfit: roundToCents(firmFundsProfit),
-    amountDueFromBrokerage: roundToCents(amountDueFromBrokerage),
+    netCommission,
+    discountFee,
+    settlementPeriodFee,
+    totalFees,
+    advanceAmount,
+    brokerageReferralFee,
+    firmFundsProfit,
+    amountDueFromBrokerage,
     eftTransferDays,
     effectiveDays,
   }

@@ -233,10 +233,22 @@ export async function logAuditEventServiceRole(
 /**
  * Extract IP address and user-agent from a Request object.
  * Works in both Netlify serverless and Supabase Edge contexts.
+ *
+ * Trust boundary: prefer Netlify's x-nf-client-connection-ip (set by the edge
+ * before the request reaches origin and not forwarded by clients), then
+ * x-real-ip (reverse-proxy verified). x-forwarded-for is client-spoofable
+ * when a request hits a Netlify Function origin directly, so it's the
+ * last-resort fallback only.
  */
 export async function extractRequestContext(request: Request): Promise<AuditContext> {
+  const netlifyIp = request.headers.get('x-nf-client-connection-ip')
+  const realIp = request.headers.get('x-real-ip')
   const forwarded = request.headers.get('x-forwarded-for')
-  const ip = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || undefined
+  const ip =
+    netlifyIp?.trim() ||
+    realIp?.trim() ||
+    (forwarded ? forwarded.split(',')[0].trim() : undefined) ||
+    undefined
   const userAgent = request.headers.get('user-agent') || undefined
 
   return {

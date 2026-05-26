@@ -578,12 +578,22 @@ export async function approveClosingDateAmendment(input: {
     const isFunded = deal.status === 'funded'
     const oldDiscountFee = deal.discount_fee || 0
     // For funded deals, charge only the additional days between the deal's
-    // current closing date and the new closing date — not a re-priced fee
+    // current closing date and the new closing date - not a re-priced fee
     // from today onward. See computeFundedAmendmentDelta near the top of
     // this file. Approved (not-yet-funded) deals still get the full recalc
     // since no fee has been charged to the agent yet.
+    //
+    // CRITICAL: use the amendment's snapshotted old_closing_date as the
+    // baseline, NOT deal.closing_date. If two amendments are approved in
+    // sequence, the second one would otherwise compute its delta against
+    // the FIRST amendment's already-applied new closing date, producing a
+    // zero or negative charge instead of the correct incremental fee.
     const delta = isFunded
-      ? computeFundedAmendmentDelta(deal.net_commission, deal.closing_date, amendment.new_closing_date)
+      ? computeFundedAmendmentDelta(
+          deal.net_commission,
+          amendment.old_closing_date,
+          amendment.new_closing_date,
+        )
       : { extraDays: 0, feeAdjustment: 0 }
     const feeAdjustment = delta.feeAdjustment
     const fundedNewDiscountFee = isFunded
@@ -634,7 +644,14 @@ export async function approveClosingDateAmendment(input: {
     if (isFunded) {
       // FUNDED: keep original Face Value, Purchase Price, and fees on the deal.
       // Only update closing_date, days_until_closing, and due_date.
-      const { error: updateError } = await serviceClient
+      //
+      // CAS on closing_date == amendment.old_closing_date so concurrent
+      // amendment approvals against the same deal fail loudly here instead
+      // of silently overwriting each other. The amendment claim above
+      // already prevents the SAME amendment being approved twice; this guard
+      // catches the case where two DIFFERENT pending amendments race past
+      // approval.
+      const { data: updatedDeal, error: updateError } = await serviceClient
         .from('deals')
         .update({
           closing_date: amendment.new_closing_date,
@@ -642,10 +659,31 @@ export async function approveClosingDateAmendment(input: {
           due_date: newDueDateStr,
         })
         .eq('id', deal.id)
+        .eq('closing_date', amendment.old_closing_date)
+        .select('id')
+        .maybeSingle()
 
-      if (updateError) {
-        console.error('Deal update error on funded amendment approve:', updateError.message)
-        return { success: false, error: 'Failed to update deal' }
+      if (updateError || !updatedDeal) {
+        console.error(
+          'Deal update error on funded amendment approve:',
+          updateError?.message || 'CAS lost - closing_date changed concurrently',
+        )
+        // Release the amendment claim so the admin can retry once the other
+        // amendment finishes (or is rejected). Without this revert the
+        // amendment is stuck as approved with no fee charged.
+        await serviceClient
+          .from('closing_date_amendments')
+          .update({
+            status: 'pending',
+            reviewed_by: null,
+            reviewed_at: null,
+          })
+          .eq('id', input.amendmentId)
+          .eq('status', 'approved')
+        return {
+          success: false,
+          error: 'Deal closing date changed concurrently. Refresh and try again.',
+        }
       }
 
       // Apply discount-fee delta via the atomic RPC. Replaces the prior

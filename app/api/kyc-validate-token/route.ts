@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { checkSensitiveRateLimit } from '@/lib/rate-limit'
+import { extractTrustedClientIpOrLocalhost } from '@/lib/request-helpers'
 
 export async function POST(request: Request) {
   try {
+    // Sensitive (5/min) bucket: the response distinguishes "valid token" from
+    // "anything else" only by content shape, which is a token-enumeration
+    // oracle. Tight limit slows brute scans without breaking a real user who
+    // mistypes the URL once.
+    const ip = extractTrustedClientIpOrLocalhost(request)
+    const rl = await checkSensitiveRateLimit(ip)
+    if (!rl.allowed) {
+      return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
+    }
+
     const { token } = await request.json()
     if (!token) return NextResponse.json({ success: false, error: 'invalid' })
 

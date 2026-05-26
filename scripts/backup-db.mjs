@@ -9,7 +9,8 @@
  *   node scripts/backup-db.mjs                       # default: backups/db-<ISO>.json.gz
  *   node scripts/backup-db.mjs --label pre-session-1 # backups/db-pre-session-1-<ISO>.json.gz
  *
- * Restore: scripts/restore-db.mjs <file>  (run with confirmation prompt)
+ * Restore: scripts/restore-db.mjs <file> --confirm <hostname>
+ *          (requires --i-understand-this-is-production on prod; prompts to re-type hostname and 'yes')
  */
 import fs from 'node:fs';
 import path from 'node:path';

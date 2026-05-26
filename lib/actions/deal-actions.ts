@@ -581,6 +581,12 @@ export async function updateDealStatus(input: {
       updateData.payment_status = 'not_applicable'
     }
 
+    // Funding-only: precomputed payload for the post-CAS balance delta. We
+    // build all data here but defer the apply_agent_balance_delta call until
+    // after we have exclusively claimed the deal via the CAS update below.
+    // see audit finding #5
+    let pendingFundingDeduction: { agentId: string; amount: number; description: string } | null = null
+
     if (input.newStatus === 'funded') {
       updateData.funding_date = new Date().toISOString().split('T')[0]
 
@@ -648,10 +654,7 @@ export async function updateDealStatus(input: {
       updateData.settlement_days_at_funding = settlementDays
       updateData.payment_status = 'pending'
 
-      // Balance deduction: if agent owes money, deduct from advance.
-      // Atomic via apply_agent_balance_delta RPC (migration 052) so the
-      // balance update and ledger insert cannot drift apart under
-      // concurrent interest accruals on the same agent.
+      // Defer the balance deduction until after the CAS update wins.
       const { data: agentForBalance } = await supabase
         .from('agents')
         .select('id, account_balance')
@@ -661,21 +664,12 @@ export async function updateDealStatus(input: {
       const outstandingBalance = agentForBalance?.account_balance || 0
       if (outstandingBalance > 0 && calc.advanceAmount > 0) {
         const deductAmount = Math.min(outstandingBalance, calc.advanceAmount)
-
-        const { error: rpcErr } = await supabase
-          .rpc('apply_agent_balance_delta', {
-            p_agent_id: deal.agent_id,
-            p_delta: -deductAmount,
-            p_type: 'balance_deduction',
-            p_description: `Balance deduction from advance — ${deal.property_address}`,
-            p_deal_id: deal.id,
-            p_created_by: user.id,
-          })
-        if (rpcErr) {
-          return { success: false, error: `Failed to deduct balance: ${rpcErr.message}` }
-        }
-
         updateData.balance_deducted = deductAmount
+        pendingFundingDeduction = {
+          agentId: deal.agent_id,
+          amount: deductAmount,
+          description: `Balance deduction from advance — ${deal.property_address}`,
+        }
       }
     }
 
@@ -696,6 +690,15 @@ export async function updateDealStatus(input: {
       }
     }
 
+    // Reverse balance deduction when reverting a funded deal back to approved
+    // so a subsequent re-funding doesn't deduct twice. see audit finding #19
+    const prevBalanceDeducted = Number(deal.balance_deducted || 0)
+    const isFundedToApprovedReversal =
+      deal.status === 'funded' && input.newStatus === 'approved' && prevBalanceDeducted > 0
+    if (isFundedToApprovedReversal) {
+      updateData.balance_deducted = 0
+    }
+
     // Execute update with optimistic lock: only update if status hasn't changed
     // This prevents two admins from simultaneously funding/approving the same deal
     const { data: updatedRows, error: updateError } = await supabase
@@ -712,6 +715,75 @@ export async function updateDealStatus(input: {
 
     if (!updatedRows || updatedRows.length === 0) {
       return { success: false, error: 'Deal status was changed by another user. Please refresh and try again.' }
+    }
+
+    // see audit finding #5: only this caller has claimed the deal; safe to debit now.
+    // RPC requires service role (migration 072 locked apply_agent_balance_delta to service_role).
+    const rpcClient = (pendingFundingDeduction || isFundedToApprovedReversal)
+      ? createServiceRoleClient()
+      : null
+    if (pendingFundingDeduction && rpcClient) {
+      const { error: rpcErr } = await rpcClient
+        .rpc('apply_agent_balance_delta', {
+          p_agent_id: pendingFundingDeduction.agentId,
+          p_delta: -pendingFundingDeduction.amount,
+          p_type: 'balance_deduction',
+          p_description: pendingFundingDeduction.description,
+          p_deal_id: deal.id,
+          p_created_by: user.id,
+        })
+      if (rpcErr) {
+        const { error: revertErr } = await supabase
+          .from('deals')
+          .update({
+            status: deal.status,
+            funding_date: null,
+            balance_deducted: 0,
+            payment_status: deal.payment_status,
+          })
+          .eq('id', deal.id)
+          .eq('status', 'funded')
+        if (revertErr) {
+          console.error('CRITICAL: funding balance debit failed AND status revert failed:', revertErr.message)
+        }
+        return { success: false, error: `Failed to deduct balance: ${rpcErr.message}` }
+      }
+    }
+
+    // see audit finding #19: refund the previously deducted balance now that
+    // the CAS demoted funded back to approved.
+    if (isFundedToApprovedReversal && rpcClient) {
+      const { error: refundErr } = await rpcClient
+        .rpc('apply_agent_balance_delta', {
+          p_agent_id: deal.agent_id,
+          p_delta: prevBalanceDeducted,
+          p_type: 'credit',
+          p_description: `Reversal of balance deduction for ${deal.property_address} (funded reverted to approved)`,
+          p_deal_id: deal.id,
+          p_created_by: user.id,
+        })
+      if (refundErr) {
+        const { error: revertErr } = await supabase
+          .from('deals')
+          .update({ status: 'funded', balance_deducted: prevBalanceDeducted })
+          .eq('id', deal.id)
+          .eq('status', 'approved')
+        if (revertErr) {
+          console.error('CRITICAL: balance refund failed AND status revert failed:', revertErr.message)
+        }
+        return { success: false, error: `Failed to refund balance deduction: ${refundErr.message}` }
+      }
+
+      await logAuditEvent({
+        action: 'deal.balance_deduction_reversed',
+        entityType: 'deal',
+        entityId: deal.id,
+        metadata: {
+          agent_id: deal.agent_id,
+          refunded_amount: prevBalanceDeducted,
+          reason: 'funded reverted to approved',
+        },
+      })
     }
 
     // Audit log
@@ -1024,6 +1096,12 @@ export async function getDocumentSignedUrl(input: {
       }
     }
     // super_admin and firm_funds_admin can access all deals
+
+    // see audit finding #11: storage paths are scoped by deal id; reject any
+    // request asking for a path that doesn't belong to the authorized deal.
+    if (!input.filePath.startsWith(input.dealId + '/')) {
+      return { success: false, error: 'File path does not belong to the requested deal' }
+    }
 
     // Use service role client to bypass RLS/storage policies
     const { createServiceRoleClient } = await import('@/lib/supabase/server')
@@ -1752,26 +1830,13 @@ export async function saveAdminNotes(input: { dealId: string; adminNotes: string
 // ============================================================================
 
 export async function addAdminNote(input: { dealId: string; note: string }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   const noteText = input.note.trim()
   if (!noteText) return { success: false, error: 'Note cannot be empty' }
 
   try {
-    // Fetch current timeline
-    const { data: deal, error: fetchError } = await supabase
-      .from('deals')
-      .select('admin_notes_timeline')
-      .eq('id', input.dealId)
-      .single()
-
-    if (fetchError) {
-      return { success: false, error: `Failed to fetch deal: ${fetchError.message}` }
-    }
-
-    const timeline = Array.isArray(deal?.admin_notes_timeline) ? deal.admin_notes_timeline : []
-
     const newEntry = {
       id: crypto.randomUUID(),
       text: noteText,
@@ -1780,16 +1845,21 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
       created_at: new Date().toISOString(),
     }
 
-    timeline.push(newEntry)
+    // Atomic append via migration 077 RPC. Replaces the previous
+    // read-modify-write which lost notes when two admins commented at
+    // the same time. The RPC runs a single UPDATE using jsonb
+    // concatenation against the live row, so row-level locking
+    // serializes concurrent appenders and both notes survive.
+    const serviceClient = createServiceRoleClient()
+    const { data: timeline, error: rpcError } = await serviceClient
+      .rpc('append_admin_note', {
+        p_deal_id: input.dealId,
+        p_entry: newEntry,
+      })
 
-    const { error: updateError } = await supabase
-      .from('deals')
-      .update({ admin_notes_timeline: timeline })
-      .eq('id', input.dealId)
-
-    if (updateError) {
-      console.error('Admin note add error:', updateError.message)
-      return { success: false, error: `Failed to add note: ${updateError.message}` }
+    if (rpcError) {
+      console.error('Admin note add error:', rpcError.message)
+      return { success: false, error: `Failed to add note: ${rpcError.message}` }
     }
 
     await logAuditEvent({
@@ -1799,7 +1869,7 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
       metadata: { author: profile.full_name, note_preview: noteText.substring(0, 100) },
     })
 
-    return { success: true, data: { timeline, newEntry } }
+    return { success: true, data: { timeline: timeline ?? [], newEntry } }
   } catch (err: any) {
     console.error('Admin note add error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
@@ -1970,6 +2040,8 @@ export async function markDealFailedToClose(input: {
     const now = new Date()
     const deadline = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000)
 
+    // see audit finding #6: claim the deal first; only then post the agent
+    // balance so a failed RPC can't leave a funded deal with no ledger entry.
     const { data: updatedRows, error: updateError } = await supabase
       .from('deals')
       .update({
@@ -2016,6 +2088,22 @@ export async function markDealFailedToClose(input: {
       })
     if (rpcErr) {
       console.error('markDealFailedToClose balance RPC error:', rpcErr.message)
+      const { error: revertErr } = await serviceClient
+        .from('deals')
+        .update({
+          status: 'funded',
+          failed_to_close_at: null,
+          failure_type: null,
+          failure_reason: null,
+          outstanding_balance: 0,
+          cure_election_deadline: null,
+          payment_status: deal.payment_status,
+        })
+        .eq('id', deal.id)
+        .eq('status', 'failed_to_close')
+      if (revertErr) {
+        console.error('CRITICAL: failed-to-close balance post failed AND status revert failed:', revertErr.message)
+      }
       return { success: false, error: `Failed to record balance owed: ${rpcErr.message}` }
     }
 

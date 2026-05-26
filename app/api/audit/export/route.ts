@@ -18,7 +18,10 @@ export async function GET(request: Request) {
     return new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429 })
   }
 
-  // CSRF check
+  // CSRF check. Middleware enforces this for POST/PUT/PATCH/DELETE; GET is
+  // exempt there because GETs are normally idempotent. We re-enforce here
+  // because this GET serves a CSV export of the entire audit log — sensitive
+  // enough that even cross-origin script-driven downloads should be rejected.
   const originError = validateOrigin(request)
   if (originError) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })

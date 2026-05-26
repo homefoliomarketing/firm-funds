@@ -14,7 +14,11 @@ import {
 } from '@/lib/validations'
 import {
   BROKERAGE_LATE_STRIKE_THRESHOLD,
+  MAX_UPLOAD_SIZE_BYTES,
+  ALLOWED_UPLOAD_MIME_TYPES,
+  ALLOWED_UPLOAD_EXTENSIONS,
 } from '@/lib/constants'
+import { verifyFileMagicBytes } from '@/lib/file-validation'
 import {
   insertPayment,
   deletePayment,
@@ -69,15 +73,24 @@ export async function recordLateStrike(input: {
       return { success: false, error: 'Deal is not yet past its Payment Due Date' }
     }
 
-    await serviceClient
+    // audit finding #18: CAS-flip late_strike_recorded so two concurrent
+    // strike clicks can't both pass the precheck and both call the RPC.
+    const { data: claimed, error: claimErr } = await serviceClient
       .from('deals')
       .update({ late_strike_recorded: true })
       .eq('id', deal.id)
+      .eq('late_strike_recorded', false)
+      .select('id')
+      .maybeSingle()
+
+    if (claimErr) {
+      return { success: false, error: `Failed to record strike: ${claimErr.message}` }
+    }
+    if (!claimed) {
+      return { success: true, data: { idempotent: true } }
+    }
 
     // Atomic strike increment + conditional bump via RPC (migration 052).
-    // Previous read-modify-write could race: two concurrent strikes at count
-    // 4 could both compute newCount=5 and both write 5, missing one strike
-    // and double-firing the bump audit entry.
     const { data: strikeRows, error: strikeErr } = await serviceClient
       .rpc('record_brokerage_late_strike', {
         p_brokerage_id: deal.brokerage_id,
@@ -819,9 +832,68 @@ export async function archiveAgent(input: {
 }
 
 // ============================================================================
+// Soft-Delete Agent (archived only) — finding #16
+// Sets deleted_at and audit-logs. Reversible until permanentlyDeleteAgent runs.
+// ============================================================================
+
+export async function softDeleteAgent(input: {
+  agentId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
+
+  try {
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, status, brokerage_id, deleted_at')
+      .eq('id', input.agentId)
+      .single()
+
+    if (agentError || !agent) return { success: false, error: 'Agent not found' }
+    if (agent.status !== 'archived') return { success: false, error: 'Only archived agents can be soft-deleted' }
+    if (agent.deleted_at) return { success: false, error: 'Agent is already soft-deleted' }
+
+    const serviceClient = createServiceRoleClient()
+    const { error: updateError } = await serviceClient
+      .from('agents')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', input.agentId)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      console.error('Agent soft delete error:', updateError.message)
+      return { success: false, error: `Failed to soft-delete agent: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'agent.soft_delete',
+      entityType: 'agent',
+      entityId: input.agentId,
+      metadata: {
+        name: `${agent.first_name} ${agent.last_name}`,
+        email: agent.email,
+        brokerage_id: agent.brokerage_id,
+        deleted_by: user.id,
+        reason: reason.slice(0, 500),
+      },
+    })
+
+    return { success: true, data: { agentId: input.agentId } }
+  } catch (err: any) {
+    console.error('Agent soft delete error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Permanently Delete Agent (archived only)
 // ============================================================================
 
+// finding #16: hard-delete is now gated on soft-delete + 30-day quarantine.
 export async function permanentlyDeleteAgent(input: {
   agentId: string
 }): Promise<ActionResult> {
@@ -832,12 +904,21 @@ export async function permanentlyDeleteAgent(input: {
     // Fetch agent — must be archived
     const { data: agent, error: agentError } = await supabase
       .from('agents')
-      .select('id, first_name, last_name, email, status, brokerage_id')
+      .select('id, first_name, last_name, email, status, brokerage_id, deleted_at')
       .eq('id', input.agentId)
       .single()
 
     if (agentError || !agent) return { success: false, error: 'Agent not found' }
     if (agent.status !== 'archived') return { success: false, error: 'Only archived agents can be permanently deleted' }
+    if (!agent.deleted_at) {
+      return { success: false, error: 'Agent must be soft-deleted first. Use Soft Delete and wait 30 days before purging.' }
+    }
+    const deletedAt = new Date(agent.deleted_at as string).getTime()
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    if (deletedAt > cutoff) {
+      const daysLeft = Math.ceil((deletedAt - cutoff) / (24 * 60 * 60 * 1000))
+      return { success: false, error: `Agent was soft-deleted less than 30 days ago. ${daysLeft} day(s) remaining in the quarantine window.` }
+    }
 
     const serviceClient = createServiceRoleClient()
 
@@ -995,9 +1076,88 @@ export async function archiveBrokerage(input: {
 }
 
 // ============================================================================
+// Soft-Delete Brokerage (archived only, no active agents/deals) — finding #16
+// Sets deleted_at and audit-logs. Reversible until permanentlyDeleteBrokerage runs.
+// ============================================================================
+
+export async function softDeleteBrokerage(input: {
+  brokerageId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'A reason is required for the audit log' }
+
+  try {
+    const { data: brokerage, error: brokerageError } = await supabase
+      .from('brokerages')
+      .select('id, name, email, status, deleted_at')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (brokerage.status !== 'archived') return { success: false, error: 'Only archived brokerages can be soft-deleted' }
+    if (brokerage.deleted_at) return { success: false, error: 'Brokerage is already soft-deleted' }
+
+    const serviceClient = createServiceRoleClient()
+
+    const { count: activeAgentCount } = await serviceClient
+      .from('agents')
+      .select('*', { count: 'exact', head: true })
+      .eq('brokerage_id', input.brokerageId)
+      .is('deleted_at', null)
+
+    if (activeAgentCount && activeAgentCount > 0) {
+      return { success: false, error: 'Cannot soft-delete a brokerage with active (non-deleted) agents. Soft-delete the agents first.' }
+    }
+
+    const { count: dealCount } = await serviceClient
+      .from('deals')
+      .select('*', { count: 'exact', head: true })
+      .eq('brokerage_id', input.brokerageId)
+
+    if (dealCount && dealCount > 0) {
+      return { success: false, error: 'Cannot soft-delete a brokerage with deal history.' }
+    }
+
+    const { error: updateError } = await serviceClient
+      .from('brokerages')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', input.brokerageId)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      console.error('Brokerage soft delete error:', updateError.message)
+      return { success: false, error: `Failed to soft-delete brokerage: ${updateError.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.soft_delete',
+      entityType: 'brokerage',
+      entityId: input.brokerageId,
+      metadata: {
+        name: brokerage.name,
+        email: brokerage.email,
+        deleted_by: user.id,
+        reason: reason.slice(0, 500),
+      },
+    })
+
+    return { success: true, data: { brokerageId: input.brokerageId } }
+  } catch (err: any) {
+    console.error('Brokerage soft delete error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // Permanently Delete Brokerage (archived only, no deal history)
 // ============================================================================
 
+// finding #16: hard-delete is now gated on soft-delete + 30-day quarantine.
+// finding #17: SQL-side mutations are wrapped in delete_brokerage_atomic (migration 069).
 export async function permanentlyDeleteBrokerage(input: {
   brokerageId: string
 }): Promise<ActionResult> {
@@ -1007,21 +1167,25 @@ export async function permanentlyDeleteBrokerage(input: {
   try {
     const { data: brokerage, error: brokerageError } = await supabase
       .from('brokerages')
-      .select('id, name, email, status')
+      .select('id, name, email, status, deleted_at')
       .eq('id', input.brokerageId)
       .single()
 
     if (brokerageError || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (brokerage.status !== 'archived') {
+      return { success: false, error: 'Only archived brokerages can be permanently deleted' }
+    }
+    if (!brokerage.deleted_at) {
+      return { success: false, error: 'Brokerage must be soft-deleted first. Use Soft Delete and wait 30 days before purging.' }
+    }
+    const deletedAt = new Date(brokerage.deleted_at as string).getTime()
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    if (deletedAt > cutoff) {
+      const daysLeft = Math.ceil((deletedAt - cutoff) / (24 * 60 * 60 * 1000))
+      return { success: false, error: `Brokerage was soft-deleted less than 30 days ago. ${daysLeft} day(s) remaining in the quarantine window.` }
+    }
 
     const serviceClient = createServiceRoleClient()
-
-    // Auto-archive if not already archived (skip requiring manual archive first)
-    if (brokerage.status !== 'archived') {
-      await serviceClient
-        .from('brokerages')
-        .update({ status: 'archived' })
-        .eq('id', input.brokerageId)
-    }
 
     // Check for deal history — brokerages with deals cannot be permanently deleted
     const { count: dealCount } = await serviceClient
@@ -1033,83 +1197,66 @@ export async function permanentlyDeleteBrokerage(input: {
       return { success: false, error: 'Cannot permanently delete a brokerage with deal history. The brokerage will remain archived.' }
     }
 
-    // Delete all agents first (user_profiles FK requires this order)
-    const { data: agents } = await serviceClient
+    // audit finding #17: collect every profile (agent-linked + brokerage-linked)
+    // BEFORE the atomic SQL purge so we can still hit auth.users after the
+    // user_profiles rows are gone. auth.users can't be touched from SQL so it
+    // stays outside the transaction (failures are logged, not fatal).
+    const { data: agentRows } = await serviceClient
       .from('agents')
       .select('id')
       .eq('brokerage_id', input.brokerageId)
+    const agentIds = (agentRows || []).map(a => a.id)
 
-    if (agents && agents.length > 0) {
-      for (const agent of agents) {
-        const { data: profile } = await serviceClient
+    const { data: agentProfiles } = agentIds.length > 0
+      ? await serviceClient
           .from('user_profiles')
           .select('id, email')
-          .eq('agent_id', agent.id)
-          .maybeSingle()
+          .in('agent_id', agentIds)
+      : { data: [] as Array<{ id: string; email: string | null }> }
 
-        if (profile) {
-          await serviceClient.from('user_profiles').delete().eq('id', profile.id)
-          try {
-            await serviceClient.auth.admin.deleteUser(profile.id)
-          } catch (authErr: any) {
-            console.warn(`Auth user delete failed for agent profile ${profile.id} (${profile.email}):`, authErr?.message)
-          }
-        }
-      }
-      await serviceClient.from('agents').delete().eq('brokerage_id', input.brokerageId)
-    }
-
-    // Delete ALL user_profiles linked to this brokerage (admins, any remaining)
     const { data: brokerageProfiles } = await serviceClient
       .from('user_profiles')
       .select('id, email')
       .eq('brokerage_id', input.brokerageId)
 
-    if (brokerageProfiles && brokerageProfiles.length > 0) {
-      for (const profile of brokerageProfiles) {
-        await serviceClient.from('user_profiles').delete().eq('id', profile.id)
-        try {
-          await serviceClient.auth.admin.deleteUser(profile.id)
-        } catch (authErr: any) {
-          console.warn(`Auth user delete failed for brokerage profile ${profile.id} (${profile.email}):`, authErr?.message)
-          // Fallback: try to find and delete by email in case profile.id doesn't match auth user
-          if (profile.email) {
-            try {
-              const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
-              const match = users.find((u: any) => u.email === profile.email)
-              if (match) {
-                await serviceClient.auth.admin.deleteUser(match.id)
-                console.log(`Auth user cleaned up via email fallback for ${profile.email}`)
-              }
-            } catch (fallbackErr: any) {
-              console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackErr?.message)
+    const allProfiles = [...(agentProfiles || []), ...(brokerageProfiles || [])]
+    const seenIds = new Set<string>()
+    const profilesForAuthCleanup = allProfiles.filter(p => {
+      if (seenIds.has(p.id)) return false
+      seenIds.add(p.id)
+      return true
+    })
+
+    // Atomic SQL purge inside a single PL/pgSQL function (migration 069).
+    // All deletions either commit together or roll back.
+    const { error: atomicError } = await serviceClient.rpc('delete_brokerage_atomic', {
+      p_brokerage_id: input.brokerageId,
+    })
+
+    if (atomicError) {
+      console.error('Brokerage permanent delete (atomic) error:', atomicError.message)
+      return { success: false, error: `Failed to delete brokerage: ${atomicError.message}` }
+    }
+
+    // auth.users live outside Postgres — best-effort cleanup, failures logged.
+    for (const profile of profilesForAuthCleanup) {
+      try {
+        await serviceClient.auth.admin.deleteUser(profile.id)
+      } catch (authErr: any) {
+        console.warn(`Auth user delete failed for profile ${profile.id} (${profile.email}):`, authErr?.message)
+        if (profile.email) {
+          try {
+            const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
+            const match = users.find((u: any) => u.email === profile.email)
+            if (match) {
+              await serviceClient.auth.admin.deleteUser(match.id)
+              console.log(`Auth user cleaned up via email fallback for ${profile.email}`)
             }
+          } catch (fallbackErr: any) {
+            console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackErr?.message)
           }
         }
       }
-    }
-
-    // Explicitly delete esignature envelopes (belt + suspenders with CASCADE)
-    await serviceClient
-      .from('esignature_envelopes')
-      .delete()
-      .eq('brokerage_id', input.brokerageId)
-
-    // Delete any pending invite tokens for users in this brokerage
-    await serviceClient
-      .from('invite_tokens')
-      .delete()
-      .in('email', (brokerageProfiles ?? []).map(p => p.email).filter(Boolean))
-
-    // Delete the brokerage record — FK cascades handle brokerage_documents etc.
-    const { error: deleteError } = await serviceClient
-      .from('brokerages')
-      .delete()
-      .eq('id', input.brokerageId)
-
-    if (deleteError) {
-      console.error('Brokerage permanent delete error:', deleteError.message)
-      return { success: false, error: `Failed to delete brokerage: ${deleteError.message}` }
     }
 
     await logAuditEvent({
@@ -1470,39 +1617,30 @@ export async function resendAgentWelcomeEmail(input: {
     // Get the user ID for the magic link token
     const userId = profile ? profile.id : (await serviceClient.from('user_profiles').select('id').eq('agent_id', agent.id).single()).data?.id
 
-    if (userId) {
-      // Generate magic link invite token (72-hour expiry)
-      const inviteToken = crypto.randomBytes(32).toString('hex')
-      const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
-
-      await serviceClient
-        .from('invite_tokens')
-        .insert({
-          token: inviteToken,
-          user_id: userId,
-          agent_id: agent.id,
-          email: agent.email,
-          expires_at: expiresAt,
-        })
-
-      // Send magic link invite email (no temp password)
-      await sendAgentInviteNotification({
-        agentFirstName: agent.first_name,
-        agentEmail: agent.email,
-        brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.logo_url,
-        inviteToken,
-      })
-    } else {
-      // Fallback: send legacy temp password email
-      await sendAgentInviteNotification({
-        agentFirstName: agent.first_name,
-        agentEmail: agent.email,
-        brokerageName: brokerage?.name || 'Your Brokerage',
-        brokerageLogoUrl: brokerage?.logo_url,
-        tempPassword,
-      })
+    if (!userId) {
+      return { success: false, error: 'Could not resolve user_profile to issue invite token. The agent record may need manual cleanup.' }
     }
+
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: userId,
+        agent_id: agent.id,
+        email: agent.email,
+        expires_at: expiresAt,
+      })
+
+    await sendAgentInviteNotification({
+      agentFirstName: agent.first_name,
+      agentEmail: agent.email,
+      brokerageName: brokerage?.name || 'Your Brokerage',
+      brokerageLogoUrl: brokerage?.logo_url,
+      inviteToken,
+    })
 
     // Stamp welcome_email_sent_at on the agent
     await serviceClient
@@ -1820,12 +1958,31 @@ export async function removeEftTransfer(input: {
   if (!input.transferId) return { success: false, error: 'Transfer id is required' }
 
   try {
-    // DELETE ... RETURNING in one shot so the audit log captures the full row
-    // contents and no concurrent confirm can race between our SELECT and DELETE.
+    // audit finding #4: upfront check for a friendlier error before the DB
+    // trigger (migration 060) rejects DELETE of a confirmed row.
+    const { data: existing, error: fetchError } = await supabase
+      .from('eft_transfers')
+      .select('id, confirmed')
+      .eq('id', input.transferId)
+      .maybeSingle()
+
+    if (fetchError) {
+      return { success: false, error: `Failed to load transfer: ${fetchError.message}` }
+    }
+    if (!existing) {
+      return { success: false, error: 'Transfer not found' }
+    }
+    if (existing.confirmed) {
+      return { success: false, error: 'Cannot delete a confirmed EFT transfer. Use the void flow instead.' }
+    }
+
+    // audit finding #21: .eq('confirmed', false) precondition catches a
+    // concurrent confirm between the check above and this DELETE.
     const { data: removed, error: deleteError } = await supabase
       .from('eft_transfers')
       .delete()
       .eq('id', input.transferId)
+      .eq('confirmed', false)
       .select()
       .maybeSingle()
 
@@ -1833,7 +1990,7 @@ export async function removeEftTransfer(input: {
       return { success: false, error: `Failed to remove transfer: ${deleteError.message}` }
     }
     if (!removed) {
-      return { success: false, error: 'Transfer not found' }
+      return { success: false, error: 'Transfer was just confirmed by another session. Refresh and try the void flow instead.' }
     }
 
     const { data: updatedDeal } = await supabase
@@ -2623,6 +2780,177 @@ export async function resendBrokerageSetupLink(input: {
     return { success: true }
   } catch (err: any) {
     console.error('Resend brokerage setup link error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Brokerage Documents — upload + delete via server actions so every mutation
+// gets an audit log entry (who uploaded / deleted what, when) and goes through
+// the service-role client. Previous client-side INSERT/DELETE on
+// brokerage_documents from the admin browser left no audit trail.
+// ============================================================================
+
+const BROKERAGE_DOCUMENT_TYPES = [
+  'cooperation_agreement',
+  'white_label_agreement',
+  'banking_info',
+  'kyc_business',
+  'other',
+] as const
+
+export async function uploadBrokerageDocument(formData: FormData): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const file = formData.get('file') as File | null
+    const brokerageId = formData.get('brokerageId') as string | null
+    const documentType = formData.get('documentType') as string | null
+
+    if (!file || !brokerageId || !documentType) {
+      return { success: false, error: 'Missing required fields' }
+    }
+    if (!(BROKERAGE_DOCUMENT_TYPES as readonly string[]).includes(documentType)) {
+      return { success: false, error: 'Invalid document type' }
+    }
+    if (file.size === 0) return { success: false, error: 'File is empty' }
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      return { success: false, error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)}MB` }
+    }
+
+    const fileName = file.name.toLowerCase()
+    const ext = '.' + fileName.split('.').pop()
+    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+      return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
+    }
+    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+      return { success: false, error: 'File MIME type not allowed' }
+    }
+    const magicBytesValid = await verifyFileMagicBytes(file)
+    if (!magicBytesValid) {
+      return { success: false, error: 'File content does not match its declared type' }
+    }
+
+    const serviceClient = createServiceRoleClient()
+
+    // Verify the brokerage exists before touching storage.
+    const { data: brokerage, error: brokerageErr } = await serviceClient
+      .from('brokerages')
+      .select('id, name')
+      .eq('id', brokerageId)
+      .single()
+    if (brokerageErr || !brokerage) return { success: false, error: 'Brokerage not found' }
+
+    const safeBase = file.name.replace(/[^\w.\-]/g, '_')
+    const filePath = `brokerages/${brokerageId}/${Date.now()}_${safeBase}`
+
+    const { error: uploadError } = await serviceClient.storage
+      .from('deal-documents')
+      .upload(filePath, file)
+
+    if (uploadError) {
+      console.error('Brokerage doc storage upload error:', uploadError.message)
+      return { success: false, error: 'Failed to upload file. Please try again.' }
+    }
+
+    const { data: inserted, error: dbErr } = await serviceClient
+      .from('brokerage_documents')
+      .insert({
+        brokerage_id: brokerageId,
+        document_type: documentType,
+        file_name: file.name,
+        file_path: filePath,
+        file_size: file.size,
+        uploaded_by: user.id,
+      })
+      .select()
+      .single()
+
+    if (dbErr || !inserted) {
+      // Best-effort cleanup of the orphaned storage object.
+      await serviceClient.storage.from('deal-documents').remove([filePath])
+      console.error('Brokerage doc insert error:', dbErr?.message)
+      return { success: false, error: `Failed to save record: ${dbErr?.message || 'unknown error'}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_uploaded',
+      entityType: 'brokerage',
+      entityId: brokerageId,
+      severity: 'info',
+      metadata: {
+        document_id: inserted.id,
+        document_type: documentType,
+        file_name: file.name,
+        file_size: file.size,
+        brokerage_name: brokerage.name,
+        uploaded_by_user_id: user.id,
+      },
+    })
+
+    return { success: true, data: { document: inserted } }
+  } catch (err: any) {
+    console.error('uploadBrokerageDocument error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function deleteBrokerageDocument(input: {
+  documentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!input.documentId) return { success: false, error: 'Document id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+
+    const { data: doc, error: lookupErr } = await serviceClient
+      .from('brokerage_documents')
+      .select('id, brokerage_id, document_type, file_name, file_path, file_size')
+      .eq('id', input.documentId)
+      .single()
+
+    if (lookupErr || !doc) return { success: false, error: 'Document not found' }
+
+    // Remove the storage object first; if it fails we still want to attempt
+    // the DB row delete so we don't leave a row pointing at a missing file.
+    const { error: storageErr } = await serviceClient.storage
+      .from('deal-documents')
+      .remove([doc.file_path])
+    if (storageErr) {
+      console.warn('Brokerage doc storage remove warning:', storageErr.message)
+    }
+
+    const { error: deleteErr } = await serviceClient
+      .from('brokerage_documents')
+      .delete()
+      .eq('id', doc.id)
+
+    if (deleteErr) {
+      return { success: false, error: `Failed to delete document: ${deleteErr.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_deleted',
+      entityType: 'brokerage',
+      entityId: doc.brokerage_id,
+      severity: 'warning',
+      metadata: {
+        document_id: doc.id,
+        document_type: doc.document_type,
+        file_name: doc.file_name,
+        file_size: doc.file_size,
+        deleted_by_user_id: user.id,
+        storage_remove_warning: storageErr?.message || null,
+      },
+    })
+
+    return { success: true, data: { brokerageId: doc.brokerage_id } }
+  } catch (err: any) {
+    console.error('deleteBrokerageDocument error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

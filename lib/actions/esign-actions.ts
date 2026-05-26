@@ -288,8 +288,24 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       .insert(envelopeRecords)
 
     if (insertErr) {
+      // Finding 31/32: unique constraint violation = another concurrent send
+      // beat us to the active envelope slot; void the duplicate envelope we
+      // just created in DocuSign and return a friendly error. Any other
+      // insert failure: same cleanup so we don't leak a sent envelope that
+      // can't be tracked.
       console.error('Failed to save envelope records:', insertErr.message)
-      // Don't fail — envelope was sent, just tracking failed
+      try {
+        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+      } catch (voidErr: any) {
+        console.error('Failed to void DocuSign envelope during cleanup:', voidErr?.message)
+      }
+      const isUniqueViolation = (insertErr as { code?: string }).code === '23505'
+      return {
+        success: false,
+        error: isUniqueViolation
+          ? 'An active envelope already exists for this deal.'
+          : 'Failed to record envelope; DocuSign envelope was voided.',
+      }
     }
 
     await logAuditEvent({
@@ -325,35 +341,62 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
       return { success: false, error: 'No active envelopes found for this deal' }
     }
 
-    // Get unique envelope IDs (CPA and IDP share the same envelope)
+    // Finding 33: capture envelope IDs from the initial SELECT so the UPDATE
+    // below only touches the rows we actually voided in DocuSign, not any new
+    // envelopes a concurrent send may have inserted in the meantime.
+    // Finding 34: track void successes vs failures separately so partial
+    // failures don't leave DB rows mismarked or DocuSign envelopes orphaned.
+    const targetIds: string[] = []
     const seen = new Set<string>()
     for (const env of envelopes) {
       const eid = (env as { envelope_id: string }).envelope_id
       if (!seen.has(eid)) {
         seen.add(eid)
-        await voidEnvelope(eid, reason)
+        targetIds.push(eid)
       }
     }
 
-    // Update all envelope records
-    await supabase
-      .from('esignature_envelopes')
-      .update({
-        status: 'voided',
-        voided_at: new Date().toISOString(),
-        void_reason: reason,
-      })
-      .eq('deal_id', dealId)
-      .in('status', ['sent', 'delivered'])
+    const voided: string[] = []
+    const failed: { envelopeId: string; error: string }[] = []
+    for (const eid of targetIds) {
+      try {
+        await voidEnvelope(eid, reason)
+        voided.push(eid)
+      } catch (voidErr: any) {
+        failed.push({ envelopeId: eid, error: voidErr?.message || 'Unknown void error' })
+      }
+    }
+
+    // Update only the records whose DocuSign side actually voided.
+    if (voided.length > 0) {
+      await supabase
+        .from('esignature_envelopes')
+        .update({
+          status: 'voided',
+          voided_at: new Date().toISOString(),
+          void_reason: reason,
+        })
+        .eq('deal_id', dealId)
+        .in('envelope_id', voided)
+        .in('status', ['sent', 'delivered'])
+    }
 
     await logAuditEvent({
       action: 'esignature.voided',
       entityType: 'deal',
       entityId: dealId,
-      metadata: { reason, envelopeIds: Array.from(seen) },
+      metadata: { reason, envelopeIds: voided, failedEnvelopeIds: failed },
     })
 
-    return { success: true }
+    if (failed.length > 0) {
+      return {
+        success: voided.length > 0,
+        error: `Voided ${voided.length} envelope(s); failed to void ${failed.length}: ${failed.map(f => f.envelopeId).join(', ')}`,
+        data: { voided, failed },
+      }
+    }
+
+    return { success: true, data: { voided } }
   } catch (err: any) {
     console.error('voidDealEnvelopes error:', err?.message)
     return { success: false, error: err?.message || 'Failed to void envelopes' }
@@ -543,7 +586,15 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
       })
 
     if (insertErr) {
+      // Finding 32: void the DocuSign envelope if we couldn't track it, so the
+      // duplicate-envelope guard above remains the source of truth.
       console.error('Failed to save BCA envelope record:', insertErr.message)
+      try {
+        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+      } catch (voidErr: any) {
+        console.error('Failed to void DocuSign BCA envelope during cleanup:', voidErr?.message)
+      }
+      return { success: false, error: 'Failed to record BCA envelope; DocuSign envelope was voided.' }
     }
 
     await logAuditEvent({
@@ -585,36 +636,59 @@ export async function voidBcaEnvelope(brokerageId: string, reason: string): Prom
       return { success: false, error: 'No active BCA envelopes found for this brokerage' }
     }
 
-    // Void each unique envelope in DocuSign
+    // Findings 33/34: capture envelope IDs up front, void each one
+    // independently, and only mark the rows whose DocuSign void succeeded.
+    const targetIds: string[] = []
     const seen = new Set<string>()
     for (const env of envelopes) {
       const eid = (env as { envelope_id: string }).envelope_id
       if (!seen.has(eid)) {
         seen.add(eid)
-        await voidEnvelope(eid, reason)
+        targetIds.push(eid)
       }
     }
 
-    // Update records
-    await supabase
-      .from('esignature_envelopes')
-      .update({
-        status: 'voided',
-        voided_at: new Date().toISOString(),
-        void_reason: reason,
-      })
-      .eq('brokerage_id', brokerageId)
-      .eq('document_type', 'bca')
-      .in('status', ['sent', 'delivered'])
+    const voided: string[] = []
+    const failed: { envelopeId: string; error: string }[] = []
+    for (const eid of targetIds) {
+      try {
+        await voidEnvelope(eid, reason)
+        voided.push(eid)
+      } catch (voidErr: any) {
+        failed.push({ envelopeId: eid, error: voidErr?.message || 'Unknown void error' })
+      }
+    }
+
+    if (voided.length > 0) {
+      await supabase
+        .from('esignature_envelopes')
+        .update({
+          status: 'voided',
+          voided_at: new Date().toISOString(),
+          void_reason: reason,
+        })
+        .eq('brokerage_id', brokerageId)
+        .eq('document_type', 'bca')
+        .in('envelope_id', voided)
+        .in('status', ['sent', 'delivered'])
+    }
 
     await logAuditEvent({
       action: 'bca.voided',
       entityType: 'brokerage',
       entityId: brokerageId,
-      metadata: { reason, envelopeIds: Array.from(seen) },
+      metadata: { reason, envelopeIds: voided, failedEnvelopeIds: failed },
     })
 
-    return { success: true }
+    if (failed.length > 0) {
+      return {
+        success: voided.length > 0,
+        error: `Voided ${voided.length} envelope(s); failed to void ${failed.length}: ${failed.map(f => f.envelopeId).join(', ')}`,
+        data: { voided, failed },
+      }
+    }
+
+    return { success: true, data: { voided } }
   } catch (err: any) {
     console.error('voidBcaEnvelope error:', err?.message)
     return { success: false, error: err?.message || 'Failed to void BCA envelope' }
@@ -666,7 +740,9 @@ export async function getBcaSignatureStatus(brokerageId: string): Promise<Action
 // ============================================================================
 
 export async function sendAmendedCpaForSignature(dealId: string, amendmentId: string): Promise<ActionResult> {
-  const supabase = createServiceRoleClient()
+  // Finding 29: gate this server action behind admin auth like its peers.
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
     const connected = await isDocuSignConnected()
@@ -781,7 +857,7 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
       status: 'sent',
     })
 
-    await supabase
+    const { error: insertErr } = await supabase
       .from('esignature_envelopes')
       .insert({
         deal_id: dealId,
@@ -789,8 +865,26 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
         document_type: 'cpa' as const,
         status: 'sent' as const,
         agent_signer_status: 'sent' as const,
+        sent_by: user.id,
         envelope_uri: result.uri,
       })
+
+    if (insertErr) {
+      // Finding 32: void the DocuSign envelope if we couldn't track it.
+      console.error('Failed to save amendment envelope record:', insertErr.message)
+      try {
+        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+      } catch (voidErr: any) {
+        console.error('Failed to void DocuSign amendment envelope during cleanup:', voidErr?.message)
+      }
+      const isUniqueViolation = (insertErr as { code?: string }).code === '23505'
+      return {
+        success: false,
+        error: isUniqueViolation
+          ? 'An active envelope already exists for this deal.'
+          : 'Failed to record amendment envelope; DocuSign envelope was voided.',
+      }
+    }
 
     await logAuditEvent({
       action: 'amendment.envelope_sent',
@@ -866,6 +960,21 @@ export async function sendRemediationIdpForSignature(input: {
       return { success: false, error: 'Remediation deal has no directed amount to send' }
     }
 
+    // Finding 30: CAS-claim the remediation row from pending -> idp_sent so two
+    // concurrent calls cannot both pass the read-then-update gap and spawn
+    // duplicate DocuSign envelopes. We revert to pending if envelope creation
+    // or record insertion fails below.
+    const { data: claimed } = await supabase
+      .from('remediation_deals')
+      .update({ status: 'idp_sent' })
+      .eq('id', input.remediationDealId)
+      .eq('status', 'pending')
+      .select()
+      .maybeSingle()
+    if (!claimed) {
+      return { success: false, error: 'Remediation already sent or not in pending state' }
+    }
+
     const agentName = `${agent.first_name} ${agent.last_name}`
     const today = new Date().toISOString().split('T')[0]
 
@@ -894,44 +1003,57 @@ export async function sendRemediationIdpForSignature(input: {
     const docBase64 = docBuffer.toString('base64')
 
     const agentFirstName = agent.first_name || 'there'
-    const result = await createAndSendEnvelope({
-      emailSubject: `Firm Funds — Remediation Direction to Pay: ${rem.property_address}`,
-      emailBlurb: `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${rem.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance — no discount, settlement fee, or referral fee applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
-      documents: [
-        {
-          documentBase64: docBase64,
-          name: 'Remediation Direction to Pay',
-          fileExtension: 'docx',
-          documentId: '1',
-        },
-      ],
-      signers: [
-        {
-          email: agent.email,
-          name: agentName,
-          recipientId: '1',
-          routingOrder: '1',
-          tabs: {
-            signHereTabs: [
-              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            dateSignedTabs: [
-              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            initialHereTabs: [
-              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
+
+    // Finding 30 (cont.): if envelope creation throws, revert CAS so the
+    // remediation can be retried instead of being stuck in idp_sent forever.
+    let result: Awaited<ReturnType<typeof createAndSendEnvelope>>
+    try {
+      result = await createAndSendEnvelope({
+        emailSubject: `Firm Funds — Remediation Direction to Pay: ${rem.property_address}`,
+        emailBlurb: `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${rem.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance — no discount, settlement fee, or referral fee applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
+        documents: [
+          {
+            documentBase64: docBase64,
+            name: 'Remediation Direction to Pay',
+            fileExtension: 'docx',
+            documentId: '1',
           },
-        },
-      ],
-      ccRecipients: rem.broker_of_record_email ? [{
-        email: rem.broker_of_record_email,
-        name: rem.broker_of_record_name || rem.brokerage_legal_name,
-        recipientId: '2',
-        routingOrder: '2',
-      }] : [],
-      status: 'sent',
-    })
+        ],
+        signers: [
+          {
+            email: agent.email,
+            name: agentName,
+            recipientId: '1',
+            routingOrder: '1',
+            tabs: {
+              signHereTabs: [
+                { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              dateSignedTabs: [
+                { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              initialHereTabs: [
+                { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+            },
+          },
+        ],
+        ccRecipients: rem.broker_of_record_email ? [{
+          email: rem.broker_of_record_email,
+          name: rem.broker_of_record_name || rem.brokerage_legal_name,
+          recipientId: '2',
+          routingOrder: '2',
+        }] : [],
+        status: 'sent',
+      })
+    } catch (envelopeErr: any) {
+      await supabase
+        .from('remediation_deals')
+        .update({ status: 'pending' })
+        .eq('id', rem.id)
+        .eq('status', 'idp_sent')
+      throw envelopeErr
+    }
 
     const { error: insertErr } = await supabase
       .from('esignature_envelopes')
@@ -946,14 +1068,23 @@ export async function sendRemediationIdpForSignature(input: {
       })
 
     if (insertErr) {
+      // Finding 32: if we can't persist the envelope record, void the DocuSign
+      // envelope and revert the remediation status, otherwise we end up with
+      // a "sent" remediation pointing at no row and the duplicate-envelope
+      // guard above can never fire again.
       console.error('Failed to save Remediation IDP envelope record:', insertErr.message)
+      try {
+        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+      } catch (voidErr: any) {
+        console.error('Failed to void DocuSign envelope during cleanup:', voidErr?.message)
+      }
+      await supabase
+        .from('remediation_deals')
+        .update({ status: 'pending' })
+        .eq('id', rem.id)
+        .eq('status', 'idp_sent')
+      return { success: false, error: 'Failed to record envelope; DocuSign envelope was voided.' }
     }
-
-    // Update the remediation_deal status
-    await supabase
-      .from('remediation_deals')
-      .update({ status: 'idp_sent' })
-      .eq('id', rem.id)
 
     await logAuditEvent({
       action: 'remediation_idp.sent',

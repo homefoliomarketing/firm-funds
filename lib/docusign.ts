@@ -10,9 +10,32 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 const DOCUSIGN_INTEGRATION_KEY = process.env.DOCUSIGN_INTEGRATION_KEY!
 const DOCUSIGN_SECRET_KEY = process.env.DOCUSIGN_SECRET_KEY!
 const DOCUSIGN_ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID!
+
+// In production, all three URLs MUST be set explicitly. Defaulting to
+// demo.docusign.net / account-d.docusign.com silently routes signed CPAs
+// through the sandbox, where they are not legally enforceable. Dev keeps
+// the sandbox defaults for local testing.
 const DOCUSIGN_AUTH_URL = process.env.DOCUSIGN_AUTH_URL || 'https://account-d.docusign.com'
-const DOCUSIGN_BASE_URL = process.env.DOCUSIGN_BASE_URL || 'https://demo.docusign.net/restapi'
-const DOCUSIGN_REDIRECT_URI = process.env.DOCUSIGN_REDIRECT_URI || 'http://localhost:3000/api/docusign/callback'
+const DOCUSIGN_BASE_URL = process.env.DOCUSIGN_BASE_URL
+const DOCUSIGN_REDIRECT_URI = process.env.DOCUSIGN_REDIRECT_URI
+
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.DOCUSIGN_AUTH_URL) {
+    throw new Error('DOCUSIGN_AUTH_URL not configured for production')
+  }
+  if (!DOCUSIGN_BASE_URL) {
+    throw new Error('DOCUSIGN_BASE_URL not configured for production')
+  }
+  if (!DOCUSIGN_REDIRECT_URI) {
+    throw new Error('DOCUSIGN_REDIRECT_URI not configured for production')
+  }
+  if (DOCUSIGN_AUTH_URL.includes('account-d.docusign.com')) {
+    throw new Error('DOCUSIGN_AUTH_URL points at sandbox in production')
+  }
+  if (DOCUSIGN_BASE_URL.includes('demo.docusign.net')) {
+    throw new Error('DOCUSIGN_BASE_URL points at sandbox in production')
+  }
+}
 
 // ============================================================================
 // OAuth — Exchange Code for Tokens
@@ -40,7 +63,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: DOCUSIGN_REDIRECT_URI,
+      redirect_uri: DOCUSIGN_REDIRECT_URI || 'http://localhost:3000/api/docusign/callback',
     }),
   })
 
@@ -155,6 +178,19 @@ function tokenIsFresh(expiresAt: string | Date): boolean {
   return ms - Date.now() > TOKEN_REFRESH_BUFFER_MS
 }
 
+// Fail closed if the saved DocuSign account is null/missing or sandbox-bound
+// while we're running in production. A misconfigured base_uri silently routes
+// signed CPAs through demo.docusign.net where they are not enforceable.
+function assertNotSandboxInProd(baseUri: string | null | undefined): void {
+  if (process.env.NODE_ENV !== 'production') return
+  if (!baseUri || baseUri.includes('demo.docusign.net')) {
+    throw new Error(
+      'DocuSign integration is pointing at SANDBOX in production. ' +
+      'Re-link via /api/docusign/connect with the production account.'
+    )
+  }
+}
+
 export async function getValidAccessToken(): Promise<{
   accessToken: string
   accountId: string
@@ -174,6 +210,7 @@ export async function getValidAccessToken(): Promise<{
   }
 
   if (tokenIsFresh(tokenRow.expires_at)) {
+    assertNotSandboxInProd(tokenRow.base_uri)
     return {
       accessToken: tokenRow.access_token,
       accountId: tokenRow.account_id,
@@ -202,6 +239,7 @@ export async function getValidAccessToken(): Promise<{
 
     if (tokenIsFresh(row.expires_at)) {
       await client.query('COMMIT')
+      assertNotSandboxInProd(row.base_uri)
       return {
         accessToken: row.access_token,
         accountId: row.account_id,
@@ -221,6 +259,7 @@ export async function getValidAccessToken(): Promise<{
 
     await client.query('COMMIT')
 
+    assertNotSandboxInProd(row.base_uri)
     return {
       accessToken: refreshed.access_token,
       accountId: row.account_id,

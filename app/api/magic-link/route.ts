@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { checkApiRateLimit } from '@/lib/rate-limit'
+import { checkSensitiveRateLimit } from '@/lib/rate-limit'
+import { extractTrustedClientIpOrLocalhost } from '@/lib/request-helpers'
 
 // ============================================================================
 // Magic Link Token API
@@ -12,9 +13,11 @@ import { checkApiRateLimit } from '@/lib/rate-limit'
 /** POST: Validate token — returns agent info if valid */
 export async function POST(request: Request) {
   try {
-    // Rate limit
-    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
-    const rl = await checkApiRateLimit(ip)
+    // Sensitive bucket (5/min). The response shape leaks "token exists" vs
+    // "doesn't" by content, so this is enumeration-friendly and needs a
+    // tighter cap than the general API limit.
+    const ip = extractTrustedClientIpOrLocalhost(request)
+    const rl = await checkSensitiveRateLimit(ip)
     if (!rl.allowed) {
       return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
     }
@@ -72,9 +75,11 @@ export async function POST(request: Request) {
 /** PUT: Set password using the token */
 export async function PUT(request: Request) {
   try {
-    // Rate limit
-    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1'
-    const rl = await checkApiRateLimit(ip)
+    // Sensitive bucket (5/min). Same enumeration concern as POST plus a
+    // password-set side effect; tight cap prevents credential stuffing
+    // against guessed-token URLs.
+    const ip = extractTrustedClientIpOrLocalhost(request)
+    const rl = await checkSensitiveRateLimit(ip)
     if (!rl.allowed) {
       return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429 })
     }
@@ -109,11 +114,27 @@ export async function PUT(request: Request) {
     if (tokenError || !tokenRecord) {
       return NextResponse.json({ success: false, error: 'Invalid or expired invite link.' })
     }
-    if (tokenRecord.used_at) {
-      return NextResponse.json({ success: false, error: 'This invite link has already been used.' })
-    }
     if (new Date(tokenRecord.expires_at) < new Date()) {
       return NextResponse.json({ success: false, error: 'This invite link has expired.' })
+    }
+
+    // Atomic compare-and-swap claim on used_at (Finding 24). Previously we
+    // checked used_at IS NULL then later UPDATE'd it after updateUserById,
+    // leaving a TOCTOU window where two concurrent requests with the same
+    // token could both pass the check and both call updateUserById. The CAS
+    // below is a single statement: if used_at was already set, .maybeSingle()
+    // returns no row and we reject. Fail-safe direction: if updateUserById
+    // later fails, the token stays marked used and the user must request a
+    // new invite (better than letting it be reused).
+    const { data: claimed } = await serviceClient
+      .from('invite_tokens')
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', tokenRecord.id)
+      .is('used_at', null)
+      .select()
+      .maybeSingle()
+    if (!claimed) {
+      return NextResponse.json({ success: false, error: 'This invite link has already been used.' })
     }
 
     // Set the user's password via admin API
@@ -135,12 +156,6 @@ export async function PUT(request: Request) {
       .from('user_profiles')
       .update({ must_reset_password: false })
       .eq('id', tokenRecord.user_id)
-
-    // Mark token as used
-    await serviceClient
-      .from('invite_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', tokenRecord.id)
 
     // Audit log
     void serviceClient.from('audit_log').insert({

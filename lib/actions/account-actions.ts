@@ -9,7 +9,6 @@ import {
   failedDealAccrualStartDate,
   lateInterestAccrualStartDate,
 } from '@/lib/calculations'
-import { formatCurrency } from '@/lib/formatting'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 import {
   sendDocumentReturnNotification,
@@ -49,48 +48,36 @@ export async function chargeLatePaymentInterest(input: {
   try {
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
-      .select('id, agent_id, advance_amount, closing_date, property_address, late_interest_charged')
+      .select('id, agent_id, advance_amount, closing_date, property_address')
       .eq('id', input.dealId)
       .single()
 
     if (dealErr || !deal) return { success: false, error: 'Deal not found' }
     if (!deal.closing_date) return { success: false, error: 'Deal has no closing date set' }
 
-    // Calculate total compound interest owed from day 31 after closing through throughDate
     const closingStr = typeof deal.closing_date === 'string'
       ? deal.closing_date.slice(0, 10)
       : new Date(deal.closing_date as any).toISOString().slice(0, 10)
 
     const totalInterestOwed = calculateLateInterest(deal.advance_amount, closingStr, input.throughDate)
-    const alreadyCharged = Number(deal.late_interest_charged) || 0
-    const interest = Math.round((totalInterestOwed - alreadyCharged) * 100) / 100
-
-    if (interest < 0.005) return { success: false, error: 'No additional late interest accrued (still in 30-day grace or already posted)' }
-
     const accrualStart = lateInterestAccrualStartDate(closingStr)
 
-    // Atomic balance + ledger write via RPC (migration 052). Replaces the
-    // prior read-modify-write that could race with the monthly cron.
-    const { data: txn, error: rpcErr } = await serviceClient
-      .rpc('apply_agent_balance_delta', {
-        p_agent_id: deal.agent_id,
-        p_delta: interest,
-        p_type: 'late_payment_interest',
-        p_description: `Late payment interest — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily, accruing from ${accrualStart})`,
+    const { data: rpcResult, error: rpcErr } = await serviceClient
+      .rpc('apply_late_payment_interest', {
         p_deal_id: deal.id,
+        p_total_interest_owed_through: totalInterestOwed,
+        p_through_date: input.throughDate,
+        p_agent_id: deal.agent_id,
         p_created_by: user.id,
       })
 
-    if (rpcErr || !txn) return { success: false, error: `Failed to post interest: ${rpcErr?.message || 'unknown error'}` }
-    const newBalance = (txn as any).running_balance
+    if (rpcErr || !rpcResult) return { success: false, error: `Failed to post interest: ${rpcErr?.message || 'unknown error'}` }
 
-    await serviceClient
-      .from('deals')
-      .update({
-        late_interest_charged: totalInterestOwed,
-        late_interest_calculated_at: new Date().toISOString(),
-      })
-      .eq('id', deal.id)
+    const result = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
+
+    if (result.skipped) {
+      return { success: true, data: { interest: 0, alreadyCharged: true, newBalance: null } }
+    }
 
     await logAuditEvent({
       action: 'account.late_payment_interest',
@@ -98,16 +85,16 @@ export async function chargeLatePaymentInterest(input: {
       entityId: deal.id,
       metadata: {
         agent_id: deal.agent_id,
-        interest_amount: interest,
+        interest_amount: result.delta_posted,
         closing_date: closingStr,
         accrual_start: accrualStart,
         through_date: input.throughDate,
         rate: `${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily`,
-        new_balance: newBalance,
+        total_after: result.total_after,
       },
     })
 
-    return { success: true, data: { interest, newBalance } }
+    return { success: true, data: { interest: result.delta_posted, newBalance: result.total_after } }
   } catch (err: any) {
     console.error('Late payment interest error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
@@ -144,7 +131,7 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
   // charging interest on settled deals while admin paperwork lagged).
   const { data: overdueDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_charged, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments(amount, status)')
+    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments(amount, status)')
     .eq('status', 'funded')
     .not('closing_date', 'is', null)
 
@@ -192,37 +179,34 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
 
       const advance = Number(deal.advance_amount) || 0
       const totalInterestThroughLastMonth = calculateCompoundDailyInterest(advance, accrualStart, endOfLastMonth)
-      const alreadyCharged = Number(deal.late_interest_charged) || 0
-      const interestToCharge = Math.round((totalInterestThroughLastMonth - alreadyCharged) * 100) / 100
 
-      if (interestToCharge < 0.005) continue
-
-      // Atomic balance + ledger write via RPC (migration 052).
-      const { error: rpcErr } = await serviceClient
-        .rpc('apply_agent_balance_delta', {
-          p_agent_id: deal.agent_id,
-          p_delta: interestToCharge,
-          p_type: 'late_payment_interest',
-          p_description: `Late payment interest — ${lastMonthName} — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(advance)})`,
+      const { data: rpcResult, error: rpcErr } = await serviceClient
+        .rpc('apply_late_payment_interest', {
           p_deal_id: deal.id,
+          p_total_interest_owed_through: totalInterestThroughLastMonth,
+          p_through_date: endOfLastMonth,
+          p_agent_id: deal.agent_id,
+          p_created_by: null,
         })
-      if (rpcErr) {
-        console.error(`Auto-charge balance RPC failed for deal ${deal.id}:`, rpcErr.message)
+      if (rpcErr || !rpcResult) {
+        console.error(`Auto-charge late interest RPC failed for deal ${deal.id}:`, rpcErr?.message)
         result.errors++
         continue
       }
 
+      const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
+      if (rpcData.skipped) continue
+
+      // CAS on payment_status='pending' so a concurrent payment confirmation
+      // can't be clobbered back to overdue.
       await serviceClient
         .from('deals')
-        .update({
-          late_interest_charged: totalInterestThroughLastMonth,
-          late_interest_calculated_at: new Date().toISOString(),
-          payment_status: 'overdue',
-        })
+        .update({ payment_status: 'overdue' })
         .eq('id', deal.id)
+        .eq('payment_status', 'pending')
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: interestToCharge, postedFor: lastMonthName })
+      result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
     } catch (err) {
       console.error(`Auto-charge error for deal ${deal.id}:`, err)
       result.errors++
@@ -305,7 +289,7 @@ export async function autoChargeMonthlyFailedDealInterest(): Promise<{
 
   const { data: failedDeals } = await serviceClient
     .from('deals')
-    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_charged, failed_deal_interest_calculated_at')
+    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_calculated_at')
     .eq('status', 'failed_to_close')
     .gt('outstanding_balance', 0)
 
@@ -336,40 +320,27 @@ export async function autoChargeMonthlyFailedDealInterest(): Promise<{
       }
 
       const principal = Number(deal.outstanding_balance) || 0
-      // Total compound interest owed THROUGH END OF LAST MONTH (not through today).
       const totalInterestThroughLastMonth = calculateCompoundDailyInterest(principal, accrualStart, endOfLastMonth)
-      const alreadyCharged = Number(deal.failed_deal_interest_charged) || 0
-      const interestToCharge = Math.round((totalInterestThroughLastMonth - alreadyCharged) * 100) / 100
 
-      // Nothing to charge: already at-or-above the through-last-month figure
-      // (e.g. cron run twice the same month, or a prior overshoot).
-      if (interestToCharge < 0.005) continue
-
-      // Atomic balance + ledger write via RPC (migration 052).
-      const { error: rpcErr } = await serviceClient
-        .rpc('apply_agent_balance_delta', {
-          p_agent_id: deal.agent_id,
-          p_delta: interestToCharge,
-          p_type: 'failed_deal_interest',
-          p_description: `Failed-deal interest — ${lastMonthName} — ${deal.property_address} (${(LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)}% p.a. compounded daily on ${formatCurrency(principal)})`,
+      const { data: rpcResult, error: rpcErr } = await serviceClient
+        .rpc('apply_failed_deal_interest', {
           p_deal_id: deal.id,
+          p_total_interest_owed_through: totalInterestThroughLastMonth,
+          p_through_date: endOfLastMonth,
+          p_agent_id: deal.agent_id,
+          p_created_by: null,
         })
-      if (rpcErr) {
-        console.error(`Failed-deal monthly interest RPC failed for deal ${deal.id}:`, rpcErr.message)
+      if (rpcErr || !rpcResult) {
+        console.error(`Failed-deal monthly interest RPC failed for deal ${deal.id}:`, rpcErr?.message)
         result.errors++
         continue
       }
 
-      await serviceClient
-        .from('deals')
-        .update({
-          failed_deal_interest_charged: totalInterestThroughLastMonth,
-          failed_deal_interest_calculated_at: new Date().toISOString(),
-        })
-        .eq('id', deal.id)
+      const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
+      if (rpcData.skipped) continue
 
       result.charged++
-      result.details.push({ dealId: deal.id, interest: interestToCharge, postedFor: lastMonthName })
+      result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
     } catch (err) {
       console.error(`Failed-deal monthly interest post error for deal ${deal.id}:`, err)
       result.errors++
@@ -395,39 +366,34 @@ export async function deductBalanceFromAdvance(input: {
   const serviceClient = createServiceRoleClient()
 
   try {
-    const { data: agent } = await serviceClient
-      .from('agents')
-      .select('id, account_balance, first_name, last_name')
-      .eq('id', input.agentId)
-      .single()
-
-    if (!agent) return { success: false, error: 'Agent not found' }
-    if ((agent.account_balance || 0) <= 0) return { success: false, error: 'No outstanding balance to deduct' }
-
-    const deductAmount = Math.min(input.amount, agent.account_balance || 0)
-
-    // Atomic balance + ledger write via RPC (migration 052).
-    const { data: txn, error: rpcErr } = await serviceClient
-      .rpc('apply_agent_balance_delta', {
-        p_agent_id: agent.id,
-        p_delta: -deductAmount,
+    // Atomic clamp + deduct via RPC (migration 073). Replaces the prior
+    // read-account_balance + Math.min + apply_agent_balance_delta sequence,
+    // which could race with concurrent interest accruals between the read
+    // and the write.
+    const { data: rpcResult, error: rpcErr } = await serviceClient
+      .rpc('apply_agent_balance_delta_capped', {
+        p_agent_id: input.agentId,
+        p_delta_magnitude: input.amount,
         p_type: 'balance_deduction',
         p_description: 'Balance deduction from advance',
         p_deal_id: input.dealId,
         p_created_by: user.id,
       })
 
-    if (rpcErr || !txn) return { success: false, error: `Failed to deduct balance: ${rpcErr?.message || 'unknown error'}` }
-    const newBalance = (txn as any).running_balance
+    if (rpcErr || !rpcResult) return { success: false, error: `Failed to deduct balance: ${rpcErr?.message || 'unknown error'}` }
+
+    const result = rpcResult as { deducted: number; new_balance: number; skipped: boolean; reason?: string }
+
+    if (result.skipped) return { success: false, error: 'No outstanding balance to deduct' }
 
     await logAuditEvent({
       action: 'account.balance_deduction',
       entityType: 'agent',
-      entityId: agent.id,
-      metadata: { deal_id: input.dealId, deducted: deductAmount, new_balance: newBalance },
+      entityId: input.agentId,
+      metadata: { deal_id: input.dealId, deducted: result.deducted, new_balance: result.new_balance },
     })
 
-    return { success: true, data: { deducted: deductAmount, newBalance } }
+    return { success: true, data: { deducted: result.deducted, newBalance: result.new_balance } }
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -442,6 +408,7 @@ export async function adjustAgentBalance(input: {
   amount: number
   description: string
   dealId?: string
+  idempotencyKey?: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -457,6 +424,31 @@ export async function adjustAgentBalance(input: {
 
     if (!agent) return { success: false, error: 'Agent not found' }
 
+    // Optional double-click guard. If the caller supplies idempotencyKey, we
+    // look for an existing txn by the same admin with the same reference_id
+    // posted in the last 60 seconds and return it instead of double-posting.
+    // 60s is wide enough to absorb a double-click or quick retry but narrow
+    // enough that a legitimate same-key adjustment later in the session will
+    // still post. Callers must opt in (UI passes the key); legacy callers
+    // that don't pass a key get the previous behaviour.
+    if (input.idempotencyKey) {
+      const sixtySecondsAgo = new Date(Date.now() - 60 * 1000).toISOString()
+      const { data: existing } = await serviceClient
+        .from('agent_transactions')
+        .select('id, running_balance, amount')
+        .eq('agent_id', agent.id)
+        .eq('created_by', user.id)
+        .eq('reference_id', input.idempotencyKey)
+        .gte('created_at', sixtySecondsAgo)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existing) {
+        return { success: true, data: { newBalance: existing.running_balance, deduplicated: true } }
+      }
+    }
+
     // Atomic balance + ledger write via RPC (migration 052).
     const { data: txn, error: rpcErr } = await serviceClient
       .rpc('apply_agent_balance_delta', {
@@ -466,6 +458,7 @@ export async function adjustAgentBalance(input: {
         p_description: input.description,
         p_deal_id: input.dealId || null,
         p_created_by: user.id,
+        p_reference_id: input.idempotencyKey || null,
       })
 
     if (rpcErr || !txn) return { success: false, error: `Failed to adjust balance: ${rpcErr?.message || 'unknown error'}` }
@@ -627,6 +620,7 @@ export async function markInvoicePaid(input: {
   const serviceClient = createServiceRoleClient()
 
   try {
+    // Pre-fetch for existence check and to default paidAmount to invoice.amount.
     const { data: invoice } = await serviceClient
       .from('agent_invoices')
       .select('*')
@@ -637,34 +631,38 @@ export async function markInvoicePaid(input: {
 
     const paidAmount = input.paidAmount || invoice.amount
 
-    // Update invoice
-    await serviceClient
-      .from('agent_invoices')
-      .update({ status: 'paid', paid_at: new Date().toISOString(), paid_amount: paidAmount })
-      .eq('id', input.invoiceId)
-
-    // Atomic balance + ledger write via RPC (migration 052). The previous
-    // read-modify-write could race with concurrent interest accruals.
-    const { error: rpcErr } = await serviceClient
-      .rpc('apply_agent_balance_delta', {
-        p_agent_id: invoice.agent_id,
-        p_delta: -paidAmount,
-        p_type: 'invoice_payment',
-        p_description: `Invoice payment — ${invoice.invoice_number}`,
-        p_deal_id: null,
+    // Atomic invoice flip + ledger post via RPC (migration 073). Replaces the
+    // prior two-write pattern, which could leave the invoice marked paid with
+    // no ledger entry (or vice versa) if the second write failed. CAS on
+    // invoice.status inside the RPC also serializes double-click attempts.
+    const { data: rpcResult, error: rpcErr } = await serviceClient
+      .rpc('mark_invoice_paid_atomic', {
+        p_invoice_id: input.invoiceId,
+        p_paid_amount: paidAmount,
         p_created_by: user.id,
-        p_reference_id: invoice.id,
       })
-    if (rpcErr) return { success: false, error: `Failed to apply invoice payment: ${rpcErr.message}` }
+    if (rpcErr || !rpcResult) return { success: false, error: `Failed to apply invoice payment: ${rpcErr?.message || 'unknown error'}` }
+
+    const result = rpcResult as {
+      skipped: boolean
+      paid_amount?: number
+      new_balance?: number
+      invoice_number?: string
+      reason?: string
+    }
+
+    if (result.skipped) {
+      return { success: true, data: { alreadyPaid: true } }
+    }
 
     await logAuditEvent({
       action: 'invoice.paid',
       entityType: 'agent',
       entityId: invoice.agent_id,
-      metadata: { invoice_id: invoice.id, paid_amount: paidAmount },
+      metadata: { invoice_id: invoice.id, paid_amount: result.paid_amount, new_balance: result.new_balance },
     })
 
-    return { success: true }
+    return { success: true, data: { paidAmount: result.paid_amount, newBalance: result.new_balance } }
   } catch (err: any) {
     return { success: false, error: 'An unexpected error occurred' }
   }

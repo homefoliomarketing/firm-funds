@@ -14,6 +14,7 @@ import { uploadDocument } from '@/lib/actions/deal-actions'
 import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
 import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
+import { toggleAgentBrokerageFlag } from '@/lib/actions/brokerage-actions'
 import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
@@ -42,7 +43,8 @@ interface Deal {
   amount_due_from_brokerage: number
   funding_date: string | null
   created_at: string
-  denial_reason: string | null
+  // denial_reason intentionally not fetched for brokerage (admin's wording).
+  denial_reason?: string | null
   agent?: {
     first_name: string
     last_name: string
@@ -113,12 +115,15 @@ export default function BrokerageDashboard() {
       if (profileData?.brokerage_id) {
         const { data: brokerageData } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', profileData.brokerage_id).single()
         setBrokerage(brokerageData)
+        // PII allow-list: excludes admin_notes, admin_notes_timeline, denial_reason,
+        // failure_reason, outstanding_recovery, and cure_election* fields. Brokerage
+        // staff see status + summary only, not admin's internal wording.
         const { data: dealData } = await supabase
           .from('deals')
-          .select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
+          .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
           .eq('brokerage_id', profileData.brokerage_id)
           .order('created_at', { ascending: false })
-        setDeals(dealData || [])
+        setDeals((dealData as unknown as Deal[]) || [])
         if (dealData && dealData.length > 0) {
           const dealIds = dealData.map((d: any) => d.id)
           const { data: tradeRecDocs } = await supabase
@@ -135,7 +140,13 @@ export default function BrokerageDashboard() {
             setDealTradeRecords(map)
           }
         }
-        const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profileData.brokerage_id).order('last_name', { ascending: true })
+        // PII allow-list: only columns the brokerage tab actually renders. Excludes
+        // bank_account_number, transit, institution, kyc_document_path, etc.
+        const { data: agentData } = await supabase
+          .from('agents')
+          .select('id, first_name, last_name, email, phone, reco_number, status, kyc_status, banking_approval_status, banking_verified, account_activated_at, welcome_email_sent_at, flagged_by_brokerage, address_street, address_city, address_province, address_postal_code')
+          .eq('brokerage_id', profileData.brokerage_id)
+          .order('last_name', { ascending: true })
         setAgents(agentData || [])
         getBrokerageInbox(profileData.brokerage_id).then(r => {
           if (r.success && r.data) setBrokerageInbox(r.data.inbox)
@@ -209,7 +220,11 @@ export default function BrokerageDashboard() {
 
   const reloadAgents = async () => {
     if (!profile?.brokerage_id) return
-    const { data: agentData } = await supabase.from('agents').select('*').eq('brokerage_id', profile.brokerage_id).order('last_name', { ascending: true })
+    const { data: agentData } = await supabase
+      .from('agents')
+      .select('id, first_name, last_name, email, phone, reco_number, status, kyc_status, banking_approval_status, banking_verified, account_activated_at, welcome_email_sent_at, flagged_by_brokerage, address_street, address_city, address_province, address_postal_code')
+      .eq('brokerage_id', profile.brokerage_id)
+      .order('last_name', { ascending: true })
     setAgents(agentData || [])
   }
 
@@ -220,8 +235,11 @@ export default function BrokerageDashboard() {
       ? `Remove the flag from ${name}? They will be eligible for commission advances again.`
       : `Flag ${name}? This will alert Firm Funds during underwriting and may delay or prevent their advances.`
     if (!confirm(confirmMsg)) return
-    const { error } = await supabase.from('agents').update({ flagged_by_brokerage: !currentFlag }).eq('id', agentId)
-    if (!error) {
+    // Mutations go through toggleAgentBrokerageFlag server action. Direct
+    // UPDATE on agents is REVOKEd in migration 059 (kyc_modal RLS hole) so a
+    // browser-side supabase.from('agents').update(...) silently no-ops.
+    const result = await toggleAgentBrokerageFlag({ agentId, flagged: !currentFlag })
+    if (result.success) {
       setAgents(agents.map(a => a.id === agentId ? { ...a, flagged_by_brokerage: !currentFlag } : a))
     }
   }
@@ -1766,10 +1784,10 @@ export default function BrokerageDashboard() {
           if (profile?.brokerage_id) {
             const { data: dealData } = await supabase
               .from('deals')
-              .select('*, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
+              .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
               .eq('brokerage_id', profile.brokerage_id)
               .order('created_at', { ascending: false })
-            if (dealData) setDeals(dealData as Deal[])
+            if (dealData) setDeals(dealData as unknown as Deal[])
           }
         }}
       />

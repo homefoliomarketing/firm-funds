@@ -1,33 +1,34 @@
-'use client'
-
-import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import SessionTimeout from '@/components/SessionTimeout'
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | undefined>(undefined)
+// Finding #44 follow-up. Previously this layout was a 'use client' shell that
+// loaded the user role inside a useEffect, which meant every dashboard page
+// briefly rendered for unauthenticated users before client-side redirect.
+// Middleware was already blocking the request, but defense in depth (and to
+// kill the content flash entirely) we now resolve auth server-side and
+// redirect to /login before any dashboard markup is sent.
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  useEffect(() => {
-    async function loadRole() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        setUserId(user.id)
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-        if (profile) setUserRole(profile.role)
-      }
-    }
-    loadRole()
-  }, [])
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) {
+    redirect('/login')
+  }
 
   return (
     <>
-      {userRole && <SessionTimeout userRole={userRole} userId={userId} />}
+      <SessionTimeout userRole={profile.role} userId={user.id} />
       {children}
     </>
   )
