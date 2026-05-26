@@ -98,7 +98,10 @@ export async function GET(
     return loginRedirect('invalid')
   }
 
-  const dashboard = new URL('/agent/dashboard', APP_URL)
+  // /agent is the agent home (see app/(dashboard)/agent/page.tsx). The
+  // firm_deal=<id> query is forwarded so a future enhancement on the
+  // dashboard can surface that specific offer; for now it is silent.
+  const dashboard = new URL('/agent', APP_URL)
   dashboard.searchParams.set('firm_deal', consumed.firm_deal_event_id)
   return NextResponse.redirect(dashboard)
 }

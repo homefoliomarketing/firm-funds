@@ -160,9 +160,9 @@ async function dispatchWithContext(
   // Mint a one-shot magic-link token so the agent does not hit the login
   // wall on a phone they haven't logged in to in months. The token carries
   // the firm_deal_event_id forward and expires in 7 days. If minting fails
-  // (DB hiccup), we fall back to the legacy deep link so dispatch still
-  // sends. The agent will just hit /login if their session is gone.
-  let cta_url = `${APP_URL.replace(/\/$/, '')}/agent/dashboard?firm_deal=${encodeURIComponent(ctx.event.id)}`
+  // (DB hiccup), we fall back to a plain deep link so dispatch still sends.
+  // The agent will just hit /login if their session is gone.
+  let cta_url = `${APP_URL.replace(/\/$/, '')}/agent?firm_deal=${encodeURIComponent(ctx.event.id)}`
   try {
     const { token } = await mintFirmDealMagicLink(supabase, {
       firm_deal_event_id: ctx.event.id,
