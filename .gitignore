@@ -42,8 +42,14 @@ next-env.d.ts
 
 .claude/worktrees/
 
+# Per-machine Claude Code settings (Claude rewrites this every session)
+.claude/settings.local.json
+
 .env.local
 backups/
 
 # Local Netlify folder
 .netlify
+
+# Supabase CLI's own temp cache
+supabase/.temp/
