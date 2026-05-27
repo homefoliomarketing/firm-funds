@@ -1,23 +1,42 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { Suspense, useEffect, useRef, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   FileText, Clock, TrendingUp, CheckCircle2, DollarSign,
   PlusCircle, Search, Calendar, ChevronRight, ChevronLeft, CreditCard,
-  AlertTriangle, Shield,
+  AlertTriangle, Shield, Sparkles, X,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import { markKycModalSeen } from '@/lib/actions/profile-actions'
 import { getAgentBalanceSummary } from '@/lib/actions/account-actions'
+import {
+  getFirmDealOfferForCurrentAgent,
+  type FirmDealOfferSummary,
+} from '@/lib/actions/firm-deal-offer-actions'
 import AgentKycGate from '@/components/AgentKycGate'
 import AgentHeader from '@/components/AgentHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+
+/**
+ * Format a bare YYYY-MM-DD calendar date without timezone drift. The shared
+ * formatDate parses ISO strings as UTC midnight, which shifts to the previous
+ * day in negative-offset timezones (ET). The firm-deal offer banner shows a
+ * closing date the agent recognises from the offer message; that text has to
+ * match the underlying calendar date, not whatever Date interprets it as.
+ */
+function formatCalendarDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(iso)
+  return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+}
 
 interface Deal {
   id: string
@@ -38,7 +57,17 @@ interface Deal {
   created_at: string
 }
 
+// useSearchParams() requires a Suspense boundary in Next.js 16. Wrap the
+// inner page so server-rendered prerenders don't suspend the whole tree.
 export default function AgentDashboard() {
+  return (
+    <Suspense>
+      <AgentDashboardInner />
+    </Suspense>
+  )
+}
+
+function AgentDashboardInner() {
   const [profile, setProfile] = useState<any>(null)
   const [agent, setAgent] = useState<any>(null)
   const [deals, setDeals] = useState<Deal[]>([])
@@ -48,8 +77,17 @@ export default function AgentDashboard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
+  // Offer surfacing — set when the magic link lands the agent on
+  // /agent?firm_deal=<id>. The banner is the offer's home; if a deal record
+  // already exists for the offer we also scroll the list to it.
+  const [firmDealOffer, setFirmDealOffer] = useState<FirmDealOfferSummary | null>(null)
+  const [firmDealOfferDismissed, setFirmDealOfferDismissed] = useState(false)
+  const dealRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [highlightedDealId, setHighlightedDealId] = useState<string | null>(null)
   const DEALS_PER_PAGE = 10
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const firmDealParam = searchParams.get('firm_deal')
   const supabase = createClient()
 
   useEffect(() => {
@@ -92,6 +130,46 @@ export default function AgentDashboard() {
     }
     loadAgent()
   }, [])
+
+  // Fetch the firm-deal offer summary when the agent lands via the magic
+  // link. The action enforces that the caller is the matched agent so we
+  // never accidentally reveal someone else's offer if the URL is fiddled
+  // with.
+  useEffect(() => {
+    if (!firmDealParam || !profile?.agent_id) return
+    let cancelled = false
+    ;(async () => {
+      const res = await getFirmDealOfferForCurrentAgent(firmDealParam)
+      if (cancelled) return
+      if (res.success && res.data) {
+        setFirmDealOffer(res.data)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [firmDealParam, profile?.agent_id])
+
+  // If the offer is already linked to a deal in this agent's list, scroll
+  // the row into view and flash the highlight. Filters can hide the row
+  // (e.g. statusFilter set), so we clear them before scrolling.
+  useEffect(() => {
+    if (!firmDealOffer?.offer_deal_id || deals.length === 0) return
+    const dealId = firmDealOffer.offer_deal_id
+    const inList = deals.some(d => d.id === dealId)
+    if (!inList) return
+    setSearchQuery('')
+    setStatusFilter(null)
+    // Defer to the next frame so the unfiltered list renders before we look
+    // up the ref.
+    const handle = requestAnimationFrame(() => {
+      const node = dealRowRefs.current[dealId]
+      if (node) {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        setHighlightedDealId(dealId)
+        window.setTimeout(() => setHighlightedDealId(null), 3500)
+      }
+    })
+    return () => cancelAnimationFrame(handle)
+  }, [firmDealOffer?.offer_deal_id, deals])
 
   // handleLogout moved to AgentHeader
 
@@ -232,6 +310,64 @@ export default function AgentDashboard() {
       />
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Firm-deal offer banner — appears when the agent lands here via
+            the offer email/SMS magic link with ?firm_deal=<id>. */}
+        {firmDealOffer && !firmDealOfferDismissed && (
+          <section aria-label="Firm deal offer">
+            <div className="mb-6 rounded-xl p-5 flex items-start justify-between gap-4 bg-primary/10 border border-primary/30 relative">
+              <div className="flex items-start gap-3 min-w-0">
+                <Sparkles size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">
+                    {firmDealOffer.brand_name
+                      ? `${firmDealOffer.brand_name} — your deal just firmed up`
+                      : 'Your deal just firmed up'}
+                  </p>
+                  <p className="text-xs mt-1 text-muted-foreground">
+                    {firmDealOffer.address
+                      ? <span className="font-medium text-foreground">{firmDealOffer.address}</span>
+                      : 'A new firm deal'}
+                    {firmDealOffer.closing_date_iso && (
+                      <>
+                        <span aria-hidden="true"> · </span>
+                        Closing {formatCalendarDate(firmDealOffer.closing_date_iso)}
+                      </>
+                    )}
+                  </p>
+                  <p className="text-xs mt-2 text-muted-foreground">
+                    {firmDealOffer.offer_deal_id
+                      ? "We've already started a request for this one — see your deal below."
+                      : 'Request an advance on this commission now and get funded before closing.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!firmDealOffer.offer_deal_id && (
+                  <Button
+                    onClick={() => kycNotVerified ? null : router.push('/agent/new-deal')}
+                    disabled={!!kycNotVerified}
+                    title={kycNotVerified ? 'Complete identity verification first' : 'Submit an advance request'}
+                    className="whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90"
+                    size="sm"
+                  >
+                    Request advance
+                    <ChevronRight size={14} />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setFirmDealOfferDismissed(true)}
+                  aria-label="Dismiss offer banner"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X size={14} aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* KYC / Banking status banners */}
         <section aria-label="Account status notifications">
           {/* Activation CTA — single entry point to the setup wizard */}
@@ -469,9 +605,12 @@ export default function AgentDashboard() {
                       {paged.map((deal, i) => (
                         <div
                           key={deal.id}
+                          ref={(el) => { dealRowRefs.current[deal.id] = el }}
                           role="listitem"
                           className={`group px-5 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-all duration-150 hover:bg-white/[0.03] ${
                             i < paged.length - 1 ? 'border-b border-border/20' : ''
+                          } ${
+                            highlightedDealId === deal.id ? 'bg-primary/10 ring-1 ring-primary/40' : ''
                           }`}
                           onClick={() => router.push(`/agent/deals/${deal.id}`)}
                         >

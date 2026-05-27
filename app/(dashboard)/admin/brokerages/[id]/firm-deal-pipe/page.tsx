@@ -8,11 +8,15 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   ClipboardCopy,
   Inbox,
   Loader2,
+  Send,
   Sparkles,
+  XCircle,
+  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -23,9 +27,21 @@ import {
   fetchTabPreview,
   createBrokeragePipe,
   getBrokerageForPipeWizard,
+  getPipeStatistics,
   getServiceAccountEmail,
+  setPipeAutoFire,
   type ExistingPipeSummary,
+  type PipeStatistics,
 } from '@/lib/actions/firm-deal-pipe-actions'
+import { Switch } from '@/components/ui/switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // ============================================================================
 // Types + constants
@@ -375,7 +391,11 @@ export default function FirmDealPipeWizardPage(props: PageProps) {
 
       {/* ALREADY CONFIGURED — show summary instead of the wizard. */}
       {existingPipe ? (
-        <ExistingPipeView pipe={existingPipe} brokerageName={brokerage?.name ?? ''} />
+        <ExistingPipeView
+          pipe={existingPipe}
+          brokerageId={brokerageId}
+          brokerageName={brokerage?.name ?? ''}
+        />
       ) : (
         <Wizard
           step={step}
@@ -423,75 +443,411 @@ export default function FirmDealPipeWizardPage(props: PageProps) {
 }
 
 // ============================================================================
-// Existing-pipe summary
+// Existing-pipe summary — includes the config dump, the auto-fire toggle
+// with confirmation modal (P2 #8), and the per-pipe statistics card (P2 #9).
 // ============================================================================
-function ExistingPipeView({ pipe, brokerageName }: { pipe: ExistingPipeSummary; brokerageName: string }) {
-  return (
-    <Card className="border-emerald-700/40 bg-emerald-950/15">
-      <CardContent className="py-5 px-5 space-y-4">
-        <div className="flex items-start gap-2">
-          <CheckCircle2 className="h-5 w-5 text-emerald-400 mt-0.5" aria-hidden="true" />
-          <div>
-            <p className="text-sm font-semibold text-foreground">Pipe already configured for {brokerageName}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Disable this pipe in SQL before running the wizard again.
-            </p>
-          </div>
-        </div>
+function ExistingPipeView({ pipe, brokerageId, brokerageName }: {
+  pipe: ExistingPipeSummary
+  brokerageId: string
+  brokerageName: string
+}) {
+  // Local copy of auto_fire_enabled so we can flip it without a page reload.
+  const [autoFire, setAutoFire] = useState(pipe.auto_fire_enabled)
+  const [stats, setStats] = useState<PipeStatistics | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
+  const [statsError, setStatsError] = useState<string | null>(null)
 
-        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
-          <div>
-            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Brand</dt>
-            <dd className="font-medium">
-              {pipe.brand_name ?? '—'}
-              <span className="text-muted-foreground"> · {pipe.brand_tagline ?? 'Powered by Firm Funds'}</span>
-            </dd>
+  // Reload stats on mount and whenever the toggle flips (the lifetime sent
+  // count is the modal's anchor; refetching keeps it honest in case events
+  // landed since the page first loaded).
+  useEffect(() => {
+    let cancelled = false
+    setStatsLoading(true)
+    setStatsError(null)
+    void getPipeStatistics({ brokerageId }).then(res => {
+      if (cancelled) return
+      if (res.success && res.data) {
+        setStats(res.data)
+      } else {
+        setStatsError(res.error ?? 'Failed to load statistics.')
+      }
+      setStatsLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [brokerageId, autoFire])
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-emerald-700/40 bg-emerald-950/15">
+        <CardContent className="py-5 px-5 space-y-4">
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-400 mt-0.5" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Pipe already configured for {brokerageName}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Disable this pipe in SQL before running the wizard again.
+              </p>
+            </div>
           </div>
-          <div>
-            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Mode</dt>
-            <dd className="font-medium">
-              {pipe.auto_fire_enabled ? 'Auto-fire' : 'Manual review'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Last polled</dt>
-            <dd className="font-medium">
-              {pipe.last_polled_at
-                ? new Date(pipe.last_polled_at).toLocaleString('en-CA', { timeZone: 'America/Toronto' })
-                : 'Never (first poll pending)'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Conditional tab</dt>
-            <dd className="font-medium">{pipe.conditional_tab ?? '—'}</dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Watched tabs ({pipe.tabs_to_watch.length})</dt>
-            <dd className="font-medium">
-              {pipe.tabs_to_watch.length > 0 ? pipe.tabs_to_watch.join(', ') : '—'}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Column mapping</dt>
-            <dd className="font-medium font-mono">
-              {Object.keys(pipe.column_mapping).length === 0
-                ? '—'
-                : Object.entries(pipe.column_mapping).map(([k, v]) => `${k}=${v}`).join(', ')}
-            </dd>
-          </div>
-          {pipe.sheet_url && (
-            <div className="sm:col-span-2">
-              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Sheet</dt>
-              <dd className="font-medium truncate">
-                <a href={pipe.sheet_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                  {pipe.sheet_url}
-                </a>
+
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+            <div>
+              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Brand</dt>
+              <dd className="font-medium">
+                {pipe.brand_name ?? '—'}
+                <span className="text-muted-foreground"> · {pipe.brand_tagline ?? 'Powered by Firm Funds'}</span>
               </dd>
             </div>
+            <div>
+              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Mode</dt>
+              <dd className="font-medium">
+                {autoFire ? 'Auto-fire' : 'Manual review'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Last polled</dt>
+              <dd className="font-medium">
+                {pipe.last_polled_at
+                  ? new Date(pipe.last_polled_at).toLocaleString('en-CA', { timeZone: 'America/Toronto' })
+                  : 'Never (first poll pending)'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Conditional tab</dt>
+              <dd className="font-medium">{pipe.conditional_tab ?? '—'}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Watched tabs ({pipe.tabs_to_watch.length})</dt>
+              <dd className="font-medium">
+                {pipe.tabs_to_watch.length > 0 ? pipe.tabs_to_watch.join(', ') : '—'}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Column mapping</dt>
+              <dd className="font-medium font-mono">
+                {Object.keys(pipe.column_mapping).length === 0
+                  ? '—'
+                  : Object.entries(pipe.column_mapping).map(([k, v]) => `${k}=${v}`).join(', ')}
+              </dd>
+            </div>
+            {pipe.sheet_url && (
+              <div className="sm:col-span-2">
+                <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Sheet</dt>
+                <dd className="font-medium truncate">
+                  <a href={pipe.sheet_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                    {pipe.sheet_url}
+                  </a>
+                </dd>
+              </div>
+            )}
+          </dl>
+        </CardContent>
+      </Card>
+
+      <AutoFireToggleCard
+        pipeId={pipe.pipe_id}
+        brokerageName={brokerageName}
+        autoFire={autoFire}
+        setAutoFire={setAutoFire}
+        validatedEvents={stats?.validated_events_lifetime ?? null}
+      />
+
+      <PipeStatisticsCard stats={stats} loading={statsLoading} error={statsError} />
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Auto-fire toggle (P2 #8) — Switch + confirmation modal. The modal quotes the
+// lifetime count of validated (offer_sent) events for this brokerage so Bud
+// has a concrete number to anchor his decision on.
+// ----------------------------------------------------------------------------
+function AutoFireToggleCard({
+  pipeId,
+  brokerageName,
+  autoFire,
+  setAutoFire,
+  validatedEvents,
+}: {
+  pipeId: string
+  brokerageName: string
+  autoFire: boolean
+  setAutoFire: (v: boolean) => void
+  validatedEvents: number | null
+}) {
+  const [pendingValue, setPendingValue] = useState<boolean | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function handleSwitchChange(next: boolean) {
+    // Open the confirmation modal instead of writing immediately. The Switch
+    // visually flips back to the previous state until the user confirms,
+    // because we bind it to `autoFire`, not `pendingValue`.
+    setError(null)
+    setPendingValue(next)
+  }
+
+  async function handleConfirm() {
+    if (pendingValue === null) return
+    setSubmitting(true)
+    setError(null)
+    const res = await setPipeAutoFire({ pipeId, enabled: pendingValue })
+    setSubmitting(false)
+    if (!res.success || !res.data) {
+      setError(res.error ?? 'Failed to update mode.')
+      return
+    }
+    setAutoFire(res.data.auto_fire_enabled)
+    setPendingValue(null)
+  }
+
+  const enabling = pendingValue === true
+  const disabling = pendingValue === false
+  const dialogOpen = pendingValue !== null
+
+  return (
+    <Card>
+      <CardContent className="py-4 px-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Zap className={`h-5 w-5 mt-0.5 ${autoFire ? 'text-amber-400' : 'text-muted-foreground'}`} aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Auto-fire mode {autoFire ? 'enabled' : 'off'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {autoFire
+                  ? 'New firm deals are offered to agents automatically, no admin review.'
+                  : 'New firm deals queue for admin review before any offer is sent.'}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={autoFire}
+            onCheckedChange={handleSwitchChange}
+            aria-label="Toggle auto-fire mode"
+          />
+        </div>
+      </CardContent>
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!submitting && !open) {
+            setPendingValue(null)
+            setError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {enabling ? (
+                <>
+                  <Zap className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                  Enable auto-fire for {brokerageName}?
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  Turn auto-fire off?
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {enabling ? (
+                <>
+                  Offers will be sent automatically — no admin click between firm deal detection and the agent's inbox.
+                  {validatedEvents === null ? (
+                    <> Stats are still loading…</>
+                  ) : (
+                    <> So far <span className="font-semibold text-foreground">{validatedEvents}</span> {validatedEvents === 1 ? 'offer has' : 'offers have'} been sent for this brokerage. Make sure parsing has been reliable before flipping this on.</>
+                  )}
+                </>
+              ) : (
+                <>New firm deal events will queue for manual review again until you re-enable auto-fire. Already-sent offers are unaffected.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {error && (
+            <p className="text-xs text-destructive flex items-start gap-1.5">
+              <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />
+              {error}
+            </p>
           )}
+
+          <DialogFooter className="flex-row gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setPendingValue(null); setError(null) }}
+              disabled={submitting}
+              className="flex-1 sm:flex-none"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirm}
+              disabled={submitting}
+              size="sm"
+              className={`flex-1 sm:flex-none ${enabling ? 'bg-amber-500 text-amber-50 hover:bg-amber-500/90' : ''}`}
+            >
+              {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />}
+              {enabling ? 'Enable auto-fire' : disabling ? 'Turn off' : 'Confirm'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Per-pipe statistics card (P2 #9) — 30-day funnel + last-event hints + top
+// unresolved shorthands. Renders inline below the auto-fire toggle on the
+// firm-deal-pipe page.
+// ----------------------------------------------------------------------------
+function PipeStatisticsCard({
+  stats,
+  loading,
+  error,
+}: {
+  stats: PipeStatistics | null
+  loading: boolean
+  error: string | null
+}) {
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-4 px-5">
+          <Skeleton className="h-5 w-40 mb-3" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-14" />)}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className="border-destructive">
+        <CardContent className="py-4 px-5">
+          <p className="text-xs text-destructive flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+            Statistics: {error}
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!stats) return null
+
+  return (
+    <Card>
+      <CardContent className="py-4 px-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary" aria-hidden="true" />
+          <p className="text-sm font-semibold text-foreground">Last 30 days</p>
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            {stats.total_30d} {stats.total_30d === 1 ? 'event' : 'events'} total
+          </span>
+        </div>
+
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <StatTile
+            icon={<Send className="h-3.5 w-3.5" aria-hidden="true" />}
+            label="Offers sent"
+            value={stats.sent_30d}
+            accent="text-emerald-400"
+          />
+          <StatTile
+            icon={<Inbox className="h-3.5 w-3.5" aria-hidden="true" />}
+            label="Awaiting review"
+            value={stats.awaiting_review_30d}
+            accent="text-amber-400"
+          />
+          <StatTile
+            icon={<XCircle className="h-3.5 w-3.5" aria-hidden="true" />}
+            label="Rejected"
+            value={stats.rejected_30d}
+            accent="text-muted-foreground"
+          />
+          <StatTile
+            icon={<AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />}
+            label="Errored"
+            value={stats.errored_30d}
+            accent={stats.errored_30d > 0 ? 'text-red-400' : 'text-muted-foreground'}
+          />
         </dl>
+
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs pt-3 border-t border-border/40">
+          <div>
+            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Most recent poll</dt>
+            <dd className="font-medium">
+              {stats.last_polled_at
+                ? new Date(stats.last_polled_at).toLocaleString('en-CA', { timeZone: 'America/Toronto' })
+                : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Most recent event</dt>
+            <dd className="font-medium">
+              {stats.last_event_at
+                ? new Date(stats.last_event_at).toLocaleString('en-CA', { timeZone: 'America/Toronto' })
+                : 'None yet'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Lifetime offers sent</dt>
+            <dd className="font-medium">{stats.validated_events_lifetime}</dd>
+          </div>
+        </dl>
+
+        {stats.unresolved_shorthands.length > 0 && (
+          <div className="pt-3 border-t border-border/40">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+              Top unresolved names (30d) — add mappings via the review queue
+            </p>
+            <ul className="space-y-1">
+              {stats.unresolved_shorthands.map(s => (
+                <li
+                  key={s.shorthand}
+                  className="flex items-center justify-between text-xs px-2 py-1 rounded-md bg-muted/20"
+                >
+                  <span className="font-mono truncate" title={s.shorthand}>{s.shorthand}</span>
+                  <span className="text-muted-foreground tabular-nums">{s.count}×</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
+  )
+}
+
+function StatTile({
+  icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: number
+  accent: string
+}) {
+  return (
+    <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+      <div className={`flex items-center gap-1.5 ${accent}`}>
+        {icon}
+        <span className="text-[10px] uppercase tracking-wider opacity-80">{label}</span>
+      </div>
+      <p className="text-xl font-bold tabular-nums mt-1">{value}</p>
+    </div>
   )
 }
 

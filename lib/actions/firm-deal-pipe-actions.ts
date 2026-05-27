@@ -234,6 +234,164 @@ function isValidColumnLetter(letter: string): boolean {
   return /^[A-Z]{1,2}$/.test(letter)
 }
 
+// ============================================================================
+// Pipe-level operations on an already-configured pipe.
+// ============================================================================
+
+export interface PipeStatistics {
+  /** Lifetime count of events that were actually offered to an agent. The
+   *  number Bud quotes back when deciding whether to flip auto-fire on. */
+  validated_events_lifetime: number
+  /** Counts in the last 30 days, broken down by terminal status. */
+  total_30d: number
+  sent_30d: number
+  rejected_30d: number
+  errored_30d: number
+  awaiting_review_30d: number
+  last_polled_at: string | null
+  /** Most recent received_at across all events for this brokerage. */
+  last_event_at: string | null
+  /** Top unresolved shorthands by count — names from the sheet that hit a
+   *  mapping table miss. Useful for proactive mapping training. */
+  unresolved_shorthands: Array<{ shorthand: string; count: number }>
+}
+
+/**
+ * One-shot stats summary for the brokerage's pipe page. Used both by the
+ * auto-fire confirmation modal (validated_events_lifetime) and by the
+ * statistics card on the same page (everything else).
+ */
+export async function getPipeStatistics(input: {
+  brokerageId: string
+}): Promise<ActionResult<PipeStatistics>> {
+  const auth = await getAuthenticatedAdmin()
+  if (auth.error) return { success: false, error: auth.error }
+  const supabase = createServiceRoleClient()
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  // We avoid five separate count queries by pulling status + received_at for
+  // recent events in one shot and bucketing client-side. Lifetime sent is the
+  // one number that needs a separate count (otherwise we'd risk truncating it
+  // at the .limit() cap).
+  const [lifetimeSentRes, recentRes, pipeRes, mostRecentEventRes] = await Promise.all([
+    supabase
+      .from('firm_deal_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('brokerage_id', input.brokerageId)
+      .eq('status', 'offer_sent'),
+    supabase
+      .from('firm_deal_events')
+      .select('id, status, parsed, received_at')
+      .eq('brokerage_id', input.brokerageId)
+      .gte('received_at', thirtyDaysAgo)
+      .order('received_at', { ascending: false })
+      .limit(2000),
+    supabase
+      .from('brokerage_pipes')
+      .select('last_polled_at')
+      .eq('brokerage_id', input.brokerageId)
+      .eq('pipe_type', 'spreadsheet')
+      .eq('enabled', true)
+      .maybeSingle(),
+    supabase
+      .from('firm_deal_events')
+      .select('received_at')
+      .eq('brokerage_id', input.brokerageId)
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (lifetimeSentRes.error) return { success: false, error: lifetimeSentRes.error.message }
+  if (recentRes.error) return { success: false, error: recentRes.error.message }
+  // pipeRes / mostRecentEventRes returning .error on missing rows is fine —
+  // maybeSingle() doesn't error on zero rows.
+
+  const recent = (recentRes.data ?? []) as Array<{
+    id: string
+    status: string
+    parsed: { listing_agent_raw?: string | null; selling_agent_raw?: string | null } | null
+    received_at: string
+  }>
+
+  let sent_30d = 0
+  let rejected_30d = 0
+  let errored_30d = 0
+  let awaiting_review_30d = 0
+  for (const e of recent) {
+    if (e.status === 'offer_sent') sent_30d++
+    else if (e.status === 'rejected') rejected_30d++
+    else if (e.status === 'errored') errored_30d++
+    else if (e.status === 'unmatched' || e.status === 'awaiting_approval') awaiting_review_30d++
+  }
+
+  // Unresolved shorthands — listing or selling agent text from rows whose
+  // status is 'unmatched'. We bucket by lowercased shorthand and keep the
+  // original casing of the first one we see.
+  const shorthandCounts = new Map<string, { display: string; count: number }>()
+  for (const e of recent) {
+    if (e.status !== 'unmatched') continue
+    const candidates = [e.parsed?.listing_agent_raw, e.parsed?.selling_agent_raw]
+    for (const raw of candidates) {
+      if (!raw) continue
+      const trimmed = raw.trim()
+      if (!trimmed) continue
+      const key = trimmed.toLowerCase()
+      const prev = shorthandCounts.get(key)
+      if (prev) {
+        prev.count += 1
+      } else {
+        shorthandCounts.set(key, { display: trimmed, count: 1 })
+      }
+    }
+  }
+  const unresolved_shorthands = Array.from(shorthandCounts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+    .map(s => ({ shorthand: s.display, count: s.count }))
+
+  return {
+    success: true,
+    data: {
+      validated_events_lifetime: lifetimeSentRes.count ?? 0,
+      total_30d: recent.length,
+      sent_30d,
+      rejected_30d,
+      errored_30d,
+      awaiting_review_30d,
+      last_polled_at: pipeRes.data?.last_polled_at ?? null,
+      last_event_at: mostRecentEventRes.data?.received_at ?? null,
+      unresolved_shorthands,
+    },
+  }
+}
+
+/**
+ * Flip a pipe's auto_fire_enabled flag. The wizard always creates a pipe
+ * with auto-fire OFF; this is the only path to turn it on or back off.
+ */
+export async function setPipeAutoFire(input: {
+  pipeId: string
+  enabled: boolean
+}): Promise<ActionResult<{ auto_fire_enabled: boolean }>> {
+  const auth = await getAuthenticatedAdmin()
+  if (auth.error) return { success: false, error: auth.error }
+  if (!input.pipeId) return { success: false, error: 'Missing pipe id.' }
+
+  const supabase = createServiceRoleClient()
+  const { data, error } = await supabase
+    .from('brokerage_pipes')
+    .update({ auto_fire_enabled: input.enabled })
+    .eq('id', input.pipeId)
+    .select('auto_fire_enabled')
+    .single()
+  if (error || !data) {
+    return { success: false, error: error?.message ?? 'Failed to update pipe.' }
+  }
+  return { success: true, data: { auto_fire_enabled: data.auto_fire_enabled } }
+}
+
 export async function createBrokeragePipe(
   input: CreatePipeInput
 ): Promise<ActionResult<{ pipeId: string }>> {
