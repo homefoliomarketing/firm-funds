@@ -1,7 +1,7 @@
 # Handoff — Firm Deal Detection Phase 1 Follow-ups
 
-**Date written:** 2026-05-26 (Session 33, refreshed end of session 34, P1 #5 + #6 shipped in session 35)
-**Status:** Phase 1 LIVE. All P0 items shipped. P1 #5 (Twilio Restricted key) and P1 #6 (tokenized magic links) shipped 2026-05-26 evening. Only P2 polish items remain.
+**Date written:** 2026-05-26 (sessions 33–36; latest is session 36 evening, magic link fully working end-to-end on mobile)
+**Status:** Phase 1 LIVE. All P0 + P1 + P2 items shipped. Magic link verified working from a real phone after two production-only bugs got found and fixed. Remaining work is **post-acceptance UX**, captured below.
 
 **For Bud:** Open this file in a new session and say "work through the firm deal handoff" — Claude will know what to do.
 
@@ -9,17 +9,21 @@
 
 ## Production state right now
 
-- Pipeline: Google Sheets (Choice Realty) → poller (15 min) → processor (2 min, Haiku parser) → review queue → admin clicks Send → Resend email + Twilio SMS in parallel.
+- Pipeline: Google Sheets (Choice Realty) → poller (15 min) → processor (2 min, Haiku parser) → review queue → admin clicks Send → Resend email + Twilio SMS in parallel, each carrying a tokenized magic-link CTA.
 - All 5 cron jobs live on cron-job.org under `bud@firmfunds.ca`.
-- Netlify env vars complete: `TWILIO_*` (4), `ANTHROPIC_API_KEY`, `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON`, plus `NODE_OPTIONS=--max-old-space-size=4096` (fixes OOM during TypeScript checking).
-- Only real events from the live sheet sit in `firm_deal_events`. Choice Realty agents have `phone = NULL` and `email = NULL` for test safety; Ryan Dodd has Bud's test email + phone manually set so the loop is sendable end-to-end.
-- DMARC on `firmfunds.ca` is at `p=none` as of 2026-05-26 (softened from `p=quarantine` to remove DMARC as a possible spam-folder cause while the domain builds reputation). Propagation typically ~1 hour, up to 48 hours globally.
+- Netlify env vars complete: `TWILIO_*` (4, Restricted key), `RESEND_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON`, plus `NODE_OPTIONS=--max-old-space-size=4096`.
+- Real events from the live sheet sit in `firm_deal_events`. Choice Realty agents have `phone = NULL` and `email = NULL` for test safety; Ryan Dodd has Bud's test contact info (`budj_12@hotmail.com` / `705-542-1016`) manually set so the loop is sendable end-to-end.
+- DMARC on `firmfunds.ca` is at `p=none`.
 - **Before going live with real recipients:** restore agent phones/emails. They're nowhere backed up automatically — re-import from the original CSV/source.
 
-Last commits on `main`:
+Last commits on `main` related to firm-deal work:
 - `8b00f58` admin nav card (P0 #1)
 - `70a4402` per-brokerage filter (P0 #2)
 - `b5489ef` onboarding wizard (P0 #3)
+- `170b860` / `695c5e1` / `ef81aeb` / `1bf5399` — original P1 #6 magic-link plumbing
+- `2ef3274` — banner + auto-fire toggle + per-pipe stats (P1 #6 dashboard side, P2 #8, P2 #9)
+- `2298579` — **fix:** route handler now binds Supabase client to the redirect response so the session cookie actually lands on the wire
+- `b523186` — **fix:** consume allows reuse within TTL so SMS/Chrome link-prefetch can't burn the token before the agent taps it
 
 ---
 
@@ -29,77 +33,104 @@ Last commits on `main`:
 Shipped in [8b00f58](https://github.com/homefoliomarketing/firm-funds/commit/8b00f58). "Firm Deal Review" appears in the admin dashboard nav with a live red count badge of `unmatched + awaiting_approval + errored` events. Polls every 30s.
 
 ### P0 #2 — Per-brokerage filter on the review queue ✅
-Shipped in [70a4402](https://github.com/homefoliomarketing/firm-funds/commit/70a4402). Selector hides when only one brokerage is in the queue, shows "All brokerages (N)" once 2+ are represented. Filter persists to `?brokerage=<uuid>` and survives reload. Filters both pending and recently-resolved lists client-side.
+Shipped in [70a4402](https://github.com/homefoliomarketing/firm-funds/commit/70a4402).
 
 ### P0 #3 — New-brokerage onboarding wizard ✅
-Shipped in [b5489ef](https://github.com/homefoliomarketing/firm-funds/commit/b5489ef). Five-step wizard at `/admin/brokerages/[id]/firm-deal-pipe`:
-1. Sheet share check (paste URL/ID → `testSheetAccess` returns tabs or surfaces service-account share instructions)
-2. Tab classification (Conditional / Watch / Ignore; one Conditional required, ≥1 Watch required)
-3. Column mapping (preview rows + per-column dropdown; address required, ≥1 of listing/selling agent required)
-4. Brand (defaults to `<Brokerage> Advances` / `Powered by Firm Funds`)
-5. Confirm + create
-
-Entry point: Inbox icon next to the edit pencil on each brokerage row. Output `brokerage_pipes` row matches what `scripts/seed-choice-realty-pipe.mjs` produces: `auto_fire_enabled=false`, `enabled=true`, no `last_poll_state` so the first poll baselines without firing.
-
-If a pipe already exists, the page short-circuits to a read-only summary instead of letting the admin double-create.
-
-End-to-end verified 2026-05-26: created a "Test Brokerage (DELETE)" record, walked through the wizard against a copy of Choice's sheet, confirmed the inserted pipe shape, ran the poller against it (baselined 984 hashes, 0 events), added a test row to January 2026, triggered the next poll (`rows_new_firm=1, trigger=direct_to_month`). Production processor cron parsed the row via Haiku (correctly extracted address/MLS/closing date and flagged the `(DELETE)` marker in `parser_notes`), event landed in review queue at status `unmatched`. Filter selector switched from hidden to "All brokerages (2)" automatically. Cleanup left the test brokerage soft-deleted (`deleted_at` set) and the test pipe disabled (`enabled=false`); the test Google Sheet ("Firm Funds Test Brokerage Sheet") is still in Bud's Drive and can be deleted whenever.
+Shipped in [b5489ef](https://github.com/homefoliomarketing/firm-funds/commit/b5489ef). Five-step wizard at `/admin/brokerages/[id]/firm-deal-pipe`. End-to-end verified 2026-05-26.
 
 ### P0 #4 — Resend / DNS deliverability ✅
-Resend already has `firmfunds.ca` verified with SPF/DKIM/DMARC; the earlier Hotmail spam-folder landing was a reputation/content issue, not DNS. DMARC was further softened to `p=none` on 2026-05-26 to remove DMARC as a possible cause while the brand-new domain builds reputation. Re-test deliverability whenever convenient: send a fresh offer to a Hotmail/Gmail address that has never received Firm Funds mail before. If it lands in inbox, reputation can be ruled out. If it spams, the cause is content/reputation, not DNS.
+Resend has `firmfunds.ca` verified with SPF/DKIM/DMARC. DMARC softened to `p=none` on 2026-05-26 while reputation builds.
 
 ---
 
-## DONE — P1 (shipped 2026-05-26 session 35)
+## DONE — P1 (shipped 2026-05-26 sessions 35 + 36)
 
 ### P1 #5 — Twilio key tightened to Restricted scope ✅
-New key `firmfunds-sms-restricted` (SID `SKe7…7186`) with **Messages: Read + List + Create** only. Old Main-scoped `firmfunds-sms` deleted. Netlify env vars updated, prod deployed, real SMS verified end-to-end to budj_12@hotmail.com via the smoke-test event pattern.
+New key `firmfunds-sms-restricted` (SID `SKe7…7186`) with **Messages: Read + List + Create** only. Old Main-scoped `firmfunds-sms` deleted.
 
-### P1 #6 — Tokenized magic-link CTAs ✅
-Shipped across commits `170b860` (feature), `695c5e1` (middleware fix), `ef81aeb` (verifyOtp), `1bf5399` (URL fix). End-to-end verified: cleared cookies → visited `/agent/firm-deal/<token>` → landed signed in on `/agent?firm_deal=<id>` with the agent dashboard rendering Bud's real data.
+### P1 #6 — Tokenized magic-link CTAs ✅ (fully working on mobile)
+The first three shipped commits got a passing dev-server smoke test but **did not work in production**. Session 36 found two production-only bugs that session 35's smoke test missed:
+
+**Bug 1 (commit `2298579`):** The route used the shared `@/lib/supabase/server.createClient()` which writes cookies via `next/headers.cookies()`. In Route Handlers that store is read-only — the writes silently swallow into a try/catch. `verifyOtp` "succeeded" but no auth cookie ever made it onto the redirect response, so middleware on the next request saw no session and bounced the agent to `/login`.
+
+  **Fix:** Build the redirect `NextResponse` first, then construct a route-local `createServerClient` whose `setAll()` writes directly to `response.cookies`. Same pattern `middleware.ts` already uses.
+
+**Bug 2 (commit `b523186`):** Single-use tokens got burned by SMS/Chrome link-prefetch before the human ever tapped. Production DB row showed `used_at` set ~3 seconds after mint — too fast for any human read-then-tap. Bud's actual click then hit an `already_used` token and got redirected to `/login?reason=firm_deal_invalid`.
+
+  **Fix:** Dropped the single-use restriction. Token exists + not expired = valid. `used_at` is still stamped on first hit as a forensic marker. Trade-off: anyone who has the link can sign in as that agent for up to 7 days — but the link was delivered over the agent's own verified email + SMS, so the realistic adversary isn't a hostile party intercepting, it's the automated link scanner between Twilio and the screen. Same trade-off Slack/Notion/etc. make.
+
+End-to-end verified 2026-05-26 evening: real email + SMS sent via production dispatcher → Bud clicked from his Android phone in Chrome → landed signed in on `/agent?firm_deal=<id>` with the Choice Advances offer banner rendering.
 
 Files:
-- `supabase/migrations/080_firm_deal_magic_links.sql` — new table, 7-day TTL, single-use via `used_at` CAS
-- `lib/firm-deal-detection/magic-link.ts` — `mintFirmDealMagicLink` + `consumeFirmDealMagicLink`
-- `app/agent/firm-deal/[token]/route.ts` — validates token, generateLink, **server-side** `verifyOtp` so SSR sees the session (NOT redirect to action_link, which puts JWT in URL hash invisible to the server)
-- `lib/firm-deal-detection/dispatch-notification.ts` — mints token per dispatch, falls back to deep link if minting fails
-- `middleware.ts` — `/agent/firm-deal` in PUBLIC_PATHS, role check skipped on public paths so admins clicking agent links don't get signed out
-
-**Note for future enhancement:** The redirect target `/agent?firm_deal=<id>` carries the param, but `/agent/page.tsx` doesn't yet consume it. To highlight the specific offer, the agent dashboard would need to read `firm_deal` from the query string, look up `firm_deal_events.offer_deal_id`, and either auto-scroll to that deal or show a banner. The original code was already broken here (linked to `/agent/dashboard` which 404'd). Magic link works correctly now; surfacing the specific offer is a separate UI task.
+- `supabase/migrations/080_firm_deal_magic_links.sql` — table, 7-day TTL
+- `lib/firm-deal-detection/magic-link.ts` — `mintFirmDealMagicLink` + multi-use `consumeFirmDealMagicLink`
+- `app/agent/firm-deal/[token]/route.ts` — route-local Supabase client bound to the response
+- `lib/firm-deal-detection/dispatch-notification.ts` — mints token per dispatch
+- `app/(dashboard)/agent/page.tsx` — reads `?firm_deal=<id>`, renders the offer banner
+- `lib/actions/firm-deal-offer-actions.ts` — `getFirmDealOfferForCurrentAgent` enforces matched-agent ownership
+- `middleware.ts` — `/agent/firm-deal` allowlisted
+- `scripts/test-magic-link-dispatch.mts` — repeatable smoke test; usage at top of file
 
 ---
 
-## TODO — P2 (when volume justifies)
+## DONE — P2 (shipped session 36)
 
-### P2 #8 — Per-brokerage auto-fire toggle in the UI
-**Why:** Right now flipping a brokerage from manual review → auto-fire is a SQL change:
-```sql
-UPDATE brokerage_pipes SET auto_fire_enabled = true WHERE brokerage_id = '<uuid>';
-```
+### P2 #8 — Per-brokerage auto-fire toggle in the UI ✅
+Shipped in [2ef3274](https://github.com/homefoliomarketing/firm-funds/commit/2ef3274). Switch on `/admin/brokerages/[id]/firm-deal-pipe`; confirmation modal quotes lifetime `offer_sent` count.
 
-After ~20-30 validated events per brokerage, Bud should be able to flip the switch from the admin UI. Add it to `/admin/brokerages/[id]/firm-deal-pipe` (same page as the onboarding wizard):
-- Show: "Mode: Manual review (X validated events)" or "Auto-fire enabled (since YYYY-MM-DD)".
-- Big switch with a confirmation modal that quotes the validated-events count.
+### P2 #9 — Per-pipe statistics ✅
+Same commit. 30-day funnel + last poll/event timestamps + top-10 unresolved shorthands.
 
-**Effort:** A couple hours.
+---
 
-### P2 #9 — Per-pipe statistics
-**Why:** A small dashboard on `/admin/brokerages/[id]` (or the pipe page) showing:
-- Events in the last 30 days (total / sent / rejected / errored)
-- Most recent poll time
-- Most recent firm-deal event
-- Top 10 unresolved shorthands (so Bud can train mappings proactively)
+## TODO — Post-acceptance UX (raised by Bud session 36, end-of-session)
 
-This is for the longer term once 3+ brokerages are live.
+When Bud actually clicked the offer banner CTA, the current flow took him to `/agent/new-deal` (the regular advance-request form). That isn't the right design for the real product. Bud's view:
 
-**Effort:** Half a day.
+> "We will need to revamp this whole area before going live, but we also need that to send a notification to the brokerage via email and inside their portal indicating that they have a deal to send to us. I believe most deals will be sent by the brokerage admins."
+> "Also if they click that, it disappears after if they go back. This deal should then get put down in their 'Your Deals' list as a New Deal. It should stay there for 60 days and if it doesn't get turned into a deal, it should just drop off and delete."
+
+### Required pieces
+
+**1. Offer-acceptance creates an offered-deal placeholder.**
+- New `deals` row on agent CTA click, with a status like `'offered'`. Carries the address / closing date / agent_id / brokerage_id from the parsed firm-deal event.
+- Set `firm_deal_events.offer_deal_id` to the new deal id so the dashboard banner stops showing (the existing `?firm_deal` path already scrolls to the row when `offer_deal_id` is set).
+- Show it in the agent's "Your Deals" list with a distinct "Offered" badge so the agent knows it's still pending real submission.
+
+**2. Brokerage notification (email + in-portal).**
+- Email to the brokerage's `notifications_email` (or whatever the right brokerage contact column is) with the agent name, property, closing date, and a link to the brokerage portal pre-loaded on that deal.
+- In-portal: a banner / red-dot on the brokerage dashboard reading "New offer accepted — [Agent Name] wants an advance on [Address]".
+- Brokerage admin completes the submission, which transitions `deals.status` from `'offered'` → `'under_review'`.
+
+**3. 60-day expiry sweep.**
+- Daily cron deletes (or soft-deletes) `deals` rows that are still `status = 'offered'` 60 days after creation.
+- Likely sits alongside the existing closing-date-alerts cron.
+
+**4. CTA copy + button.**
+- The banner button currently reads "Request advance". Probably needs to be "Notify my brokerage I want an advance" or similar — clearer about who actually fills out the form.
+- After click, the banner should change to a confirmation state ("Your brokerage has been notified") rather than disappearing entirely.
+
+### Open design questions for next session
+- Should the brokerage admin be able to **decline** the offer on the agent's behalf? (Probably yes — agent might have an unusual deal that doesn't qualify.)
+- If the brokerage admin doesn't act within X days, escalate to the agent ("your brokerage hasn't picked this up; want to submit directly?"). Or just let the 60-day timer expire.
+- Where does the agent see the status of the offered deal? Inline on the row? Click-through to a detail page?
+
+**Effort estimate:** 1–2 days end-to-end. Touches three personas (agent CTA, brokerage notification, agent's deal list), one new deal status, one cron, and a chunk of new email templating.
+
+---
+
+## Before going live with real recipients
+
+1. **Restore agent contact info on the Choice Realty roster.** They're nulled-out for test safety; re-import from the original CSV/source.
+2. **Decide the brokerage notification design** above and ship #1–#4.
+3. **Pick a tester brokerage other than Choice** and walk a fresh agent through the loop end-to-end.
 
 ---
 
 ## DROPPED (intentionally, per Bud)
 
 ### ~~P1 #7 — Onboarding Opportunities tab~~
-**Rationale (2026-05-26):** Firm Funds onboards entire brokerages, not individual agents. A list of unmapped names doing real volume doesn't fit the business model. Skip permanently.
+**Rationale (2026-05-26):** Firm Funds onboards entire brokerages, not individual agents. Skip permanently.
 
 ---
 
@@ -108,19 +139,14 @@ This is for the longer term once 3+ brokerages are live.
 1. `firm-deal-detection-plan.md` — original architecture doc.
 2. `lib/firm-deal-detection/poll-spreadsheet.ts`, `process-event.ts`, `match-agents.ts`, `dispatch-notification.ts` — the four core modules.
 3. `app/(dashboard)/admin/firm-deal-review/page.tsx` — review UI (with per-brokerage filter).
-4. `app/(dashboard)/admin/brokerages/[id]/firm-deal-pipe/page.tsx` — onboarding wizard.
-5. `lib/actions/firm-deal-pipe-actions.ts` — wizard's server actions.
+4. `app/(dashboard)/admin/brokerages/[id]/firm-deal-pipe/page.tsx` — pipe page (wizard + toggle + stats).
+5. `lib/actions/firm-deal-pipe-actions.ts` — wizard's server actions + `getPipeStatistics` + `setPipeAutoFire`.
 6. `lib/actions/firm-deal-review-actions.ts` — server actions for resolve / approve / reject.
-7. `scripts/seed-choice-realty-pipe.mjs` — template for the brokerage_pipes config schema.
-8. `supabase/migrations/078_firm_deal_detection.sql` — base schema.
-9. `supabase/migrations/079_firm_deal_side_tracking.sql` — side-aware columns added in session 33.
-10. Project memory `project_firm_deal_detection.md` for the current state.
-
----
-
-## Working order suggestion
-
-If the next session goes top-to-bottom:
-1. **P1 #5** (Twilio key, 5-10 min Bud-side) — quickest hygiene fix.
-2. **P1 #6** (magic-link CTAs, half a day) — biggest conversion impact, should ship before real recipients start receiving offers.
-3. **P2 #8 / #9** when you have multiple brokerages live and the pain becomes real.
+7. `lib/actions/firm-deal-offer-actions.ts` — agent-side `getFirmDealOfferForCurrentAgent`.
+8. `app/(dashboard)/agent/page.tsx` — banner + scroll-to-deal logic.
+9. `app/agent/firm-deal/[token]/route.ts` — magic-link route (the one with the cookie binding fix).
+10. `lib/firm-deal-detection/magic-link.ts` — mint + multi-use consume helpers.
+11. `scripts/seed-choice-realty-pipe.mjs` — template for the brokerage_pipes config schema.
+12. `scripts/test-magic-link-dispatch.mts` — repeatable end-to-end smoke test for the dispatcher path.
+13. `supabase/migrations/078_firm_deal_detection.sql`, `079_firm_deal_side_tracking.sql`, `080_firm_deal_magic_links.sql` — schema in order.
+14. Project memory `project_firm_deal_detection.md` for the current state.
