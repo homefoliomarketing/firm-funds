@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { Suspense, useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
-import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, CheckCircle2, AlertCircle, Shield, Save } from 'lucide-react'
-import { submitDeal, calculateDealPreview, uploadDocument } from '@/lib/actions/deal-actions'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, AlertCircle, Shield, Save, Loader2 } from 'lucide-react'
+import { submitDeal, calculateDealPreview, uploadDocument, createRevisedDealFromDenied } from '@/lib/actions/deal-actions'
 import { formatCurrency } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { KYC_STATUSES, DISCOUNT_RATE_PER_1000_PER_DAY, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
@@ -14,8 +14,27 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  FileUploadProgress,
+  buildUploadItems,
+  type FileUploadItem,
+} from '@/components/ui/file-upload-progress'
 
+// Suspense boundary required by Next.js 16 for useSearchParams.
 export default function NewDealPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <NewDealPageInner />
+    </Suspense>
+  )
+}
+
+function NewDealPageInner() {
+  const searchParams = useSearchParams()
+  const revisedFromId = searchParams.get('revisedFrom')
+  // Banner state populated when we successfully fetched prefill from a denied deal.
+  const [revisedFromBanner, setRevisedFromBanner] = useState<{ dealId: string; reason: string | null } | null>(null)
+  const [revisedFromError, setRevisedFromError] = useState<string | null>(null)
   const [profile, setProfile] = useState<any>(null)
   const [agent, setAgent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -43,7 +62,10 @@ export default function NewDealPage() {
     banking_info: [],
   })
   const [uploadingDocs, setUploadingDocs] = useState(false)
-  const [uploadResults, setUploadResults] = useState<{ name: string; success: boolean; error?: string }[]>([])
+  /** Per-file upload queue (replaces the old aggregate uploadResults). */
+  const [uploadQueue, setUploadQueue] = useState<FileUploadItem[]>([])
+  /** Submitted deal id, retained for per-file retry after submit completes. */
+  const [submittedDealId, setSubmittedDealId] = useState<string | null>(null)
   const [isFirstAdvance, setIsFirstAdvance] = useState(true)
 
   // Autosave draft state
@@ -52,8 +74,11 @@ export default function NewDealPage() {
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Restore draft on mount
+  // Restore draft on mount — UNLESS we're being asked to resubmit a denied
+  // deal. In that case the prefill effect below takes precedence so the
+  // agent doesn't see stale unrelated draft data in a new context.
   useEffect(() => {
+    if (revisedFromId) return
     try {
       const saved = localStorage.getItem(DRAFT_KEY)
       if (saved) {
@@ -72,7 +97,46 @@ export default function NewDealPage() {
         setDraftSavedAt(draft.savedAt || null)
       }
     } catch { /* ignore corrupted localStorage */ }
-  }, [])
+  }, [revisedFromId])
+
+  // Pre-fill from a denied deal when ?revisedFrom=<id> is set. The server
+  // action enforces ownership + status==='denied', so a curious agent can't
+  // resurrect someone else's data.
+  useEffect(() => {
+    if (!revisedFromId) return
+    let cancelled = false
+    ;(async () => {
+      const result = await createRevisedDealFromDenied({ originalDealId: revisedFromId })
+      if (cancelled) return
+      if (!result.success || !result.data) {
+        setRevisedFromError(result.error || 'Unable to load the original deal.')
+        return
+      }
+      const d = result.data
+      // Parse "street, city, province, postal" — if the shape doesn't match
+      // we dump the joined string into street so nothing is lost.
+      const parts = (d.propertyAddress || '').split(',').map((p: string) => p.trim()).filter(Boolean)
+      if (parts.length >= 4) {
+        setStreetAddress(parts[0]); setCity(parts[1]); setProvince(parts[2]); setPostalCode(parts[3])
+      } else if (parts.length === 3) {
+        setStreetAddress(parts[0]); setCity(parts[1]); setPostalCode(parts[2])
+      } else {
+        setStreetAddress(d.propertyAddress || '')
+      }
+      // Don't pre-fill closingDate — the original is stale by definition.
+      setGrossCommission(d.grossCommission?.toString() || '')
+      setBrokerageSplitPct(d.brokerageSplitPct?.toString() || '')
+      if (d.transactionType) setTransactionType(d.transactionType)
+      if (d.notes) setNotes(d.notes)
+      setRevisedFromBanner({
+        dealId: d.originalDealId,
+        reason: d.denialReason || null,
+      })
+    })().catch(() => {
+      if (!cancelled) setRevisedFromError('Unable to load the original deal.')
+    })
+    return () => { cancelled = true }
+  }, [revisedFromId])
 
   // Save draft on field changes (debounced 1s)
   const saveDraft = useCallback(() => {
@@ -194,6 +258,34 @@ export default function NewDealPage() {
     setDocSlots(prev => ({ ...prev, [slotKey]: prev[slotKey].filter((_, i) => i !== fileIndex) }))
   }
 
+  // Per-file retry — re-upload a single failed file to the same deal.
+  const handleRetryUpload = useCallback(async (id: string) => {
+    if (!submittedDealId) return
+    const item = uploadQueue.find(i => i.id === id)
+    if (!item) return
+    setUploadQueue(prev => prev.map(i => i.id === id ? { ...i, status: 'uploading', progress: 50, error: undefined } : i))
+    try {
+      const fd = new FormData()
+      fd.append('file', item.file)
+      fd.append('dealId', submittedDealId)
+      fd.append('documentType', item.category || 'other')
+      const uploadResult = await uploadDocument(fd)
+      setUploadQueue(prev => prev.map(i => i.id === id ? {
+        ...i,
+        status: uploadResult.success ? 'success' : 'failed',
+        progress: uploadResult.success ? 100 : 0,
+        error: uploadResult.success ? undefined : (uploadResult.error || 'Upload failed'),
+      } : i))
+    } catch (err: any) {
+      setUploadQueue(prev => prev.map(i => i.id === id ? {
+        ...i,
+        status: 'failed',
+        progress: 0,
+        error: err?.message || 'Upload failed',
+      } : i))
+    }
+  }, [submittedDealId, uploadQueue])
+
   const handleSubmitClick = (e: React.FormEvent) => {
     e.preventDefault(); setError(null)
     if (!preview || !agent) { setError('Please fill in all required fields with valid values.'); return }
@@ -208,6 +300,8 @@ export default function NewDealPage() {
       const result = await submitDeal({
         propertyAddress, closingDate, grossCommission: parseFloat(grossCommission),
         brokerageSplitPct: parseFloat(brokerageSplitPct), transactionType, notes: notes.trim() || undefined,
+        // Carry the revision lineage through so admins can trace the chain.
+        revisedFromDealId: revisedFromBanner?.dealId,
       })
       if (!result.success) { setError(result.error || 'Failed to submit deal. Please try again.'); setSubmitting(false); return }
       dealSubmitted = true
@@ -226,20 +320,35 @@ export default function NewDealPage() {
 
       if (selectedFiles.length > 0 && result.data?.dealId) {
         setUploadingDocs(true)
-        const results: { name: string; success: boolean; error?: string }[] = []
-        for (const { file, docType } of selectedFiles) {
+        setSubmittedDealId(result.data.dealId)
+        const queue = buildUploadItems(
+          selectedFiles.map(({ file, docType }) => ({ file, category: docType }))
+        )
+        setUploadQueue(queue)
+        // Sequential upload — one file at a time, never aborts on a failure.
+        for (const item of queue) {
+          setUploadQueue(prev => prev.map(i => i.id === item.id ? { ...i, status: 'uploading', progress: 50 } : i))
           try {
             const fd = new FormData()
-            fd.append('file', file)
+            fd.append('file', item.file)
             fd.append('dealId', result.data.dealId)
-            fd.append('documentType', docType)
+            fd.append('documentType', item.category || 'other')
             const uploadResult = await uploadDocument(fd)
-            results.push({ name: file.name, success: uploadResult.success, error: uploadResult.error })
-          } catch {
-            results.push({ name: file.name, success: false, error: 'Upload failed — you can upload this from your dashboard' })
+            setUploadQueue(prev => prev.map(i => i.id === item.id ? {
+              ...i,
+              status: uploadResult.success ? 'success' : 'failed',
+              progress: uploadResult.success ? 100 : 0,
+              error: uploadResult.success ? undefined : (uploadResult.error || 'Upload failed'),
+            } : i))
+          } catch (err: any) {
+            setUploadQueue(prev => prev.map(i => i.id === item.id ? {
+              ...i,
+              status: 'failed',
+              progress: 0,
+              error: err?.message || 'Upload failed — you can upload this from your dashboard',
+            } : i))
           }
         }
-        setUploadResults(results)
         setUploadingDocs(false)
       }
 
@@ -292,17 +401,21 @@ export default function NewDealPage() {
           <h2 className="text-xl font-bold mb-2 text-foreground">Deal Submitted!</h2>
           <p className="text-sm mb-2 text-muted-foreground">Your commission advance request has been submitted for review.</p>
           <p className="text-xs mb-4 text-muted-foreground/70">You&apos;ll be notified when there&apos;s an update on your deal.</p>
-          {uploadResults.length > 0 && (
-            <div className="rounded-lg p-3 mb-4 text-left space-y-1.5 bg-muted border border-border">
-              <p className="text-xs font-semibold mb-1 text-muted-foreground">Document Uploads:</p>
-              {uploadResults.map((r, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  {r.success
-                    ? <CheckCircle2 size={12} className="text-primary" />
-                    : <AlertCircle size={12} className="text-destructive" />}
-                  <span className={r.success ? 'text-muted-foreground' : 'text-destructive'}>{r.name}{r.error ? ` — ${r.error}` : ''}</span>
-                </div>
-              ))}
+          {uploadQueue.length > 0 && (
+            <div className="text-left mb-4">
+              <p className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">
+                Document uploads
+                {uploadQueue.some(i => i.status === 'failed') && (
+                  <span className="ml-2 normal-case font-normal text-destructive">
+                    — {uploadQueue.filter(i => i.status === 'failed').length} failed, retry below
+                  </span>
+                )}
+              </p>
+              <FileUploadProgress
+                items={uploadQueue}
+                onRetry={handleRetryUpload}
+                hideRemove
+              />
             </div>
           )}
           <div className="rounded-xl p-4 mb-6 text-left bg-muted border border-border">
@@ -351,6 +464,32 @@ export default function NewDealPage() {
       </header>
 
       <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Resubmit-from-denied banner. Shows above the form so the agent
+            has full context about why they're refilling fields. Tone is
+            constructive — we want them to fix the issue and try again. */}
+        {revisedFromBanner && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-status-blue-muted/40 border border-status-blue-border/40" role="status">
+            <p className="text-sm font-semibold text-status-blue">
+              Resubmitting from denied deal{' '}
+              <span className="font-mono">#{revisedFromBanner.dealId.slice(0, 8).toUpperCase()}</span>
+            </p>
+            {revisedFromBanner.reason && (
+              <p className="text-xs text-muted-foreground mt-1">
+                <span className="font-semibold text-status-blue">Reason underwriting gave:</span> {revisedFromBanner.reason}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              We&apos;ve pre-filled this form with the original details. Pick a new closing date and adjust anything underwriting flagged.
+            </p>
+          </div>
+        )}
+        {revisedFromError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle size={16} />
+            <AlertDescription>{revisedFromError}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Draft restored banner */}
         {draftRestored && (
           <div className="mb-4 px-4 py-3 rounded-lg flex items-center justify-between bg-status-blue-muted/40 border border-status-blue-border/40">
@@ -443,23 +582,46 @@ export default function NewDealPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="closing-date" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <Calendar size={12} className="text-primary" /> Closing Date *
                   </Label>
-                  <Input
-                    type="date"
-                    value={closingDate}
-                    onChange={(e) => setClosingDate(e.target.value)}
-                    min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
-                    required
-                  />
+                  {(() => {
+                    // Inline validation: compare YYYY-MM-DD strings to avoid TZ
+                    // off-by-one. `min` on the input handles UI clamp, but
+                    // typed/pasted values can still be invalid — we surface a
+                    // clear message instead of letting the form silently block.
+                    const todayYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+                    const isInvalidClosing = !!closingDate && closingDate <= todayYmd
+                    return (
+                      <>
+                        <Input
+                          id="closing-date"
+                          type="date"
+                          value={closingDate}
+                          onChange={(e) => setClosingDate(e.target.value)}
+                          min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                          required
+                          aria-invalid={isInvalidClosing || undefined}
+                          aria-describedby={`closing-date-hint${isInvalidClosing ? ' closing-date-error' : ''}`}
+                        />
+                        <p id="closing-date-hint" className="text-xs text-muted-foreground">
+                          Closing date must be at least 1 day from today.
+                        </p>
+                        {isInvalidClosing && (
+                          <p id="closing-date-error" className="text-xs text-destructive font-medium">
+                            Closing date must be tomorrow or later.
+                          </p>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your Representation *</Label>
                   <select
                     value={transactionType}
                     onChange={(e) => setTransactionType(e.target.value)}
-                    className="w-full rounded-lg px-4 py-2.5 text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary"
+                    className="w-full rounded-lg px-4 py-2.5 text-base sm:text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary"
                     required
                   >
                     <option value="buy">Buyer Side</option>
@@ -719,17 +881,20 @@ export default function NewDealPage() {
               disabled={!preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0)}
               className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2"
             >
-              {submitting ? 'Submitting...' : (<><Send size={16} />Review &amp; Submit</>)}
+              {submitting
+                ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting…</>
+                : (<><Send size={16} />Review &amp; Submit</>)}
             </Button>
           </div>
         </form>
 
         {/* Confirmation Modal */}
         {showConfirmation && preview && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+          <ConfirmationModalA11y onClose={() => setShowConfirmation(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-advance-title">
             <div className="rounded-2xl max-w-lg w-full overflow-hidden bg-card border border-border/40 shadow-2xl">
               <div className="px-6 py-5 bg-card border-b border-border/40">
-                <h3 className="text-lg font-bold text-foreground">Confirm Your Advance Request</h3>
+                <h3 id="confirm-advance-title" className="text-lg font-bold text-foreground">Confirm Your Advance Request</h3>
                 <p className="text-xs mt-1 text-primary">Please review the details below before submitting.</p>
               </div>
               <div className="p-6">
@@ -804,14 +969,45 @@ export default function NewDealPage() {
                     disabled={submitting}
                     className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2 bg-primary hover:bg-primary/90"
                   >
-                    {submitting ? 'Submitting...' : (<><Send size={16} />Confirm &amp; Submit</>)}
+                    {submitting
+                      ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting…</>
+                      : (<><Send size={16} />Confirm &amp; Submit</>)}
                   </Button>
                 </div>
               </div>
             </div>
           </div>
+          </ConfirmationModalA11y>
         )}
       </main>
     </div>
   )
+}
+
+/**
+ * Thin a11y wrapper for hand-rolled modals. Saves the focused element when
+ * opened, restores it on unmount, and closes on Escape. Visual styling is
+ * left to children so we don't touch the existing layout — we just bolt on
+ * the keyboard/focus behaviour that a Dialog component would have given us.
+ */
+function ConfirmationModalA11y({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const previouslyFocused = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    previouslyFocused.current = (document.activeElement as HTMLElement) ?? null
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => {
+      window.removeEventListener('keydown', handler)
+      // Defer focus return to the next tick so unmount completes first.
+      const target = previouslyFocused.current
+      if (target && typeof target.focus === 'function') {
+        setTimeout(() => target.focus(), 0)
+      }
+    }
+  }, [onClose])
+
+  return <>{children}</>
 }

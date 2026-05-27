@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Shield, Search, X, ChevronLeft, ChevronRight, Download, Filter,
   Clock, User, ArrowLeft, ChevronDown, ChevronUp, ArrowRight,
-  AlertTriangle, Info, FileText, Eye, ExternalLink
+  AlertTriangle, Info, FileText, Eye, ExternalLink, Zap
 } from 'lucide-react'
 import { getActionLabel } from '@/lib/audit-labels'
 import {
@@ -21,6 +21,7 @@ import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { EmptyState } from '@/components/ui/empty-state'
 
 // ============================================================================
 // Constants
@@ -92,11 +93,87 @@ function InlineValueDiff({
 }
 
 // ============================================================================
-// Main Page Component
+// Quick filter presets
+// ============================================================================
+
+interface PresetFilter {
+  key: string
+  label: string
+  icon: React.ComponentType<{ size?: number; className?: string }>
+  apply: () => Partial<{
+    dateFrom: string
+    dateTo: string
+    action: string
+    actionContains: string
+    severity: string
+  }>
+}
+
+function isoDaysAgo(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString().slice(0, 10)
+}
+
+const QUICK_PRESETS: PresetFilter[] = [
+  {
+    key: 'last_24h',
+    label: 'Last 24h',
+    icon: Clock,
+    apply: () => ({ dateFrom: isoDaysAgo(1) }),
+  },
+  {
+    key: 'last_7d',
+    label: 'Last 7d',
+    icon: Clock,
+    apply: () => ({ dateFrom: isoDaysAgo(7) }),
+  },
+  {
+    key: 'kyc',
+    label: 'All KYC actions',
+    icon: Shield,
+    // Uses the search box to match every kyc.* action (kyc_submit, kyc_verify,
+    // kyc_reject, kyc_mobile_link_sent, brokerage.kyc_*). The audit query
+    // already runs an ilike across the action column.
+    apply: () => ({ actionContains: 'kyc' }),
+  },
+  {
+    key: 'balance',
+    label: 'All balance adjustments',
+    icon: ArrowRight,
+    apply: () => ({ actionContains: 'balance' }),
+  },
+  {
+    key: 'status',
+    label: 'All status changes',
+    icon: Zap,
+    apply: () => ({ actionContains: 'status_change' }),
+  },
+]
+
+// ============================================================================
+// Main Page Component (suspended)
 // ============================================================================
 
 export default function AuditExplorerPage() {
+  // useSearchParams requires Suspense in Next.js 16 — wrap so the page builds
+  // without a CSR bailout.
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <p className="text-muted-foreground">Loading audit explorer...</p>
+        </div>
+      }
+    >
+      <AuditExplorerInner />
+    </Suspense>
+  )
+}
+
+function AuditExplorerInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   const [user, setUser] = useState<any>(null)
@@ -106,14 +183,18 @@ export default function AuditExplorerPage() {
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  const [searchQuery, setSearchQuery] = useState('')
-  const [severity, setSeverity] = useState('')
-  const [actionFilter, setActionFilter] = useState('')
-  const [entityTypeFilter, setEntityTypeFilter] = useState('')
-  const [actorEmailFilter, setActorEmailFilter] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  // Filters can be deep-linked via the URL — e.g.
+  // /admin/audit?action=balance.adjust seeds the action filter on load. Used
+  // by the balance-adjustment page&apos;s "view all manual adjustments" link.
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') ?? '')
+  const [severity, setSeverity] = useState(searchParams.get('severity') ?? '')
+  const [actionFilter, setActionFilter] = useState(searchParams.get('action') ?? '')
+  const [entityTypeFilter, setEntityTypeFilter] = useState(searchParams.get('entityType') ?? '')
+  const [actorEmailFilter, setActorEmailFilter] = useState(searchParams.get('actorEmail') ?? '')
+  const [dateFrom, setDateFrom] = useState(searchParams.get('dateFrom') ?? '')
+  const [dateTo, setDateTo] = useState(searchParams.get('dateTo') ?? '')
   const [page, setPage] = useState(1)
+  const [activePresetKey, setActivePresetKey] = useState<string | null>(null)
 
   const [availableActions, setAvailableActions] = useState<string[]>([])
   const [availableEntityTypes, setAvailableEntityTypes] = useState<string[]>([])
@@ -242,6 +323,22 @@ export default function AuditExplorerPage() {
     setDateFrom('')
     setDateTo('')
     setPage(1)
+    setActivePresetKey(null)
+  }
+
+  const applyPreset = (preset: PresetFilter) => {
+    // Reset all filters first so applying a preset doesn&apos;t leave
+    // unrelated state behind. Then layer the preset on top.
+    const next = preset.apply()
+    setSearchQuery(next.actionContains ?? '')
+    setSeverity(next.severity ?? '')
+    setActionFilter(next.action ?? '')
+    setEntityTypeFilter('')
+    setActorEmailFilter('')
+    setDateFrom(next.dateFrom ?? '')
+    setDateTo(next.dateTo ?? '')
+    setActivePresetKey(preset.key)
+    setPage(1)
   }
 
   const hasActiveFilters = searchQuery || severity || actionFilter || entityTypeFilter || actorEmailFilter || dateFrom || dateTo
@@ -290,6 +387,44 @@ export default function AuditExplorerPage() {
       </header>
 
       <section aria-label="Audit log" className="max-w-7xl mx-auto px-4 py-6">
+        {/* Quick presets — one-click filter shortcuts */}
+        <nav
+          aria-label="Quick filter presets"
+          className="flex flex-wrap items-center gap-1.5 mb-3"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 mr-1">
+            Presets
+          </span>
+          {QUICK_PRESETS.map(p => {
+            const Icon = p.icon
+            const active = activePresetKey === p.key
+            return (
+              <Button
+                key={p.key}
+                onClick={() => applyPreset(p)}
+                variant={active ? 'default' : 'outline'}
+                size="sm"
+                className={active ? 'gap-1.5' : 'gap-1.5 border-border/50'}
+                aria-pressed={active}
+              >
+                <Icon size={12} />
+                {p.label}
+              </Button>
+            )
+          })}
+          {(activePresetKey || hasActiveFilters) && (
+            <Button
+              onClick={clearFilters}
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-xs text-muted-foreground"
+            >
+              <X size={12} />
+              Clear
+            </Button>
+          )}
+        </nav>
+
         {/* Search + Filter Bar */}
         <div className="rounded-xl p-4 mb-4 bg-card border border-border/40 ff-card-elevated">
           <div className="flex gap-2 mb-3">
@@ -469,12 +604,11 @@ export default function AuditExplorerPage() {
           )}
 
           {!loading && logs.length === 0 && (
-            <div className="py-12 text-center">
-              <Shield size={32} className="text-muted-foreground/30 mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">
-                {hasActiveFilters ? 'No events match your filters.' : 'No audit events recorded yet.'}
-              </p>
-            </div>
+            <EmptyState
+              icon={Shield}
+              title={hasActiveFilters ? 'No audit entries match' : 'No audit events recorded yet'}
+              description={hasActiveFilters ? 'Try a different preset or clear the active filters above.' : 'Activity will appear here as admins, agents, and brokerages use the system.'}
+            />
           )}
 
           {!loading && logs.map((log) => {

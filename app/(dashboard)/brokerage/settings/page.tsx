@@ -334,28 +334,46 @@ export default function BrokerageSettingsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
               <Mail size={18} />
-              Login Email
+              Login Email <span className="text-destructive ml-0.5" aria-hidden="true">*</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-3">
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleEmailUpdate}
-                disabled={emailSaving || !email.trim()}
-                size="sm"
-              >
-                {emailSaving ? 'Saving...' : 'Update'}
-              </Button>
+              {(() => {
+                const trimmed = email.trim()
+                const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+                const isInvalid = trimmed.length > 0 && !emailRe.test(trimmed)
+                return (
+                  <>
+                    <Input
+                      id="login-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="flex-1"
+                      required
+                      aria-invalid={isInvalid || undefined}
+                      aria-describedby={`login-email-hint${isInvalid ? ' login-email-error' : ''}`}
+                    />
+                    <Button
+                      onClick={handleEmailUpdate}
+                      disabled={emailSaving || !trimmed || isInvalid}
+                      size="sm"
+                    >
+                      {emailSaving ? 'Saving...' : 'Update'}
+                    </Button>
+                  </>
+                )
+              })()}
             </div>
-            <p className="text-xs mt-2 text-muted-foreground/70">
+            <p id="login-email-hint" className="text-xs mt-2 text-muted-foreground/70">
               This is the email you use to log in. Changing it requires verification.
             </p>
+            {email.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && (
+              <p id="login-email-error" className="text-xs mt-1 text-destructive font-medium">
+                Enter a valid email address.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -364,28 +382,121 @@ export default function BrokerageSettingsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
               <Building2 size={18} />
-              Brokerage Contact Email
+              Brokerage Contact Email <span className="text-destructive ml-0.5" aria-hidden="true">*</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-3">
-              <Input
-                type="email"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleContactEmailUpdate}
-                disabled={contactEmailSaving || !contactEmail.trim() || contactEmail === brokerage?.email}
-                size="sm"
-              >
-                {contactEmailSaving ? 'Saving...' : 'Update'}
-              </Button>
+              {(() => {
+                const trimmed = contactEmail.trim()
+                const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+                const isInvalidShape = trimmed.length > 0 && !emailRe.test(trimmed)
+                return (
+                  <>
+                    <Input
+                      id="brokerage-contact-email"
+                      type="email"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      className="flex-1"
+                      required
+                      aria-invalid={isInvalidShape || undefined}
+                      aria-describedby={`contact-email-hint${isInvalidShape ? ' contact-email-error' : ''}`}
+                    />
+                    <Button
+                      onClick={handleContactEmailUpdate}
+                      disabled={contactEmailSaving || !trimmed || isInvalidShape || contactEmail === brokerage?.email}
+                      size="sm"
+                    >
+                      {contactEmailSaving ? 'Saving...' : 'Update'}
+                    </Button>
+                  </>
+                )
+              })()}
             </div>
-            <p className="text-xs mt-2 text-muted-foreground/70">
-              This is the email address that receives deal notifications from Firm Funds. It can be different from your login email.
+            <p id="contact-email-hint" className="text-xs mt-2 text-muted-foreground/70">
+              This is the email address that receives deal notifications from Firm Funds. Required. It can be different from your login email.
             </p>
+            {contactEmail.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim()) && (
+              <p id="contact-email-error" className="text-xs mt-1 text-destructive font-medium">
+                Enter a valid email address (e.g. you@brokerage.com).
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* BROKER OF RECORD EMAIL — read-only here because mutating BOR
+            requires Firm Funds approval and a re-signed BCA. Surfacing it
+            still beats the audit finding where brokerages didn't know
+            what we had on file. */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <Shield size={18} />
+              Broker of Record
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold text-muted-foreground mb-1">Name</Label>
+                <Input
+                  type="text"
+                  value={brokerage?.broker_of_record_name || ''}
+                  readOnly
+                  disabled
+                  aria-readonly="true"
+                  placeholder="Not on file"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-muted-foreground mb-1">Email</Label>
+                <Input
+                  type="email"
+                  value={brokerage?.broker_of_record_email || ''}
+                  readOnly
+                  disabled
+                  aria-readonly="true"
+                  placeholder="Not on file"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground/70">
+              Broker of Record is a regulatory contact and only Firm Funds can change it.
+              Contact <a href="mailto:bud@firmfunds.ca" className="underline underline-offset-2">bud@firmfunds.ca</a> to update.
+              {!brokerage?.broker_of_record_email && (
+                <span className="block mt-1 text-status-amber">
+                  No Broker of Record email on file — please reach out so we can fix this for FINTRAC compliance.
+                </span>
+              )}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* PORTAL ADMINS — link to dedicated page that manages the
+            brokerage_admins pool. Kept here as a quick entry point since
+            most brokerages will want to invite a second admin once they
+            start using the portal regularly. */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+              <Shield size={18} />
+              Portal Admins
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Add more people from your brokerage who should be able to sign in to the Firm Funds portal,
+              manage agents, and submit deals.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push('/brokerage/admins')}
+            >
+              <Users size={14} className="mr-1.5" aria-hidden="true" />
+              Manage portal admins
+            </Button>
           </CardContent>
         </Card>
 

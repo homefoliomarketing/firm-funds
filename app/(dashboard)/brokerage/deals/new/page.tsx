@@ -5,9 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent,
-  Upload, FileText, X, CheckCircle2, AlertCircle, Loader2, User as UserIcon,
+  Upload, FileText, X, Loader2, User as UserIcon,
 } from 'lucide-react'
-import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument } from '@/lib/actions/deal-actions'
+import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument, createRevisedDealFromDenied } from '@/lib/actions/deal-actions'
 import { resendAgentWelcomeEmail } from '@/lib/actions/admin-actions'
 import { formatCurrency } from '@/lib/formatting'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
@@ -18,6 +18,11 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import AddressAutocomplete, { type AddressParts } from '@/components/AddressAutocomplete'
+import {
+  FileUploadProgress,
+  buildUploadItems,
+  type FileUploadItem,
+} from '@/components/ui/file-upload-progress'
 
 interface AgentRow {
   id: string
@@ -51,11 +56,14 @@ function NewBrokerageDealPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const fromOfferId = searchParams.get('from_offer')
+  const revisedFromId = searchParams.get('revisedFrom')
   const supabase = createClient()
   const [profile, setProfile] = useState<any>(null)
   const [brokerage, setBrokerage] = useState<any>(null)
   const [agents, setAgents] = useState<AgentRow[]>([])
   const [loading, setLoading] = useState(true)
+  // Resubmit-from-denied banner state (mirrors the agent flow).
+  const [revisedFromBanner, setRevisedFromBanner] = useState<{ dealId: string; reason: string | null } | null>(null)
 
   const [agentId, setAgentId] = useState<string>('')
   const [address, setAddress] = useState<AddressParts>({ street: '', city: '', province: 'Ontario', postalCode: '' })
@@ -85,8 +93,12 @@ function NewBrokerageDealPageInner() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [uploadResults, setUploadResults] = useState<{ name: string; success: boolean; error?: string }[]>([])
+  /** Per-file upload queue with status + progress. Updated as the orchestrator
+   *  iterates through files; failures don't abort the batch. */
+  const [uploadQueue, setUploadQueue] = useState<FileUploadItem[]>([])
   const [uploadingDocs, setUploadingDocs] = useState(false)
+  /** Stable submitted-deal id so retry-after-failure can target the same deal */
+  const [submittedDealId, setSubmittedDealId] = useState<string | null>(null)
 
   const [resendBusy, setResendBusy] = useState(false)
   const [resendMsg, setResendMsg] = useState<string | null>(null)
@@ -141,6 +153,46 @@ function NewBrokerageDealPageInner() {
     }
     load()
   }, [fromOfferId])
+
+  // Pre-fill the form from a denied deal when ?revisedFrom=<id> is set.
+  // Runs separately from the main load() so we don't block the first paint
+  // on this secondary fetch.
+  useEffect(() => {
+    if (!revisedFromId) return
+    let cancelled = false
+    ;(async () => {
+      const result = await createRevisedDealFromDenied({ originalDealId: revisedFromId })
+      if (cancelled || !result.success || !result.data) return
+      const d = result.data
+      // Only set the agent id if we don't already have one selected.
+      if (!agentId) {
+        // The original deal might have a different agent — we use the brokerage_id
+        // check on the server. Pull the agent id from supabase here.
+        const { data: origDeal } = await supabase
+          .from('deals')
+          .select('agent_id')
+          .eq('id', d.originalDealId)
+          .maybeSingle()
+        if (origDeal?.agent_id) setAgentId(origDeal.agent_id)
+      }
+      const parts = (d.propertyAddress || '').split(',').map((p: string) => p.trim()).filter(Boolean)
+      if (parts.length >= 4) {
+        setAddress({ street: parts[0], city: parts[1], province: parts[2], postalCode: parts[3] })
+      } else if (parts.length === 3) {
+        setAddress({ street: parts[0], city: parts[1], province: 'Ontario', postalCode: parts[2] })
+      } else {
+        setAddress({ street: d.propertyAddress || '', city: '', province: 'Ontario', postalCode: '' })
+      }
+      setGrossCommission(d.grossCommission?.toString() || '')
+      setBrokerageSplitPct(d.brokerageSplitPct?.toString() || '')
+      if (d.transactionType) setTransactionType(d.transactionType)
+      if (d.notes) setNotes(d.notes)
+      setRevisedFromBanner({ dealId: d.originalDealId, reason: d.denialReason || null })
+    })()
+    return () => { cancelled = true }
+    // We intentionally exclude `agentId` so a later edit doesn't re-fire prefill.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revisedFromId])
 
   // Recalculate preview on input change
   useEffect(() => {
@@ -219,6 +271,56 @@ function NewBrokerageDealPageInner() {
     if (slot.required && (docSlots[slot.key]?.length ?? 0) === 0) missing.push(slot.label)
   }
 
+  // Update a single queue item in place. We always work off the most recent
+  // setUploadQueue snapshot so concurrent retries don't stomp each other.
+  const updateQueueItem = useCallback((id: string, patch: Partial<FileUploadItem>) => {
+    setUploadQueue(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)))
+  }, [])
+
+  // Upload a single file to a deal. Sets status -> uploading -> success/failed.
+  // We can't get real percent progress from a Next.js server action, so we
+  // animate to 50% on start and 100% on success.
+  const uploadSingleFile = useCallback(async (item: FileUploadItem, dealId: string) => {
+    updateQueueItem(item.id, { status: 'uploading', progress: 50, error: undefined })
+    try {
+      const fd = new FormData()
+      fd.append('file', item.file)
+      fd.append('dealId', dealId)
+      fd.append('documentType', item.category || 'other')
+      const r = await uploadDocument(fd)
+      if (r.success) {
+        updateQueueItem(item.id, { status: 'success', progress: 100, error: undefined })
+      } else {
+        updateQueueItem(item.id, { status: 'failed', progress: 0, error: r.error || 'Upload failed' })
+      }
+    } catch (err: any) {
+      updateQueueItem(item.id, {
+        status: 'failed',
+        progress: 0,
+        error: err?.message || 'Upload failed unexpectedly',
+      })
+    }
+  }, [updateQueueItem])
+
+  // Walk through every pending item sequentially. Sequential (not parallel)
+  // so the user sees one moving spinner at a time and the storage backend
+  // isn't hammered with concurrent multipart uploads.
+  const runUploadQueue = useCallback(async (queue: FileUploadItem[], dealId: string) => {
+    for (const item of queue) {
+      if (item.status === 'success') continue
+      await uploadSingleFile(item, dealId)
+    }
+  }, [uploadSingleFile])
+
+  // Per-file retry — uses the stored deal id so the user doesn't have to
+  // re-submit the whole form.
+  const handleRetryUpload = useCallback(async (id: string) => {
+    if (!submittedDealId) return
+    const item = uploadQueue.find(i => i.id === id)
+    if (!item) return
+    await uploadSingleFile(item, submittedDealId)
+  }, [submittedDealId, uploadQueue, uploadSingleFile])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -241,30 +343,26 @@ function NewBrokerageDealPageInner() {
         transactionType,
         notes: notes.trim() || undefined,
         fromOfferDealId: fromOfferId || undefined,
+        revisedFromDealId: revisedFromBanner?.dealId,
       })
       if (!result.success) {
         setError(result.error || 'Failed to submit deal'); setSubmitting(false); return
       }
       dealId = result.data?.dealId || null
+      setSubmittedDealId(dealId)
 
-      // Upload documents
-      const allFiles = Object.entries(docSlots).flatMap(([type, files]) => files.map(f => ({ file: f, docType: type })))
+      // Upload documents — build a status queue first so the user can see
+      // every file before anything starts, then walk through one at a time
+      // updating progress per file. A failure on one file MUST NOT abort
+      // the rest of the batch.
+      const allFiles = Object.entries(docSlots).flatMap(([type, files]) =>
+        files.map(f => ({ file: f, category: type }))
+      )
       if (allFiles.length > 0 && dealId) {
         setUploadingDocs(true)
-        const results: { name: string; success: boolean; error?: string }[] = []
-        for (const { file, docType } of allFiles) {
-          try {
-            const fd = new FormData()
-            fd.append('file', file)
-            fd.append('dealId', dealId)
-            fd.append('documentType', docType)
-            const r = await uploadDocument(fd)
-            results.push({ name: file.name, success: r.success, error: r.error })
-          } catch {
-            results.push({ name: file.name, success: false, error: 'Upload failed' })
-          }
-        }
-        setUploadResults(results)
+        const queue = buildUploadItems(allFiles)
+        setUploadQueue(queue)
+        await runUploadQueue(queue, dealId)
         setUploadingDocs(false)
       }
 
@@ -307,16 +405,21 @@ function NewBrokerageDealPageInner() {
               <p className="text-sm text-muted-foreground mb-6">
                 Firm Funds underwriting has been notified. {selectedAgent?.first_name} will get an email when the status changes.
               </p>
-              {uploadResults.length > 0 && (
-                <div className="rounded-lg p-3 mb-6 text-left space-y-1.5 bg-muted border border-border">
-                  <p className="text-xs font-semibold mb-1 text-muted-foreground">Document uploads:</p>
-                  {uploadResults.map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      {r.success ? <CheckCircle2 size={12} className="text-primary" /> : <AlertCircle size={12} className="text-destructive" />}
-                      <span className="truncate">{r.name}</span>
-                      {!r.success && r.error && <span className="text-destructive">— {r.error}</span>}
-                    </div>
-                  ))}
+              {uploadQueue.length > 0 && (
+                <div className="text-left mb-6">
+                  <p className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">
+                    Document uploads
+                    {uploadQueue.some(i => i.status === 'failed') && (
+                      <span className="ml-2 text-destructive normal-case font-normal">
+                        — {uploadQueue.filter(i => i.status === 'failed').length} failed, retry below
+                      </span>
+                    )}
+                  </p>
+                  <FileUploadProgress
+                    items={uploadQueue}
+                    onRetry={handleRetryUpload}
+                    hideRemove
+                  />
                 </div>
               )}
               <div className="flex gap-2 justify-center">
@@ -351,6 +454,24 @@ function NewBrokerageDealPageInner() {
           <p className="text-sm text-muted-foreground mt-1">Submitting on behalf of one of your agents.</p>
         </div>
 
+        {/* Resubmit-from-denied banner — mirrors agent-side messaging. */}
+        {revisedFromBanner && (
+          <div className="px-4 py-3 rounded-lg bg-status-blue-muted/40 border border-status-blue-border/40" role="status">
+            <p className="text-sm font-semibold text-status-blue">
+              Resubmitting from denied deal{' '}
+              <span className="font-mono">#{revisedFromBanner.dealId.slice(0, 8).toUpperCase()}</span>
+            </p>
+            {revisedFromBanner.reason && (
+              <p className="text-xs text-muted-foreground mt-1">
+                <span className="font-semibold text-status-blue">Reason underwriting gave:</span> {revisedFromBanner.reason}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              We&apos;ve pre-filled the form. Pick a new closing date and adjust anything underwriting flagged.
+            </p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Agent picker */}
           <Card>
@@ -362,7 +483,7 @@ function NewBrokerageDealPageInner() {
                 required
                 value={agentId}
                 onChange={(e) => { setAgentId(e.target.value); setResendMsg(null) }}
-                className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+                className="w-full px-4 py-2 rounded-lg text-base sm:text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
               >
                 <option value="">Choose an agent…</option>
                 {agents.map(a => (
@@ -413,7 +534,7 @@ function NewBrokerageDealPageInner() {
               <div>
                 <Label htmlFor="txtype">Transaction type</Label>
                 <select id="txtype" value={transactionType} onChange={(e) => setTransactionType(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary">
+                  className="w-full px-4 py-2 rounded-lg text-base sm:text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary">
                   <option value="buy">Buy side</option>
                   <option value="sell">Sell side</option>
                   <option value="both">Both sides</option>
@@ -428,7 +549,35 @@ function NewBrokerageDealPageInner() {
             <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="closing">Closing date <span className="text-destructive">*</span></Label>
-                <Input id="closing" type="date" value={closingDate} onChange={(e) => setClosingDate(e.target.value)} required />
+                {(() => {
+                  // Same inline-validation pattern as the agent form. Toronto
+                  // tz keeps "today" stable for users west of UTC late at
+                  // night.
+                  const todayYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+                  const isInvalidClosing = !!closingDate && closingDate <= todayYmd
+                  return (
+                    <>
+                      <Input
+                        id="closing"
+                        type="date"
+                        value={closingDate}
+                        onChange={(e) => setClosingDate(e.target.value)}
+                        min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                        required
+                        aria-invalid={isInvalidClosing || undefined}
+                        aria-describedby={`brk-closing-hint${isInvalidClosing ? ' brk-closing-error' : ''}`}
+                      />
+                      <p id="brk-closing-hint" className="mt-1 text-xs text-muted-foreground">
+                        Closing date must be at least 1 day from today.
+                      </p>
+                      {isInvalidClosing && (
+                        <p id="brk-closing-error" className="mt-1 text-xs text-destructive font-medium">
+                          Closing date must be tomorrow or later.
+                        </p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
               <div>
                 <Label htmlFor="gross">Gross commission ($) <span className="text-destructive">*</span></Label>

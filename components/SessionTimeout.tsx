@@ -176,6 +176,12 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
   // Warning modal
   if (!showWarning) return null
 
+  // Milestone seconds where we want screen readers to announce the time
+  // remaining. Announcing every second would be noisy and unhelpful; these
+  // give the user enough lead time to act without spamming the AT buffer.
+  const MILESTONE_SECONDS = [30, 20, 10, 5, 4, 3, 2, 1]
+  const isMilestone = MILESTONE_SECONDS.includes(countdown)
+
   return (
     <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4" role="presentation">
       <div
@@ -199,12 +205,33 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
           Your session will expire due to inactivity. Click below to stay logged in.
         </p>
 
-        {/* Countdown */}
-        <div className="bg-yellow-500/10 border border-yellow-600/30 rounded-xl px-4 py-3 mb-6 flex items-center justify-center gap-2" role="status" aria-live="polite">
+        {/* Visible countdown — always rendered, never announced. aria-hidden
+            keeps screen readers off this one since the live region below
+            handles announcements at the chosen milestones. */}
+        <div className="bg-yellow-500/10 border border-yellow-600/30 rounded-xl px-4 py-3 mb-6 flex items-center justify-center gap-2">
           <Clock size={18} className="text-yellow-500" aria-hidden="true" />
-          <span className="text-yellow-500 font-bold text-xl tabular-nums" aria-label={`${formatTime(countdown)} remaining`}>
+          <span className="text-yellow-500 font-bold text-xl tabular-nums" aria-hidden="true">
             {formatTime(countdown)}
           </span>
+        </div>
+
+        {/* Live region — assertive so the user is interrupted on milestone
+            ticks. The key={countdown} forces React to remount on each
+            milestone, which makes most screen readers re-announce even if
+            the text content technically matches the previous milestone. */}
+        <div
+          aria-live="assertive"
+          aria-atomic="true"
+          role="status"
+          className="sr-only"
+        >
+          {isMilestone && (
+            <span key={countdown}>
+              {countdown === 1
+                ? '1 second remaining to stay logged in.'
+                : `${countdown} seconds remaining to stay logged in.`}
+            </span>
+          )}
         </div>
 
         {/* Buttons */}

@@ -9,6 +9,8 @@ import {
   CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset, Inbox,
   TrendingUp,
 } from 'lucide-react'
+import { EmptyState } from '@/components/ui/empty-state'
+import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
@@ -35,6 +37,11 @@ interface DashboardStats {
   unreadAgentMessages: number
   dealsWithUnreadMessages: string[]
   firmDealPending: number
+  // Underwriter assignment quick metric — sum of unassigned under_review deals
+  // and overdue (7+ days in queue) deals. Surfaced as a card so admins can see
+  // queue depth at a glance and click through to /admin/assignments.
+  unassignedCount: number
+  overdueAssignedCount: number
 }
 
 export default function AdminDashboard() {
@@ -47,6 +54,8 @@ export default function AdminDashboard() {
     unreadAgentMessages: 0,
     dealsWithUnreadMessages: [],
     firmDealPending: 0,
+    unassignedCount: 0,
+    overdueAssignedCount: 0,
   })
   const [allDeals, setAllDeals] = useState<any[]>([])
   const [overdueSettlements, setOverdueSettlements] = useState<any[]>([])
@@ -132,13 +141,24 @@ export default function AdminDashboard() {
         }
       })
 
+      // Underwriter assignment metrics — derived from the same deal list we
+      // already pulled. Unassigned = under_review with no assigned_to_user_id.
+      // Overdue = any under_review older than 7 days (whether assigned or not)
+      // — the assignment page slices these into per-user buckets.
+      const sevenDaysAgoMs = Date.now() - (7 * 24 * 60 * 60 * 1000)
+      const underReviewList = allDealsList.filter(d => d.status === 'under_review')
+      const unassignedCount = underReviewList.filter(d => !d.assigned_to_user_id).length
+      const overdueAssignedCount = underReviewList.filter(d => new Date(d.created_at).getTime() < sevenDaysAgoMs).length
+
       setStats({
-        underReviewDeals: allDealsList.filter(d => d.status === 'under_review').length,
+        underReviewDeals: underReviewList.length,
         pendingKycCount: kycAgents?.length || 0,
         pendingBankingCount: bankingAgents?.length || 0,
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
         firmDealPending: firmDealPendingCount ?? 0,
+        unassignedCount,
+        overdueAssignedCount,
       })
       setAllDeals(allDealsList)
 
@@ -300,6 +320,7 @@ export default function AdminDashboard() {
             {[
               { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
               { label: 'Firm Deal Review', icon: Inbox, path: '/admin/firm-deal-review', badge: stats.firmDealPending },
+              { label: 'Assignments', icon: ClipboardList, path: '/admin/assignments', badge: stats.unassignedCount + stats.overdueAssignedCount },
               { label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' },
               { label: 'Portfolio', icon: TrendingUp, path: '/admin/portfolio' },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
@@ -327,7 +348,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* KPI Stat Cards */}
-        <section aria-label="Key metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+        <section aria-label="Key metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           {[
             { label: 'Total Deals', value: allDeals.length, icon: FileText, accent: 'text-primary' },
             { label: 'Under Review', value: stats.underReviewDeals, icon: Clock, accent: 'text-status-blue' },
@@ -345,6 +366,48 @@ export default function AdminDashboard() {
             </Card>
           ))}
         </section>
+
+        {/* Underwriter assignment quick metric — clickable card so admins can
+            jump straight into the assignments view. The card tone amplifies
+            when there are overdue items so it pulls attention. */}
+        {(stats.unassignedCount > 0 || stats.overdueAssignedCount > 0) && (
+          <section aria-label="Underwriter queue snapshot" className="mb-8">
+            <button
+              type="button"
+              onClick={() => router.push('/admin/assignments')}
+              className={`w-full text-left rounded-xl border p-4 sm:p-5 transition-colors hover:bg-white/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                stats.overdueAssignedCount > 0
+                  ? 'border-destructive/40 bg-destructive/5'
+                  : 'border-border/40 bg-card/60'
+              }`}
+              aria-label={`Open assignments view — ${stats.unassignedCount} unassigned, ${stats.overdueAssignedCount} overdue`}
+            >
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <ClipboardList
+                    size={20}
+                    className={stats.overdueAssignedCount > 0 ? 'text-destructive' : 'text-primary'}
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Underwriter queue
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground tabular-nums">{stats.unassignedCount}</span>{' '}
+                      unassigned ·{' '}
+                      <span className={`font-semibold tabular-nums ${stats.overdueAssignedCount > 0 ? 'text-destructive' : 'text-foreground'}`}>
+                        {stats.overdueAssignedCount}
+                      </span>{' '}
+                      overdue (7+ days)
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-muted-foreground" aria-hidden="true" />
+              </div>
+            </button>
+          </section>
+        )}
 
         {/* PENDING ACTIONS */}
         {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
@@ -460,7 +523,7 @@ export default function AdminDashboard() {
                             }}
                             className="text-xs bg-emerald-600 hover:bg-emerald-700"
                           >
-                            {actionLoading === agent.id ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Approving...</> : 'Approve'}
+                            {actionLoading === agent.id ? <><LoadingSpinner label="" /><span className="ml-1">Approving...</span></> : 'Approve'}
                           </Button>
                           <Button
                             size="sm"
@@ -700,17 +763,15 @@ export default function AdminDashboard() {
           </CardHeader>
 
           {paged.length === 0 ? (
-            <div className="px-6 py-20 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-muted/30 flex items-center justify-center mx-auto mb-5">
-                <FileText className="text-muted-foreground/40" size={24} />
-              </div>
-              <p className="text-sm font-semibold text-muted-foreground">
-                {searchQuery || statusFilter ? 'No deals match your search' : 'No deals yet'}
-              </p>
-              <p className="text-xs text-muted-foreground/50 mt-1.5 max-w-xs mx-auto">
-                {searchQuery || statusFilter ? 'Try adjusting your search or clearing the filter.' : 'Deals will appear here once agents submit advance requests.'}
-              </p>
-            </div>
+            <EmptyState
+              icon={FileText}
+              title={searchQuery || statusFilter ? 'No deals match your filters' : 'No deals yet'}
+              description={
+                searchQuery || statusFilter
+                  ? 'Try adjusting your search or clearing the filter.'
+                  : 'Deals will appear here once agents submit advance requests.'
+              }
+            />
           ) : (
             <>
               {/* Desktop Table */}

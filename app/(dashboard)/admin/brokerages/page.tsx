@@ -14,9 +14,11 @@ import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc,
 import * as XLSX from 'xlsx'
 import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS, BRAND_GREEN_HEX } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
+import { KycMediaPreview } from '@/components/admin/KycMediaPreview'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 
 // ============================================================================
 // Types
@@ -1583,6 +1585,14 @@ export default function BrokeragesPage() {
                         <span className="text-xs font-semibold text-foreground">{agentCount}</span>
                       </div>
                       <button
+                        onClick={(e) => { e.stopPropagation(); router.push(`/admin/brokerages/${brokerage.id}`) }}
+                        className="p-1.5 rounded-md transition-colors text-muted-foreground hover:bg-muted hover:text-primary"
+                        title="Manage admins for this brokerage"
+                        aria-label="Manage brokerage admins"
+                      >
+                        <Shield size={14} />
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); router.push(`/admin/brokerages/${brokerage.id}/firm-deal-pipe`) }}
                         className="p-1.5 rounded-md transition-colors text-muted-foreground hover:bg-muted hover:text-primary"
                         title="Firm deal pipe (Google Sheet connection)"
@@ -2261,9 +2271,12 @@ export default function BrokeragesPage() {
 
                         {/* Agent List */}
                         {agentCount === 0 ? (
-                          <p className="text-sm py-4 text-center text-muted-foreground">
-                            No agents registered yet.
-                          </p>
+                          <EmptyState
+                            compact
+                            icon={Users}
+                            title="No agents added yet"
+                            description="Add an agent above or bulk-import a roster to populate this brokerage."
+                          />
                         ) : (
                           <div className="overflow-x-auto rounded-lg border border-border">
                             <table className="w-full">
@@ -3047,20 +3060,11 @@ export default function BrokeragesPage() {
                       {i === 0 ? 'Front' : i === 1 ? 'Back' : `Photo ${i + 1}`}
                     </p>
                   )}
-                  {isPdf ? (
-                    <iframe
-                      src={blobUrl}
-                      className="w-full border-0 rounded-lg border border-border"
-                      style={{ height: 400 }}
-                      title={`${kycPreviewPanel.fileName} ${i + 1}`}
-                    />
-                  ) : (
-                    <img
-                      src={blobUrl}
-                      alt={`${kycPreviewPanel.fileName} ${i + 1}`}
-                      className="w-full rounded-lg border border-border"
-                    />
-                  )}
+                  <KycMediaPreview
+                    src={blobUrl}
+                    alt={`${kycPreviewPanel.fileName} ${i + 1}`}
+                    isPdf={isPdf}
+                  />
                 </div>
               )
             })}

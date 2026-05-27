@@ -27,6 +27,7 @@ import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 
 interface Deal {
   id: string
@@ -788,10 +789,26 @@ export default function BrokerageDashboard() {
                                 <div className="flex justify-between"><span className="text-muted-foreground">Referral Fee</span><span className="font-bold text-green-400">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
                                 <div className="flex justify-between"><span className="text-muted-foreground">Due to Firm Funds</span><span className="font-medium text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
                               </div>
-                              {deal.status === 'denied' && deal.denial_reason && (
+                              {deal.status === 'denied' && (
                                 <div className="mt-3 rounded-lg p-3 bg-red-950/50 border border-red-800">
-                                  <p className="text-xs font-bold text-red-400">Denial Reason</p>
-                                  <p className="text-xs mt-1 text-red-400/90">{deal.denial_reason}</p>
+                                  {deal.denial_reason && (
+                                    <>
+                                      <p className="text-xs font-bold text-red-400">Denial Reason</p>
+                                      <p className="text-xs mt-1 mb-2 text-red-400/90">{deal.denial_reason}</p>
+                                    </>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="mt-1 text-xs h-7 border-red-700 text-red-200 hover:bg-red-900/40 hover:text-red-100"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      router.push(`/brokerage/deals/new?revisedFrom=${deal.id}`)
+                                    }}
+                                  >
+                                    <Send size={11} className="mr-1" aria-hidden="true" />
+                                    Submit Revised Deal
+                                  </Button>
                                 </div>
                               )}
                               <div className="mt-4 pt-3 border-t border-border/50">
@@ -1267,10 +1284,23 @@ export default function BrokerageDashboard() {
 
               {/* Fee Breakdown */}
               {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
-                <div className="text-center py-8">
-                  <DollarSign className="mx-auto mb-3 text-muted-foreground/30" size={32} />
-                  <p className="text-sm text-muted-foreground">No referral fees yet. Fees are earned when deals are funded.</p>
-                </div>
+                <EmptyState
+                  icon={DollarSign}
+                  title="No referral earnings yet"
+                  description={
+                    <>
+                      When agents in your brokerage complete deals through Firm Funds,
+                      your referral earnings will appear here.
+                      <br />
+                      <a
+                        href="#"
+                        className="mt-2 inline-block text-primary underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                      >
+                        Learn more about referrals
+                      </a>
+                    </>
+                  }
+                />
               ) : (
                 <div>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
@@ -1283,7 +1313,7 @@ export default function BrokerageDashboard() {
                           id="referral-month-filter"
                           value={referralMonth}
                           onChange={(e) => setReferralMonth(e.target.value)}
-                          className="text-xs rounded-lg px-3 py-1.5 font-medium bg-input border border-border text-foreground"
+                          className="text-base sm:text-xs rounded-lg px-3 py-1.5 font-medium bg-input border border-border text-foreground"
                         >
                           <option value="all">All Time</option>
                           {availableMonths.map(m => (

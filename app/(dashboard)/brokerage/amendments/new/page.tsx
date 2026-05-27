@@ -274,7 +274,7 @@ function AmendmentNewInner() {
                 <select
                   value={selectedDealId}
                   onChange={(e) => setSelectedDealId(e.target.value)}
-                  className="w-full rounded-lg px-3 py-2 text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25"
+                  className="w-full rounded-lg px-3 py-2 text-base sm:text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25"
                   disabled={submitting}
                 >
                   <option value="">— Select a deal —</option>

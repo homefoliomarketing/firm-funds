@@ -57,6 +57,11 @@ interface Deal {
   repayment_date: string | null
   source: string
   created_at: string
+  // Failed-to-close + cure election fields (only present when status === 'failed_to_close'/'cured')
+  failed_to_close_at?: string | null
+  cure_election?: 'cash_repayment' | 'commission_assignment' | null
+  cure_election_deadline?: string | null
+  denial_reason?: string | null
 }
 
 // useSearchParams() requires a Suspense boundary in Next.js 16. Wrap the
@@ -315,6 +320,67 @@ function AgentDashboardInner() {
       />
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Cure-election prompt — any failed_to_close deal without an
+            election yet needs the agent's attention. We surface this above
+            everything else because the 15-day clock keeps ticking even
+            while the agent ignores the dashboard. */}
+        {(() => {
+          const needsElection = deals.filter(d =>
+            d.status === 'failed_to_close' &&
+            !d.cure_election &&
+            d.cure_election_deadline
+          )
+          if (needsElection.length === 0) return null
+          return (
+            <section aria-label="Action required: cure election" className="mb-6 space-y-2">
+              {needsElection.map(d => {
+                const deadline = d.cure_election_deadline ? new Date(d.cure_election_deadline) : null
+                const msLeft = deadline ? deadline.getTime() - Date.now() : null
+                const isOverdue = msLeft !== null && msLeft < 0
+                const daysLeft = msLeft !== null
+                  ? Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)))
+                  : null
+                return (
+                  <div
+                    key={d.id}
+                    className={`rounded-xl p-4 sm:p-5 flex items-start justify-between gap-4 border ${
+                      isOverdue
+                        ? 'bg-destructive/10 border-destructive/40'
+                        : 'bg-status-amber-muted/50 border-status-amber-border/60'
+                    }`}
+                    role="alert"
+                  >
+                    <div className="flex items-start gap-3 min-w-0">
+                      <AlertTriangle
+                        size={20}
+                        className={isOverdue ? 'text-destructive shrink-0 mt-0.5' : 'text-status-amber shrink-0 mt-0.5'}
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <p className={`text-sm font-semibold ${isOverdue ? 'text-destructive' : 'text-status-amber'}`}>
+                          {isOverdue
+                            ? 'Cure election overdue — contact Firm Funds'
+                            : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left to choose how to cure this deal`}
+                        </p>
+                        <p className="text-xs mt-1 text-foreground/80 truncate">
+                          {d.property_address}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => router.push(`/agent/cure-election/${d.id}`)}
+                      className="shrink-0"
+                    >
+                      Review options
+                    </Button>
+                  </div>
+                )
+              })}
+            </section>
+          )
+        })()}
+
         {/* Firm-deal offer banner — appears when the agent lands here via
             the offer email/SMS magic link with ?firm_deal=<id>. Three
             states render here based on offer_deal_id + just-accepted:
@@ -713,11 +779,12 @@ function AgentDashboardInner() {
                       ))}
                     </div>
                     {totalPages > 1 && (
-                      <nav className="px-5 sm:px-6 py-3 flex items-center justify-between border-t border-border/30 bg-card/50" aria-label="Deals pagination">
-                        <p className="text-xs text-muted-foreground/70 tabular-nums">
-                          {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, filteredDeals.length)} of {filteredDeals.length}
+                      <nav className="px-5 sm:px-6 py-3 flex flex-col gap-2 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between border-t border-border/30 bg-card/50" aria-label="Deals pagination">
+                        <p className="text-xs text-muted-foreground/70 tabular-nums text-center min-[375px]:text-left">
+                          <span className="hidden min-[400px]:inline">{(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, filteredDeals.length)} of {filteredDeals.length}</span>
+                          <span className="min-[400px]:hidden">{filteredDeals.length} deals</span>
                         </p>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 justify-center min-[375px]:justify-end">
                           <Button
                             variant="ghost"
                             size="icon-xs"

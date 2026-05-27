@@ -34,6 +34,8 @@ import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment, recordLateStrike } from '@/lib/actions/admin-actions'
 import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/lib/actions/esign-actions'
 import RemediationDealsPanel from './RemediationDealsPanel'
+import { MarkFundingFailedButton, FundingFailedBanner } from '@/components/admin/FundingFailureActions'
+import { EarlyClosingButton } from '@/components/admin/EarlyClosingActions'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
@@ -1267,6 +1269,17 @@ export default function DealDetailPage() {
         </div>
       )}
 
+      {/* FUNDING FAILED BANNER — shown only when EFT/wire bounced */}
+      {deal.status === 'funding_failed' && (
+        <FundingFailedBanner
+          dealId={deal.id}
+          failureReason={(deal as any).funding_failure_reason}
+          failureNotes={(deal as any).funding_failure_notes}
+          failedAt={(deal as any).funding_failed_at}
+          onChanged={loadDealData}
+        />
+      )}
+
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* DEAL PIPELINE */}
         <div className="mb-4">
@@ -1344,6 +1357,27 @@ export default function DealDetailPage() {
                   <AlertTriangle className="w-4 h-4" />
                   Mark Failed to Close
                 </button>
+              )}
+
+              {/* Mark Funding Failed — for funded deals where the EFT/wire bounced */}
+              {deal.status === 'funded' && (
+                <MarkFundingFailedButton
+                  dealId={deal.id}
+                  disabled={updating}
+                  onChanged={loadDealData}
+                />
+              )}
+
+              {/* Record Early Closing — refunds discount fee when closing
+                  date arrived sooner than scheduled */}
+              {deal.status === 'funded' && (
+                <EarlyClosingButton
+                  dealId={deal.id}
+                  scheduledClosingDate={deal.closing_date}
+                  netCommission={deal.net_commission ?? null}
+                  disabled={updating}
+                  onChanged={loadDealData}
+                />
               )}
 
 

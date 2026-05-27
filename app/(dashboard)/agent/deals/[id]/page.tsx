@@ -6,7 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 import {
   ArrowLeft, FileText, DollarSign, MapPin, Clock,
   Upload, Download, ChevronDown, ChevronUp, Paperclip,
-  CheckCircle2, AlertTriangle, Pencil, Save, X, Send
+  CheckCircle2, AlertTriangle, Pencil, Save, X, Send, Loader2,
 } from 'lucide-react'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
@@ -91,6 +91,10 @@ export default function AgentDealDetailPage() {
   const [editClosingDate, setEditClosingDate] = useState('')
   const [editGrossCommission, setEditGrossCommission] = useState('')
   const [editBrokerageSplitPct, setEditBrokerageSplitPct] = useState('')
+  /** Per-field errors keyed by input id. Set on submit, cleared on field change. */
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
+  /** Ref on the editing card so we can scroll the first error into view. */
+  const editFormRef = useRef<HTMLDivElement>(null)
   const [cancelling, setCancelling] = useState(false)
   // Closing date amendment state
   const [showAmendmentModal, setShowAmendmentModal] = useState(false)
@@ -310,8 +314,61 @@ export default function AgentDealDetailPage() {
     setStatusMessage(null)
   }
 
+  // Client-side validation. Returns the same map we'll store in editErrors —
+  // an empty map means "ok to submit". Field ids match the input id="" so
+  // aria-describedby can wire them together.
+  const validateEditForm = useCallback(() => {
+    const errors: Record<string, string> = {}
+    if (!editStreetAddress.trim()) errors['edit-street'] = 'Street address is required.'
+    if (!editCity.trim()) errors['edit-city'] = 'City is required.'
+    if (!editPostalCode.trim()) {
+      errors['edit-postal'] = 'Postal code is required.'
+    } else {
+      // Canadian postal code: A1A 1A1 (space optional).
+      const postalRe = /^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/
+      if (!postalRe.test(editPostalCode.trim())) {
+        errors['edit-postal'] = 'Use Canadian format A1A 1A1.'
+      }
+    }
+    if (!editClosingDate) {
+      errors['edit-closing'] = 'Closing date is required.'
+    } else {
+      const todayYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+      if (editClosingDate <= todayYmd) {
+        errors['edit-closing'] = 'Closing date must be tomorrow or later.'
+      }
+    }
+    const gross = parseFloat(editGrossCommission)
+    if (!editGrossCommission || isNaN(gross) || gross <= 0) {
+      errors['edit-gross'] = 'Enter a gross commission greater than $0.'
+    }
+    const split = parseFloat(editBrokerageSplitPct)
+    if (editBrokerageSplitPct === '' || isNaN(split) || split < 0 || split > 100) {
+      errors['edit-split'] = 'Split must be between 0 and 100.'
+    }
+    return errors
+  }, [editStreetAddress, editCity, editPostalCode, editClosingDate, editGrossCommission, editBrokerageSplitPct])
+
   const handleSaveEdit = async () => {
     if (!deal) return
+    const errors = validateEditForm()
+    setEditErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      // Scroll the first invalid input into view. The form is short so just
+      // scrolling the card section is usually enough; we go finer and focus
+      // the field itself when it lives in the DOM.
+      const firstId = Object.keys(errors)[0]
+      requestAnimationFrame(() => {
+        const el = document.getElementById(firstId)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          ;(el as HTMLElement).focus({ preventScroll: true })
+        } else {
+          editFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      })
+      return
+    }
     setSaving(true)
     setStatusMessage(null)
     const result = await updateDealDetails({
@@ -324,6 +381,7 @@ export default function AgentDealDetailPage() {
     if (result.success && result.data) {
       setDeal(result.data as Deal)
       setEditing(false)
+      setEditErrors({})
       setStatusMessage({ type: 'success', text: 'Deal updated successfully. Financials have been recalculated.' })
     } else {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update deal' })
@@ -614,9 +672,26 @@ export default function AgentDealDetailPage() {
               })}
             </div>
             {deal.status === 'denied' && (
-              <div className="mt-4 p-3 rounded-lg flex items-start gap-2 bg-destructive/10 border border-destructive/30">
-                <AlertTriangle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-destructive"><strong>Denied:</strong> {deal.denial_reason || 'No reason provided'}</p>
+              <div className="mt-4 p-4 rounded-lg bg-destructive/10 border border-destructive/30 space-y-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-destructive">
+                    <strong>Denied:</strong> {deal.denial_reason || 'No reason provided'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-destructive/20">
+                  <p className="text-xs text-muted-foreground flex-1 min-w-[180px]">
+                    You can submit a revised request — we&apos;ll pre-fill the form with this deal&apos;s details so
+                    you only need to change what underwriting flagged.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => router.push(`/agent/new-deal?revisedFrom=${deal.id}`)}
+                  >
+                    <Send size={13} className="mr-1.5" aria-hidden="true" />
+                    Submit Revised Deal
+                  </Button>
+                </div>
               </div>
             )}
             {deal.status === 'cancelled' && (
@@ -682,39 +757,112 @@ export default function AgentDealDetailPage() {
               </CardHeader>
               <CardContent className="p-6">
                 {editing ? (
-                  <>
+                  <div ref={editFormRef}>
                     <div className="space-y-4 text-sm">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Street Address</Label>
-                        <Input type="text" value={editStreetAddress} onChange={(e) => setEditStreetAddress(e.target.value)} placeholder="123 Main Street" />
+                        <Label htmlFor="edit-street" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Street Address</Label>
+                        <Input
+                          id="edit-street"
+                          type="text"
+                          value={editStreetAddress}
+                          onChange={(e) => { setEditStreetAddress(e.target.value); if (editErrors['edit-street']) setEditErrors(p => ({ ...p, 'edit-street': '' })) }}
+                          placeholder="123 Main Street"
+                          aria-invalid={!!editErrors['edit-street'] || undefined}
+                          aria-describedby={editErrors['edit-street'] ? 'edit-street-error' : undefined}
+                        />
+                        {editErrors['edit-street'] && (
+                          <p id="edit-street-error" className="text-xs text-destructive font-medium">{editErrors['edit-street']}</p>
+                        )}
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City</Label>
-                          <Input type="text" value={editCity} onChange={(e) => setEditCity(e.target.value)} placeholder="Toronto" />
+                          <Label htmlFor="edit-city" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City</Label>
+                          <Input
+                            id="edit-city"
+                            type="text"
+                            value={editCity}
+                            onChange={(e) => { setEditCity(e.target.value); if (editErrors['edit-city']) setEditErrors(p => ({ ...p, 'edit-city': '' })) }}
+                            placeholder="Toronto"
+                            aria-invalid={!!editErrors['edit-city'] || undefined}
+                            aria-describedby={editErrors['edit-city'] ? 'edit-city-error' : undefined}
+                          />
+                          {editErrors['edit-city'] && (
+                            <p id="edit-city-error" className="text-xs text-destructive font-medium">{editErrors['edit-city']}</p>
+                          )}
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
-                          <Input type="text" value={editProvince} onChange={(e) => setEditProvince(e.target.value)} placeholder="Ontario" />
+                          <Label htmlFor="edit-province" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
+                          <Input id="edit-province" type="text" value={editProvince} onChange={(e) => setEditProvince(e.target.value)} placeholder="Ontario" />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code</Label>
-                          <Input type="text" value={editPostalCode} onChange={(e) => setEditPostalCode(e.target.value)} placeholder="M5V 1A1" maxLength={7} className="uppercase" />
+                          <Label htmlFor="edit-postal" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code</Label>
+                          <Input
+                            id="edit-postal"
+                            type="text"
+                            value={editPostalCode}
+                            onChange={(e) => { setEditPostalCode(e.target.value); if (editErrors['edit-postal']) setEditErrors(p => ({ ...p, 'edit-postal': '' })) }}
+                            placeholder="A1A 1A1"
+                            maxLength={7}
+                            className="uppercase"
+                            aria-invalid={!!editErrors['edit-postal'] || undefined}
+                            aria-describedby={`edit-postal-hint${editErrors['edit-postal'] ? ' edit-postal-error' : ''}`}
+                          />
+                          <p id="edit-postal-hint" className="text-[11px] text-muted-foreground">Format: A1A 1A1</p>
+                          {editErrors['edit-postal'] && (
+                            <p id="edit-postal-error" className="text-xs text-destructive font-medium">{editErrors['edit-postal']}</p>
+                          )}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Closing Date</Label>
-                          <Input type="date" value={editClosingDate} onChange={(e) => setEditClosingDate(e.target.value)} min={new Date(Date.now() + 86400000).toISOString().split('T')[0]} />
+                          <Label htmlFor="edit-closing" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Closing Date</Label>
+                          <Input
+                            id="edit-closing"
+                            type="date"
+                            value={editClosingDate}
+                            onChange={(e) => { setEditClosingDate(e.target.value); if (editErrors['edit-closing']) setEditErrors(p => ({ ...p, 'edit-closing': '' })) }}
+                            min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                            aria-invalid={!!editErrors['edit-closing'] || undefined}
+                            aria-describedby={`edit-closing-hint${editErrors['edit-closing'] ? ' edit-closing-error' : ''}`}
+                          />
+                          <p id="edit-closing-hint" className="text-[11px] text-muted-foreground">Must be at least 1 day from today.</p>
+                          {editErrors['edit-closing'] && (
+                            <p id="edit-closing-error" className="text-xs text-destructive font-medium">{editErrors['edit-closing']}</p>
+                          )}
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gross Commission ($)</Label>
-                          <Input type="number" value={editGrossCommission} onChange={(e) => setEditGrossCommission(e.target.value)} min="0" step="0.01" />
+                          <Label htmlFor="edit-gross" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gross Commission ($)</Label>
+                          <Input
+                            id="edit-gross"
+                            type="number"
+                            value={editGrossCommission}
+                            onChange={(e) => { setEditGrossCommission(e.target.value); if (editErrors['edit-gross']) setEditErrors(p => ({ ...p, 'edit-gross': '' })) }}
+                            min="0"
+                            step="0.01"
+                            aria-invalid={!!editErrors['edit-gross'] || undefined}
+                            aria-describedby={editErrors['edit-gross'] ? 'edit-gross-error' : undefined}
+                          />
+                          {editErrors['edit-gross'] && (
+                            <p id="edit-gross-error" className="text-xs text-destructive font-medium">{editErrors['edit-gross']}</p>
+                          )}
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Brokerage Split (%)</Label>
-                        <Input type="number" value={editBrokerageSplitPct} onChange={(e) => setEditBrokerageSplitPct(e.target.value)} min="0" max="100" step="0.1" />
+                        <Label htmlFor="edit-split" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Brokerage Split (%)</Label>
+                        <Input
+                          id="edit-split"
+                          type="number"
+                          value={editBrokerageSplitPct}
+                          onChange={(e) => { setEditBrokerageSplitPct(e.target.value); if (editErrors['edit-split']) setEditErrors(p => ({ ...p, 'edit-split': '' })) }}
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          aria-invalid={!!editErrors['edit-split'] || undefined}
+                          aria-describedby={editErrors['edit-split'] ? 'edit-split-error' : undefined}
+                        />
+                        {editErrors['edit-split'] && (
+                          <p id="edit-split-error" className="text-xs text-destructive font-medium">{editErrors['edit-split']}</p>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-3 mt-5">
@@ -722,11 +870,13 @@ export default function AgentDealDetailPage() {
                         <X size={14} className="mr-1.5" /> Cancel
                       </Button>
                       <Button onClick={handleSaveEdit} disabled={saving} className="flex-1">
-                        <Save size={14} className="mr-1.5" /> {saving ? 'Saving...' : 'Save Changes'}
+                        {saving
+                          ? <><Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" /> Saving…</>
+                          : <><Save size={14} className="mr-1.5" aria-hidden="true" /> Save Changes</>}
                       </Button>
                     </div>
                     <p className="text-xs mt-3 text-muted-foreground">Saving will recalculate your advance amount based on the updated details.</p>
-                  </>
+                  </div>
                 ) : (
                   <>
                     <div className="grid grid-cols-2 gap-5 text-sm">
@@ -778,7 +928,7 @@ export default function AgentDealDetailPage() {
                       <select
                         value={uploadDocType}
                         onChange={(e) => setUploadDocType(e.target.value)}
-                        className="rounded-lg px-3 py-2 text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25"
+                        className="rounded-lg px-3 py-2 text-base sm:text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {DOCUMENT_TYPES.map(dt => (<option key={dt.value} value={dt.value}>{dt.label}</option>))}
@@ -1116,7 +1266,8 @@ export default function AgentDealDetailPage() {
                   onClick={handleSubmitAmendment}
                   disabled={amendSubmitting || !amendNewClosingDate || !amendFile}
                 >
-                  {amendSubmitting ? 'Submitting...' : 'Submit Request'}
+                  {amendSubmitting && <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />}
+                  {amendSubmitting ? 'Submitting…' : 'Submit Request'}
                 </Button>
               </div>
             </CardContent>
