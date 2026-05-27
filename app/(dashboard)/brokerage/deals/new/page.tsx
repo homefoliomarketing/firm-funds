@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent,
   Upload, FileText, X, CheckCircle2, AlertCircle, Loader2, User as UserIcon,
@@ -37,8 +37,20 @@ const DOC_SLOTS: { key: string; label: string; required: boolean; types: string 
   { key: 'other', label: 'Waivers / other', required: false, types: 'application/pdf,image/jpeg,image/png' },
 ]
 
+// useSearchParams() requires a Suspense boundary in Next.js 16. The inner
+// component renders inside the wrapper below.
 export default function NewBrokerageDealPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <NewBrokerageDealPageInner />
+    </Suspense>
+  )
+}
+
+function NewBrokerageDealPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const fromOfferId = searchParams.get('from_offer')
   const supabase = createClient()
   const [profile, setProfile] = useState<any>(null)
   const [brokerage, setBrokerage] = useState<any>(null)
@@ -97,10 +109,38 @@ export default function NewBrokerageDealPage() {
         .neq('status', 'archived')
         .order('last_name')
       setAgents((ags || []) as AgentRow[])
+
+      // If we're converting a firm-deal offer, load the offered deal and
+      // pre-fill agent + address + closing date. The brokerage admin only
+      // needs to add the commission split + trade record, the rest carries
+      // forward from what the agent accepted.
+      if (fromOfferId) {
+        const { data: offeredDeal } = await supabase
+          .from('deals')
+          .select('id, agent_id, property_address, closing_date, status, brokerage_id')
+          .eq('id', fromOfferId)
+          .maybeSingle()
+        if (offeredDeal && offeredDeal.brokerage_id === prof.brokerage_id && offeredDeal.status === 'offered') {
+          setAgentId(offeredDeal.agent_id)
+          if (offeredDeal.closing_date) setClosingDate(offeredDeal.closing_date)
+          // Address pre-fill: try to split "street, city, province, postal"
+          // back out of the joined string. Falls back to dumping the whole
+          // thing into the street field if the shape doesn't match.
+          const parts = (offeredDeal.property_address || '').split(',').map((p: string) => p.trim()).filter(Boolean)
+          if (parts.length >= 4) {
+            setAddress({ street: parts[0], city: parts[1], province: parts[2], postalCode: parts[3] })
+          } else if (parts.length === 3) {
+            setAddress({ street: parts[0], city: parts[1], province: 'Ontario', postalCode: parts[2] })
+          } else {
+            setAddress({ street: offeredDeal.property_address || '', city: '', province: 'Ontario', postalCode: '' })
+          }
+        }
+      }
+
       setLoading(false)
     }
     load()
-  }, [])
+  }, [fromOfferId])
 
   // Recalculate preview on input change
   useEffect(() => {
@@ -200,6 +240,7 @@ export default function NewBrokerageDealPage() {
         brokerageSplitPct: parseFloat(brokerageSplitPct),
         transactionType,
         notes: notes.trim() || undefined,
+        fromOfferDealId: fromOfferId || undefined,
       })
       if (!result.success) {
         setError(result.error || 'Failed to submit deal'); setSubmitting(false); return

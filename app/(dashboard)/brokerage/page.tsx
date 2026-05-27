@@ -17,6 +17,7 @@ import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
 import { toggleAgentBrokerageFlag } from '@/lib/actions/brokerage-actions'
 import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
+import OfferedDealsBanner from '@/components/brokerage/OfferedDealsBanner'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -339,7 +340,8 @@ export default function BrokerageDashboard() {
       if (deal.status === 'funded') return 3
       return 4
     }
-    const sorted = [...deals]
+    // Strip offered deals — they render in the OfferedDealsBanner above.
+    const sorted = deals.filter(d => d.status !== 'offered')
     sorted.sort((a, b) => {
       const pa = getPriority(a)
       const pb = getPriority(b)
@@ -353,6 +355,11 @@ export default function BrokerageDashboard() {
     deals.filter(d => ['funded', 'completed'].includes(d.status)), [deals])
   const pendingDeals = useMemo(() =>
     deals.filter(d => ['under_review', 'approved'].includes(d.status)), [deals])
+  // Offered deals get their own banner above the Deals tab, so we strip them
+  // out of the regular Deals list to avoid double-rendering. They're still
+  // counted in the Deals tab badge so the brokerage knows they exist.
+  const offeredDeals = useMemo(() =>
+    deals.filter(d => d.status === 'offered'), [deals])
 
   const dealsMissingTradeRecord = useMemo(() =>
     deals.filter(d => !['denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
@@ -504,6 +511,29 @@ export default function BrokerageDashboard() {
             </Button>
           </div>
         </section>
+
+        {/* Offered deals awaiting brokerage submission. Most submits will
+            come through here once firm-deal detection is live for all
+            brokerages — see HANDOFF-firm-deal-followups.md. */}
+        <OfferedDealsBanner
+          deals={offeredDeals.map(d => ({
+            id: d.id,
+            property_address: d.property_address,
+            closing_date: d.closing_date,
+            created_at: d.created_at,
+            agent: d.agent ? {
+              first_name: d.agent.first_name,
+              last_name: d.agent.last_name,
+              email: d.agent.email,
+            } : null,
+          }))}
+          onDeclined={(dealId) => {
+            // Optimistically flip local state to 'cancelled' so the banner
+            // drops the row immediately. The server already wrote the
+            // status; we don't need to refetch.
+            setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'cancelled' } : d))
+          }}
+        />
 
         {/* Pending amendment requests */}
         {pendingAmendments.length > 0 && (

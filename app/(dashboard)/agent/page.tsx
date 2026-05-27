@@ -14,6 +14,7 @@ import { markKycModalSeen } from '@/lib/actions/profile-actions'
 import { getAgentBalanceSummary } from '@/lib/actions/account-actions'
 import {
   getFirmDealOfferForCurrentAgent,
+  acceptFirmDealOffer,
   type FirmDealOfferSummary,
 } from '@/lib/actions/firm-deal-offer-actions'
 import AgentKycGate from '@/components/AgentKycGate'
@@ -82,6 +83,13 @@ function AgentDashboardInner() {
   // already exists for the offer we also scroll the list to it.
   const [firmDealOffer, setFirmDealOffer] = useState<FirmDealOfferSummary | null>(null)
   const [firmDealOfferDismissed, setFirmDealOfferDismissed] = useState(false)
+  // Offer-acceptance UX: the banner button changes to a confirmation state
+  // after the agent clicks "Notify my brokerage". We track the inflight
+  // call so we can show a spinner and disable the button against
+  // double-clicks (Resend takes ~300ms on a warm path, longer on cold).
+  const [acceptingOffer, setAcceptingOffer] = useState(false)
+  const [offerAcceptError, setOfferAcceptError] = useState<string | null>(null)
+  const [offerJustAccepted, setOfferJustAccepted] = useState(false)
   const dealRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [highlightedDealId, setHighlightedDealId] = useState<string | null>(null)
   const DEALS_PER_PAGE = 10
@@ -204,7 +212,7 @@ function AgentDashboardInner() {
 
   // Summary stats
   const summaryStats = useMemo(() => {
-    const active = deals.filter(d => ['under_review', 'approved', 'funded'].includes(d.status))
+    const active = deals.filter(d => ['offered', 'under_review', 'approved', 'funded'].includes(d.status))
     const funded = deals.filter(d => d.status === 'funded' || d.status === 'completed')
     const totalAdvanced = funded.reduce((sum, d) => sum + d.advance_amount, 0)
     return {
@@ -311,7 +319,21 @@ function AgentDashboardInner() {
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Firm-deal offer banner — appears when the agent lands here via
-            the offer email/SMS magic link with ?firm_deal=<id>. */}
+            the offer email/SMS magic link with ?firm_deal=<id>. Three
+            states render here based on offer_deal_id + just-accepted:
+
+              A. Not yet accepted (offer_deal_id IS NULL, not just-clicked)
+                 → CTA: "Notify my brokerage I want an advance"
+              B. Just accepted in this session (offerJustAccepted=true)
+                 → Confirmation message + link to the offered deal row
+              C. Previously accepted (offer_deal_id set from server)
+                 → "We've already started a request" + scroll-to-row link
+
+            Why a separate offerJustAccepted state instead of relying on
+            offer_deal_id from the server: the action returns a deal id
+            but we don't re-fetch the offer summary, so offer_deal_id in
+            firmDealOffer stays null. The just-accepted flag bridges that
+            gap and also gives us a moment to celebrate the click. */}
         {firmDealOffer && !firmDealOfferDismissed && (
           <section aria-label="Firm deal offer">
             <div className="mb-6 rounded-xl p-5 flex items-start justify-between gap-4 bg-primary/10 border border-primary/30 relative">
@@ -319,9 +341,11 @@ function AgentDashboardInner() {
                 <Sparkles size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">
-                    {firmDealOffer.brand_name
-                      ? `${firmDealOffer.brand_name} — your deal just firmed up`
-                      : 'Your deal just firmed up'}
+                    {offerJustAccepted
+                      ? `${agent?.brokerages?.name || 'Your brokerage'} has been notified`
+                      : firmDealOffer.brand_name
+                        ? `${firmDealOffer.brand_name} — your deal just firmed up`
+                        : 'Your deal just firmed up'}
                   </p>
                   <p className="text-xs mt-1 text-muted-foreground">
                     {firmDealOffer.address
@@ -335,23 +359,63 @@ function AgentDashboardInner() {
                     )}
                   </p>
                   <p className="text-xs mt-2 text-muted-foreground">
-                    {firmDealOffer.offer_deal_id
-                      ? "We've already started a request for this one — see your deal below."
-                      : 'Request an advance on this commission now and get funded before closing.'}
+                    {offerJustAccepted
+                      ? `We sent ${agent?.brokerages?.name || 'them'} the details. Your advance request is in their queue and shows below as "Offered" until they submit it. You don't need to do anything else.`
+                      : firmDealOffer.offer_deal_id
+                        ? "We've already let your brokerage know about this one. See your deal below."
+                        : `Want an advance on this commission? Click below and we'll let ${agent?.brokerages?.name || 'your brokerage'} know to send us the paperwork.`}
                   </p>
+                  {offerAcceptError && (
+                    <p className="text-xs mt-2 text-status-red" role="alert">{offerAcceptError}</p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {!firmDealOffer.offer_deal_id && (
+                {!firmDealOffer.offer_deal_id && !offerJustAccepted && (
                   <Button
-                    onClick={() => kycNotVerified ? null : router.push('/agent/new-deal')}
-                    disabled={!!kycNotVerified}
-                    title={kycNotVerified ? 'Complete identity verification first' : 'Submit an advance request'}
+                    onClick={async () => {
+                      if (kycNotVerified) return
+                      if (acceptingOffer) return
+                      setAcceptingOffer(true)
+                      setOfferAcceptError(null)
+                      try {
+                        const res = await acceptFirmDealOffer(firmDealOffer.event_id)
+                        if (!res.success || !res.data) {
+                          setOfferAcceptError(res.error || 'Something went wrong. Try again.')
+                          return
+                        }
+                        setOfferJustAccepted(true)
+                        // Re-load the deals list so the new 'offered' row
+                        // appears in "Your Deals" and the scroll-to-row
+                        // effect picks it up.
+                        if (profile?.agent_id) {
+                          const { data: refreshed } = await supabase
+                            .from('deals')
+                            .select('*')
+                            .eq('agent_id', profile.agent_id)
+                            .order('created_at', { ascending: false })
+                          setDeals(refreshed || [])
+                        }
+                        // Patch the offer summary so the banner switches
+                        // to the "already started" state on the next
+                        // navigation back.
+                        setFirmDealOffer({
+                          ...firmDealOffer,
+                          offer_deal_id: res.data.deal_id,
+                        })
+                      } catch (e) {
+                        setOfferAcceptError(e instanceof Error ? e.message : 'Unexpected error.')
+                      } finally {
+                        setAcceptingOffer(false)
+                      }
+                    }}
+                    disabled={!!kycNotVerified || acceptingOffer}
+                    title={kycNotVerified ? 'Complete identity verification first' : 'Notify your brokerage so they can submit on your behalf'}
                     className="whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90"
                     size="sm"
                   >
-                    Request advance
-                    <ChevronRight size={14} />
+                    {acceptingOffer ? 'Sending…' : 'Notify my brokerage I want an advance'}
+                    {!acceptingOffer && <ChevronRight size={14} />}
                   </Button>
                 )}
                 <Button
@@ -545,7 +609,7 @@ function AgentDashboardInner() {
                 >
                   All ({deals.length})
                 </button>
-                {['under_review', 'approved', 'funded', 'completed', 'denied', 'cancelled'].map(status => {
+                {['offered', 'under_review', 'approved', 'funded', 'completed', 'denied', 'cancelled'].map(status => {
                   const count = statusCounts[status] || 0
                   if (count === 0) return null
                   return (
@@ -637,7 +701,15 @@ function AgentDashboardInner() {
                             >
                               {formatStatusLabel(deal.status)}
                             </span>
-                            <p className="text-sm font-bold text-right text-primary tabular-nums hidden sm:block">{formatCurrency(deal.advance_amount)}</p>
+                            {deal.status === 'offered' ? (
+                              // Offered deals carry placeholder 0s for
+                              // advance_amount; showing "$0.00" would
+                              // confuse the agent. The brokerage fills
+                              // these in when they submit.
+                              <p className="text-xs italic text-right text-muted-foreground hidden sm:block">Pending brokerage</p>
+                            ) : (
+                              <p className="text-sm font-bold text-right text-primary tabular-nums hidden sm:block">{formatCurrency(deal.advance_amount)}</p>
+                            )}
                             <ChevronRight size={16} className="text-muted-foreground/20 group-hover:text-muted-foreground/60 transition-colors" />
                           </div>
                         </div>

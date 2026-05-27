@@ -390,6 +390,125 @@ export default function AgentDealDetailPage() {
     </div>
   )
 
+  // ---------------------------------------------------------------------------
+  // Offered-status view. The standard detail page below renders financial
+  // breakdowns, documents, and a status pipeline that all assume the brokerage
+  // has already submitted real numbers. For 'offered' we have zeroed
+  // placeholders and the brokerage hasn't acted yet, so we show a simpler
+  // "awaiting submission" view with the timeline of what's been done so far.
+  // ---------------------------------------------------------------------------
+  if (deal.status === 'offered') {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+                <div className="w-px h-6 bg-border" />
+                <button
+                  onClick={() => router.push('/agent')}
+                  className="flex items-center gap-1.5 text-sm transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  <ArrowLeft size={16} />
+                  <span className="hidden sm:inline">Back</span>
+                </button>
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className={`inline-flex px-2.5 py-1 text-xs sm:text-sm font-semibold rounded-lg ${statusBadgeClass('offered')}`}>
+                  Offered
+                </span>
+                <SignOutModal onConfirm={handleLogout} />
+              </div>
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-bold text-foreground leading-tight">{deal.property_address}</h1>
+              <p className="text-xs mt-0.5 text-muted-foreground">Accepted {formatDateTime(deal.created_at)}</p>
+            </div>
+          </div>
+        </header>
+
+        <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <Card className="mb-6 border-primary/30">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 size={20} className="text-primary shrink-0 mt-0.5" />
+                <div>
+                  <h2 className="text-base font-bold text-foreground">Your brokerage has been notified</h2>
+                  <p className="text-sm mt-1 text-muted-foreground">
+                    We sent your brokerage the details and asked them to submit your advance request. They handle the paperwork (commission split, trade record, supporting docs) and click submit. You don&apos;t need to do anything else.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground/70">
+                Offer details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-6 pb-6 pt-0 space-y-3">
+              <div className="flex items-start gap-3">
+                <MapPin size={16} className="text-muted-foreground shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Property</p>
+                  <p className="text-sm font-medium text-foreground">{deal.property_address}</p>
+                </div>
+              </div>
+              {deal.closing_date && (
+                <div className="flex items-start gap-3">
+                  <CalendarClock size={16} className="text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Closing date</p>
+                    <p className="text-sm font-medium text-foreground">{formatDate(deal.closing_date)}</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground/70">
+                What happens next
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-6 pb-6 pt-0">
+              <ol className="space-y-3 text-sm">
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">1</span>
+                  <div>
+                    <p className="font-medium text-foreground">Your brokerage submits the deal</p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">They add the commission split and trade record and click submit. Usually same day.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">2</span>
+                  <div>
+                    <p className="font-medium text-foreground">Firm Funds reviews and approves</p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">We confirm the numbers and prep your contract.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">3</span>
+                  <div>
+                    <p className="font-medium text-foreground">You get paid</p>
+                    <p className="text-xs mt-0.5 text-muted-foreground">Funds hit your account once you sign the contract.</p>
+                  </div>
+                </li>
+              </ol>
+              <p className="text-xs mt-5 text-muted-foreground">
+                If you haven&apos;t heard anything in a day, give your brokerage a quick call. We&apos;ll also nudge them automatically.
+              </p>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}

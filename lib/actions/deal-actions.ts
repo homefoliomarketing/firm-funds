@@ -356,6 +356,12 @@ export async function submitDealAsBrokerage(formData: {
   brokerageSplitPct: number
   transactionType: string
   notes?: string
+  // When set, this submission is converting an existing 'offered' deal
+  // (created by the agent accepting a firm-deal offer). We UPDATE that row
+  // in place rather than inserting a new one, so the back-link from
+  // firm_deal_events.offer_deal_id stays valid and the agent's deals list
+  // doesn't end up with two entries for the same property.
+  fromOfferDealId?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
@@ -413,41 +419,109 @@ export async function submitDealAsBrokerage(formData: {
 
     const noteText = `Submitted by brokerage admin (${profile.full_name || profile.email}) — Transaction type: ${formData.transactionType}${formData.notes?.trim() ? '\n' + formData.notes.trim() : ''}`
 
-    // Use service-role client for the INSERT — there is no RLS policy allowing
-    // brokerage_admin role to write to `deals`. Auth + ownership checks above
-    // already gate this path; we trust the verified inputs.
+    // Use service-role client for the INSERT/UPDATE — there is no RLS policy
+    // allowing brokerage_admin role to write to `deals`. Auth + ownership
+    // checks above already gate this path; we trust the verified inputs.
     // Lock the settlement window at submission so the CPA the agent signs and
     // the system's enforcement can never diverge later.
     const adminSupabase = createServiceRoleClient()
-    const { data: newDeal, error: insertError } = await adminSupabase
-      .from('deals')
-      .insert({
-        agent_id: agentData.id,
-        brokerage_id: agentData.brokerage_id,
-        status: 'under_review',
-        property_address: validation.data.propertyAddress,
-        closing_date: formData.closingDate,
-        gross_commission: formData.grossCommission,
-        brokerage_split_pct: formData.brokerageSplitPct,
-        net_commission: calc.netCommission,
-        days_until_closing: daysUntilClosing,
-        discount_fee: calc.discountFee,
-        settlement_period_fee: calc.settlementPeriodFee,
-        settlement_days_at_funding: settlementDays,
-        advance_amount: calc.advanceAmount,
-        brokerage_referral_fee: calc.brokerageReferralFee,
-        brokerage_referral_pct: referralPct,
-        amount_due_from_brokerage: calc.amountDueFromBrokerage,
-        source: 'manual_portal',
-        notes: noteText,
-        payment_status: 'not_applicable',
-      })
-      .select()
-      .single()
 
-    if (insertError) {
-      console.error('Brokerage deal insert error:', insertError.message)
-      return { success: false, error: `Failed to submit deal: ${insertError.message}` }
+    // Two paths:
+    //   - fromOfferDealId set → we are converting an existing 'offered' row.
+    //     UPDATE in place so the back-link from firm_deal_events stays valid
+    //     and the agent's deals list doesn't duplicate.
+    //   - Otherwise → INSERT a brand-new row.
+    let newDeal: { id: string } | null = null
+    if (formData.fromOfferDealId) {
+      // Validate the offered row still exists, is owned by this brokerage,
+      // is for the same agent, and hasn't already been claimed. Race window
+      // is small but real (two admins clicking at once); the .eq('status',
+      // 'offered') on the update guards against the double-submit case.
+      const { data: existing } = await adminSupabase
+        .from('deals')
+        .select('id, agent_id, brokerage_id, status')
+        .eq('id', formData.fromOfferDealId)
+        .maybeSingle()
+      if (!existing) return { success: false, error: 'Offered deal not found.' }
+      if (existing.brokerage_id !== profile.brokerage_id) {
+        return { success: false, error: 'This offer belongs to another brokerage.' }
+      }
+      if (existing.agent_id !== agentData.id) {
+        return { success: false, error: 'The offered deal is for a different agent.' }
+      }
+      if (existing.status !== 'offered') {
+        return { success: false, error: `This offer has already been ${existing.status}. Reload the page.` }
+      }
+
+      const { data: updated, error: updateError } = await adminSupabase
+        .from('deals')
+        .update({
+          status: 'under_review',
+          property_address: validation.data.propertyAddress,
+          closing_date: formData.closingDate,
+          gross_commission: formData.grossCommission,
+          brokerage_split_pct: formData.brokerageSplitPct,
+          net_commission: calc.netCommission,
+          days_until_closing: daysUntilClosing,
+          discount_fee: calc.discountFee,
+          settlement_period_fee: calc.settlementPeriodFee,
+          settlement_days_at_funding: settlementDays,
+          advance_amount: calc.advanceAmount,
+          brokerage_referral_fee: calc.brokerageReferralFee,
+          brokerage_referral_pct: referralPct,
+          amount_due_from_brokerage: calc.amountDueFromBrokerage,
+          // Keep source='firm_deal_offer' so we can attribute the deal back
+          // to the automated firm-deal pipeline; the notes capture the
+          // submitter and transaction type.
+          notes: noteText,
+          payment_status: 'not_applicable',
+        })
+        .eq('id', formData.fromOfferDealId)
+        .eq('status', 'offered')  // CAS-style guard against double-submit
+        .select('id')
+        .single()
+      if (updateError || !updated) {
+        console.error('Brokerage offer conversion error:', updateError?.message)
+        return { success: false, error: `Failed to submit deal: ${updateError?.message ?? 'no rows updated'}` }
+      }
+      newDeal = updated
+    } else {
+      const { data: inserted, error: insertError } = await adminSupabase
+        .from('deals')
+        .insert({
+          agent_id: agentData.id,
+          brokerage_id: agentData.brokerage_id,
+          status: 'under_review',
+          property_address: validation.data.propertyAddress,
+          closing_date: formData.closingDate,
+          gross_commission: formData.grossCommission,
+          brokerage_split_pct: formData.brokerageSplitPct,
+          net_commission: calc.netCommission,
+          days_until_closing: daysUntilClosing,
+          discount_fee: calc.discountFee,
+          settlement_period_fee: calc.settlementPeriodFee,
+          settlement_days_at_funding: settlementDays,
+          advance_amount: calc.advanceAmount,
+          brokerage_referral_fee: calc.brokerageReferralFee,
+          brokerage_referral_pct: referralPct,
+          amount_due_from_brokerage: calc.amountDueFromBrokerage,
+          source: 'manual_portal',
+          notes: noteText,
+          payment_status: 'not_applicable',
+        })
+        .select('id')
+        .single()
+      if (insertError || !inserted) {
+        console.error('Brokerage deal insert error:', insertError?.message)
+        return { success: false, error: `Failed to submit deal: ${insertError?.message ?? 'no rows inserted'}` }
+      }
+      newDeal = inserted
+    }
+
+    // Defensive: TypeScript can't always narrow newDeal across the if/else
+    // above. Both branches assign or return, but make it explicit.
+    if (!newDeal) {
+      return { success: false, error: 'Failed to record the deal (no row).' }
     }
 
     await logAuditEvent({

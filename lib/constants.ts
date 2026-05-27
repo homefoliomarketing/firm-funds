@@ -157,6 +157,7 @@ export const ADMIN_ROLES = [ROLES.SUPER_ADMIN, ROLES.FIRM_FUNDS_ADMIN] as const
 
 /** Deal statuses */
 export const DEAL_STATUSES = {
+  OFFERED: 'offered',
   UNDER_REVIEW: 'under_review',
   APPROVED: 'approved',
   FUNDED: 'funded',
@@ -173,6 +174,11 @@ export const DEAL_STATUSES = {
 // =============================================================================
 
 export const STATUS_BADGE_CLASSES: Record<string, string> = {
+  // 'offered' uses primary (brand green) to signal it's an opportunity in
+  // motion, distinct from 'under_review' which is the brokerage-submitted
+  // pending state. Same primary tone as the offer banner for visual
+  // continuity.
+  offered:         'bg-primary/10 text-primary border border-primary/30',
   under_review:    'bg-status-blue-muted text-status-blue border border-status-blue-border',
   approved:        'bg-status-green-muted text-status-green border border-status-green-border',
   funded:          'bg-status-purple-muted text-status-purple border border-status-purple-border',
