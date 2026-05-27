@@ -23,6 +23,12 @@ const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const API_CSRF_EXEMPT_EXACT = new Set<string>([
   // DocuSign Connect — HMAC-SHA256 verified in the route handler
   '/api/docusign/webhook',
+  // RFC 8058 one-click unsubscribe — Gmail / iCloud / Yahoo POST here
+  // without an Origin header on behalf of the recipient. The token in the
+  // request body IS the authentication; the worst an attacker who replays
+  // a recorded URL can do is unsubscribe the recipient (then they can
+  // resubscribe via the same link). See app/api/unsubscribe/route.ts.
+  '/api/unsubscribe',
 ])
 const API_CSRF_EXEMPT_PREFIX = [
   // Netlify-scheduled cron jobs — Bearer CRON_SECRET in handler
@@ -106,6 +112,12 @@ export async function middleware(request: NextRequest) {
     // bounces them into the dashboard signed in. The token in the URL is the
     // authentication. See app/agent/firm-deal/[token]/route.ts.
     '/agent/firm-deal',
+    // CASL unsubscribe surface. The token in ?token=… is the authentication;
+    // recipients may not have a Firm Funds account at all. Both the human
+    // landing page and the one-click RFC 8058 POST endpoint must be reachable
+    // without a session.
+    '/unsubscribe',
+    '/api/unsubscribe',
   ]
   const isPublic =
     PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/')) ||
@@ -186,7 +198,12 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone()
       const redirectParam = request.nextUrl.searchParams.get('redirect')
 
-      // If there's a redirect URL, validate it matches the user's role prefix
+      // If there's a redirect URL, validate it matches the user's role prefix.
+      // Parse via URL so we can compare ORIGIN explicitly (protecting against
+      // open-redirect via a full URL like `https://evil.example/admin/...`)
+      // and check the PATHNAME only (so `/agent-evil` doesn't pass a startsWith
+      // for `/agent`, and so a `?...=/admin` query string can't satisfy the
+      // prefix check). Same-origin + trailing-slash boundary is required.
       if (redirectParam) {
         const roleRoutes: Record<string, string> = {
           agent: '/agent',
@@ -195,11 +212,27 @@ export async function middleware(request: NextRequest) {
           super_admin: '/admin',
         }
         const allowedPrefix = roleRoutes[profile.role] || '/agent'
-        if (redirectParam.startsWith(allowedPrefix)) {
-          url.pathname = redirectParam
-          url.searchParams.delete('redirect')
-          return NextResponse.redirect(url)
+        let parsedRedirect: URL | null = null
+        try {
+          parsedRedirect = new URL(redirectParam, request.url)
+        } catch {
+          parsedRedirect = null
         }
+        const isSameOrigin =
+          !!parsedRedirect && parsedRedirect.origin === request.nextUrl.origin
+        const pathMatchesRole =
+          !!parsedRedirect &&
+          (parsedRedirect.pathname === allowedPrefix ||
+            parsedRedirect.pathname.startsWith(allowedPrefix + '/'))
+        if (parsedRedirect && isSameOrigin && pathMatchesRole) {
+          return NextResponse.redirect(
+            new URL(
+              parsedRedirect.pathname + parsedRedirect.search,
+              request.url
+            )
+          )
+        }
+        // Otherwise fall through to the default role-based redirect below.
       }
 
       switch (profile.role) {

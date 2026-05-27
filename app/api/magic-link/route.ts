@@ -157,7 +157,9 @@ export async function PUT(request: Request) {
       .update({ must_reset_password: false })
       .eq('id', tokenRecord.user_id)
 
-    // Audit log
+    // Audit log. Include invite_token_id + short token prefix so forensics
+    // can correlate this password-set event back to the specific invite
+    // token that was redeemed (the token itself is never logged).
     void serviceClient.from('audit_log').insert({
       user_id: tokenRecord.user_id,
       action: 'user.password_set_via_invite',
@@ -166,7 +168,13 @@ export async function PUT(request: Request) {
       severity: 'info',
       actor_email: tokenRecord.email,
       actor_role: 'agent',
-      metadata: { email: tokenRecord.email, agent_id: tokenRecord.agent_id },
+      metadata: {
+        email: tokenRecord.email,
+        agent_id: tokenRecord.agent_id,
+        invite_token_id: tokenRecord.id,
+        invite_token_prefix: typeof token === 'string' ? token.slice(0, 8) : null,
+        actor_kind: 'magic_link_token',
+      },
     })
 
     return NextResponse.json({ success: true })

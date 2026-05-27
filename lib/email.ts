@@ -1,4 +1,7 @@
 import { Resend } from 'resend'
+import { randomBytes } from 'crypto'
+import { createServiceRoleClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // ============================================================================
 // Resend client (lazy singleton)
@@ -22,6 +25,246 @@ function getResend(): Resend | null {
     resendClient = new Resend(process.env.RESEND_API_KEY)
   }
   return resendClient
+}
+
+// ============================================================================
+// CASL / RFC 8058 — Unsubscribe infrastructure
+// ============================================================================
+// Every promotional / notification-class email needs:
+//   1. List-Unsubscribe header pointing to a URL the recipient can hit.
+//   2. List-Unsubscribe-Post: List-Unsubscribe=One-Click (RFC 8058) so
+//      Gmail / iCloud / Yahoo render a one-click "Unsubscribe" button.
+//   3. A visible unsubscribe link in the body (Canadian CASL requirement).
+//
+// We also respect the recipient's preference flag (agents.email_notifications_enabled
+// / brokerages.email_notifications_enabled, migration 092) BEFORE actually
+// sending. If false, the wrapper logs a skip and returns without calling
+// Resend.
+//
+// Migration 092 also adds the email_unsubscribe_tokens table (entity_type,
+// entity_id, token). We mint tokens lazily — one per entity, reused across
+// every send to that entity — so a recipient who unsubscribes from any
+// previous email gets unsubscribed for all future ones via the same token.
+
+type UnsubscribeEntityType = 'agent' | 'brokerage'
+
+/**
+ * Fetch or mint a stable unsubscribe token for an entity. Idempotent: the
+ * same agent/brokerage always gets the same token across email sends, so a
+ * recipient who saves an unsubscribe link from any past email can still use
+ * it. Uses a 32-byte hex token (64 chars) — long enough to be unguessable
+ * but short enough to fit in a URL without wrapping in clients.
+ */
+async function getUnsubscribeToken(
+  serviceClient: SupabaseClient,
+  entityType: UnsubscribeEntityType,
+  entityId: string
+): Promise<string | null> {
+  try {
+    const { data: existing, error: selErr } = await serviceClient
+      .from('email_unsubscribe_tokens')
+      .select('token')
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId)
+      .maybeSingle()
+    if (selErr) {
+      // Surface the error but don't block the send — better to ship the
+      // email with the generic /unsubscribe footer than to drop it.
+      console.error('[email] unsubscribe token lookup failed:', selErr.message)
+    }
+    if (existing?.token) return existing.token
+
+    const newToken = randomBytes(32).toString('hex')
+    const { error: insErr } = await serviceClient
+      .from('email_unsubscribe_tokens')
+      .insert({
+        token: newToken,
+        entity_type: entityType,
+        entity_id: entityId,
+      })
+    if (insErr) {
+      // Probable race: another concurrent send minted a token a millisecond
+      // earlier. Re-select and return that one. If THAT also fails, give up
+      // and let the caller fall back to the generic unsubscribe URL.
+      const { data: reSelected } = await serviceClient
+        .from('email_unsubscribe_tokens')
+        .select('token')
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId)
+        .maybeSingle()
+      return reSelected?.token ?? null
+    }
+    return newToken
+  } catch (err) {
+    console.error('[email] unsubscribe token mint threw:', err)
+    return null
+  }
+}
+
+/**
+ * Check whether emails to this entity are currently enabled (migration 092).
+ * Returns true if the recipient has not unsubscribed; false if they have.
+ * On lookup error returns true (fail-open) — a transient DB blip should NOT
+ * mute production transactional notifications.
+ */
+async function isEmailEnabledForEntity(
+  serviceClient: SupabaseClient,
+  entityType: UnsubscribeEntityType,
+  entityId: string
+): Promise<boolean> {
+  try {
+    const table = entityType === 'agent' ? 'agents' : 'brokerages'
+    const { data, error } = await serviceClient
+      .from(table)
+      .select('email_notifications_enabled')
+      .eq('id', entityId)
+      .maybeSingle()
+    if (error) {
+      console.error(
+        `[email] preference lookup failed for ${entityType}/${entityId}:`,
+        error.message
+      )
+      return true
+    }
+    // If the row doesn't exist OR the column is somehow null (pre-migration),
+    // default to enabled. The migration is NOT NULL DEFAULT true so this is
+    // only a defensive guard.
+    if (!data) return true
+    const enabled = (data as { email_notifications_enabled?: boolean | null })
+      .email_notifications_enabled
+    if (enabled === null || enabled === undefined) return true
+    return enabled !== false
+  } catch (err) {
+    console.error('[email] preference lookup threw:', err)
+    return true
+  }
+}
+
+/**
+ * Build the CASL footer block + List-Unsubscribe headers. Splits the URL
+ * construction so we can reuse the same URL in both the header and the body
+ * (must match exactly for one-click clients).
+ */
+function buildUnsubscribeFooter(unsubscribeUrl: string, isTransactional: boolean): string {
+  if (isTransactional) {
+    // For mandatory account/security emails (password reset, email change
+    // confirmation, etc.) the footer points at the unsubscribe page which
+    // explains they cannot opt out of this class of email. The link is kept
+    // for CASL — recipients need an obvious "manage notifications" target.
+    return `
+      <hr style="border:none; border-top:1px solid #2a2a2a; margin:24px 0;" />
+      <p style="font-size:12px; color:#888; line-height:1.5;">
+        This is an account / security email from Firm Funds. <a href="${unsubscribeUrl}" style="color:#5FA873;">Manage notification preferences</a>.
+      </p>`
+  }
+  return `
+    <hr style="border:none; border-top:1px solid #2a2a2a; margin:24px 0;" />
+    <p style="font-size:12px; color:#888; line-height:1.5;">
+      You're receiving this email from Firm Funds. <a href="${unsubscribeUrl}" style="color:#5FA873;">Unsubscribe</a> or manage notifications. Firm Funds Inc., Ontario, Canada.
+    </p>`
+}
+
+interface SendEmailOpts {
+  to: string
+  subject: string
+  html: string
+  /** Optional Resend reply-to override (defaults to FROM_ADDRESS). */
+  replyTo?: string
+  /**
+   * If provided, the wrapper will:
+   *   1. Skip the send entirely when this entity has unsubscribed.
+   *   2. Mint/fetch an unsubscribe token bound to this entity so the
+   *      List-Unsubscribe URL and the body footer link route to it.
+   * Omit for emails to addresses that are not tied to an entity row in our
+   * DB (admin/ops/Firm Funds internal escalation emails). Those still get a
+   * generic /unsubscribe footer but no preference check.
+   */
+  entityType?: UnsubscribeEntityType
+  entityId?: string
+  /**
+   * Account/security/legal emails that the recipient cannot opt out of:
+   * password resets, email-change confirmations, BoR documents, KYC
+   * approvals, contact-email change warnings. These STILL include a
+   * List-Unsubscribe header (mailbox providers expect one on any
+   * notification-class email) but the preference flag is bypassed and the
+   * body footer wording reflects the email's mandatory nature.
+   */
+  transactional?: boolean
+}
+
+/**
+ * Resend wrapper that adds CASL footer + List-Unsubscribe headers and
+ * respects the recipient's notification preference. Returns the Resend
+ * response when sent, or null when the send was skipped or failed (errors
+ * are logged, never thrown — the original sendXxx helpers had identical
+ * fail-soft semantics so callers don't need to change).
+ */
+async function sendEmailWithUnsubscribe(opts: SendEmailOpts): Promise<unknown> {
+  const resend = getResend()
+  if (!resend) return null
+
+  // Build the unsubscribe URL. If we have an entity, mint/fetch a per-entity
+  // token; otherwise use the generic landing page (which renders "this is a
+  // transactional email — you can't unsubscribe").
+  let unsubscribeUrl = `${APP_URL}/unsubscribe`
+  let serviceClient: SupabaseClient | null = null
+  if (opts.entityType && opts.entityId) {
+    try {
+      serviceClient = createServiceRoleClient()
+    } catch (err) {
+      console.error('[email] service-role client unavailable:', err)
+    }
+    if (serviceClient) {
+      // Preference check — skip non-transactional sends when the recipient
+      // has unsubscribed. Transactional sends (account/security) bypass.
+      if (!opts.transactional) {
+        const enabled = await isEmailEnabledForEntity(
+          serviceClient,
+          opts.entityType,
+          opts.entityId
+        )
+        if (!enabled) {
+          console.log(
+            `[email] skipped per recipient preference (${opts.entityType}/${opts.entityId}, subject="${opts.subject}")`
+          )
+          return null
+        }
+      }
+      const token = await getUnsubscribeToken(
+        serviceClient,
+        opts.entityType,
+        opts.entityId
+      )
+      if (token) {
+        unsubscribeUrl = `${APP_URL}/unsubscribe?token=${token}`
+      }
+    }
+  }
+
+  const footer = buildUnsubscribeFooter(unsubscribeUrl, !!opts.transactional)
+
+  try {
+    const payload: Parameters<typeof resend.emails.send>[0] = {
+      from: FROM_ADDRESS,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html + footer,
+      headers: {
+        'List-Unsubscribe': `<${unsubscribeUrl}>`,
+        // RFC 8058 — Gmail / iCloud render a one-click button. Without the
+        // -Post header they fall back to the mailto/URL but won't show the
+        // big "Unsubscribe" affordance.
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    }
+    if (opts.replyTo) {
+      ;(payload as { replyTo?: string }).replyTo = opts.replyTo
+    }
+    return await resend.emails.send(payload)
+  } catch (err) {
+    console.error(`[email] send failed (subject="${opts.subject}"):`, err)
+    return null
+  }
 }
 
 // ============================================================================
@@ -159,15 +402,15 @@ export async function sendNewDealNotification(params: {
   agentName: string
   brokerageName: string
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`New Deal Submitted — ${params.propertyAddress}`),
-      html: wrap(`
+  // Admin-targeted internal notification — no entity preference check, but
+  // we still include a List-Unsubscribe header pointing at the generic
+  // unsubscribe surface (mailbox providers expect one on notification-class
+  // mail) and an "account email" footer in the body.
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`New Deal Submitted — ${params.propertyAddress}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Deal Submitted</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           A new commission advance request has been submitted and is awaiting your review.
@@ -200,10 +443,7 @@ export async function sendNewDealNotification(params: {
           Review Deal
         </a>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send new deal notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -218,16 +458,15 @@ export async function sendBrokerageAdminNewDealNotification(params: {
   brokerageAdminEmail: string
   brokerageAdminFirstName: string
   brokerageName: string
+  /** Pass-through to enable per-brokerage unsubscribe handling (migration 092). */
+  brokerageId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.brokerageAdminEmail,
-      subject: sanitizeSubject(`New Advance Request — ${params.agentName} — ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.brokerageAdminEmail,
+    subject: sanitizeSubject(`New Advance Request — ${params.agentName} — ${params.propertyAddress}`),
+    entityType: params.brokerageId ? 'brokerage' : undefined,
+    entityId: params.brokerageId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Advance Request</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi ${escapeHtml(params.brokerageAdminFirstName ?? '')}, one of your agents has submitted a commission advance request through Firm Funds.
@@ -259,10 +498,7 @@ export async function sendBrokerageAdminNewDealNotification(params: {
           View Brokerage Dashboard
         </a>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send brokerage admin new deal notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -277,10 +513,9 @@ export async function sendStatusChangeNotification(params: {
   agentEmail: string
   agentFirstName: string
   denialReason?: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const color = statusColor(params.newStatus)
   const label = statusLabel(params.newStatus)
 
@@ -305,20 +540,20 @@ export async function sendStatusChangeNotification(params: {
       </div>`
   }
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(
-        params.newStatus === 'approved'
-          ? `Good News — Your Advance for ${params.propertyAddress} is Approved!`
-          : params.newStatus === 'funded'
-          ? `Funds on the Way — ${params.propertyAddress}`
-          : params.newStatus === 'denied'
-          ? `Advance Update — ${params.propertyAddress}`
-          : `Deal Update: ${params.propertyAddress} — ${label}`
-      ),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(
+      params.newStatus === 'approved'
+        ? `Good News — Your Advance for ${params.propertyAddress} is Approved!`
+        : params.newStatus === 'funded'
+        ? `Funds on the Way — ${params.propertyAddress}`
+        : params.newStatus === 'denied'
+        ? `Advance Update — ${params.propertyAddress}`
+        : `Deal Update: ${params.propertyAddress} — ${label}`
+    ),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Deal Status Updated</h2>
         <p style="margin:0 0 20px; color:#999;">
           Hi ${escapeHtml(params.agentFirstName ?? '')}, the status of your deal has been updated.
@@ -348,10 +583,7 @@ export async function sendStatusChangeNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send status change notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -365,22 +597,21 @@ export async function sendDocumentRequestNotification(params: {
   agentEmail: string
   agentFirstName: string
   message?: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const messageBlock = params.message
     ? `<div style="margin:16px 0 0; padding:12px 16px; background:#1E1E1E; border-left:3px solid #5FA873; border-radius:0 10px 10px 0; border:1px solid #2A2A2A; border-left:3px solid #5FA873;">
         <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.message)}</p>
        </div>`
     : ''
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Document Requested — ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Document Requested — ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Requested</h2>
         <p style="margin:0 0 20px; color:#999;">
           Hi ${escapeHtml(params.agentFirstName ?? '')}, Firm Funds has requested a document for your deal.
@@ -408,10 +639,7 @@ export async function sendDocumentRequestNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send document request notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -431,21 +659,24 @@ export async function sendAgentInviteNotification(params: {
   brokerageName: string
   brokerageLogoUrl?: string | null
   inviteToken: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const branding: BrokerageBranding | null = params.brokerageLogoUrl
     ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
     : null
 
   const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Welcome to ${params.brokerageName} — Set Up Your Account`),
-      html: wrap(`
+  // Account-setup email — recipient cannot unsubscribe from being invited.
+  // Marked transactional so we include the List-Unsubscribe header (mailbox
+  // providers expect one) but bypass the preference check.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Welcome to ${params.brokerageName} — Set Up Your Account`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to ${escapeHtml(params.brokerageName)}!</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf — powered by Firm Funds.
@@ -478,10 +709,7 @@ export async function sendAgentInviteNotification(params: {
           <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
         </p>
       `, branding),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send agent invite notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -497,9 +725,6 @@ export async function sendDocumentUploadedNotification(params: {
   uploaderRole: string
   uploaderName: string
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   // Build escaped uploader name once; role labels are server-controlled so safe.
   const safeUploaderName = escapeHtml(params.uploaderName ?? '')
 
@@ -519,12 +744,12 @@ export async function sendDocumentUploadedNotification(params: {
     uploadedByLabel += ' (Brokerage Admin)'
   }
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`Document Uploaded — ${params.propertyAddress}`),
-      html: wrap(`
+  // Internal admin notification — transactional (admin cannot unsubscribe).
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Document Uploaded — ${params.propertyAddress}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Uploaded</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           ${uploadedByText}
@@ -557,10 +782,7 @@ export async function sendDocumentUploadedNotification(params: {
           Review Deal
         </a>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send document uploaded notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -571,9 +793,6 @@ export async function sendClosingDateAlertDigest(params: {
   approachingDeals: { id: string; property_address: string; closing_date: string; days_until_closing: number; advance_amount: number; agent_name: string; status: string }[]
   overdueDeals: { id: string; property_address: string; closing_date: string; days_overdue: number; advance_amount: number; agent_name: string; status: string }[]
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   if (params.approachingDeals.length === 0 && params.overdueDeals.length === 0) return
 
   const overdueRows = params.overdueDeals.map(d => `
@@ -632,16 +851,13 @@ export async function sendClosingDateAlertDigest(params: {
       Open Dashboard
     </a>`
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`Closing Date Alert — ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`),
-      html: wrap(body),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send closing date alert digest:', err)
-  }
+  // Internal admin digest — transactional (admin cannot unsubscribe).
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Closing Date Alert — ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`),
+    transactional: true,
+    html: wrap(body),
+  })
 }
 
 // ============================================================================
@@ -653,10 +869,9 @@ export async function sendKycMobileUploadLink(params: {
   agentFirstName: string
   uploadUrl: string
   expiresInMinutes: number
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }) {
-  const resend = getResend()
-  if (!resend) return
-
   const body = `
     <h2 style="margin:0 0 16px; color:#fff; font-size:20px;">Upload Your ID</h2>
     <p>Hi ${escapeHtml(params.agentFirstName ?? '')},</p>
@@ -669,16 +884,16 @@ export async function sendKycMobileUploadLink(params: {
     <p style="color:#737373; font-size:13px;">This link expires in ${params.expiresInMinutes} minutes and can only be used once.</p>
     <p style="color:#737373; font-size:13px;">If you didn't request this, you can safely ignore this email.</p>`
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject('Firm Funds — Upload Your ID From Your Phone'),
-      html: wrap(body),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send KYC mobile upload link:', err)
-  }
+  // KYC/identity verification is a regulatory/legal email — transactional so
+  // it bypasses the recipient's preference flag.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject('Firm Funds — Upload Your ID From Your Phone'),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    html: wrap(body),
+  })
 }
 
 // ============================================================================
@@ -688,16 +903,17 @@ export async function sendKycMobileUploadLink(params: {
 export async function sendKycApprovedNotification(params: {
   agentEmail: string
   agentFirstName: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`You're Verified — Start Submitting Advances on Firm Funds!`),
-      html: wrap(`
+  // KYC approval is a regulatory/legal notice — transactional.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`You're Verified — Start Submitting Advances on Firm Funds!`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    html: wrap(`
         <div style="text-align:center; padding:12px 0 24px;">
           <div style="display:inline-block; width:56px; height:56px; border-radius:50%; background:#0D2818; border:2px solid #1A4D2E; line-height:56px; font-size:28px;">✓</div>
         </div>
@@ -717,10 +933,7 @@ export async function sendKycApprovedNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send KYC approved notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -735,16 +948,15 @@ export async function sendDocumentReturnNotification(params: {
   documentName: string
   documentType: string
   reason: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Action Required — Document Returned for ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Action Required — Document Returned for ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#F87171; font-size:20px;">Document Returned</h2>
         <p style="margin:0 0 20px; color:#999;">
           Hi ${escapeHtml(params.agentFirstName ?? '')}, a document for your deal has been returned and needs attention. This may cause delays in processing your advance.
@@ -775,10 +987,7 @@ export async function sendDocumentReturnNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send document return notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -792,17 +1001,16 @@ export async function sendDealMessageNotification(params: {
   agentFirstName: string
   message: string
   senderName: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      replyTo: 'support@firmfunds.ca',
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Message from Firm Funds — ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    replyTo: 'support@firmfunds.ca',
+    subject: sanitizeSubject(`Message from Firm Funds — ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Message</h2>
         <p style="margin:0 0 20px; color:#999;">
           Hi ${escapeHtml(params.agentFirstName)}, you have a new message regarding your deal.
@@ -826,10 +1034,7 @@ export async function sendDealMessageNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send deal message notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -843,10 +1048,9 @@ export async function sendInvoiceNotification(params: {
   amount: number
   dueDate: string
   lineItems: { description: string; amount: number; date: string }[]
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const formatMoney = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n)
   const formatDateStr = (d: string) => new Date(d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
 
@@ -857,12 +1061,15 @@ export async function sendInvoiceNotification(params: {
     </tr>
   `).join('')
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`),
-      html: wrap(`
+  // Invoices are billing/legal documents — transactional, must bypass the
+  // recipient's promotional opt-out.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#D4A04A; font-size:20px;">Invoice ${escapeHtml(params.invoiceNumber ?? '')}</h2>
         <p style="margin:0 0 20px; color:#999;">
           Hi ${escapeHtml(params.agentName ?? '')}, please find your invoice below for outstanding charges on your Firm Funds account.
@@ -909,10 +1116,7 @@ export async function sendInvoiceNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send invoice notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -925,15 +1129,12 @@ export async function sendBrokerageMessageNotification(params: {
   senderName: string
   message: string
 }) {
-  try {
-    const resend = getResend()
-    if (!resend) return
-
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`Brokerage message: ${params.propertyAddress}`),
-      html: wrap(`
+  // Internal admin notification — transactional.
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Brokerage message: ${params.propertyAddress}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">New Message from Brokerage</h2>
         <p style="margin:0 0 8px; color:#E5E5E5;">${escapeHtml(params.senderName)} sent a message about <strong>${escapeHtml(params.propertyAddress)}</strong>:</p>
         <div style="margin:16px 0; padding:16px; background:#1A1A1A; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
@@ -945,10 +1146,7 @@ export async function sendBrokerageMessageNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send brokerage message notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -962,36 +1160,35 @@ export async function sendBrokerageStatusNotification(params: {
   agentName: string
   newStatus: string
   dealId: string
+  /** Pass-through for per-brokerage unsubscribe handling (migration 092). */
+  brokerageId?: string | null
 }) {
-  try {
-    const resend = getResend()
-    if (!resend) return
+  const statusLabels: Record<string, string> = {
+    under_review: 'Under Review',
+    approved: 'Approved',
+    funded: 'Funded',
+    completed: 'Completed',
+    denied: 'Denied',
+    cancelled: 'Cancelled',
+  }
+  const statusColors: Record<string, string> = {
+    under_review: '#D4A04A',
+    approved: '#5FA873',
+    funded: '#1A7A2E',
+    completed: '#5FB8A0',
+    denied: '#EF4444',
+    cancelled: '#9CA3AF',
+  }
 
-    const statusLabels: Record<string, string> = {
-      under_review: 'Under Review',
-      approved: 'Approved',
-      funded: 'Funded',
-      completed: 'Completed',
-      denied: 'Denied',
-      cancelled: 'Cancelled',
-    }
-    const statusColors: Record<string, string> = {
-      under_review: '#D4A04A',
-      approved: '#5FA873',
-      funded: '#1A7A2E',
-      completed: '#5FB8A0',
-      denied: '#EF4444',
-      cancelled: '#9CA3AF',
-    }
+  const label = statusLabels[params.newStatus] || params.newStatus
+  const color = statusColors[params.newStatus] || '#D4A04A'
 
-    const label = statusLabels[params.newStatus] || params.newStatus
-    const color = statusColors[params.newStatus] || '#D4A04A'
-
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.brokerageEmail,
-      subject: sanitizeSubject(`Deal ${label}: ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.brokerageEmail,
+    subject: sanitizeSubject(`Deal ${label}: ${params.propertyAddress}`),
+    entityType: params.brokerageId ? 'brokerage' : undefined,
+    entityId: params.brokerageId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">Deal Status Update</h2>
         <p style="margin:0 0 16px; color:#E5E5E5;">A deal submitted by one of your agents has been updated.</p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
@@ -1022,10 +1219,7 @@ export async function sendBrokerageStatusNotification(params: {
           </a>
         </div>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send brokerage status notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1037,18 +1231,20 @@ export async function sendBrokerageInviteNotification(params: {
   adminEmail: string
   brokerageName: string
   inviteToken: string
+  /** Pass-through for per-brokerage unsubscribe handling (migration 092). */
+  brokerageId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.adminEmail,
-      subject: sanitizeSubject(`Welcome to Firm Funds — Set Up Your Brokerage Portal`),
-      html: wrap(`
+  // Account-setup email — transactional, recipient cannot opt out of getting
+  // invited.
+  await sendEmailWithUnsubscribe({
+    to: params.adminEmail,
+    subject: sanitizeSubject(`Welcome to Firm Funds — Set Up Your Brokerage Portal`),
+    entityType: params.brokerageId ? 'brokerage' : undefined,
+    entityId: params.brokerageId ?? undefined,
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to Firm Funds!</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi ${escapeHtml(params.adminName ?? '')}, your Firm Funds Brokerage Portal account has been created for <strong>${escapeHtml(params.brokerageName ?? '')}</strong>. You can now manage your agents' commission advance activity online.
@@ -1081,10 +1277,7 @@ export async function sendBrokerageInviteNotification(params: {
           <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send brokerage invite notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1097,17 +1290,16 @@ export async function sendPasswordResetNotification(params: {
   inviteToken: string
   roleName: string // e.g. "Agent" or "Brokerage Admin"
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const resetUrl = `${APP_URL}/invite/${params.inviteToken}`
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.recipientEmail,
-      subject: sanitizeSubject(`Firm Funds — Password Reset`),
-      html: wrap(`
+  // Password resets are security-critical — transactional. We do not attach
+  // an entity here because the same reset flow services both agents and
+  // brokerage admins and the caller doesn't necessarily know which.
+  await sendEmailWithUnsubscribe({
+    to: params.recipientEmail,
+    subject: sanitizeSubject(`Firm Funds — Password Reset`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Password Reset</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi ${escapeHtml(params.recipientName ?? '')}, a Firm Funds administrator has reset your password. Please click the button below to set a new password.
@@ -1124,10 +1316,7 @@ export async function sendPasswordResetNotification(params: {
           <a href="${resetUrl}" style="color:#5FA873; word-break:break-all;">${resetUrl}</a>
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send password reset notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1139,16 +1328,13 @@ export async function sendEmailChangeNotification(params: {
   oldEmail: string
   newEmail: string
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    // Notify old email
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.oldEmail,
-      subject: sanitizeSubject(`Firm Funds — Your Login Email Has Been Changed`),
-      html: wrap(`
+  // Security notification to the OLD email — transactional, no preference
+  // check (we never want to suppress a "your account changed" warning).
+  await sendEmailWithUnsubscribe({
+    to: params.oldEmail,
+    subject: sanitizeSubject(`Firm Funds — Your Login Email Has Been Changed`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Email Address Changed</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi ${escapeHtml(params.recipientName ?? '')}, your Firm Funds login email has been changed by an administrator.
@@ -1173,10 +1359,7 @@ export async function sendEmailChangeNotification(params: {
           Please use your new email address to log in going forward. If you did not expect this change, contact Firm Funds immediately.
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send email change notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1195,18 +1378,16 @@ export async function sendAgentPhoneChangedNotification(params: {
   newPhoneLast4: string | null
   changedAtIso: string
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const oldDisplay = params.oldPhoneLast4 ? `*** *** ${params.oldPhoneLast4}` : 'not on file'
   const newDisplay = params.newPhoneLast4 ? `*** *** ${params.newPhoneLast4}` : 'cleared'
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.recipientEmail,
-      subject: sanitizeSubject('Your Firm Funds phone number was updated'),
-      html: wrap(`
+  // Security warning — transactional. Recipient must NOT be able to silence
+  // these by unsubscribing.
+  await sendEmailWithUnsubscribe({
+    to: params.recipientEmail,
+    subject: sanitizeSubject('Your Firm Funds phone number was updated'),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Phone Number Updated</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi ${escapeHtml(params.recipientName)}, the phone number on your Firm Funds agent profile was just updated.
@@ -1235,10 +1416,7 @@ export async function sendAgentPhoneChangedNotification(params: {
           If you didn't make this change, sign in, reset your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your session may be compromised.
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send phone-changed notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1256,17 +1434,16 @@ export async function sendBrokerageContactEmailConfirm(params: {
   confirmUrl: string
   expiresAtIso: string
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const expiresLabel = new Date(params.expiresAtIso).toUTCString()
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.newEmail,
-      subject: sanitizeSubject(`Confirm new contact email for ${params.brokerageName}`),
-      html: wrap(`
+  // Email address change confirmation — transactional. Note we do NOT mint a
+  // brokerage unsubscribe token here because the recipient may not yet be
+  // the brokerage's confirmed contact.
+  await sendEmailWithUnsubscribe({
+    to: params.newEmail,
+    subject: sanitizeSubject(`Confirm new contact email for ${params.brokerageName}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Confirm Your Email</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           A Firm Funds administrator at <strong>${escapeHtml(params.brokerageName)}</strong> requested that this address (${escapeHtml(params.newEmail)}) become the brokerage's primary contact email.
@@ -1285,10 +1462,7 @@ export async function sendBrokerageContactEmailConfirm(params: {
           If you didn't request this change, simply ignore this email. The brokerage's contact address will remain unchanged.
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send brokerage contact email confirm:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1305,17 +1479,14 @@ export async function sendBrokerageContactEmailChangeRequested(params: {
   newEmail: string
   expiresAtIso: string
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const expiresLabel = new Date(params.expiresAtIso).toUTCString()
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.oldEmail,
-      subject: sanitizeSubject(`Contact email change requested for ${params.brokerageName}`),
-      html: wrap(`
+  // Security warning to the OLD email — transactional, no preference check.
+  await sendEmailWithUnsubscribe({
+    to: params.oldEmail,
+    subject: sanitizeSubject(`Contact email change requested for ${params.brokerageName}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Contact Email Change Requested</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
           Hi, a request was made to change the contact email for <strong>${escapeHtml(params.brokerageName)}</strong>.
@@ -1347,10 +1518,7 @@ export async function sendBrokerageContactEmailChangeRequested(params: {
           If you didn't request this change, sign in immediately, change your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your administrator session may be compromised.
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send brokerage contact email change-requested:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1361,15 +1529,12 @@ export async function sendBankingSubmittedNotification(params: {
   agentName: string
   agentEmail: string
 }) {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`Banking Info Submitted — ${params.agentName}`),
-      html: wrap(`
+  // Internal admin notification — transactional.
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Banking Info Submitted — ${params.agentName}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
           Banking Info Submitted
         </h2>
@@ -1386,10 +1551,7 @@ export async function sendBankingSubmittedNotification(params: {
           </tr>
         </table>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send banking submitted notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1401,17 +1563,15 @@ export async function sendBankingApprovalNotification(params: {
   agentName: string
   approved: boolean
   reason?: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }) {
-  const resend = getResend()
-  if (!resend) return
+  const subject = params.approved
+    ? 'Banking Info Approved'
+    : 'Banking Info — Action Required'
 
-  try {
-    const subject = params.approved
-      ? 'Banking Info Approved'
-      : 'Banking Info — Action Required'
-
-    const body = params.approved
-      ? `
+  const body = params.approved
+    ? `
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em; font-weight:600;">
           Banking Info Approved
         </h2>
@@ -1450,15 +1610,15 @@ export async function sendBankingApprovalNotification(params: {
         </table>
       `
 
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(subject),
-      html: wrap(body),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send banking approval notification:', err)
-  }
+  // Banking approval/rejection is an account-status notice — transactional.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(subject),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    html: wrap(body),
+  })
 }
 
 // ============================================================================
@@ -1471,15 +1631,12 @@ export async function sendAgentMessageNotification(params: {
   agentName: string
   message: string
 }) {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`Message from ${params.agentName} — ${params.propertyAddress}`),
-      html: wrap(`
+  // Internal admin notification — transactional.
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Message from ${params.agentName} — ${params.propertyAddress}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
           New Message from Agent
         </h2>
@@ -1503,10 +1660,7 @@ export async function sendAgentMessageNotification(params: {
           </tr>
         </table>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send agent message notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1524,6 +1678,9 @@ interface SettlementReminderParams {
   dueDate: string // YYYY-MM-DD
   amountDueFromBrokerage: number
   daysRemaining: number // 14, 7, or 3
+  /** Pass-through for per-entity unsubscribe handling (migration 092). */
+  agentId?: string | null
+  brokerageId?: string | null
 }
 
 function formatReminderDate(dateStr: string): string {
@@ -1538,9 +1695,6 @@ function formatReminderCurrency(amount: number): string {
 
 /** Closing day reminder — "Deal closed! Brokerage has the settlement window to remit payment." */
 export async function sendSettlementReminderClosingDay(params: SettlementReminderParams) {
-  const resend = getResend()
-  if (!resend) return
-
   const agentBody = wrap(`
     <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
       Closing Day — Payment Reminder
@@ -1573,26 +1727,24 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
     </table>
   `)
 
-  try {
-    // Send to agent
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
-      html: agentBody,
-    })
-  } catch (err) {
-    console.error('[email] Failed to send closing day reminder to agent:', err)
-  }
+  // Send to agent. Promotional-class reminder — entity preference is
+  // honoured. If the agent has unsubscribed they won't get the nag.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: agentBody,
+  })
 
-  // Send to brokerage
+  // Send to brokerage (when a primary contact email is on file).
   if (params.brokerageEmail) {
-    try {
-      await resend.emails.send({
-        from: FROM_ADDRESS,
-        to: params.brokerageEmail,
-        subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
-        html: wrap(`
+    await sendEmailWithUnsubscribe({
+      to: params.brokerageEmail,
+      subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+      entityType: params.brokerageId ? 'brokerage' : undefined,
+      entityId: params.brokerageId ?? undefined,
+      html: wrap(`
           <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
             Closing Day — Payment Reminder
           </h2>
@@ -1603,18 +1755,12 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
             Please remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds by <strong style="color:#5FA873;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
           </p>
         `),
-      })
-    } catch (err) {
-      console.error('[email] Failed to send closing day reminder to brokerage:', err)
-    }
+    })
   }
 }
 
 /** 3-day reminder — "3 days remaining! Payment due soon." */
 export async function sendSettlementReminder3Day(params: SettlementReminderParams) {
-  const resend = getResend()
-  if (!resend) return
-
   const agentBody = wrap(`
     <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
       3 Days Remaining — Urgent Payment Reminder
@@ -1646,24 +1792,21 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
     </table>
   `)
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
-      html: agentBody,
-    })
-  } catch (err) {
-    console.error('[email] Failed to send 3-day reminder to agent:', err)
-  }
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: agentBody,
+  })
 
   if (params.brokerageEmail) {
-    try {
-      await resend.emails.send({
-        from: FROM_ADDRESS,
-        to: params.brokerageEmail,
-        subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
-        html: wrap(`
+    await sendEmailWithUnsubscribe({
+      to: params.brokerageEmail,
+      subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+      entityType: params.brokerageId ? 'brokerage' : undefined,
+      entityId: params.brokerageId ?? undefined,
+      html: wrap(`
           <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
             3 Days Remaining — Urgent Payment Reminder
           </h2>
@@ -1674,10 +1817,7 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
             Due date: <strong style="color:#E54B4B;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
           </p>
         `),
-      })
-    } catch (err) {
-      console.error('[email] Failed to send 3-day reminder to brokerage:', err)
-    }
+    })
   }
 }
 
@@ -1693,15 +1833,12 @@ export async function sendAmendmentRequestedNotification(params: {
   oldClosingDate: string
   newClosingDate: string
 }) {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`Closing Date Amendment Requested — ${params.propertyAddress}`),
-      html: wrap(`
+  // Internal admin notification — transactional.
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Closing Date Amendment Requested — ${params.propertyAddress}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           Closing Date Amendment Requested
         </h2>
@@ -1731,10 +1868,7 @@ export async function sendAmendmentRequestedNotification(params: {
           </tr>
         </table>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send amendment requested notification:', err)
-  }
+  })
 }
 
 /** Notify agent that their closing date amendment was approved */
@@ -1745,16 +1879,15 @@ export async function sendAmendmentApprovedNotification(params: {
   agentFirstName: string
   newClosingDate: string
   newAdvanceAmount: number
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }) {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Amendment Approved — ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Amendment Approved — ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           Closing Date Amendment Approved
         </h2>
@@ -1784,10 +1917,7 @@ export async function sendAmendmentApprovedNotification(params: {
           </tr>
         </table>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send amendment approved notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1810,10 +1940,9 @@ export async function sendMonthlyBrokerStatement(params: {
   }>
   totalEarned: number
   totalUnremitted: number
+  /** Pass-through for per-brokerage unsubscribe handling (migration 092). */
+  brokerageId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const branding: BrokerageBranding | null = params.brokerageLogoUrl
     ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
     : null
@@ -1873,16 +2002,13 @@ export async function sendMonthlyBrokerStatement(params: {
     </a>
   `
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.toEmail,
-      subject: sanitizeSubject(`${params.brokerageName} — Profit-Share Statement (${params.periodLabel})`),
-      html: wrap(body, branding),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send monthly broker statement:', err)
-  }
+  await sendEmailWithUnsubscribe({
+    to: params.toEmail,
+    subject: sanitizeSubject(`${params.brokerageName} — Profit-Share Statement (${params.periodLabel})`),
+    entityType: params.brokerageId ? 'brokerage' : undefined,
+    entityId: params.brokerageId ?? undefined,
+    html: wrap(body, branding),
+  })
 }
 
 /** Notify agent that their closing date amendment was rejected */
@@ -1892,16 +2018,15 @@ export async function sendAmendmentRejectedNotification(params: {
   agentEmail: string
   agentFirstName: string
   reason: string
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }) {
-  const resend = getResend()
-  if (!resend) return
-
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Amendment Rejected — ${params.propertyAddress}`),
-      html: wrap(`
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Amendment Rejected — ${params.propertyAddress}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           Closing Date Amendment Rejected
         </h2>
@@ -1929,10 +2054,7 @@ export async function sendAmendmentRejectedNotification(params: {
           </tr>
         </table>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send amendment rejected notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -1949,9 +2071,6 @@ export async function sendPaymentClaimSubmittedNotification(params: {
   method?: string
   reference?: string
 }) {
-  const resend = getResend()
-  if (!resend) return
-
   const methodLabel = (() => {
     switch (params.method) {
       case 'eft': return 'EFT'
@@ -1963,12 +2082,12 @@ export async function sendPaymentClaimSubmittedNotification(params: {
     }
   })()
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: ADMIN_EMAIL,
-      subject: sanitizeSubject(`New payment claim — ${params.brokerageName} — ${formatReminderCurrency(params.amount)}`),
-      html: wrap(`
+  // Internal admin notification — transactional.
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`New payment claim — ${params.brokerageName} — ${formatReminderCurrency(params.amount)}`),
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
           New Payment Claim Submitted
         </h2>
@@ -2006,10 +2125,7 @@ export async function sendPaymentClaimSubmittedNotification(params: {
           </tr>
         </table>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send payment claim submitted notification:', err)
-  }
+  })
 }
 
 // ============================================================================
@@ -2025,10 +2141,9 @@ export async function sendFailedToCloseElectionEmail(params: {
   failureType: 'non_closing' | 'commission_deficiency'
   outstandingAmount: number
   deadline: string // ISO timestamp
+  /** Pass-through for per-agent unsubscribe handling (migration 092). */
+  agentId?: string | null
 }): Promise<void> {
-  const resend = getResend()
-  if (!resend) return
-
   const amountFmt = new Intl.NumberFormat('en-CA', {
     style: 'currency',
     currency: 'CAD',
@@ -2049,12 +2164,15 @@ export async function sendFailedToCloseElectionEmail(params: {
     ? `Because the transaction did not close, the full Purchase Price you received from Firm Funds is owed back, in accordance with Article 5.1 of your Commission Purchase Agreement.`
     : `Because the commission received was less than the Face Value, the shortfall is owed back, in accordance with Article 5.2 of your Commission Purchase Agreement.`
 
-  try {
-    await resend.emails.send({
-      from: FROM_ADDRESS,
-      to: params.agentEmail,
-      subject: sanitizeSubject(`Action required: Your funded deal at ${params.propertyAddress} ${failureLabel}`),
-      html: wrap(`
+  // Cure election is a contractual/legal notice — transactional, bypasses
+  // the recipient's promotional opt-out.
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(`Action required: Your funded deal at ${params.propertyAddress} ${failureLabel}`),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Action Required — Choose Your Repayment Method</h2>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
           Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to let you know that your funded deal at <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> ${failureLabel}.
@@ -2121,8 +2239,5 @@ export async function sendFailedToCloseElectionEmail(params: {
           Questions? Reply to this email and we'll help you through it.
         </p>
       `),
-    })
-  } catch (err) {
-    console.error('[email] Failed to send failed-to-close election notice:', err)
-  }
+  })
 }

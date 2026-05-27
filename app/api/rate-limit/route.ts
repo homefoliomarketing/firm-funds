@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { checkLoginRateLimit, checkPasswordRateLimit, checkResetRateLimit } from '@/lib/rate-limit'
+import { extractTrustedClientIpOrLocalhost } from '@/lib/request-helpers'
 
 /**
  * Rate limit check endpoint — called by client-side pages (login, password change)
@@ -12,12 +13,11 @@ export async function POST(request: Request) {
   try {
     const { action } = await request.json()
 
-    // Extract IP from request headers (Netlify sets x-nf-client-connection-ip)
-    const ip =
-      request.headers.get('x-nf-client-connection-ip') ||
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1'
+    // Centralized header-precedence chain (see lib/request-helpers.ts). Avoids
+    // the per-route drift this endpoint previously had — the inline chain here
+    // checked x-real-ip, the docusign webhook gold-standard didn't, and the
+    // KYC routes didn't either. One helper, one rule.
+    const ip = extractTrustedClientIpOrLocalhost(request)
 
     let result
 

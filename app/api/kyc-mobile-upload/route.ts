@@ -95,24 +95,18 @@ export async function PUT(request: Request) {
 
     const serviceClient = createServiceRoleClient()
 
-    // Validate token and derive agentId server-side. Re-check expiry/used
-    // (Finding 3): the previous PUT skipped these so an attacker with any
-    // leaked KYC token, even one already used, could call PUT with arbitrary
-    // filePaths and overwrite another agent's KYC reference.
+    // First, fetch the token row so we can validate the requested filePaths
+    // against this token's agent_id BEFORE we burn the single-use claim. If we
+    // claimed first and then rejected on path mismatch, an attacker who knew a
+    // valid token could trivially burn it from afar.
     const { data: tokenRecord, error: tokenError } = await serviceClient
       .from('kyc_upload_tokens')
-      .select('id, agent_id, expires_at, used_at')
+      .select('id, agent_id')
       .eq('token', token)
       .single()
 
     if (tokenError || !tokenRecord) {
       return NextResponse.json({ success: false, error: 'Invalid token.' })
-    }
-    if (tokenRecord.used_at) {
-      return NextResponse.json({ success: false, error: 'This link has already been used.' })
-    }
-    if (new Date(tokenRecord.expires_at) < new Date()) {
-      return NextResponse.json({ success: false, error: 'This link has expired.' })
     }
 
     // Server-derived agentId — not from client request body
@@ -131,8 +125,34 @@ export async function PUT(request: Request) {
       }
     }
 
-    // Update agent record
+    // Atomic claim — only one parallel request will succeed. Previously this
+    // route fetched the row, checked used_at/expires_at in JS, then UPDATE'd
+    // at the end. Two concurrent requests could both pass the in-memory check
+    // and both finalize the upload (TOCTOU). Combining the read+write into a
+    // single conditional UPDATE closes the window: Postgres serializes the
+    // matching rows so at most one client receives a row back. The .gt() on
+    // expires_at also collapses the expiry check into the same statement.
     const now = new Date().toISOString()
+    const { data: claimedToken, error: claimErr } = await serviceClient
+      .from('kyc_upload_tokens')
+      .update({ used_at: now })
+      .eq('id', tokenRecord.id)
+      .is('used_at', null)
+      .gt('expires_at', now)
+      .select('id, agent_id')
+      .maybeSingle()
+
+    if (claimErr || !claimedToken) {
+      return NextResponse.json(
+        { success: false, error: 'Token already used or expired' },
+        { status: 400 }
+      )
+    }
+
+    // Update agent record. Note: if this UPDATE fails after the token claim
+    // succeeded, the token stays burned. That is the safe direction — the
+    // agent can request a fresh KYC link rather than risk a reusable token
+    // floating in the wild.
     const { error: updateError } = await serviceClient
       .from('agents')
       .update({
@@ -149,19 +169,23 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: 'Failed to update verification status.' })
     }
 
-    // Mark token as used
-    await serviceClient
-      .from('kyc_upload_tokens')
-      .update({ used_at: now })
-      .eq('id', tokenRecord.id)
-
-    // Audit log (fire and forget)
+    // Audit log (fire and forget). Even though user_id is null (this route is
+    // unauthenticated by design), the kyc_token_id + token short prefix let
+    // forensics correlate the action back to the token that authorized it
+    // when reviewing audit_log later.
     void serviceClient.from('audit_log').insert({
       user_id: null,
       action: 'agent.kyc_submit_mobile',
       entity_type: 'agent',
       entity_id: agentId,
-      metadata: { document_type: documentType, file_paths: filePaths },
+      metadata: {
+        document_type: documentType,
+        file_paths: filePaths,
+        kyc_token_id: tokenRecord.id,
+        // Only log the prefix; the full token must never appear in audit_log.
+        kyc_token_prefix: typeof token === 'string' ? token.slice(0, 8) : null,
+        actor_kind: 'kyc_mobile_token',
+      },
     })
 
     return NextResponse.json({ success: true })
