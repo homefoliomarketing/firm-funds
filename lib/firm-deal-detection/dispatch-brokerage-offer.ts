@@ -84,15 +84,30 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
   let brand_name = 'Firm Funds'
   let brand_tagline = 'Powered by Firm Funds'
   let closing_date_iso: string | null = (deal.closing_date as string | null) ?? null
+  // Recipient config from migration 082. Defaults are safe-empty so a pipe
+  // that pre-dates the migration still gets the always-included recipients.
+  let pipe_recipients: { include_broker_of_record: boolean; extra_emails: string[] } = {
+    include_broker_of_record: false,
+    extra_emails: [],
+  }
   if (eventRes.data) {
     const ev = eventRes.data as { brokerage_pipe_id: string; parsed: Record<string, unknown> | null }
     const { data: pipe } = await supabase
       .from('brokerage_pipes')
-      .select('brand_name, brand_tagline')
+      .select('brand_name, brand_tagline, notification_recipients')
       .eq('id', ev.brokerage_pipe_id)
       .maybeSingle()
     if (pipe?.brand_name) brand_name = pipe.brand_name
     if (pipe?.brand_tagline) brand_tagline = pipe.brand_tagline
+    if (pipe?.notification_recipients) {
+      const r = pipe.notification_recipients as Record<string, unknown>
+      pipe_recipients = {
+        include_broker_of_record: r.include_broker_of_record === true,
+        extra_emails: Array.isArray(r.extra_emails)
+          ? (r.extra_emails as unknown[]).filter((v): v is string => typeof v === 'string')
+          : [],
+      }
+    }
     const parsedClose = (ev.parsed as { closing_date_iso?: string | null } | null)?.closing_date_iso
     if (parsedClose) closing_date_iso = parsedClose
   }
@@ -111,6 +126,7 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
     brand_name,
     brand_tagline,
     closing_date_iso,
+    pipe_recipients,
   }
 }
 
@@ -153,13 +169,29 @@ async function sendOne(opts: {
 
 /**
  * Build the recipient list for a brokerage-facing email. Always includes
- * Firm Funds so we have visibility. Future: replace with a settings-driven
- * recipient list per brokerage (broker of record + multiple admins).
+ * the brokerage's main email and the Firm Funds inbox so we have visibility.
+ * The pipe's `notification_recipients` config (migration 082) layers on:
+ *   - Broker of Record (if the toggle is on AND the brokerage has a
+ *     broker_of_record_email on file)
+ *   - Each free-form extra email the admin added on the settings page
+ *
+ * Set semantics ensure no double-sends even if a recipient appears in
+ * multiple sources (e.g. the brokerage's main email happens to be the
+ * Broker of Record).
  */
-function recipientsForBrokerage(brokerage: { email: string }): string[] {
+function recipientsForBrokerage(
+  brokerage: { email: string; broker_of_record_email: string | null },
+  pipeRecipients: { include_broker_of_record: boolean; extra_emails: string[] }
+): string[] {
   const list = new Set<string>()
-  if (brokerage.email) list.add(brokerage.email)
-  if (FF_OFFER_INBOX) list.add(FF_OFFER_INBOX)
+  if (brokerage.email) list.add(brokerage.email.toLowerCase())
+  if (FF_OFFER_INBOX) list.add(FF_OFFER_INBOX.toLowerCase())
+  if (pipeRecipients.include_broker_of_record && brokerage.broker_of_record_email) {
+    list.add(brokerage.broker_of_record_email.toLowerCase())
+  }
+  for (const email of pipeRecipients.extra_emails) {
+    if (email) list.add(email.toLowerCase())
+  }
   return Array.from(list)
 }
 
@@ -173,7 +205,7 @@ async function dispatchBrokerageVariant(
     return { deal_id: dealId, outcome: 'errored', recipients: [], error: ctx.error }
   }
 
-  const recipients = recipientsForBrokerage(ctx.brokerage)
+  const recipients = recipientsForBrokerage(ctx.brokerage, ctx.pipe_recipients)
   if (recipients.length === 0) {
     return { deal_id: dealId, outcome: 'skipped', recipients: [], error: 'No recipients on brokerage record.' }
   }

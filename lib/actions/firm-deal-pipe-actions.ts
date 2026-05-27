@@ -148,6 +148,17 @@ export interface ExistingPipeSummary {
   conditional_tab: string | null
   tabs_to_watch: string[]
   column_mapping: Record<string, string>
+  /** Brokerage's main contact email (always a recipient, surfaced for context). */
+  brokerage_email: string | null
+  /** Broker of record email if one is on file (toggle whether to include). */
+  broker_of_record_email: string | null
+  /** Per-pipe recipient config: BoR toggle + free-form extra emails. */
+  notification_recipients: NotificationRecipientsConfig
+}
+
+export interface NotificationRecipientsConfig {
+  include_broker_of_record: boolean
+  extra_emails: string[]
 }
 
 export async function getBrokerageForPipeWizard(input: {
@@ -159,7 +170,7 @@ export async function getBrokerageForPipeWizard(input: {
 
   const { data: brokerage, error: bErr } = await supabase
     .from('brokerages')
-    .select('id, name')
+    .select('id, name, email, broker_of_record_email')
     .eq('id', input.brokerageId)
     .is('deleted_at', null)
     .single()
@@ -169,7 +180,7 @@ export async function getBrokerageForPipeWizard(input: {
   // are tombstones and shouldn't block re-config.
   const { data: pipeRow, error: pErr } = await supabase
     .from('brokerage_pipes')
-    .select('id, brokerage_id, config, brand_name, brand_tagline, auto_fire_enabled, enabled, last_polled_at')
+    .select('id, brokerage_id, config, brand_name, brand_tagline, auto_fire_enabled, enabled, last_polled_at, notification_recipients')
     .eq('brokerage_id', input.brokerageId)
     .eq('pipe_type', 'spreadsheet')
     .eq('enabled', true)
@@ -185,6 +196,16 @@ export async function getBrokerageForPipeWizard(input: {
       tabs_to_watch?: string[]
       column_mapping?: Record<string, string>
     }
+    // Defensive parse of the JSONB column — migration 082 sets defaults so
+    // every row has values, but a manual SQL nudge could leave a weird
+    // shape. Coerce to known fields and drop everything else.
+    const rawRecipients = (pipeRow.notification_recipients ?? {}) as Record<string, unknown>
+    const notification_recipients: NotificationRecipientsConfig = {
+      include_broker_of_record: rawRecipients.include_broker_of_record === true,
+      extra_emails: Array.isArray(rawRecipients.extra_emails)
+        ? (rawRecipients.extra_emails as unknown[]).filter((v): v is string => typeof v === 'string')
+        : [],
+    }
     pipe = {
       pipe_id: pipeRow.id,
       brokerage_id: pipeRow.brokerage_id,
@@ -199,10 +220,13 @@ export async function getBrokerageForPipeWizard(input: {
       conditional_tab: config.conditional_tab ?? null,
       tabs_to_watch: Array.isArray(config.tabs_to_watch) ? config.tabs_to_watch : [],
       column_mapping: config.column_mapping ?? {},
+      brokerage_email: brokerage.email ?? null,
+      broker_of_record_email: brokerage.broker_of_record_email ?? null,
+      notification_recipients,
     }
   }
 
-  return { success: true, data: { brokerage, pipe } }
+  return { success: true, data: { brokerage: { id: brokerage.id, name: brokerage.name }, pipe } }
 }
 
 // ============================================================================
@@ -371,6 +395,68 @@ export async function getPipeStatistics(input: {
  * Flip a pipe's auto_fire_enabled flag. The wizard always creates a pipe
  * with auto-fire OFF; this is the only path to turn it on or back off.
  */
+// ============================================================================
+// setPipeNotificationRecipients
+//
+// Updates the per-pipe recipient list used by the firm-deal offer dispatcher.
+// brokerages.email and FIRM_FUNDS_OFFER_INBOX are *always* included by the
+// dispatcher and not stored here — this action only governs the optional
+// Broker of Record toggle and the free-form extra-emails list.
+//
+// Validation:
+//   - Each extra email must look like an email (RFC 5322 lite — same regex
+//     pattern Supabase Auth uses for client-side prefilter).
+//   - Total extra_emails capped at 10 to keep the JSONB row small and
+//     prevent accidental blast lists.
+//   - Duplicates and case differences are normalized (lowercase, dedup).
+// ============================================================================
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const MAX_EXTRA_EMAILS = 10
+
+export async function setPipeNotificationRecipients(input: {
+  pipeId: string
+  includeBrokerOfRecord: boolean
+  extraEmails: string[]
+}): Promise<ActionResult<NotificationRecipientsConfig>> {
+  const auth = await getAuthenticatedAdmin()
+  if (auth.error) return { success: false, error: auth.error }
+  if (!input.pipeId) return { success: false, error: 'Missing pipe id.' }
+
+  // Normalize + validate extra emails. The UI typically sends one-per-line
+  // strings; we accept any iterable of strings and clean it here.
+  const seen = new Set<string>()
+  const cleaned: string[] = []
+  for (const raw of input.extraEmails ?? []) {
+    if (typeof raw !== 'string') continue
+    const trimmed = raw.trim().toLowerCase()
+    if (!trimmed) continue
+    if (!EMAIL_RE.test(trimmed)) {
+      return { success: false, error: `"${raw}" doesn't look like an email address.` }
+    }
+    if (seen.has(trimmed)) continue
+    seen.add(trimmed)
+    cleaned.push(trimmed)
+    if (cleaned.length > MAX_EXTRA_EMAILS) {
+      return { success: false, error: `You can add at most ${MAX_EXTRA_EMAILS} extra recipients.` }
+    }
+  }
+
+  const recipients: NotificationRecipientsConfig = {
+    include_broker_of_record: !!input.includeBrokerOfRecord,
+    extra_emails: cleaned,
+  }
+
+  const supabase = createServiceRoleClient()
+  const { error } = await supabase
+    .from('brokerage_pipes')
+    .update({ notification_recipients: recipients })
+    .eq('id', input.pipeId)
+  if (error) {
+    return { success: false, error: `Failed to save recipients: ${error.message}` }
+  }
+  return { success: true, data: recipients }
+}
+
 export async function setPipeAutoFire(input: {
   pipeId: string
   enabled: boolean

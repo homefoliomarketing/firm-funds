@@ -30,10 +30,14 @@ import {
   getPipeStatistics,
   getServiceAccountEmail,
   setPipeAutoFire,
+  setPipeNotificationRecipients,
   type ExistingPipeSummary,
+  type NotificationRecipientsConfig,
   type PipeStatistics,
 } from '@/lib/actions/firm-deal-pipe-actions'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -552,6 +556,13 @@ function ExistingPipeView({ pipe, brokerageId, brokerageName }: {
         validatedEvents={stats?.validated_events_lifetime ?? null}
       />
 
+      <NotificationRecipientsCard
+        pipeId={pipe.pipe_id}
+        brokerageEmail={pipe.brokerage_email}
+        brokerOfRecordEmail={pipe.broker_of_record_email}
+        initial={pipe.notification_recipients}
+      />
+
       <PipeStatisticsCard stats={stats} loading={statsLoading} error={statsError} />
     </div>
   )
@@ -699,6 +710,192 @@ function AutoFireToggleCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </Card>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// NotificationRecipientsCard
+//
+// Configures who gets the brokerage-facing email when an agent accepts a
+// firm-deal offer. brokerages.email + FIRM_FUNDS_OFFER_INBOX are always
+// included (shown read-only here for context). Two toggles the admin can
+// turn:
+//   - Include the Broker of Record (uses brokerages.broker_of_record_email)
+//   - Free-form list of extra emails (one per line, max 10)
+//
+// Save button is disabled until something changed vs. the loaded baseline,
+// so an accidental load doesn't overwrite anything. Email validation
+// happens server-side; client-side we only do the trim+dedup so the
+// preview chips read cleanly.
+// ----------------------------------------------------------------------------
+function NotificationRecipientsCard({
+  pipeId,
+  brokerageEmail,
+  brokerOfRecordEmail,
+  initial,
+}: {
+  pipeId: string
+  brokerageEmail: string | null
+  brokerOfRecordEmail: string | null
+  initial: NotificationRecipientsConfig
+}) {
+  const [includeBoR, setIncludeBoR] = useState(initial.include_broker_of_record)
+  // Stored as a single string for the textarea; we split + clean on save.
+  const [extraEmailsText, setExtraEmailsText] = useState(initial.extra_emails.join('\n'))
+  const [savedConfig, setSavedConfig] = useState(initial)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Parse the textarea into a clean list — trim, drop blanks, dedup
+  // case-insensitively. Server validates RFC-lite shape on save; here we
+  // only need a stable shape for the previewed chips and the dirty check.
+  const cleanedExtraEmails = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const line of extraEmailsText.split(/[\n,]/)) {
+      const v = line.trim().toLowerCase()
+      if (!v) continue
+      if (seen.has(v)) continue
+      seen.add(v)
+      out.push(v)
+    }
+    return out
+  }, [extraEmailsText])
+
+  const dirty =
+    includeBoR !== savedConfig.include_broker_of_record ||
+    cleanedExtraEmails.length !== savedConfig.extra_emails.length ||
+    cleanedExtraEmails.some((e, i) => e !== savedConfig.extra_emails[i])
+
+  // Live preview of the full recipient list the dispatcher will use. Helps
+  // Bud sanity-check before saving without having to look up the brokerage
+  // record separately.
+  const previewList = useMemo(() => {
+    const list = new Set<string>()
+    if (brokerageEmail) list.add(brokerageEmail.toLowerCase())
+    list.add('bud@firmfunds.ca')  // FF inbox default; matches dispatcher
+    if (includeBoR && brokerOfRecordEmail) list.add(brokerOfRecordEmail.toLowerCase())
+    for (const e of cleanedExtraEmails) list.add(e)
+    return Array.from(list)
+  }, [brokerageEmail, brokerOfRecordEmail, includeBoR, cleanedExtraEmails])
+
+  async function handleSave() {
+    setSaving(true)
+    setStatus(null)
+    const res = await setPipeNotificationRecipients({
+      pipeId,
+      includeBrokerOfRecord: includeBoR,
+      extraEmails: cleanedExtraEmails,
+    })
+    setSaving(false)
+    if (!res.success || !res.data) {
+      setStatus({ type: 'error', text: res.error ?? 'Failed to save.' })
+      return
+    }
+    setSavedConfig(res.data)
+    setExtraEmailsText(res.data.extra_emails.join('\n'))
+    setStatus({ type: 'success', text: 'Saved. New offers will use this list.' })
+  }
+
+  return (
+    <Card>
+      <CardContent className="py-4 px-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Send className="h-5 w-5 mt-0.5 text-muted-foreground" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Offer notification recipients</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Who at the brokerage gets emailed the moment an agent accepts a firm-deal offer.
+            </p>
+          </div>
+        </div>
+
+        {/* Always-included recipients (read-only context) */}
+        <div className="rounded-lg border border-border/40 bg-secondary/30 px-3 py-2 space-y-1">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/80">Always included</p>
+          <ul className="text-xs text-foreground space-y-0.5">
+            <li>
+              <span className="text-muted-foreground">Brokerage main email:</span>{' '}
+              <span className="font-mono">{brokerageEmail ?? <em className="text-status-amber">(none on file)</em>}</span>
+            </li>
+            <li>
+              <span className="text-muted-foreground">Firm Funds inbox:</span>{' '}
+              <span className="font-mono">bud@firmfunds.ca</span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Broker of Record toggle */}
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-border/40 px-3 py-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-foreground">Include Broker of Record</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {brokerOfRecordEmail
+                ? <>Will CC <span className="font-mono">{brokerOfRecordEmail}</span> on every offer notification.</>
+                : <span className="text-status-amber">No broker_of_record_email on file. Add one to the brokerage record before turning this on.</span>}
+            </p>
+          </div>
+          <Switch
+            checked={includeBoR}
+            onCheckedChange={setIncludeBoR}
+            disabled={!brokerOfRecordEmail}
+            aria-label="Include Broker of Record on offer notifications"
+          />
+        </div>
+
+        {/* Extra emails textarea */}
+        <div className="space-y-1.5">
+          <Label htmlFor="extra-emails" className="text-xs font-semibold text-foreground">
+            Extra recipients
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            One email per line. Max 10. Use this for the office admin who actually does submissions if their email isn&apos;t the main brokerage contact.
+          </p>
+          <Textarea
+            id="extra-emails"
+            value={extraEmailsText}
+            onChange={(e) => setExtraEmailsText(e.target.value)}
+            placeholder={'jane.smith@brokerage.com\noffice@brokerage.com'}
+            rows={4}
+            className="font-mono text-xs"
+          />
+        </div>
+
+        {/* Live preview */}
+        <div className="rounded-lg border border-border/40 bg-background px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1.5">
+            Preview ({previewList.length} {previewList.length === 1 ? 'recipient' : 'recipients'})
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {previewList.map(email => (
+              <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono rounded-md bg-primary/10 text-primary border border-primary/20">
+                {email}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {status && (
+          <p className={`text-xs flex items-start gap-1.5 ${status.type === 'success' ? 'text-emerald-400' : 'text-destructive'}`}>
+            {status.type === 'success'
+              ? <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />
+              : <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />}
+            {status.text}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end">
+          <Button
+            onClick={handleSave}
+            disabled={!dirty || saving}
+            size="sm"
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />}
+            Save recipients
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   )
 }
