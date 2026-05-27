@@ -46,7 +46,21 @@ export const DealSubmissionSchema = z.object({
 /** Schema for deal status change */
 export const DealStatusChangeSchema = z.object({
   dealId: z.string().uuid('Invalid deal ID'),
-  newStatus: z.enum(['under_review', 'approved', 'funded', 'completed', 'denied', 'cancelled']),
+  newStatus: z.enum([
+    'under_review',
+    'approved',
+    'funded',
+    'completed',
+    'denied',
+    'cancelled',
+    // Failed-deal and cure lifecycle (CPA 5.3 / 5.5(b))
+    'failed_to_close',
+    'cured',
+    // EFT bounce recovery (migration 084)
+    'funding_failed',
+    // Firm-deal detection offer state (migration 082)
+    'offered',
+  ]),
   denialReason: z.string().max(500).optional().nullable(),
 })
 

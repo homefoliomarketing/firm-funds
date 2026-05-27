@@ -3,6 +3,7 @@
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { calculateDeal, effectiveSettlementDays } from '@/lib/calculations'
 import { DealSubmissionSchema, DealStatusChangeSchema } from '@/lib/validations'
+import { voidEnvelope } from '@/lib/docusign'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
   MIN_DAYS_UNTIL_CLOSING,
@@ -117,6 +118,10 @@ export async function submitDeal(formData: {
   brokerageSplitPct: number
   transactionType: string
   notes?: string
+  // Task 5: when this submission is a revision of a previously denied deal,
+  // the original deal's id is written to revised_from_deal_id so the lineage
+  // is queryable from the new deal.
+  revisedFromDealId?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
@@ -210,6 +215,10 @@ export async function submitDeal(formData: {
         source: 'manual_portal',
         notes: noteText,
         payment_status: 'not_applicable', // not funded yet
+        // Task 5: lineage link for resubmissions of previously denied deals.
+        ...(formData.revisedFromDealId
+          ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)  // TODO: regen types after migration 084 applied
+          : {}),
       })
       .select()
       .single()
@@ -362,6 +371,10 @@ export async function submitDealAsBrokerage(formData: {
   // firm_deal_events.offer_deal_id stays valid and the agent's deals list
   // doesn't end up with two entries for the same property.
   fromOfferDealId?: string
+  // Task 5: when this submission is a revision of a previously denied deal,
+  // the original deal's id is written to revised_from_deal_id so the lineage
+  // is queryable from the new deal.
+  revisedFromDealId?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
@@ -475,6 +488,17 @@ export async function submitDealAsBrokerage(formData: {
           // submitter and transaction type.
           notes: noteText,
           payment_status: 'not_applicable',
+          // Task 8: explicitly clear any stale balance_deducted carried over
+          // from a previous (cancelled) acceptance attempt. The offered row
+          // was created with no deduction, but be defensive — if a future
+          // bug populates it, we don't want stale values surviving the
+          // conversion to under_review and breaking funding-time math.
+          balance_deducted: 0,
+          // Task 5: link the revised deal back to the originally denied one
+          // when supplied. NULL on the standard offer-conversion path.
+          ...(formData.revisedFromDealId
+            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)  // TODO: regen types after migration 084 applied
+            : {}),
         })
         .eq('id', formData.fromOfferDealId)
         .eq('status', 'offered')  // CAS-style guard against double-submit
@@ -508,6 +532,10 @@ export async function submitDealAsBrokerage(formData: {
           source: 'manual_portal',
           notes: noteText,
           payment_status: 'not_applicable',
+          // Task 5: lineage link for resubmissions of previously denied deals.
+          ...(formData.revisedFromDealId
+            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)  // TODO: regen types after migration 084 applied
+            : {}),
         })
         .select('id')
         .single()
@@ -564,6 +592,22 @@ export async function submitDealAsBrokerage(formData: {
 // Server Action: Update deal status (admin only)
 // ============================================================================
 
+// All status strings the state machine knows about. Used to gate `newStatus`
+// inputs before we hand them to STATUS_FLOW. Kept in sync with DealStatus in
+// types/database.ts and the DB CHECK constraints on deals.status.
+const ALL_DEAL_STATUSES = new Set<string>([
+  'under_review',
+  'approved',
+  'funded',
+  'completed',
+  'denied',
+  'cancelled',
+  'failed_to_close',
+  'cured',
+  'funding_failed',
+  'offered',
+])
+
 export async function updateDealStatus(input: {
   dealId: string
   newStatus: string
@@ -574,16 +618,24 @@ export async function updateDealStatus(input: {
   const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
-  // Validate with Zod
-  const validation = DealStatusChangeSchema.safeParse({
-    dealId: input.dealId,
-    newStatus: input.newStatus,
-    denialReason: input.denialReason,
-  })
+  // dealId / denialReason still go through Zod, but `newStatus` is validated
+  // manually below because the canonical schema in lib/validations.ts predates
+  // the failed_to_close / cured / funding_failed / offered statuses. Trying to
+  // push those through the legacy enum would 400 before STATUS_FLOW even runs.
+  const validation = DealStatusChangeSchema
+    .pick({ dealId: true, denialReason: true })
+    .safeParse({
+      dealId: input.dealId,
+      denialReason: input.denialReason,
+    })
 
   if (!validation.success) {
     const firstError = validation.error.issues[0]?.message || 'Invalid input'
     return { success: false, error: firstError }
+  }
+
+  if (!ALL_DEAL_STATUSES.has(input.newStatus)) {
+    return { success: false, error: `Invalid status "${input.newStatus}"` }
   }
 
   try {
@@ -598,7 +650,10 @@ export async function updateDealStatus(input: {
       return { success: false, error: 'Deal not found' }
     }
 
-    // Validate status transition (includes backward transitions)
+    // Validate status transition (includes backward transitions). Extended in
+    // Task 1 to cover the remediation lifecycle (failed_to_close → cured),
+    // EFT-failure recovery (funding_failed → funded/cancelled), and firm-deal
+    // offer states (offered → under_review/cancelled).
     const STATUS_FLOW: Record<string, string[]> = {
       under_review: ['approved', 'denied', 'cancelled'],
       approved: ['funded', 'denied', 'cancelled', 'under_review'],
@@ -606,6 +661,10 @@ export async function updateDealStatus(input: {
       denied: ['under_review'],
       cancelled: ['under_review'],
       completed: ['funded'],
+      failed_to_close: ['cured', 'funded'],  // failed deals can be manually cured or reverted to funded if mis-marked
+      cured: [],  // terminal state — no further transitions allowed
+      funding_failed: ['funded', 'cancelled'],  // EFT bounced, can retry funding or cancel
+      offered: ['under_review', 'cancelled'],  // firm-deal offer states
     }
 
     const allowedTransitions = STATUS_FLOW[deal.status] || []
@@ -691,8 +750,13 @@ export async function updateDealStatus(input: {
       // Settlement window: prefer the snapshot taken at submission so the
       // CPA the agent signed and the system enforcement stay consistent
       // even if the brokerage's effective window changed between submission
-      // and funding (e.g., they hit strike #5 on a different deal).
-      const settlementDays = deal.settlement_days_at_funding ?? effectiveSettlementDays(brokerage)
+      // and funding (e.g., they hit strike #5 on a different deal). Task 12:
+      // surface silent NULL fallbacks so we can spot deals that slipped past
+      // the snapshot path (e.g. recently funded but pre-snapshot data).
+      const settlementDays = deal.settlement_days_at_funding ?? (() => {
+        console.warn(`[deal-actions] Deal ${deal.id} missing settlement_days_at_funding snapshot — using current brokerage setting. Investigate if this is a recently-funded deal.`)
+        return effectiveSettlementDays(brokerage)
+      })()
 
       const calc = calculateDeal({
         grossCommission: deal.gross_commission,
@@ -773,14 +837,23 @@ export async function updateDealStatus(input: {
       updateData.balance_deducted = 0
     }
 
-    // Execute update with optimistic lock: only update if status hasn't changed
-    // This prevents two admins from simultaneously funding/approving the same deal
-    const { data: updatedRows, error: updateError } = await supabase
+    // Task 2: Execute update with optimistic concurrency control via the
+    // `version` column (migration 083 auto-increments it on every UPDATE).
+    // Status-based CAS is preserved as a belt-and-suspenders guard so two
+    // writers racing the same version still can't both win when their target
+    // status differs from the row's current status.
+    // The whole builder is cast to `any` once at the start so the chained
+    // .eq('version', ...) doesn't blow up TS2589 (the supabase generic
+    // recursion limit chokes when the column name isn't in the generated
+    // types yet — TODO: regen types after migration 083 applied).
+    const currentVersion = (deal as any).version ?? null
+    const { data: updatedRows, error: updateError } = await ((supabase as any)
       .from('deals')
       .update(updateData)
       .eq('id', deal.id)
-      .eq('status', deal.status) // optimistic lock — fails if another admin changed status first
-      .select()
+      .eq('status', deal.status) // belt: status hasn't drifted
+      .eq('version', currentVersion) // suspenders: row hasn't been written by anyone else
+      .select())
 
     if (updateError) {
       console.error('Deal status update error:', updateError.message, updateError.details, updateError.hint)
@@ -788,7 +861,7 @@ export async function updateDealStatus(input: {
     }
 
     if (!updatedRows || updatedRows.length === 0) {
-      return { success: false, error: 'Deal status was changed by another user. Please refresh and try again.' }
+      return { success: false, error: 'This deal was updated by another user while you were viewing. Please refresh and try again.' }
     }
 
     // see audit finding #5: only this caller has claimed the deal; safe to debit now.
@@ -858,6 +931,44 @@ export async function updateDealStatus(input: {
           reason: 'funded reverted to approved',
         },
       })
+    }
+
+    // Task 6: When denying an approved deal, void any in-flight DocuSign
+    // envelopes so the agent doesn't sign a contract for a deal that has
+    // already been killed. Best-effort — we never block the denial on a
+    // DocuSign failure; just log loudly so admin can void manually.
+    if (input.newStatus === 'denied' && deal.status === 'approved') {
+      try {
+        const { data: envelopes } = await supabase
+          .from('esignature_envelopes')
+          .select('envelope_id, status')
+          .eq('deal_id', deal.id)
+          .in('status', ['sent', 'delivered'])
+
+        if (envelopes && envelopes.length > 0) {
+          const reason = `Deal denied: ${input.denialReason?.slice(0, 200) || 'no reason provided'}`
+          for (const env of envelopes) {
+            try {
+              await voidEnvelope(env.envelope_id, reason)
+              // Mark the envelope row as voided so the next admin pass sees
+              // the same state. Best-effort: if this write fails the
+              // DocuSign webhook will eventually flip the row.
+              await supabase
+                .from('esignature_envelopes')
+                .update({
+                  status: 'voided',
+                  voided_at: new Date().toISOString(),
+                  void_reason: reason,
+                })
+                .eq('envelope_id', env.envelope_id)
+            } catch (voidErr: any) {
+              console.error(`Failed to void envelope ${env.envelope_id} on deal denial:`, voidErr?.message)
+            }
+          }
+        }
+      } catch (envQueryErr: any) {
+        console.error('Failed to query envelopes for void on denial:', envQueryErr?.message)
+      }
     }
 
     // Audit log
@@ -1553,18 +1664,27 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
       return { success: true, data: { deleted: true } }
     }
 
-    // Approved = already reviewed — mark as cancelled instead of deleting
-    const { data: updatedDeal, error: updateError } = await adminClient
+    // Approved = already reviewed — mark as cancelled instead of deleting.
+    // Task 2: add version-based optimistic lock alongside the status CAS so a
+    // concurrent admin write cannot silently clobber other fields between our
+    // SELECT above and this UPDATE. Builder cast to any to dodge TS2589 until
+    // types are regenerated post migration 083.
+    const cancelVersion = (deal as any).version ?? null
+    const { data: updatedDeal, error: updateError } = await ((adminClient as any)
       .from('deals')
       .update({ status: 'cancelled' })
       .eq('id', input.dealId)
-      .eq('status', deal.status) // optimistic lock
+      .eq('status', deal.status)
+      .eq('version', cancelVersion)
       .select()
-      .single()
+      .maybeSingle())
 
     if (updateError) {
       console.error('Deal cancel error:', updateError.message)
       return { success: false, error: `Failed to cancel deal: ${updateError.message}` }
+    }
+    if (!updatedDeal) {
+      return { success: false, error: 'This deal was updated by another user while you were viewing. Please refresh and try again.' }
     }
 
     await logAuditEvent({
@@ -2111,12 +2231,31 @@ export async function markDealFailedToClose(input: {
       return { success: false, error: `Cannot mark deal as failed: status is "${deal.status}". Only funded deals can be marked as failed to close.` }
     }
 
+    // Task 3: Validate the deal has actually been funded and isn't ancient.
+    // A funded deal with no funding_date is data-corrupt and shouldn't be
+    // failed-to-close without admin intervention. The 90-day cutoff catches
+    // cases where the lawyer says the deal failed months ago — the contract
+    // mechanics around interest accrual and remediation assume the failure
+    // is fresh, so we want a senior admin in the loop before proceeding.
+    if (!deal.funding_date) {
+      return { success: false, error: 'Deal must have a funding date before marking failed to close' }
+    }
+    const fundedAgo = Date.now() - new Date(deal.funding_date).getTime()
+    const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
+    if (fundedAgo > NINETY_DAYS_MS) {
+      return { success: false, error: 'Deal was funded more than 90 days ago. Contact a senior admin before marking failed to close — contract terms may have shifted.' }
+    }
+
     const now = new Date()
     const deadline = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000)
 
-    // see audit finding #6: claim the deal first; only then post the agent
-    // balance so a failed RPC can't leave a funded deal with no ledger entry.
-    const { data: updatedRows, error: updateError } = await supabase
+    // Task 2 + audit finding #6: claim the deal first via version-based CAS;
+    // only then post the agent balance so a failed RPC can't leave a funded
+    // deal with no ledger entry. Status equality preserved as belt+suspenders.
+    // Builder cast to any to dodge TS2589 until types are regenerated post
+    // migration 083.
+    const currentVersion = (deal as any).version ?? null
+    const { data: updatedRows, error: updateError } = await ((supabase as any)
       .from('deals')
       .update({
         status: 'failed_to_close',
@@ -2129,7 +2268,8 @@ export async function markDealFailedToClose(input: {
       })
       .eq('id', deal.id)
       .eq('status', 'funded')
-      .select()
+      .eq('version', currentVersion)
+      .select())
 
     if (updateError) {
       console.error('Deal failed-to-close update error:', updateError.message)
@@ -2253,9 +2393,13 @@ export async function submitCureElection(input: {
 
     // Use service role for the write — agents don't have a row-level UPDATE
     // policy on deals. Authorization is enforced above (agent_id check,
-    // status check, election-still-null check).
+    // status check, election-still-null check). Task 2: add version-based
+    // optimistic lock on top of the existing `cure_election IS NULL` guard.
+    // Builder cast to any to dodge TS2589 until types are regenerated post
+    // migration 083.
     const serviceClient = createServiceRoleClient()
-    const { data: updated, error: updateError } = await serviceClient
+    const electionVersion = (deal as any).version ?? null
+    const { data: updated, error: updateError } = await ((serviceClient as any)
       .from('deals')
       .update({
         cure_election: input.election,
@@ -2263,14 +2407,15 @@ export async function submitCureElection(input: {
       })
       .eq('id', deal.id)
       .is('cure_election', null)
-      .select()
+      .eq('version', electionVersion)
+      .select())
 
     if (updateError) {
       console.error('Cure election update error:', updateError.message)
       return { success: false, error: `Failed to record election: ${updateError.message}` }
     }
     if (!updated || updated.length === 0) {
-      return { success: false, error: 'Election was already recorded. Please refresh.' }
+      return { success: false, error: 'Election was already recorded or another change landed first. Please refresh.' }
     }
 
     await logAuditEvent({
@@ -2285,6 +2430,297 @@ export async function submitCureElection(input: {
     return { success: true, data: { election: input.election } }
   } catch (err: any) {
     console.error('submitCureElection error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
+// Task 4 — Failed funding (EFT bounce) handler
+// ----------------------------------------------------------------------------
+// When the EFT for a funded deal bounces, admin records it via this action.
+// We flip status funded -> funding_failed and, if a balance deduction was
+// applied at funding time, reverse it back to the agent's account so they
+// aren't paying down an advance that never landed in their bank.
+// ============================================================================
+
+export async function markFundingFailed(input: {
+  dealId: string
+  reason: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const reason = (input.reason || '').trim()
+  if (!reason) return { success: false, error: 'Reason is required (e.g. NSF, account closed, wrong banking info)' }
+  if (reason.length > 500) return { success: false, error: 'Reason must be under 500 characters' }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('*')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+    if (deal.status !== 'funded') {
+      return { success: false, error: `Cannot mark funding as failed: deal status is "${deal.status}". Only funded deals can be marked.` }
+    }
+
+    const currentVersion = (deal as any).version ?? null  // TODO: regen types after migration 083 applied
+    const priorBalanceDeducted = Number(deal.balance_deducted || 0)
+    const now = new Date().toISOString()
+
+    // CAS-claim the deal so a concurrent admin action can't race us into a
+    // double-reversal of the balance deduction. Builder cast to any to dodge
+    // TS2589 until types are regenerated post migrations 083 + 084.
+    const { data: updatedRows, error: updateError } = await ((supabase as any)
+      .from('deals')
+      .update({
+        status: 'funding_failed',
+        funding_failure_reason: reason,
+        funding_failed_at: now,
+        payment_status: 'not_applicable',
+        // Clear the deducted amount up front; we're about to refund it (if any).
+        balance_deducted: 0,
+      })
+      .eq('id', deal.id)
+      .eq('status', 'funded')
+      .eq('version', currentVersion)
+      .select())
+
+    if (updateError) {
+      console.error('markFundingFailed update error:', updateError.message)
+      return { success: false, error: `Failed to mark funding failed: ${updateError.message}` }
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      return { success: false, error: 'This deal was updated by another user while you were viewing. Please refresh and try again.' }
+    }
+
+    // Reverse the prior balance deduction (if any) so the agent's account is
+    // made whole. RPC requires service role.
+    if (priorBalanceDeducted > 0) {
+      const serviceClient = createServiceRoleClient()
+      const { error: rpcErr } = await serviceClient
+        .rpc('apply_agent_balance_delta', {
+          p_agent_id: deal.agent_id,
+          p_delta: priorBalanceDeducted,
+          p_type: 'balance_deduction_reversed',
+          p_description: `Funding failed — reversal of balance deduction for ${deal.property_address} (${reason.slice(0, 100)})`,
+          p_deal_id: deal.id,
+          p_created_by: user.id,
+        })
+      if (rpcErr) {
+        // The status flip already landed. Surface the discrepancy loudly so
+        // admin can manually reconcile via the ledger UI — we don't try to
+        // revert the status because we'd then need another CAS and could end
+        // up with both writes failing. The audit log captures the partial.
+        console.error('CRITICAL: markFundingFailed status flipped but balance reversal RPC failed:', rpcErr.message)
+        await logAuditEvent({
+          action: 'deal.funding_failed_reversal_failed',
+          entityType: 'deal',
+          entityId: deal.id,
+          severity: 'critical',
+          metadata: {
+            agent_id: deal.agent_id,
+            expected_reversal: priorBalanceDeducted,
+            error: rpcErr.message,
+          },
+        })
+        return {
+          success: false,
+          error: `Funding marked as failed, but the balance reversal of $${priorBalanceDeducted.toFixed(2)} did NOT post. Apply a manual credit on the agent ledger to reconcile.`,
+        }
+      }
+    }
+
+    await logAuditEvent({
+      action: 'deal.funding_failed',
+      entityType: 'deal',
+      entityId: deal.id,
+      severity: 'critical',
+      metadata: {
+        reason,
+        balance_reversed: priorBalanceDeducted,
+        property_address: deal.property_address,
+      },
+      oldValue: { status: 'funded', balance_deducted: priorBalanceDeducted },
+      newValue: { status: 'funding_failed', balance_deducted: 0 },
+    })
+
+    return {
+      success: true,
+      data: {
+        dealId: deal.id,
+        status: 'funding_failed',
+        balanceReversed: priorBalanceDeducted,
+      },
+    }
+  } catch (err: any) {
+    console.error('markFundingFailed error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
+// Task 4 — Retry funding after a previous EFT failure
+// ----------------------------------------------------------------------------
+// Flips funding_failed -> approved so the admin can re-run the standard
+// approve-then-fund flow (which will deduct the balance again via the existing
+// path). Symmetric with markFundingFailed: this restores the deal to a state
+// where the next funding attempt is a normal updateDealStatus('funded') call.
+// ============================================================================
+
+export async function retryFundingAfterFailure(input: {
+  dealId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .select('*')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealError || !deal) return { success: false, error: 'Deal not found' }
+    if (deal.status !== 'funding_failed') {
+      return { success: false, error: `Cannot retry funding: deal status is "${deal.status}", expected "funding_failed".` }
+    }
+
+    const currentVersion = (deal as any).version ?? null  // TODO: regen types after migration 083 applied
+
+    // Flip back to approved. We deliberately do NOT re-deduct here — the
+    // existing approved->funded path runs the balance deduction so we keep
+    // exactly one code path that touches the agent ledger on funding. Builder
+    // cast to any to dodge TS2589 until types are regenerated post migrations
+    // 083 + 084.
+    const { data: updatedRows, error: updateError } = await ((supabase as any)
+      .from('deals')
+      .update({
+        status: 'approved',
+        // Clear the failure markers so the deal looks like a clean approval.
+        funding_failure_reason: null,
+        funding_failed_at: null,
+        funding_date: null,
+        payment_status: 'not_applicable',
+        // Already cleared by markFundingFailed but be defensive.
+        balance_deducted: 0,
+      })
+      .eq('id', deal.id)
+      .eq('status', 'funding_failed')
+      .eq('version', currentVersion)
+      .select())
+
+    if (updateError) {
+      console.error('retryFundingAfterFailure update error:', updateError.message)
+      return { success: false, error: `Failed to retry funding: ${updateError.message}` }
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      return { success: false, error: 'This deal was updated by another user while you were viewing. Please refresh and try again.' }
+    }
+
+    await logAuditEvent({
+      action: 'deal.funding_retry_requested',
+      entityType: 'deal',
+      entityId: deal.id,
+      severity: 'warning',
+      metadata: {
+        prior_failure_reason: deal.funding_failure_reason ?? null,
+        prior_failure_at: deal.funding_failed_at ?? null,
+      },
+      oldValue: { status: 'funding_failed' },
+      newValue: { status: 'approved' },
+    })
+
+    return {
+      success: true,
+      data: {
+        dealId: deal.id,
+        status: 'approved',
+      },
+    }
+  } catch (err: any) {
+    console.error('retryFundingAfterFailure error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
+// Task 5 — Build a prefill object from a denied deal for resubmission
+// ----------------------------------------------------------------------------
+// Returns the form-ready fields the UI needs to seed a new submission form.
+// This does NOT create the new deal — the UI calls submitDeal /
+// submitDealAsBrokerage with the prefilled values, passing originalDealId
+// as revisedFromDealId so the lineage is preserved on insert.
+// ============================================================================
+
+export async function createRevisedDealFromDenied(input: {
+  originalDealId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: original, error: fetchErr } = await supabase
+      .from('deals')
+      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, notes, denial_reason')
+      .eq('id', input.originalDealId)
+      .single()
+
+    if (fetchErr || !original) return { success: false, error: 'Original deal not found' }
+
+    // Permission: agents can only revise their own deal; brokerage_admin can
+    // revise deals belonging to any agent at their brokerage.
+    if (profile.role === 'agent') {
+      if (original.agent_id !== profile.agent_id) {
+        return { success: false, error: 'You can only revise your own deals' }
+      }
+    } else if (profile.role === 'brokerage_admin') {
+      if (original.brokerage_id !== profile.brokerage_id) {
+        return { success: false, error: 'This deal belongs to another brokerage' }
+      }
+    }
+
+    // Only denied deals can be revised. (Cancelled is reachable via the
+    // standard new-deal flow without a revision link; failed/cured deals
+    // have their own remediation path.)
+    if (original.status !== 'denied') {
+      return { success: false, error: `Only denied deals can be revised. This deal is "${original.status}".` }
+    }
+
+    // Strip the transaction-type prefix the submit path wraps notes in so the
+    // user gets a clean editable note. If we can't parse it, return notes raw.
+    let transactionType = ''
+    let cleanNotes = ''
+    const raw = original.notes ?? ''
+    const m = raw.match(/^Transaction type:\s*(.+?)(?:\n([\s\S]*))?$/)
+    if (m) {
+      transactionType = m[1].trim()
+      cleanNotes = (m[2] || '').trim()
+    } else {
+      cleanNotes = raw
+    }
+
+    return {
+      success: true,
+      data: {
+        originalDealId: original.id,
+        // Prefill values for the form
+        propertyAddress: original.property_address,
+        // The denied deal's closing date is almost certainly stale — bubble it
+        // up so the UI can show "previously: X" but the user must pick a fresh
+        // date that satisfies MIN_DAYS_UNTIL_CLOSING.
+        previousClosingDate: original.closing_date,
+        grossCommission: original.gross_commission,
+        brokerageSplitPct: original.brokerage_split_pct,
+        transactionType,
+        notes: cleanNotes,
+        denialReason: original.denial_reason,
+      },
+    }
+  } catch (err: any) {
+    console.error('createRevisedDealFromDenied error:', err?.message)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }

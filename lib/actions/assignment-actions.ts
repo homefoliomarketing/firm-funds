@@ -1,0 +1,256 @@
+'use server'
+
+// ============================================================================
+// Underwriter Assignment
+// ============================================================================
+// Queue-style underwriter ownership for the admin deal pipeline. Backed by
+// the migration 083 columns:
+//   deals.assigned_to_user_id (nullable, references auth.users.id)
+//   deals.version             (bumped by trg_deals_bump_version on every UPDATE)
+//
+// All actions here require a Firm Funds admin role. Assignment writes are
+// optimistic-locked on deals.version so two admins clicking "Assign" at the
+// same time don't silently overwrite each other.
+//
+// Overdue note: there is no dedicated `assigned_at` column yet — `updated_at`
+// is used as a proxy for "how long has this deal been sitting." This works in
+// practice because the most-recent edit to an under-review deal IS almost
+// always the assignment (or a status touch that resets the clock). When/if a
+// dedicated assigned_at column lands, getOverdueAssignments should be
+// switched to that.
+// ============================================================================
+
+import { createServiceRoleClient } from '@/lib/supabase/server'
+import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { logAuditEvent } from '@/lib/audit'
+import type { Deal } from '@/types/database'
+
+interface ActionResult<T = any> {
+  success: boolean
+  error?: string
+  data?: T
+}
+
+// Select set used by all assignment queries. Keep this DRY — page components
+// can rely on the same shape coming back.
+const ASSIGNMENT_DEAL_SELECT = `
+  id,
+  status,
+  property_address,
+  closing_date,
+  due_date,
+  gross_commission,
+  advance_amount,
+  agent_id,
+  brokerage_id,
+  assigned_to_user_id,
+  version,
+  created_at,
+  updated_at,
+  agents:agent_id ( first_name, last_name ),
+  brokerages:brokerage_id ( id, name )
+`
+
+// ============================================================================
+// assignDealToUnderwriter — set or clear deals.assigned_to_user_id.
+//
+// Pass underwriterUserId = null to unassign. Pass expectedVersion (the
+// deals.version value the caller READ) to optimistic-lock the write — if
+// another admin has touched the deal in between, the CAS misses and we
+// surface a conflict instead of silently clobbering their edit.
+// ============================================================================
+export async function assignDealToUnderwriter(input: {
+  dealId: string
+  underwriterUserId: string | null // null to unassign
+  expectedVersion?: number
+}): Promise<ActionResult<{ assigned_to_user_id: string | null; version: number }>> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!input.dealId) return { success: false, error: 'dealId is required' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    // Load deal to verify it exists and capture prior assignee for audit.
+    const { data: existing, error: loadErr } = await serviceClient
+      .from('deals')
+      .select('id, status, assigned_to_user_id, version, property_address')
+      .eq('id', input.dealId)
+      .single()
+
+    if (loadErr || !existing) return { success: false, error: 'Deal not found' }
+
+    // If unassigning, no further user lookup needed. Otherwise verify the
+    // target user is a Firm Funds admin (only FF admins should appear in the
+    // queue dropdown — agents/brokerage admins can't underwrite).
+    if (input.underwriterUserId) {
+      const { data: targetProfile } = await serviceClient
+        .from('user_profiles')
+        .select('id, role, is_active, full_name')
+        .eq('id', input.underwriterUserId)
+        .single()
+      if (!targetProfile) {
+        return { success: false, error: 'Underwriter user not found' }
+      }
+      if (!targetProfile.is_active) {
+        return { success: false, error: 'Underwriter account is deactivated' }
+      }
+      if (!['super_admin', 'firm_funds_admin'].includes(targetProfile.role)) {
+        return {
+          success: false,
+          error: 'Only Firm Funds admins can be assigned as underwriters',
+        }
+      }
+    }
+
+    // CAS update — pin to the expected version if provided. Without
+    // expectedVersion we still write atomically but skip the conflict check.
+    let updateQ = serviceClient
+      .from('deals')
+      .update({ assigned_to_user_id: input.underwriterUserId })
+      .eq('id', input.dealId)
+
+    if (typeof input.expectedVersion === 'number') {
+      updateQ = updateQ.eq('version', input.expectedVersion)
+    }
+
+    const { data: updated, error: updateErr } = await updateQ
+      .select('id, assigned_to_user_id, version')
+      .maybeSingle()
+
+    if (updateErr) {
+      console.error('assignDealToUnderwriter update error:', updateErr.message)
+      return { success: false, error: `Failed to assign: ${updateErr.message}` }
+    }
+    if (!updated) {
+      return {
+        success: false,
+        error: 'Deal was modified by another session. Refresh and try again.',
+      }
+    }
+
+    await logAuditEvent({
+      action: input.underwriterUserId === null
+        ? 'deal.unassigned'
+        : 'deal.assigned',
+      entityType: 'deal',
+      entityId: input.dealId,
+      severity: 'info',
+      metadata: {
+        property_address: existing.property_address,
+        prior_assigned_to_user_id: existing.assigned_to_user_id,
+        new_assigned_to_user_id: input.underwriterUserId,
+        changed_by_user_id: user.id,
+        from_version: existing.version,
+        to_version: updated.version,
+      },
+    })
+
+    return {
+      success: true,
+      data: {
+        assigned_to_user_id: updated.assigned_to_user_id ?? null,
+        version: updated.version,
+      },
+    }
+  } catch (err: any) {
+    console.error('assignDealToUnderwriter error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// getUnassignedDeals — under_review deals with no underwriter claimed yet.
+// Drives the "queue" tab on the admin dashboard.
+// ============================================================================
+export async function getUnassignedDeals(): Promise<ActionResult<Deal[]>> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+  try {
+    const { data, error } = await serviceClient
+      .from('deals')
+      .select(ASSIGNMENT_DEAL_SELECT)
+      .eq('status', 'under_review')
+      .is('assigned_to_user_id', null)
+      .order('created_at', { ascending: true })
+
+    if (error) return { success: false, error: error.message }
+    return { success: true, data: (data || []) as unknown as Deal[] }
+  } catch (err: any) {
+    console.error('getUnassignedDeals error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// getMyAssignedDeals — deals assigned to the CURRENT logged-in FF admin.
+// Status filter is broad on purpose: an underwriter owns the deal end-to-end
+// from under_review through funded/completed, so all in-flight statuses count.
+// ============================================================================
+export async function getMyAssignedDeals(): Promise<ActionResult<Deal[]>> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+  try {
+    const { data, error } = await serviceClient
+      .from('deals')
+      .select(ASSIGNMENT_DEAL_SELECT)
+      .eq('assigned_to_user_id', user.id)
+      .in('status', ['under_review', 'approved', 'funded', 'failed_to_close', 'funding_failed', 'offered'])
+      .order('closing_date', { ascending: true })
+
+    if (error) return { success: false, error: error.message }
+    return { success: true, data: (data || []) as unknown as Deal[] }
+  } catch (err: any) {
+    console.error('getMyAssignedDeals error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// getOverdueAssignments — deals stuck in under_review for too long.
+//
+// NOTE: there's no dedicated assigned_at column yet. We approximate
+// "assigned more than N days ago" via updated_at. Two cases:
+//   (a) assigned_to_user_id IS NULL and the deal has been in under_review
+//       for > thresholdDays — nobody picked it up.
+//   (b) assigned_to_user_id IS NOT NULL and updated_at is older than
+//       thresholdDays — the assignee touched it last more than N days ago
+//       and the status hasn't progressed past under_review.
+//
+// Both are surfaced together so the admin dashboard can show one combined
+// "needs attention" list.
+// ============================================================================
+export async function getOverdueAssignments(
+  thresholdDays = 7,
+): Promise<ActionResult<Deal[]>> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (typeof thresholdDays !== 'number' || thresholdDays <= 0 || thresholdDays > 365) {
+    return { success: false, error: 'thresholdDays must be between 1 and 365' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+  try {
+    const cutoffMs = Date.now() - thresholdDays * 24 * 60 * 60 * 1000
+    const cutoffIso = new Date(cutoffMs).toISOString()
+
+    const { data, error } = await serviceClient
+      .from('deals')
+      .select(ASSIGNMENT_DEAL_SELECT)
+      .eq('status', 'under_review')
+      .lt('updated_at', cutoffIso)
+      .order('updated_at', { ascending: true })
+
+    if (error) return { success: false, error: error.message }
+    return { success: true, data: (data || []) as unknown as Deal[] }
+  } catch (err: any) {
+    console.error('getOverdueAssignments error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  }
+}

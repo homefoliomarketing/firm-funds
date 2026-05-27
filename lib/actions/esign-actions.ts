@@ -120,6 +120,27 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       return { success: false, error: 'This deal already has pending signature requests. Void them first if you need to resend.' }
     }
 
+    // Optimistic-lock claim: bump the deal's version before spending time on
+    // DocuSign API calls. If a parallel sendForSignature call (or any other
+    // mutation) lands first, this CAS fails and we bail out cleanly instead
+    // of creating duplicate envelopes. The version-bump trigger from
+    // migration 083 increments deal.version atomically on every UPDATE.
+    const initialVersion = (deal as any).version
+    if (typeof initialVersion === 'number') {
+      const { data: claimed, error: claimErr } = await (supabase as any)
+        .from('deals')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', dealId)
+        .eq('status', 'approved')
+        .eq('version', initialVersion)
+        .select('id')
+        .maybeSingle()
+      if (claimErr || !claimed) {
+        return { success: false, error: 'This deal was updated by another user while you were sending it for signature. Please refresh and try again.' }
+      }
+    }
+
+
     // Build contract data
     const agentName = `${agent.first_name} ${agent.last_name}`
     const today = new Date().toISOString().split('T')[0]

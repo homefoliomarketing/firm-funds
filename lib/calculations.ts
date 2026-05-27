@@ -1,6 +1,28 @@
 // Firm Funds Financial Calculations
 // All monetary values are in CAD
 // Uses integer-cents arithmetic to avoid floating-point errors
+//
+// ============================================================================
+// DATE & TIMEZONE CONVENTIONS
+// ============================================================================
+// All date INPUTS and OUTPUTS in this module are Toronto-local calendar dates
+// in YYYY-MM-DD format unless explicitly noted otherwise (e.g. `failedToCloseAt`
+// is an ISO timestamp because it comes straight from a Postgres `timestamptz`).
+//
+// When a function needs to do calendar-date arithmetic (e.g. "30 days after
+// closing"), it anchors the calculation at NOON UTC of the input date — never
+// midnight. Reason: midnight UTC is 19:00–20:00 Toronto the previous day,
+// which lands within an hour of the date boundary. If the +N-day window
+// crosses a DST transition (March spring-forward or November fall-back), the
+// ±1 hour shift caused by working in raw UTC milliseconds can tip the
+// resulting calendar date by one day. Anchoring at noon UTC (07:00–08:00
+// Toronto) leaves a multi-hour buffer on both sides of any DST shift, so the
+// result lands on the right calendar day in every case.
+//
+// See CLAUDE.md "Financial Rules" section for the canonical spec these
+// calculations implement. Discrepancies between this file and that section
+// should be treated as bugs in this file, not in the spec.
+// ============================================================================
 
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
@@ -42,10 +64,24 @@ export function effectiveSettlementDays(brokerage: BrokerageSettlementInputs | n
 
 export interface DealCalculation {
   grossCommission: number
-  brokerageSplitPct: number // e.g., 20 means brokerage keeps 20%, agent keeps 80%
+  /**
+   * Brokerage split as a WHOLE NUMBER, NOT a decimal.
+   * e.g. 20 means the brokerage keeps 20% of the gross, the agent keeps 80%.
+   * NEVER pass 0.20 here — that would compute against 0.2% and blow up
+   * netCommission by 99x. The database column `brokerage_split_pct` stores
+   * whole numbers under the same convention (see CLAUDE.md Financial Rules).
+   */
+  brokerageSplitPct: number
   daysUntilClosing: number
   discountRate?: number
-  brokerageReferralPct?: number // per-deal negotiable (0-1 decimal)
+  /**
+   * Brokerage referral fee share, as a 0-1 DECIMAL (NOT a whole number).
+   * e.g. 0.20 means the brokerage keeps 20% of (discountFee + settlementPeriodFee).
+   * NEVER pass 20 here — that would compute a 2000% referral and produce
+   * a negative firmFundsProfit. Per-deal override, otherwise defaults to
+   * DEFAULT_BROKERAGE_REFERRAL_PCT (0.20).
+   */
+  brokerageReferralPct?: number
   /**
    * Override the settlement-period days used for the settlement-period fee.
    * Defaults to SETTLEMENT_PERIOD_DAYS (7). Set to BROKERAGE_BUMPED_SETTLEMENT_DAYS (14)
@@ -77,6 +113,11 @@ function roundToCents(value: number): number {
  * days-until-closing. Funds arrive the day AFTER funding and closing day
  * itself isn't charged, so effective days = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS.
  * Minimum of 1 to prevent zero/negative charges.
+ *
+ * Worked example: daysUntilClosing = 30, RETURN_PROCESSING_DAYS = 0
+ *   → chargeDays = max(1, 30 - 1 + 0) = 29 days.
+ * Worked example: daysUntilClosing = 2 (minimum), RETURN_PROCESSING_DAYS = 0
+ *   → chargeDays = max(1, 2 - 1 + 0) = 1 day.
  */
 export function getChargeDays(daysUntilClosing: number): number {
   return Math.max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
@@ -87,6 +128,7 @@ function validateDealInputs(input: DealCalculation): void {
   if (input.grossCommission < MIN_GROSS_COMMISSION || input.grossCommission > MAX_GROSS_COMMISSION) {
     throw new Error(`Gross commission must be between $${MIN_GROSS_COMMISSION} and $${MAX_GROSS_COMMISSION.toLocaleString()}`)
   }
+  // brokerageSplitPct is a WHOLE NUMBER (5 = 5%), NOT a decimal. See DealCalculation jsdoc.
   if (input.brokerageSplitPct < 0 || input.brokerageSplitPct > 100) {
     throw new Error('Brokerage split percentage must be between 0 and 100')
   }
@@ -96,11 +138,35 @@ function validateDealInputs(input: DealCalculation): void {
   if (input.discountRate !== undefined && (input.discountRate <= 0 || input.discountRate > 10)) {
     throw new Error('Discount rate must be between 0 and 10')
   }
+  // brokerageReferralPct is a 0-1 DECIMAL (0.20 = 20%), NOT a whole number. See DealCalculation jsdoc.
   if (input.brokerageReferralPct !== undefined && (input.brokerageReferralPct < 0 || input.brokerageReferralPct > 1)) {
     throw new Error('Brokerage referral percentage must be between 0 and 1')
   }
 }
 
+/**
+ * Compute the full deal result (fees, advance, brokerage payout, etc.) for a
+ * given commission/split/timeline.
+ *
+ * Worked example A — standard deal:
+ *   grossCommission $50,000, brokerageSplitPct = 5 (5%), daysUntilClosing = 30,
+ *   rate = $0.80/$1,000/day, referralPct = 0.20, settlementPeriodDays = 7.
+ *   netCommission = 50,000 × (1 - 0.05) = $47,500.00
+ *   effectiveDays = max(1, 30 - 1) = 29
+ *   discountFee = 47,500 × 0.0008 × 29 = $1,102.00
+ *   settlementPeriodFee = 47,500 × 0.0008 × 7 = $266.00
+ *   totalFees = $1,368.00; advanceAmount = 47,500 - 1,368 = $46,132.00
+ *   brokerageReferralFee = 1,368 × 0.20 = $273.60
+ *   firmFundsProfit = 1,368 - 273.60 = $1,094.40
+ *   amountDueFromBrokerage = 47,500 - 273.60 = $47,226.40
+ *
+ * Worked example B — same gross, MUCH shorter timeline:
+ *   grossCommission $50,000, brokerageSplitPct = 5, daysUntilClosing = 2.
+ *   effectiveDays = max(1, 2 - 1) = 1
+ *   discountFee = 47,500 × 0.0008 × 1 = $38.00
+ *   settlementPeriodFee unchanged = $266.00; totalFees = $304.00.
+ *   advanceAmount = $47,196.00 (much higher payout — small carrying cost).
+ */
 export function calculateDeal(input: DealCalculation): DealResult {
   // Validate inputs
   validateDealInputs(input)
@@ -121,6 +187,8 @@ export function calculateDeal(input: DealCalculation): DealResult {
   //   netCommission - brokerageReferralFee === amountDueFromBrokerage
 
   // 1. Net commission after brokerage split (anchor for everything downstream).
+  //    brokerageSplitPct is a WHOLE NUMBER — divide by 100 once here.
+  //    e.g. 5 → 0.05 → keep 95% of gross.
   const netCommission = roundToCents(input.grossCommission * (1 - input.brokerageSplitPct / 100))
 
   // 2. Discount fee: net commission × ($0.80 / $1,000) × effective days.
@@ -139,6 +207,8 @@ export function calculateDeal(input: DealCalculation): DealResult {
   const advanceAmount = netCommission - totalFees
 
   // 5. Brokerage (white-label partner) gets a cut of the TOTAL fees.
+  //    referralPct is a 0-1 DECIMAL — multiply directly, do NOT /100.
+  //    e.g. 0.20 → brokerage keeps 20% of fees, Firm Funds keeps 80%.
   //    Round once; firmFundsProfit derives from the rounded value.
   const brokerageReferralFee = roundToCents(totalFees * referralPct)
 
@@ -170,13 +240,26 @@ export function calculateDeal(input: DealCalculation): DealResult {
  * 30 days past the closing date. The 7-day settlement window and the 8-30 day
  * follow-up window are penalty-free.
  *
- * @param closingDate - YYYY-MM-DD, the deal's closing date
- * @returns YYYY-MM-DD, the day interest first begins accruing (closing + 30)
+ * Returns the date used as the accrual ANCHOR for compound interest math:
+ * `calculateCompoundDailyInterest` computes 0 interest on this exact date and
+ * 1 day's worth on (anchor + 1 day). So with LATE_INTEREST_GRACE_DAYS_FROM_CLOSING
+ * = 30, the function returns `closing + 30 days`; the first NON-ZERO accrual
+ * shows up on `closing + 31 days`, matching the spec's "accrual starts day 31
+ * after closing (30-day grace)".
+ *
+ * Worked example: closingDate = "2026-05-26"
+ *   anchor (returned) = "2026-06-25" (May 26 + 30 days; last grace day, 0 interest)
+ *   first accruing day = "2026-06-26" (May 26 + 31 days; 1 day of interest)
+ *
+ * @param closingDate - YYYY-MM-DD (Toronto), the deal's closing date
+ * @returns YYYY-MM-DD (Toronto), the compound-interest anchor (closing + 30)
  */
 export function lateInterestAccrualStartDate(closingDate: string): string {
-  const closingMs = new Date(closingDate + 'T00:00:00Z').getTime()
+  // Anchor at noon UTC so a DST shift inside the +30-day window can't tip the
+  // calendar date (see DATE & TIMEZONE CONVENTIONS header at top of file).
+  const closingMs = new Date(closingDate + 'T12:00:00Z').getTime()
   const accrualStartMs = closingMs + LATE_INTEREST_GRACE_DAYS_FROM_CLOSING * 24 * 60 * 60 * 1000
-  return new Date(accrualStartMs).toISOString().slice(0, 10)
+  return new Date(accrualStartMs).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 }
 
 /**
@@ -185,6 +268,12 @@ export function lateInterestAccrualStartDate(closingDate: string): string {
  *
  * Math: 24% per annum compounded daily on the advance amount, identical to
  * `calculateCompoundDailyInterest` but anchored to the closing date + 30 days.
+ *
+ * Worked example: advance $46,132, closing "2026-05-26", currentDate "2026-07-25"
+ *   anchor = "2026-06-25" (closing + 30); daysOverdue from "2026-06-25" to
+ *   "2026-07-25" = 30 days.
+ *   dailyRate = (1.24)^(1/365) - 1 ≈ 0.0005895
+ *   total = 46,132 × ((1.0005895)^30 - 1) ≈ 46,132 × 0.01782 ≈ $822.05
  *
  * @param advanceAmount - The amount advanced to the agent
  * @param closingDate - YYYY-MM-DD, the deal's closing date
@@ -221,13 +310,26 @@ export function liveLateInterestOwed(
  * Equivalent to charging dailyRate on (principal + prior accrued interest)
  * every day, but computed as a single expression for idempotency.
  *
+ * Note on the anchor: `daysOverdue = floor((current - start) / day)`, so
+ * passing `start === current` returns 0. The interpretation is "interest
+ * begins accruing FROM the anchor, with the first day's accrual visible on
+ * (anchor + 1 day)". Callers (lateInterestAccrualStartDate,
+ * failedDealAccrualStartDate) deliberately return the LAST grace day as the
+ * anchor so this 0-on-anchor / non-zero-on-anchor+1 behaviour lines up with
+ * the spec's "day 31 starts accruing".
+ *
  * Used for CPA 5.3 failed-to-close balances, which compound daily on the
  * unpaid balance (principal + prior accrued interest). Returns 0 if the
  * accrual start date hasn't yet been reached (e.g. still in the 30-day
  * grace period after the demand notice).
  *
+ * Worked example: principal $10,000, accrualStart "2026-06-25",
+ *   currentDate "2026-06-26" → daysOverdue = 1
+ *   dailyRate = (1.24)^(1/365) - 1 ≈ 0.0005895
+ *   interest = 10,000 × ((1.0005895)^1 - 1) ≈ $5.90 (one day's worth).
+ *
  * @param principal - The unpaid principal at the moment accrual begins
- * @param accrualStartDate - YYYY-MM-DD, the day interest begins accruing
+ * @param accrualStartDate - YYYY-MM-DD, the compound-interest anchor (last grace day)
  * @param currentDate - YYYY-MM-DD, the day to compute total accrued through
  */
 export function calculateCompoundDailyInterest(
@@ -235,8 +337,10 @@ export function calculateCompoundDailyInterest(
   accrualStartDate: string,
   currentDate: string,
 ): number {
-  const startMs = new Date(accrualStartDate + 'T00:00:00Z').getTime()
-  const currentMs = new Date(currentDate + 'T00:00:00Z').getTime()
+  // Use noon UTC for both endpoints so a DST cross inside the interval can't
+  // shift daysOverdue by ±1 (see DATE & TIMEZONE CONVENTIONS header).
+  const startMs = new Date(accrualStartDate + 'T12:00:00Z').getTime()
+  const currentMs = new Date(currentDate + 'T12:00:00Z').getTime()
   const daysOverdue = Math.floor((currentMs - startMs) / (1000 * 60 * 60 * 24))
 
   if (daysOverdue <= 0) return 0
@@ -256,10 +360,46 @@ export function calculateCompoundDailyInterest(
  */
 export const FAILED_DEAL_GRACE_DAYS = 30
 
-/** Day-31 accrual-start date (YYYY-MM-DD, Toronto) for a failed deal. */
+/**
+ * Compound-interest anchor for a failed deal (YYYY-MM-DD, Toronto).
+ *
+ * Returns `failed_to_close_at` + 30 days, evaluated in Toronto local time.
+ * This is the LAST GRACE DAY — passed to `calculateCompoundDailyInterest`
+ * it produces 0 interest on the anchor itself and 1 day's worth on
+ * (anchor + 1 day = day 31), matching CPA 5.3's "from the thirty-first
+ * (31st) day".
+ *
+ * Implementation note (BUG FIX): the previous version called
+ * `failedAt.getTime() + 30 * 86400 * 1000` on the raw ISO timestamp, then
+ * formatted in Toronto. If `failedToCloseAt` was near midnight Toronto AND
+ * the +30-day window crossed a DST transition, the ±1-hour wall-clock shift
+ * from working in raw UTC milliseconds could tip the resulting Toronto
+ * calendar date by one day. Example:
+ *   failed_to_close_at = "2026-03-08T04:00:00Z" (Mar 7 23:00 EST in Toronto)
+ *   buggy: +30 UTC days → "2026-04-07T04:00:00Z" → Apr 7 00:00 EDT → "2026-04-07"
+ *   correct: Mar 7 (Toronto) + 30 days = "2026-04-06"
+ * The fix is to (a) resolve the failed timestamp to a Toronto calendar date
+ * first, then (b) re-anchor at noon UTC of that date for the +30-day math,
+ * which keeps the wall clock multiple hours from midnight regardless of DST.
+ *
+ * Worked example (no DST involved):
+ *   failed_to_close_at = "2026-05-27T01:00:00Z" (May 26 21:00 EDT in Toronto)
+ *   → failedDateInToronto = "2026-05-26"
+ *   → anchor (returned) = "2026-06-25" (May 26 + 30; last grace day, 0 interest)
+ *   → day 31 = "2026-06-26" (first day interest accrues)
+ *
+ * @param failedToCloseAt - ISO timestamp (typically from a Postgres timestamptz)
+ * @returns YYYY-MM-DD (Toronto), the compound-interest anchor (failed date + 30)
+ */
 export function failedDealAccrualStartDate(failedToCloseAt: string): string {
-  const failedAt = new Date(failedToCloseAt)
-  const accrualStartMs = failedAt.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
+  // 1. Resolve the timestamp to a Toronto calendar date first. This collapses
+  //    the timestamp's UTC time-of-day, which is where the DST-cross bug
+  //    originated.
+  const failedDateInToronto = new Date(failedToCloseAt).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  // 2. Re-anchor at noon UTC of that Toronto date so the +30-day math stays
+  //    multiple hours from any date boundary (see DATE & TIMEZONE CONVENTIONS).
+  const failedDate = new Date(failedDateInToronto + 'T12:00:00Z')
+  const accrualStartMs = failedDate.getTime() + FAILED_DEAL_GRACE_DAYS * 24 * 60 * 60 * 1000
   return new Date(accrualStartMs).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 }
 

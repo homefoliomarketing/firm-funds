@@ -75,6 +75,17 @@ export async function createRemediationDeal(input: RemediationDealInput): Promis
       .single()
 
     if (insertErr) {
+      // Task 10: migration 090 adds a unique partial index on
+      // (failed_deal_id, property_address) WHERE status<>'cancelled', so two
+      // concurrent admins clicking "Add Remediation" for the same address
+      // collide here with PostgreSQL error code 23505. Translate that to a
+      // friendly message instead of leaking the raw constraint name.
+      if ((insertErr as { code?: string }).code === '23505') {
+        return {
+          success: false,
+          error: 'A remediation deal already exists for this property and failed deal. Check existing remediation list.',
+        }
+      }
       console.error('createRemediationDeal insert error:', insertErr.message)
       return { success: false, error: `Failed to save remediation deal: ${insertErr.message}` }
     }
@@ -273,10 +284,22 @@ export async function markRemediationDealRemitted(input: {
 
     const { data: failedDeal } = await serviceClient
       .from('deals')
-      .select('id, outstanding_balance, failed_to_close_at, failed_deal_interest_charged, property_address')
+      .select('id, status, outstanding_balance, failed_to_close_at, failed_deal_interest_charged, property_address')
       .eq('id', rem.failed_deal_id)
       .single()
     if (!failedDeal) return { success: false, error: 'Failed deal not found' }
+
+    // Task 11: hard-stop if the failed deal isn't in failed_to_close anymore.
+    // If it slipped to cured (someone else cleared it) or back to funded (mis-
+    // mark reversal), applying a remittance against it would either re-cure a
+    // cleared deal or post a credit against a deal that's no longer failed.
+    // Force the admin to refresh and reconfirm intent.
+    if (failedDeal.status !== 'failed_to_close') {
+      return {
+        success: false,
+        error: `Deal is no longer in failed-to-close status (currently: ${failedDeal.status}). Refresh and verify before applying remittance.`,
+      }
+    }
 
     const { data: agent } = await serviceClient
       .from('agents')
@@ -409,11 +432,14 @@ export async function markRemediationDealRemitted(input: {
       .maybeSingle()
 
     if (dealUpdateErr || !updatedDeal) {
-      // The credit was already posted via the RPC, so the agent's ledger is
-      // correct. But the failed deal's denormalized principal/interest
-      // counters did NOT update because another remittance landed between
-      // our read and write. Log loudly and surface the discrepancy so admin
-      // can reconcile manually.
+      // Task 9: the credit was already atomically posted to the agent's
+      // balance via the RPC, but the failed deal's denormalized principal /
+      // interest counters did NOT update because another remittance landed
+      // between our read and write. Previously we swallowed this and returned
+      // success, which left admins blind to the reconciliation gap. Now we
+      // log a WARNING audit event AND return an explicit error so the user
+      // refreshes and inspects the failed-deal totals. The credit on the
+      // ledger remains valid; there is no double-post risk.
       console.error(
         'markRemediationDealRemitted failed-deal CAS lost',
         {
@@ -428,15 +454,21 @@ export async function markRemediationDealRemitted(input: {
         action: 'remediation_deal.failed_deal_cas_lost',
         entityType: 'deal',
         entityId: failedDeal.id,
+        severity: 'warning',
         metadata: {
           remediation_deal_id: rem.id,
           expected_principal: principal,
           expected_posted_interest: postedInterest,
           credit_already_posted: creditAmount,
           unposted_interest_posted: applyToUnposted,
+          surplus_amount: surplusAmount,
           error: dealUpdateErr?.message || 'CAS lost',
         },
       })
+      return {
+        success: false,
+        error: 'Another payment was recorded for this deal while you were processing. The credit has been posted to the agent. Please refresh and verify the failed-deal balance reconciles.',
+      }
     }
 
     await logAuditEvent({

@@ -21,10 +21,10 @@ import {
   sendAmendmentRejectedNotification,
 } from '@/lib/email'
 
-interface ActionResult {
+interface ActionResult<T = any> {
   success: boolean
   error?: string
-  data?: any
+  data?: T
 }
 
 /**
@@ -790,12 +790,16 @@ export async function approveClosingDateAmendment(input: {
 
 export async function rejectClosingDateAmendment(input: {
   amendmentId: string
-  reason: string
+  // Accept either name — operational actions pass `rejectionReason`, legacy
+  // callers pass `reason`. Whichever is present wins.
+  reason?: string
+  rejectionReason?: string
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
-  if (!input.reason?.trim()) {
+  const reason = (input.rejectionReason ?? input.reason ?? '').trim()
+  if (!reason) {
     return { success: false, error: 'Rejection reason is required' }
   }
 
@@ -822,7 +826,7 @@ export async function rejectClosingDateAmendment(input: {
         status: 'rejected',
         reviewed_by: user.id,
         reviewed_at: new Date().toISOString(),
-        rejection_reason: input.reason.trim(),
+        rejection_reason: reason,
       })
       .eq('id', input.amendmentId)
       .eq('status', 'pending')
@@ -839,7 +843,7 @@ export async function rejectClosingDateAmendment(input: {
       entityId: (amendment.deals as any)?.id,
       metadata: {
         amendment_id: input.amendmentId,
-        reason: input.reason,
+        reason,
       },
     })
 
@@ -852,7 +856,7 @@ export async function rejectClosingDateAmendment(input: {
         propertyAddress: deal.property_address,
         agentEmail: agent.email,
         agentFirstName: agent.first_name,
-        reason: input.reason.trim(),
+        reason,
       })
     }
 
@@ -932,5 +936,235 @@ export async function getPendingAmendments(): Promise<ActionResult> {
     return { success: true, data: data || [] }
   } catch (err: any) {
     return { success: false, error: 'Failed to fetch pending amendments' }
+  }
+}
+
+// ============================================================================
+// requestClosingDateAmendment — JSON variant of submitClosingDateAmendment.
+//
+// The two existing FormData submit functions above require an uploaded
+// executed amendment document. This JSON variant is the "operational"
+// shortcut: agent or brokerage admin records that an amendment is in flight
+// and admin will review with the document attached separately. Reason text
+// is captured in the audit log (no DB column for it on closing_date_amendments).
+//
+// Optimistic-lock via deals.version (migration 083) so the request fails
+// loudly if the deal was mutated between read and request.
+// ============================================================================
+export async function requestClosingDateAmendment(input: {
+  dealId: string
+  newClosingDate: string // YYYY-MM-DD
+  reason: string
+  expectedVersion?: number // optional optimistic lock on deals.version
+}): Promise<ActionResult<{ amendment_id: string }>> {
+  // Agent or brokerage_admin (covers Bud's "brokerage admins submit on behalf
+  // of agents" pattern). FF admins can also call this through a back-office
+  // path if needed.
+  const { error: authErr, user, profile } = await getAuthenticatedUser([
+    'agent',
+    'brokerage_admin',
+    'super_admin',
+    'firm_funds_admin',
+  ])
+  if (authErr || !user || !profile) {
+    return { success: false, error: authErr || 'Authentication failed' }
+  }
+
+  if (!input.dealId) return { success: false, error: 'dealId is required' }
+  if (!input.newClosingDate || !/^\d{4}-\d{2}-\d{2}$/.test(input.newClosingDate)) {
+    return { success: false, error: 'newClosingDate must be a YYYY-MM-DD date string' }
+  }
+  const reason = (input.reason || '').trim()
+  if (reason.length < 5) {
+    return { success: false, error: 'A reason (at least 5 characters) is required' }
+  }
+  if (reason.length > 1000) {
+    return { success: false, error: 'Reason must be 1000 characters or fewer' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    // Load the deal with everything needed for ownership check + fee math.
+    const { data: deal, error: dealErr } = await serviceClient
+      .from('deals')
+      .select(
+        'id, status, closing_date, agent_id, brokerage_id, property_address, gross_commission, brokerage_split_pct, net_commission, advance_amount, discount_fee, settlement_period_fee, due_date, brokerage_referral_pct, settlement_days_at_funding, version',
+      )
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealErr || !deal) return { success: false, error: 'Deal not found' }
+
+    // Ownership check based on caller role.
+    const isFfAdmin =
+      profile.role === 'super_admin' || profile.role === 'firm_funds_admin'
+    if (!isFfAdmin) {
+      if (profile.role === 'agent' && deal.agent_id !== profile.agent_id) {
+        return { success: false, error: 'You do not have access to this deal' }
+      }
+      if (
+        profile.role === 'brokerage_admin' &&
+        deal.brokerage_id !== profile.brokerage_id
+      ) {
+        return { success: false, error: 'You do not have access to this deal' }
+      }
+    }
+
+    if (!['approved', 'funded'].includes(deal.status)) {
+      return {
+        success: false,
+        error: 'Closing date can only be amended on approved or funded deals',
+      }
+    }
+
+    // Future-date check (Toronto today, same logic as calcDaysUntilClosing).
+    const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+    if (input.newClosingDate <= todayET) {
+      return { success: false, error: 'New closing date must be in the future' }
+    }
+
+    const newDays = calcDaysUntilClosing(input.newClosingDate)
+    if (newDays < MIN_DAYS_UNTIL_CLOSING || newDays > MAX_DAYS_UNTIL_CLOSING) {
+      return {
+        success: false,
+        error: `New closing date must be between ${MIN_DAYS_UNTIL_CLOSING} and ${MAX_DAYS_UNTIL_CLOSING} days from today`,
+      }
+    }
+    if (input.newClosingDate === deal.closing_date) {
+      return { success: false, error: 'New closing date is the same as the current closing date' }
+    }
+
+    // Optimistic lock — fail loudly if the deal was edited (e.g. status flip,
+    // closing-date change) between caller's read and this request.
+    if (typeof input.expectedVersion === 'number' && deal.version !== input.expectedVersion) {
+      return {
+        success: false,
+        error: 'Deal was modified by another session. Refresh and try again.',
+      }
+    }
+
+    // Block if there's already a pending amendment (mirrors the FormData flow
+    // and the partial unique index from migration 070).
+    const { data: existingPending } = await serviceClient
+      .from('closing_date_amendments')
+      .select('id')
+      .eq('deal_id', deal.id)
+      .eq('status', 'pending')
+      .limit(1)
+    if (existingPending && existingPending.length > 0) {
+      return {
+        success: false,
+        error: 'There is already a pending amendment request for this deal. Please wait for admin review.',
+      }
+    }
+
+    // Compute new fees + due date the same way the FormData flow does, so
+    // the admin sees the same numbers on approval. Settlement window is
+    // snapshotted at funding for funded deals.
+    const referralPct = deal.brokerage_referral_pct || 0.20
+    const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
+    const newCalc = calculateDeal({
+      grossCommission: deal.gross_commission,
+      brokerageSplitPct: deal.brokerage_split_pct,
+      daysUntilClosing: newDays,
+      discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
+      brokerageReferralPct: referralPct,
+      settlementPeriodDays: settlementDays,
+    })
+    const newClosingDateObj = new Date(input.newClosingDate + 'T00:00:00Z')
+    const newDueDate = new Date(newClosingDateObj.getTime() + settlementDays * 24 * 60 * 60 * 1000)
+    const newDueDateStr = newDueDate.toISOString().split('T')[0]
+
+    // Compute fee delta — funded deals lock fees and only delta the discount
+    // portion for the extra/saved days. Mirrors computeFundedAmendmentDelta.
+    let scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' = 'approved_recalc'
+    let feeAdjustment = 0
+    let newDiscountFeeStored = newCalc.discountFee
+    let newSettlementFeeStored = newCalc.settlementPeriodFee
+    let newAdvanceAmountStored = newCalc.advanceAmount
+
+    if (deal.status === 'funded') {
+      const oldDiscountFee = deal.discount_fee || 0
+      const oldClosingMs = new Date((deal.closing_date as string) + 'T00:00:00Z').getTime()
+      const newClosingMs = new Date(input.newClosingDate + 'T00:00:00Z').getTime()
+      const extraDays = Math.round((newClosingMs - oldClosingMs) / 86400000)
+      const dailyRate = DISCOUNT_RATE_PER_1000_PER_DAY / 1000
+      feeAdjustment =
+        Math.round((deal.net_commission || 0) * dailyRate * extraDays * 100) / 100
+      newDiscountFeeStored = Math.round((oldDiscountFee + feeAdjustment) * 100) / 100
+      newSettlementFeeStored = deal.settlement_period_fee || 0
+      newAdvanceAmountStored = deal.advance_amount
+      scenario = feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier'
+    }
+
+    const { data: amendment, error: amendError } = await serviceClient
+      .from('closing_date_amendments')
+      .insert({
+        deal_id: deal.id,
+        requested_by: user.id,
+        old_closing_date: deal.closing_date,
+        new_closing_date: input.newClosingDate,
+        status: 'pending',
+        old_discount_fee: deal.discount_fee,
+        new_discount_fee: newDiscountFeeStored,
+        old_settlement_period_fee: deal.settlement_period_fee || 0,
+        new_settlement_period_fee: newSettlementFeeStored,
+        old_advance_amount: deal.advance_amount,
+        new_advance_amount: newAdvanceAmountStored,
+        old_due_date: deal.due_date,
+        new_due_date: newDueDateStr,
+        fee_adjustment_amount: feeAdjustment,
+        adjustment_scenario: scenario,
+      })
+      .select('id')
+      .single()
+
+    if (amendError || !amendment) {
+      console.error('requestClosingDateAmendment insert error:', amendError?.message)
+      return { success: false, error: 'Failed to create amendment request' }
+    }
+
+    await logAuditEvent({
+      action: 'amendment.requested',
+      entityType: 'deal',
+      entityId: deal.id,
+      metadata: {
+        amendment_id: amendment.id,
+        old_closing_date: deal.closing_date,
+        new_closing_date: input.newClosingDate,
+        requested_by: user.id,
+        requested_by_role: profile.role,
+        request_path: 'json_no_document',
+        reason,
+        fee_adjustment_amount: feeAdjustment,
+        scenario,
+      },
+    })
+
+    // Notify admin so they can review (matches the FormData flow).
+    const { data: agentData } = await serviceClient
+      .from('agents')
+      .select('first_name, last_name')
+      .eq('id', deal.agent_id)
+      .single()
+    if (agentData) {
+      try {
+        await sendAmendmentRequestedNotification({
+          dealId: deal.id,
+          propertyAddress: deal.property_address,
+          agentName: `${agentData.first_name} ${agentData.last_name}`,
+          oldClosingDate: deal.closing_date,
+          newClosingDate: input.newClosingDate,
+        })
+      } catch (notifyErr: any) {
+        console.warn('[requestClosingDateAmendment] notify failed (non-fatal):', notifyErr?.message)
+      }
+    }
+
+    return { success: true, data: { amendment_id: amendment.id } }
+  } catch (err: any) {
+    console.error('requestClosingDateAmendment error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
   }
 }

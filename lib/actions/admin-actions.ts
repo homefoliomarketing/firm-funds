@@ -17,6 +17,7 @@ import {
   MAX_UPLOAD_SIZE_BYTES,
   ALLOWED_UPLOAD_MIME_TYPES,
   ALLOWED_UPLOAD_EXTENSIONS,
+  DISCOUNT_RATE_PER_1000_PER_DAY,
 } from '@/lib/constants'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
 import {
@@ -225,6 +226,46 @@ interface ActionResult {
 }
 
 // ============================================================================
+// Email-shape helper used by both brokerage create/update. Migration 086 makes
+// brokerages.email + broker_of_record_email NOT NULL with a CHECK constraint;
+// validating here gives a friendly app-level error instead of a 500 from the
+// constraint. Regex matches the DB CHECK (deliberately permissive — rejects
+// obvious garbage like "no-email" or "x@" without chasing RFC 5322).
+// ============================================================================
+const SIMPLE_EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+
+function normalizeEmail(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase()
+}
+
+function validateBrokerageEmails(input: {
+  email: string
+  broker_of_record_email: string
+}): { valid: boolean; error?: string; warning?: string } {
+  const email = normalizeEmail(input.email)
+  const bor = normalizeEmail(input.broker_of_record_email)
+
+  if (!email) return { valid: false, error: 'Brokerage email is required' }
+  if (!bor) return { valid: false, error: 'Broker of Record email is required' }
+  if (!SIMPLE_EMAIL_REGEX.test(email)) {
+    return { valid: false, error: 'Brokerage email is not a valid email address' }
+  }
+  if (!SIMPLE_EMAIL_REGEX.test(bor)) {
+    return { valid: false, error: 'Broker of Record email is not a valid email address' }
+  }
+  // Non-fatal warning: BOR and general inbox SHOULD usually differ. Caller
+  // logs this in audit metadata but does not block the save — some small
+  // brokerages legitimately use the same inbox.
+  if (email === bor) {
+    return {
+      valid: true,
+      warning: 'Brokerage email and Broker of Record email are the same. This is allowed but unusual.',
+    }
+  }
+  return { valid: true }
+}
+
+// ============================================================================
 // Brokerage CRUD
 // ============================================================================
 
@@ -257,11 +298,25 @@ export async function createBrokerage(input: {
     }
     const v = parsed.data
 
+    // Migration 086 makes both columns NOT NULL with an email-shape CHECK.
+    // Enforce here (independently of the schema) so we get a friendly error
+    // before hitting the DB. CreateBrokerageSchema already requires .email
+    // but leaves brokerOfRecordEmail optional; we tighten BOR here.
+    const normalizedEmail = normalizeEmail(v.email)
+    const normalizedBorEmail = normalizeEmail(v.brokerOfRecordEmail ?? '')
+    const emailValidation = validateBrokerageEmails({
+      email: normalizedEmail,
+      broker_of_record_email: normalizedBorEmail,
+    })
+    if (!emailValidation.valid) {
+      return { success: false, error: emailValidation.error || 'Invalid email' }
+    }
+
     const { data: brokerage, error: insertError } = await supabase
       .from('brokerages')
       .insert({
         name: v.name,
-        email: v.email,
+        email: normalizedEmail,
         brand: v.brand || null,
         address: v.address || null,
         city: v.city || null,
@@ -272,7 +327,7 @@ export async function createBrokerage(input: {
         transaction_system: v.transactionSystem || null,
         notes: v.notes || null,
         broker_of_record_name: v.brokerOfRecordName || null,
-        broker_of_record_email: v.brokerOfRecordEmail || null,
+        broker_of_record_email: normalizedBorEmail,
         logo_url: v.logoUrl || null,
         brand_color: v.brandColor || null,
         is_white_label_partner: v.isWhiteLabelPartner ?? false,
@@ -291,7 +346,12 @@ export async function createBrokerage(input: {
       action: 'brokerage.create',
       entityType: 'brokerage',
       entityId: brokerage.id,
-      metadata: { name: input.name, email: input.email },
+      metadata: {
+        name: input.name,
+        email: normalizedEmail,
+        broker_of_record_email: normalizedBorEmail,
+        emails_warning: emailValidation.warning || null,
+      },
     })
 
     return { success: true, data: brokerage }
@@ -332,6 +392,19 @@ export async function updateBrokerage(input: {
     }
     const v = parsed.data
 
+    // Migration 086: both email columns NOT NULL with CHECK constraint.
+    // updateBrokerage MUST NOT null these out — re-validate here so a UI bug
+    // that submits a blank field gets a friendly error before the DB rejects.
+    const normalizedEmail = normalizeEmail(v.email)
+    const normalizedBorEmail = normalizeEmail(v.brokerOfRecordEmail ?? '')
+    const emailValidation = validateBrokerageEmails({
+      email: normalizedEmail,
+      broker_of_record_email: normalizedBorEmail,
+    })
+    if (!emailValidation.valid) {
+      return { success: false, error: emailValidation.error || 'Invalid email' }
+    }
+
     // Snapshot previous profit-share state to detect onboarding transition.
     // We trigger welcome emails when profit_share_pct goes from 0 to >0.
     const { data: prev } = await supabase
@@ -348,7 +421,7 @@ export async function updateBrokerage(input: {
       .from('brokerages')
       .update({
         name: v.name,
-        email: v.email,
+        email: normalizedEmail,
         brand: v.brand || null,
         address: v.address || null,
         city: v.city || null,
@@ -359,7 +432,7 @@ export async function updateBrokerage(input: {
         transaction_system: v.transactionSystem || null,
         notes: v.notes || null,
         broker_of_record_name: v.brokerOfRecordName || null,
-        broker_of_record_email: v.brokerOfRecordEmail || null,
+        broker_of_record_email: normalizedBorEmail,
         logo_url: v.logoUrl || null,
         brand_color: v.brandColor || null,
         is_white_label_partner: v.isWhiteLabelPartner ?? false,
@@ -2625,6 +2698,37 @@ export async function inviteBrokerageAdmin(input: {
       return { success: false, error: `Login created but profile failed: ${profileError.message}` }
     }
 
+    // Migration 087: seed brokerage_admins junction row so the multi-admin pool
+    // tracks every admin invited via this legacy path. If this is the FIRST
+    // admin for the brokerage, mark them primary_admin so they can manage the
+    // pool themselves. Junction-table failures are non-fatal — the legacy
+    // user_profile.brokerage_id link is still the source of truth for now.
+    let seededAsPrimary = false
+    try {
+      const { count: existingPoolCount } = await serviceClient
+        .from('brokerage_admins')
+        .select('*', { count: 'exact', head: true })
+        .eq('brokerage_id', input.brokerageId)
+
+      const role = existingPoolCount && existingPoolCount > 0 ? 'admin' : 'primary_admin'
+      seededAsPrimary = role === 'primary_admin'
+
+      const { error: junctionErr } = await serviceClient
+        .from('brokerage_admins')
+        .insert({
+          brokerage_id: input.brokerageId,
+          user_id: authData.user.id,
+          role,
+          invited_at: new Date().toISOString(),
+          created_by: user.id,
+        })
+      if (junctionErr) {
+        console.warn('[inviteBrokerageAdmin] brokerage_admins seed failed (non-fatal):', junctionErr.message)
+      }
+    } catch (junctionErr: any) {
+      console.warn('[inviteBrokerageAdmin] brokerage_admins seed threw (non-fatal):', junctionErr?.message)
+    }
+
     // Generate magic link token (72-hour expiry)
     const inviteToken = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
@@ -2657,6 +2761,7 @@ export async function inviteBrokerageAdmin(input: {
         admin_email: input.email,
         invited_by: user.id,
         invite_method: 'magic_link',
+        seeded_as_primary: seededAsPrimary,
       },
     })
 
@@ -2952,5 +3057,166 @@ export async function deleteBrokerageDocument(input: {
   } catch (err: any) {
     console.error('deleteBrokerageDocument error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// Early Closing: Record actual closing date earlier than scheduled and refund
+// the prepaid discount fee for the days the agent didn't actually hold the
+// funds. Backed by migration 085 (actual_closing_date, discount_refund_amount).
+//
+// Formula (mirrors lib/calculations.ts $0.80 per $1000 per day):
+//   days_saved      = closing_date - actual_closing_date
+//   refund_per_day  = advance_amount / 1000 * DISCOUNT_RATE_PER_1000_PER_DAY
+//   refund_total    = days_saved * refund_per_day
+//
+// The refund credits the agent's balance via apply_agent_balance_delta (negative
+// delta = credit) and the deal is moved to 'completed'. Optimistic-lock on
+// deals.version (migration 083) so two concurrent recordEarlyClosing calls
+// can't both apply the credit.
+// ============================================================================
+
+export async function recordEarlyClosing(input: {
+  dealId: string
+  actualClosingDate: string  // YYYY-MM-DD
+  expectedVersion?: number   // Optimistic lock — pass deals.version read by caller
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  if (!input.dealId) return { success: false, error: 'Deal ID is required' }
+  if (!input.actualClosingDate || !/^\d{4}-\d{2}-\d{2}$/.test(input.actualClosingDate)) {
+    return { success: false, error: 'actualClosingDate must be a YYYY-MM-DD date string' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data: deal, error: dealErr } = await serviceClient
+      .from('deals')
+      .select('id, status, closing_date, advance_amount, agent_id, property_address, actual_closing_date, discount_refund_amount, version')
+      .eq('id', input.dealId)
+      .single()
+
+    if (dealErr || !deal) return { success: false, error: 'Deal not found' }
+    if (deal.status !== 'funded') {
+      return { success: false, error: 'Early closing can only be recorded on funded deals' }
+    }
+    if (deal.actual_closing_date) {
+      return { success: false, error: 'Early closing has already been recorded for this deal' }
+    }
+    if (!deal.closing_date) {
+      return { success: false, error: 'Deal is missing a scheduled closing date' }
+    }
+    if (!deal.advance_amount || deal.advance_amount <= 0) {
+      return { success: false, error: 'Deal has no advance amount to refund against' }
+    }
+    if (!deal.agent_id) {
+      return { success: false, error: 'Deal has no agent assigned' }
+    }
+
+    // Compare dates as YYYY-MM-DD strings (no timezone math needed).
+    const scheduledStr = (deal.closing_date as string).slice(0, 10)
+    const actualStr = input.actualClosingDate
+    if (actualStr >= scheduledStr) {
+      return {
+        success: false,
+        error: 'Actual closing date must be earlier than the scheduled closing date',
+      }
+    }
+
+    // Days saved = scheduled - actual (positive integer).
+    const scheduledMs = new Date(scheduledStr + 'T00:00:00Z').getTime()
+    const actualMs = new Date(actualStr + 'T00:00:00Z').getTime()
+    const daysSaved = Math.round((scheduledMs - actualMs) / (24 * 60 * 60 * 1000))
+    if (daysSaved <= 0) {
+      return { success: false, error: 'Days saved must be greater than zero' }
+    }
+
+    // Refund formula mirrors calculateDeal: rate is per $1000 per day.
+    const refundPerDay = (Number(deal.advance_amount) / 1000) * DISCOUNT_RATE_PER_1000_PER_DAY
+    const refundTotal = Math.round(daysSaved * refundPerDay * 100) / 100
+
+    if (refundTotal <= 0.005) {
+      return { success: false, error: 'Computed refund is zero — nothing to record' }
+    }
+
+    // Optimistic lock + claim. CAS on (id, version, actual_closing_date IS NULL,
+    // status='funded') so two concurrent calls can't both pass the precheck and
+    // both apply the credit.
+    let claimQuery = serviceClient
+      .from('deals')
+      .update({
+        actual_closing_date: actualStr,
+        discount_refund_amount: refundTotal,
+        status: 'completed',
+      })
+      .eq('id', deal.id)
+      .eq('status', 'funded')
+      .is('actual_closing_date', null)
+
+    if (typeof input.expectedVersion === 'number') {
+      claimQuery = claimQuery.eq('version', input.expectedVersion)
+    }
+
+    const { data: claimed, error: claimErr } = await claimQuery
+      .select('id, version')
+      .maybeSingle()
+
+    if (claimErr) {
+      console.error('recordEarlyClosing claim error:', claimErr.message)
+      return { success: false, error: `Failed to record early closing: ${claimErr.message}` }
+    }
+    if (!claimed) {
+      return {
+        success: false,
+        error: 'Deal was modified by another session. Refresh and try again.',
+      }
+    }
+
+    // Credit the agent via the atomic RPC. Negative delta = credit (reduces
+    // what the agent owes). Failure here leaves the deal flagged 'completed'
+    // with the refund column set but no ledger entry — admin can re-run the
+    // balance adjustment manually via the manual-adjustment flow if so.
+    const { error: rpcErr } = await serviceClient.rpc('apply_agent_balance_delta', {
+      p_agent_id: deal.agent_id,
+      p_delta: -refundTotal,
+      p_type: 'credit',
+      p_description: `Early closing refund — ${daysSaved} day${daysSaved === 1 ? '' : 's'} saved (${deal.property_address}, actual closing ${actualStr})`,
+      p_deal_id: deal.id,
+      p_created_by: user.id,
+      p_reference_id: `early_closing:${deal.id}`,
+    })
+
+    if (rpcErr) {
+      console.error('recordEarlyClosing balance RPC error:', rpcErr.message)
+      // Don't rollback the deal flip — the refund column is the source of
+      // truth that we owe the agent. Surface the error so admin can retry.
+      return {
+        success: false,
+        error: `Deal marked completed but credit failed: ${rpcErr.message}. Apply the credit manually.`,
+      }
+    }
+
+    await logAuditEvent({
+      action: 'deal.early_closing_recorded',
+      entityType: 'deal',
+      entityId: deal.id,
+      severity: 'critical',
+      metadata: {
+        scheduled_closing_date: scheduledStr,
+        actual_closing_date: actualStr,
+        days_saved: daysSaved,
+        advance_amount: deal.advance_amount,
+        refund_amount: refundTotal,
+        agent_id: deal.agent_id,
+        property_address: deal.property_address,
+      },
+    })
+
+    return { success: true, data: { refund_amount: refundTotal, days_saved: daysSaved } }
+  } catch (err: any) {
+    console.error('recordEarlyClosing error:', err?.message)
+    return { success: false, error: err?.message || 'An unexpected error occurred' }
   }
 }

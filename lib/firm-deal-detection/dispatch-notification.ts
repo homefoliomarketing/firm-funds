@@ -26,6 +26,8 @@ import { renderTriggerEmail } from './render-email'
 import { renderTriggerSms } from './render-sms'
 import { sendSms } from './twilio-client'
 import { mintFirmDealMagicLink } from './magic-link'
+import { isValidFirmDealEventTransition } from './process-event'
+import { logAuditEventServiceRole } from '@/lib/audit'
 import type { ParsedFirmDeal } from './parse-event'
 
 export interface DispatchResult {
@@ -162,6 +164,16 @@ async function dispatchWithContext(
   // the firm_deal_event_id forward and expires in 7 days. If minting fails
   // (DB hiccup), we fall back to a plain deep link so dispatch still sends.
   // The agent will just hit /login if their session is gone.
+  //
+  // Observability: a single mint failure is benign (the deep-link fallback
+  // works for already-signed-in agents on desktop). A FLOOD of mint
+  // failures means firm_deal_magic_links is broken — RLS misconfigured
+  // (migration 091 hardens this), unique-index conflict, the magic_link
+  // module throwing on Supabase admin API errors, etc. We log to console
+  // AND write an audit_log row with severity='warning' so the admin audit
+  // feed flags repeated failures during ops review. A future metrics
+  // integration (Sentry, Datadog) should also bump a counter here so a
+  // dashboard alert can fire before the audit log fills up.
   let cta_url = `${APP_URL.replace(/\/$/, '')}/agent?firm_deal=${encodeURIComponent(ctx.event.id)}`
   try {
     const { token } = await mintFirmDealMagicLink(supabase, {
@@ -170,10 +182,36 @@ async function dispatchWithContext(
     })
     cta_url = `${APP_URL.replace(/\/$/, '')}/agent/firm-deal/${token}`
   } catch (err) {
+    const errMessage = err instanceof Error ? err.message : String(err)
     console.warn(
       '[dispatch] mintFirmDealMagicLink failed, falling back to deep link:',
-      err instanceof Error ? err.message : err
+      errMessage
     )
+    // Best-effort audit log. logAuditEventServiceRole already swallows its
+    // own errors so it can't disrupt the dispatch path. We still wrap in
+    // try/catch to be defensive — a flood of failures here mustn't poison
+    // every dispatch.
+    try {
+      await logAuditEventServiceRole({
+        action: 'firm_deal.magic_link_mint_failed',
+        entityType: 'firm_deal_event',
+        entityId: ctx.event.id,
+        severity: 'warning',
+        metadata: {
+          event_id: ctx.event.id,
+          agent_id: ctx.primary_agent.id,
+          error: errMessage,
+        },
+      })
+    } catch (auditErr) {
+      console.warn(
+        '[dispatch] audit log of magic-link mint failure also failed:',
+        auditErr instanceof Error ? auditErr.message : auditErr
+      )
+    }
+    // TODO(metrics): bump a counter like
+    //   metrics.increment('firm_deal.magic_link_mint_failures', 1, { error: errMessage })
+    // once Sentry / Datadog / OTel is wired up. A spike here should page.
   }
 
   // Render both
@@ -210,13 +248,19 @@ async function dispatchWithContext(
   const updateFields: Record<string, unknown> = {}
   if (emailSent) updateFields.email_sent_at = new Date().toISOString()
   if (smsSent) updateFields.sms_sent_at = new Date().toISOString()
-  if (anySent) {
-    updateFields.status = 'offer_sent'
-  } else {
-    updateFields.status = 'errored'
+  const newStatus = anySent ? 'offer_sent' : 'errored'
+  updateFields.status = newStatus
+  if (!anySent) {
     updateFields.error_message =
       `Both channels failed. email=${emailResult.status} ${emailResult.error ?? ''}; ` +
       `sms=${smsResult.status} ${smsResult.error ?? ''}`
+  }
+  // Soft transition guard — see process-event.ts FIRM_DEAL_EVENT_TRANSITIONS.
+  if (!isValidFirmDealEventTransition(ctx.event.status, newStatus)) {
+    console.warn(
+      `[firm_deal_events] invalid status transition: ${ctx.event.status} -> ${newStatus} ` +
+        `(at dispatchWithContext). This is allowed for now but will become an error.`
+    )
   }
   await supabase.from('firm_deal_events').update(updateFields).eq('id', ctx.event.id)
 
@@ -283,6 +327,19 @@ async function errorResult(
   supabase?: SupabaseClient
 ): Promise<DispatchResult> {
   if (supabase) {
+    // Cheap read so the transition warning has from-state context. The error
+    // path must not depend on it succeeding.
+    const { data: cur } = await supabase
+      .from('firm_deal_events')
+      .select('status')
+      .eq('id', eventId)
+      .maybeSingle()
+    if (cur?.status && !isValidFirmDealEventTransition(cur.status as string, 'errored')) {
+      console.warn(
+        `[firm_deal_events] invalid status transition: ${cur.status} -> errored ` +
+          `(at dispatch.errorResult).`
+      )
+    }
     await supabase
       .from('firm_deal_events')
       .update({ status: 'errored', error_message: message })

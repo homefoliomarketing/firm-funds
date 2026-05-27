@@ -40,6 +40,75 @@ export interface ProcessEventOptions {
   auto_fire_enabled?: boolean
 }
 
+// ---------------------------------------------------------------------------
+// State machine — transition map (Task 6, 2026-05-27)
+// ---------------------------------------------------------------------------
+// Documents the legal status transitions for firm_deal_events.status. This is
+// declarative documentation + a soft runtime guard, not a hard constraint:
+// invalid transitions log a console.warn but still execute. We want to observe
+// production for ~1 week first to discover any legitimate transitions we
+// forgot before failing them at the DB level.
+//
+// Edges:
+//   new                -> parsed | unmatched | awaiting_approval | approved
+//                        | duplicate | errored
+//                        (process-event.ts orchestrator destinations)
+//   parsed             -> unmatched | awaiting_approval | approved | errored
+//                        (intermediate hook for future async parse step)
+//   unmatched          -> awaiting_approval | approved | rejected | errored
+//                        (admin resolves in review queue)
+//   awaiting_approval  -> approved | rejected | errored
+//                        (admin clicks Send or Reject)
+//   approved           -> offer_sent | errored
+//                        (dispatch-notification.ts)
+//   offer_sent         -> errored
+//                        (terminal happy path; only escalates back to errored
+//                         if a deferred channel later fails)
+//   rejected           -> []  terminal
+//   duplicate          -> []  terminal
+//   errored            -> []  terminal in normal flow; admin may manually
+//                        re-process via process-event.ts which accepts
+//                        status='errored' as a retry source.
+//
+// TODO(harden): after ~1 week of clean production telemetry on these warnings,
+// change isValidFirmDealEventTransition into a thrown Error in every status
+// write site (here, dispatch-notification.ts, firm-deal-review-actions.ts) so
+// the DB never holds an invalid row.
+const FIRM_DEAL_EVENT_TRANSITIONS: Record<string, string[]> = {
+  new: ['parsed', 'errored', 'duplicate', 'unmatched', 'awaiting_approval', 'approved'],
+  parsed: ['unmatched', 'awaiting_approval', 'approved', 'errored'],
+  unmatched: ['awaiting_approval', 'approved', 'rejected', 'errored'],
+  awaiting_approval: ['approved', 'rejected', 'errored'],
+  approved: ['offer_sent', 'errored'],
+  offer_sent: ['errored'], // terminal happy path
+  rejected: [], // terminal
+  duplicate: [], // terminal
+  errored: [], // terminal but admin may manually retry via processFirmDealEvent
+}
+
+export function isValidFirmDealEventTransition(from: string, to: string): boolean {
+  return FIRM_DEAL_EVENT_TRANSITIONS[from]?.includes(to) ?? false
+}
+
+/**
+ * Internal helper: assert a status transition is legal. Logs a console.warn
+ * (not a throw) so production runs see it in logs but don't crash. After a
+ * week of clean logs we'll harden this to a thrown error — see TODO above.
+ *
+ * `where` is a string tag for the call site so a noisy warning is easy to
+ * trace back to the failing code path.
+ */
+function warnIfInvalidTransition(from: string, to: string, where: string): void {
+  if (!isValidFirmDealEventTransition(from, to)) {
+    console.warn(
+      `[firm_deal_events] invalid status transition: ${from} -> ${to} (at ${where}). ` +
+        'Allowed: ' +
+        (FIRM_DEAL_EVENT_TRANSITIONS[from]?.join(', ') ||
+          `(none — '${from}' is terminal)`)
+    )
+  }
+}
+
 export interface ProcessEventResult {
   event_id: string
   outcome: 'parsed_and_dispatched' | 'duplicate' | 'unmatched' | 'rejected' | 'awaiting_approval' | 'skipped' | 'errored'
@@ -121,6 +190,7 @@ export async function processFirmDealEvent(
   }
 
   if (dupes && dupes.length > 0) {
+    warnIfInvalidTransition(e.status, 'duplicate', 'processFirmDealEvent:dedup')
     const { error: updErr } = await supabase
       .from('firm_deal_events')
       .update({
@@ -178,6 +248,8 @@ export async function processFirmDealEvent(
   const secondaryAgentId =
     match.target_agent_ids.find(id => id !== primaryAgentId) ?? null
 
+  warnIfInvalidTransition(e.status, finalStatus, 'processFirmDealEvent:match')
+
   const updateFields: Record<string, unknown> = {
     parsed: parsed as unknown as Record<string, unknown>,
     parser_confidence: parsed.confidence,
@@ -221,6 +293,17 @@ async function failEvent(
   eventId: string,
   message: string
 ): Promise<ProcessEventResult> {
+  // Best-effort transition validation: read the current status so the warn can
+  // include from-state context. If the read fails we still update — the error
+  // path must not depend on extra DB hits succeeding.
+  const { data: cur } = await supabase
+    .from('firm_deal_events')
+    .select('status')
+    .eq('id', eventId)
+    .maybeSingle()
+  if (cur?.status) {
+    warnIfInvalidTransition(cur.status as string, 'errored', 'failEvent')
+  }
   await supabase
     .from('firm_deal_events')
     .update({

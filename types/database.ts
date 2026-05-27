@@ -7,6 +7,13 @@ export type DealStatus =
   | 'completed'
   | 'denied'
   | 'cancelled'
+  // Post-funding remediation lifecycle (CPA Article 5)
+  | 'failed_to_close'
+  | 'cured'
+  // EFT-bounced funding (migration 084)
+  | 'funding_failed'
+  // Firm-deal offer (auto-pipeline) — agent has accepted but admin hasn't submitted
+  | 'offered'
 
 export type UserRole = 'agent' | 'brokerage_admin' | 'firm_funds_admin' | 'super_admin'
 
@@ -157,6 +164,15 @@ export interface Deal {
   broker_share_pct_at_funding: number | null  // Snapshot at funding so historical deals don't change if pct is renegotiated
   broker_share_amount: number | null  // (discount_fee + settlement_period_fee) * broker_share_pct_at_funding / 100, calculated at completion
   broker_share_remitted: boolean
+  // Optimistic concurrency control (migration 083 — auto-incremented on every UPDATE via trigger)
+  version: number
+  // Assignment for routing/ownership (migration 083)
+  assigned_to_user_id: string | null
+  // EFT funding failure tracking (migration 084)
+  funding_failure_reason: string | null
+  funding_failed_at: string | null
+  // Resubmission lineage — points back to the denied/failed deal this was revised from (migration 084)
+  revised_from_deal_id: string | null
   created_at: string
   updated_at: string
   // Joined data

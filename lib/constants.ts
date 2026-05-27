@@ -195,6 +195,29 @@ export const STATUS_BADGE_CLASSES: Record<string, string> = {
   cancelled:       'bg-status-amber-muted text-status-amber border border-status-amber-border',
   failed_to_close: 'bg-status-red-muted text-status-red border border-status-red-border',
   cured:           'bg-status-teal-muted text-status-teal border border-status-teal-border',
+  // Funding bounced (wire/EFT failed). Amber + red border to distinguish from
+  // both 'cancelled' (amber/amber) and 'denied' (red/red): something went
+  // wrong financially but the deal can be retried.
+  funding_failed:  'bg-status-amber-muted text-status-amber border border-status-red-border',
+}
+
+/** Human-readable label for each status, used in badges and lists. */
+export const STATUS_LABELS: Record<string, string> = {
+  offered:         'Offered',
+  under_review:    'Under Review',
+  approved:        'Approved',
+  funded:          'Funded',
+  completed:       'Completed',
+  denied:          'Denied',
+  cancelled:       'Cancelled',
+  failed_to_close: 'Failed to Close',
+  cured:           'Cured',
+  funding_failed:  'Funding Failed',
+}
+
+/** Helper: get the display label for a status. */
+export function getStatusLabel(status: string): string {
+  return STATUS_LABELS[status] || status
 }
 
 /** Helper: get Tailwind class string for a status badge */

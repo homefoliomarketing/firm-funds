@@ -179,9 +179,14 @@ async function sendOne(opts: {
  * Set semantics ensure no double-sends even if a recipient appears in
  * multiple sources (e.g. the brokerage's main email happens to be the
  * Broker of Record).
+ *
+ * Exported so the acceptance flow can run the same validation upfront and
+ * refuse to create an offered deal that nobody at the brokerage would ever
+ * see. Keeping a single source of truth here prevents drift between the
+ * gate-check and the actual send.
  */
-function recipientsForBrokerage(
-  brokerage: { email: string; broker_of_record_email: string | null },
+export function recipientsForBrokerage(
+  brokerage: { email: string | null; broker_of_record_email: string | null },
   pipeRecipients: { include_broker_of_record: boolean; extra_emails: string[] }
 ): string[] {
   const list = new Set<string>()
@@ -194,6 +199,62 @@ function recipientsForBrokerage(
     if (email) list.add(email.toLowerCase())
   }
   return Array.from(list)
+}
+
+/**
+ * Pre-flight check for the acceptance flow. Loads the brokerage + the (optional)
+ * pipe's notification_recipients config and returns the same recipient set the
+ * notification dispatcher will use. Returns an empty array if nothing valid
+ * is configured — the caller decides whether to refuse acceptance or proceed
+ * with degraded delivery (today: refuse, see acceptFirmDealOffer).
+ *
+ * `pipeId` is optional because the event may have been resolved manually with
+ * no upstream pipe (e.g. backfill scenarios in future). With no pipe, defaults
+ * are: include_broker_of_record=false, extra_emails=[].
+ */
+export async function loadBrokerageOfferRecipients(
+  supabase: SupabaseClient,
+  brokerageId: string,
+  pipeId: string | null
+): Promise<{ recipients: string[]; brokerage_loaded: boolean }> {
+  const { data: brokerage } = await supabase
+    .from('brokerages')
+    .select('email, broker_of_record_email')
+    .eq('id', brokerageId)
+    .maybeSingle()
+
+  if (!brokerage) {
+    return { recipients: [], brokerage_loaded: false }
+  }
+
+  let pipeRecipients: { include_broker_of_record: boolean; extra_emails: string[] } = {
+    include_broker_of_record: false,
+    extra_emails: [],
+  }
+  if (pipeId) {
+    const { data: pipe } = await supabase
+      .from('brokerage_pipes')
+      .select('notification_recipients')
+      .eq('id', pipeId)
+      .maybeSingle()
+    if (pipe?.notification_recipients) {
+      const r = pipe.notification_recipients as Record<string, unknown>
+      pipeRecipients = {
+        include_broker_of_record: r.include_broker_of_record === true,
+        extra_emails: Array.isArray(r.extra_emails)
+          ? (r.extra_emails as unknown[]).filter((v): v is string => typeof v === 'string')
+          : [],
+      }
+    }
+  }
+
+  return {
+    recipients: recipientsForBrokerage(
+      brokerage as { email: string | null; broker_of_record_email: string | null },
+      pipeRecipients
+    ),
+    brokerage_loaded: true,
+  }
 }
 
 async function dispatchBrokerageVariant(

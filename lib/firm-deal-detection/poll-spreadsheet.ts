@@ -150,10 +150,18 @@ export async function pollSpreadsheetPipe(
   const errors: string[] = []
   if (detected.length > 0) {
     const eventRows = detected.map(d => {
+      // Feed MLS + listing-agent cells too — they tighten the dedup hash
+      // against same-building collisions (see deal-hash.ts header). Both are
+      // pulled raw; deal-hash normalizes (uppercase + trim for MLS, lower +
+      // collapse whitespace for the agent cell).
       const dealHash = computeDealHash({
         address: cellByLetter(d.row, cols.address),
         closing_date: cellByLetter(d.row, cols.closing_date),
         sale_price: null,
+        mls_number: cellByLetter(d.row, cols.mls),
+        listing_agent_raw: cols.listing_agent
+          ? cellByLetter(d.row, cols.listing_agent)
+          : null,
       })
       return {
         brokerage_pipe_id: pipe.id,
