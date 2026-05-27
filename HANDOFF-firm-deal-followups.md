@@ -83,7 +83,64 @@ Same commit. 30-day funnel + last poll/event timestamps + top-10 unresolved shor
 
 ---
 
-## TODO — Post-acceptance UX (raised by Bud session 36, end-of-session)
+## DONE — Post-acceptance UX (shipped 2026-05-26 session 37, commit `029c831`)
+
+End-to-end flow now live in production. Migration 081 + 14-file feature
+commit. What got built:
+
+- **Migration 081**: `offered` added to deals.status, `firm_deal_offer`
+  added to deals.source, tracking columns (offered_at, offered_event_id,
+  brokerage_notified_at, brokerage_nudge_2h_at, internal_alert_4h_at,
+  brokerage_declined_at, brokerage_declined_reason).
+- **Agent banner**: CTA changed to "Notify my brokerage I want an
+  advance". Click fires `acceptFirmDealOffer` which inserts the placeholder
+  deal row, back-links the event, and fires the brokerage notification.
+  Banner switches to "Your brokerage has been notified" confirmation.
+- **Agent deals list**: 'Offered' filter tab + green badge. Dollar amount
+  hidden in favor of "Pending brokerage" subtext.
+- **Agent deal detail page**: dedicated offered-status view with "what
+  happens next" timeline instead of the financial breakdown that doesn't
+  yet exist.
+- **Brokerage dashboard**: new `OfferedDealsBanner` lists every offered
+  deal with "Submit advance" + "Decline" actions. Offered deals are
+  excluded from the regular Deals tab list to avoid duplication.
+- **Brokerage submit-on-behalf**: `/brokerage/deals/new?from_offer=<id>`
+  pre-fills agent, address, closing date. `submitDealAsBrokerage`
+  UPDATEs the existing offered row instead of inserting a new one when
+  `fromOfferDealId` is set.
+- **Decline action**: `declineFirmDealOffer(dealId, reason)` flips status
+  to 'cancelled' and stamps the reason. Surfaced on the agent detail
+  page so the agent knows what happened.
+- **Email templates**: `render-brokerage-offer-email.ts` (initial +
+  nudge_2h variants) + `renderInternalEscalationEmail` for the 4h FF
+  alert. Same visual style as the agent trigger email.
+- **Dispatcher**: `dispatch-brokerage-offer.ts` sends to brokerage.email
+  + bud@firmfunds.ca (override via `FIRM_FUNDS_OFFER_INBOX` env var).
+- **Cron**: `/api/cron/firm-deal-offer-nudges` (hourly). 2h → nudge
+  brokerage. 4h → aggressive internal FF email. 60 days → soft-delete
+  by flipping to cancelled with reason "Offer expired automatically".
+
+**Cron-job.org config still needed (Bud):**
+- URL: `https://firmfunds.ca/api/cron/firm-deal-offer-nudges`
+- Method: GET
+- Schedule: every hour (`0 * * * *`)
+- Header: `Authorization: Bearer <CRON_SECRET>` (same secret as the
+  existing 5 crons)
+- Account: bud@firmfunds.ca on cron-job.org
+
+**Smoke test:** `scripts/test-firm-deal-offer-acceptance.mts` (supports
+`--nudges` to fire both nudge templates and `--cleanup <deal-id>`).
+
+### Settings UI deferred (per Bud session 36)
+Per-brokerage recipient configuration (Broker of Record + multiple
+admins + Firm Funds CC toggle) is a follow-up. Defaults today: brokerage
+main email + bud@firmfunds.ca, hard-coded in `dispatch-brokerage-offer.ts`.
+The settings UI should land on the `/admin/brokerages/[id]/firm-deal-pipe`
+page next to the existing auto-fire toggle.
+
+---
+
+## ORIGINAL TODO — Post-acceptance UX (raised by Bud session 36, end-of-session)
 
 When Bud actually clicked the offer banner CTA, the current flow took him to `/agent/new-deal` (the regular advance-request form). That isn't the right design for the real product. Bud's view:
 
