@@ -59,14 +59,28 @@ export interface ConsumeResult {
 }
 export interface ConsumeFail {
   ok: false
-  reason: 'not_found' | 'expired' | 'already_used'
+  reason: 'not_found' | 'expired'
 }
 
 /**
- * Validate and atomically mark a token as used. Uses a single UPDATE with
- * a WHERE used_at IS NULL AND expires_at > now() so two concurrent clicks
- * cannot both consume the same token. The verb is the CAS itself: only the
- * winner gets a row back.
+ * Validate a token and (idempotently) stamp first-use time. The token is
+ * intentionally *not* single-use: Android Messages, Chrome's link prefetch,
+ * Gmail Safe Links and similar agents fetch the URL automatically before the
+ * recipient ever taps it. A strict CAS that burns the token on the first GET
+ * means the real user always lands on an "already used" error. We accept the
+ * multi-use trade-off because:
+ *
+ *   - The token is 128 bits of random + URL-scoped (`/agent/firm-deal/<t>`),
+ *     unguessable.
+ *   - It is bound to exactly one agent_id and one firm_deal_event_id.
+ *   - It expires in 7 days.
+ *   - It is delivered over the agent's own email + SMS, both verified during
+ *     onboarding. Anyone capable of replaying the link already has the
+ *     authenticated channel they were sent through.
+ *
+ * `used_at` is still set on first successful consume so we keep an audit
+ * trail of when the link was first hit, but subsequent calls within the
+ * TTL succeed without rewriting it.
  *
  * Returns the linked event_id + agent_id so the caller can mint the
  * Supabase magic link without a second round-trip.
@@ -79,36 +93,31 @@ export async function consumeFirmDealMagicLink(
     return { ok: false, reason: 'not_found' }
   }
 
-  // Peek first so we can give a precise failure reason. The peek itself is
-  // not the source of truth; the CAS below is.
-  const { data: peek } = await supabase
+  const { data: row } = await supabase
     .from('firm_deal_magic_links')
     .select('id, firm_deal_event_id, agent_id, expires_at, used_at')
     .eq('token', token)
     .maybeSingle()
 
-  if (!peek) return { ok: false, reason: 'not_found' }
-  if (peek.used_at) return { ok: false, reason: 'already_used' }
-  if (new Date(peek.expires_at).getTime() <= Date.now()) {
+  if (!row) return { ok: false, reason: 'not_found' }
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
     return { ok: false, reason: 'expired' }
   }
 
-  // Atomic CAS: only succeeds if used_at is still NULL. Same pattern as
-  // /api/magic-link PUT (Finding 24).
-  const { data: claimed } = await supabase
-    .from('firm_deal_magic_links')
-    .update({ used_at: new Date().toISOString() })
-    .eq('id', peek.id)
-    .is('used_at', null)
-    .select('firm_deal_event_id, agent_id')
-    .maybeSingle()
-
-  if (!claimed) {
-    return { ok: false, reason: 'already_used' }
+  // Stamp the first-use timestamp once. We don't gate validity on this; it's
+  // only a forensic marker so we can see in the DB when a link was first hit
+  // by *something* (scanner or human).
+  if (!row.used_at) {
+    await supabase
+      .from('firm_deal_magic_links')
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .is('used_at', null)
   }
+
   return {
     ok: true,
-    firm_deal_event_id: claimed.firm_deal_event_id,
-    agent_id: claimed.agent_id,
+    firm_deal_event_id: row.firm_deal_event_id,
+    agent_id: row.agent_id,
   }
 }
