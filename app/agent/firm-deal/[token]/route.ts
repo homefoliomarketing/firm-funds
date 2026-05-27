@@ -10,11 +10,19 @@
  *      Firm Funds session. Without this route they would hit /login and
  *      almost certainly bounce.
  *   3. We validate the token (one-shot, 7-day TTL), look up the linked
- *      agent's email, and ask Supabase to mint a magic link for that
- *      email with a redirectTo that lands on the dashboard with
- *      firm_deal=<event_id> in the query string.
- *   4. We HTTP-redirect the browser to Supabase's magic link URL. Supabase
- *      verifies and sets cookies, then redirects to the dashboard.
+ *      agent's email, ask Supabase admin to mint a magic-link hashed_token
+ *      for that email, and call verifyOtp server-side.
+ *   4. verifyOtp writes the Supabase auth cookies onto the redirect
+ *      response we are about to return; the browser persists them and the
+ *      dashboard load sees an authenticated user.
+ *
+ * Why this route builds its own Supabase server client (instead of using
+ * the shared `@/lib/supabase/server` createClient): the shared helper
+ * writes cookies via `next/headers.cookies()`, whose `.set()` is read-only
+ * inside Route Handlers. The writes silently swallow into a try/catch and
+ * the session cookie never lands on the response. We have to bind the
+ * Supabase client to *this route's* NextResponse cookie jar — same trick
+ * middleware.ts uses — for the session to actually persist.
  *
  * All token validation goes through the service-role client so RLS on
  * firm_deal_magic_links never lets a plain agent peek at someone else's
@@ -27,7 +35,8 @@
  * is guessing tokens.
  */
 import { NextResponse, type NextRequest } from 'next/server'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createServerClient } from '@supabase/ssr'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { consumeFirmDealMagicLink } from '@/lib/firm-deal-detection/magic-link'
 
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
@@ -39,7 +48,7 @@ function loginRedirect(reason: 'expired' | 'invalid'): NextResponse {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   // Next.js 16: route params are async.
@@ -73,9 +82,7 @@ export async function GET(
   // Ask Supabase to mint a one-time OTP for this email. We do not send the
   // user to the action_link (that would put the JWT in the URL hash, which
   // the server can never read, breaking SSR auth). Instead we keep the
-  // hashed_token server-side and call verifyOtp ourselves, which sets the
-  // session cookies on the SSR client. Same trick the @supabase/ssr docs
-  // recommend for server-driven magic-link flows.
+  // hashed_token server-side and call verifyOtp ourselves below.
   const { data: linkData, error: linkErr } = await service.auth.admin.generateLink({
     type: 'magiclink',
     email: profile.email,
@@ -85,10 +92,36 @@ export async function GET(
     return loginRedirect('invalid')
   }
 
-  // The SSR client reads/writes the auth cookies on the response. verifyOtp
-  // sets the session cookies here; the redirect below sends them to the
-  // browser so the dashboard load sees an authenticated user.
-  const supabase = await createClient()
+  // Build the redirect response FIRST so we have a concrete response object
+  // for the Supabase client to write cookies onto. We then bind a server
+  // client whose setAll() writes directly to `response.cookies`, call
+  // verifyOtp, and return that same response. This is the only pattern
+  // that gets the session cookies onto the wire from inside a Route
+  // Handler — the shared createClient() in lib/supabase/server.ts writes
+  // to next/headers.cookies(), which is read-only here and swallows the
+  // writes into a try/catch (which is why this route used to "succeed"
+  // but leave the agent unauthenticated).
+  const dashboard = new URL('/agent', APP_URL)
+  dashboard.searchParams.set('firm_deal', consumed.firm_deal_event_id)
+  const response = NextResponse.redirect(dashboard)
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options)
+          })
+        },
+      },
+    }
+  )
+
   const { error: verifyErr } = await supabase.auth.verifyOtp({
     token_hash: linkData.properties.hashed_token,
     type: 'magiclink',
@@ -98,10 +131,5 @@ export async function GET(
     return loginRedirect('invalid')
   }
 
-  // /agent is the agent home (see app/(dashboard)/agent/page.tsx). The
-  // firm_deal=<id> query is forwarded so a future enhancement on the
-  // dashboard can surface that specific offer; for now it is silent.
-  const dashboard = new URL('/agent', APP_URL)
-  dashboard.searchParams.set('firm_deal', consumed.firm_deal_event_id)
-  return NextResponse.redirect(dashboard)
+  return response
 }
