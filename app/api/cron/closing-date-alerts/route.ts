@@ -45,10 +45,16 @@ export async function GET(request: Request) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-  // Idempotency: claim (job_name, period) row. Period = calendar date (UTC) so
-  // duplicate runs on the same day no-op. See migration 074.
+  // Idempotency: claim (job_name, period) row. Period = TORONTO calendar date
+  // so duplicate runs on the same business day no-op. Previously this used
+  // the UTC date which ticks over at 7–8pm Toronto, causing the period to
+  // advance ~5 hours before the rest of the date math in this handler did
+  // (everything below uses Toronto-local `today`). At midnight UTC the
+  // mismatched period would let an already-completed Toronto day re-fire all
+  // its emails. See migration 074 for the cron_run_log shape.
   const serviceClient = createServiceRoleClient()
-  const period = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  const period = today
   const { data: claimRow, error: claimErr } = await serviceClient
     .from('cron_run_log')
     .insert({ job_name: JOB_NAME, period })
@@ -63,7 +69,6 @@ export async function GET(request: Request) {
   const runId = claimRow.id
 
   try {
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 
     // =======================================================================
     // 1. Closing Date Alerts (existing functionality)
