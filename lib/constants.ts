@@ -155,6 +155,14 @@ export const ROLES = {
 /** Admin roles that can access /admin routes */
 export const ADMIN_ROLES = [ROLES.SUPER_ADMIN, ROLES.FIRM_FUNDS_ADMIN] as const
 
+/**
+ * Firm Funds brand green (hex). Source of truth for any place that needs the
+ * literal hex value — color-picker defaults, email templates that can't
+ * reference CSS variables. CSS uses var(--primary); use this when only a
+ * raw hex string will do.
+ */
+export const BRAND_GREEN_HEX = '#5FA873'
+
 /** Deal statuses */
 export const DEAL_STATUSES = {
   OFFERED: 'offered',

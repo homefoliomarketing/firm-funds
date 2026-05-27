@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 /**
  * Format a bare YYYY-MM-DD calendar date without timezone drift. The shared
@@ -275,40 +276,36 @@ function AgentDashboardInner() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* KYC Verified Congratulations Modal */}
-      {showKycVerifiedModal && (
-        <div
-          className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
-          onClick={() => setShowKycVerifiedModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="kyc-verified-title"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-card border border-primary/30 rounded-2xl p-10 max-w-md w-full text-center shadow-2xl shadow-primary/10"
-          >
-            <div className="w-16 h-16 rounded-full mx-auto mb-5 bg-primary/10 border border-primary/30 flex items-center justify-center">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <h2 id="kyc-verified-title" className="text-xl font-bold text-foreground mb-2">
+      {/* KYC Verified Congratulations — shadcn Dialog (was hand-rolled
+          modal until the 2026-05-26 sweep, switched for built-in focus
+          trap, ESC handling, scroll lock, and click-outside dismiss
+          coming for free). */}
+      <Dialog open={showKycVerifiedModal} onOpenChange={setShowKycVerifiedModal}>
+        <DialogContent className="max-w-md text-center sm:rounded-2xl border-primary/30 shadow-2xl shadow-primary/10">
+          <div className="w-16 h-16 rounded-full mx-auto mb-2 bg-primary/10 border border-primary/30 flex items-center justify-center">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-foreground text-center">
               Identity Verified!
-            </h2>
-            <p className="text-sm leading-relaxed text-muted-foreground mb-8">
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed text-muted-foreground text-center">
               Congratulations{agent?.first_name ? `, ${agent.first_name}` : ''}! Your identity has been verified.
               You can now submit advance requests on your deals.
-            </p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
             <Button
               onClick={() => setShowKycVerifiedModal(false)}
               className="w-full h-10"
             >
               Get Started
             </Button>
-          </div>
-        </div>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AgentHeader
         agentName={profile?.full_name || ''}

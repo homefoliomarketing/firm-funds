@@ -2,7 +2,11 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
-import { sendBrokerageOfferNotification } from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
+import {
+  sendBrokerageOfferNotification,
+  sendAgentDeclineNotification,
+} from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
+import { logAuditEvent } from '@/lib/audit'
 
 type ActionResult<T = unknown> = { success: boolean; error?: string; data?: T }
 
@@ -273,6 +277,20 @@ export async function acceptFirmDealOffer(
     )
   }
 
+  await logAuditEvent({
+    action: 'deal.firm_deal_offer_accepted',
+    entityType: 'deal',
+    entityId: inserted.id,
+    metadata: {
+      firm_deal_event_id: event.id,
+      brokerage_id: event.brokerage_id,
+      agent_id: myAgentId,
+      property_address: propertyAddress,
+      closing_date: closingDate,
+      side: isPrimary ? 'primary' : 'secondary',
+    },
+  })
+
   return {
     success: true,
     data: { deal_id: inserted.id, already_accepted: false },
@@ -333,6 +351,33 @@ export async function declineFirmDealOffer(
   if (updateErr) {
     return { success: false, error: `Failed to decline offer: ${updateErr.message}` }
   }
+
+  // Notify the agent that their brokerage said no. Best-effort: a Resend
+  // hiccup shouldn't roll back the decline. The agent still sees the
+  // decision + reason on the offered-deal detail page.
+  try {
+    const dispatch = await sendAgentDeclineNotification(supabase, dealId, trimmed)
+    if (dispatch.outcome === 'errored') {
+      console.warn('[declineFirmDealOffer] agent notification failed:', dispatch.error)
+    }
+  } catch (err) {
+    console.warn(
+      '[declineFirmDealOffer] agent notification threw:',
+      err instanceof Error ? err.message : err
+    )
+  }
+
+  await logAuditEvent({
+    action: 'deal.firm_deal_offer_declined',
+    entityType: 'deal',
+    entityId: dealId,
+    metadata: {
+      brokerage_id: auth.profile.brokerage_id,
+      agent_id: deal.agent_id,
+      reason: trimmed,
+      declined_by_user_id: auth.user?.id,
+    },
+  })
 
   return { success: true, data: { deal_id: dealId } }
 }

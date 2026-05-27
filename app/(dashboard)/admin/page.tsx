@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
-  CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset, Inbox
+  CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset, Inbox,
+  TrendingUp,
 } from 'lucide-react'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
@@ -300,6 +301,7 @@ export default function AdminDashboard() {
               { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
               { label: 'Firm Deal Review', icon: Inbox, path: '/admin/firm-deal-review', badge: stats.firmDealPending },
               { label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' },
+              { label: 'Portfolio', icon: TrendingUp, path: '/admin/portfolio' },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
               { label: 'Payments', icon: DollarSign, path: '/admin/payments' },
               { label: 'Audit Trail', icon: Shield, path: '/admin/audit' },

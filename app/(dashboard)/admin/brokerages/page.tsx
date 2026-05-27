@@ -12,7 +12,7 @@ import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/l
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
 import * as XLSX from 'xlsx'
-import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
+import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS, BRAND_GREEN_HEX } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -444,10 +444,10 @@ export default function BrokeragesPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
-    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', isWhiteLabelPartner: false, profitSharePct: '',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '',
   })
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' | 'archived' }>({
-    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', isWhiteLabelPartner: false, profitSharePct: '', status: 'active',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
@@ -715,7 +715,7 @@ export default function BrokeragesPage() {
       }
 
       setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}` })
-      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: '#5FA873', isWhiteLabelPartner: false, profitSharePct: '' })
+      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '' })
       setCreateRosterFile(null)
       setShowCreateForm(false)
       await loadBrokerages()
@@ -774,7 +774,7 @@ export default function BrokeragesPage() {
       referralFeePercentage: (brokerage.referral_fee_percentage * 100).toString(),
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
       brokerOfRecordName: brokerage.broker_of_record_name || '', brokerOfRecordEmail: brokerage.broker_of_record_email || '',
-      logoUrl: brokerage.logo_url || '', brandColor: brokerage.brand_color || '#5FA873',
+      logoUrl: brokerage.logo_url || '', brandColor: brokerage.brand_color || BRAND_GREEN_HEX,
       isWhiteLabelPartner: brokerage.is_white_label_partner ?? false,
       profitSharePct: (brokerage.profit_share_pct ?? 0).toString(),
       status: brokerage.status,

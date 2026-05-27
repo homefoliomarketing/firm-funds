@@ -30,6 +30,7 @@ import {
   renderInternalEscalationEmail,
   type BrokerageOfferVariant,
 } from './render-brokerage-offer-email'
+import { renderAgentDeclineEmail } from './render-agent-decline-email'
 
 const APP_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca').replace(/\/$/, '')
 const FROM_ADDRESS = process.env.FIRM_DEAL_FROM_ADDRESS || 'Firm Funds <notifications@firmfunds.ca>'
@@ -253,6 +254,57 @@ export function sendBrokerageOfferNotification(supabase: SupabaseClient, dealId:
 
 export function sendBrokerageOfferNudge2h(supabase: SupabaseClient, dealId: string) {
   return dispatchBrokerageVariant(supabase, dealId, 'nudge_2h')
+}
+
+/**
+ * Email the agent when a brokerage declines their offered deal. Best-effort
+ * fire from declineFirmDealOffer; the deal row already carries the decision
+ * even if email delivery fails, and the agent sees the same info inline on
+ * the offered-deal detail page.
+ */
+export async function sendAgentDeclineNotification(
+  supabase: SupabaseClient,
+  dealId: string,
+  declineReason: string
+): Promise<BrokerageDispatchResult> {
+  const ctx = await loadContext(supabase, dealId)
+  if ('error' in ctx) {
+    return { deal_id: dealId, outcome: 'errored', recipients: [], error: ctx.error }
+  }
+
+  if (!ctx.agent.email) {
+    // No email on file means no channel — degrade gracefully. Bud will
+    // eventually surface this via the brokerage settings UI; until then
+    // the agent will only see the decline on the dashboard.
+    return {
+      deal_id: dealId,
+      outcome: 'skipped',
+      recipients: [],
+      error: 'Agent has no email on file; decline notification not sent.',
+    }
+  }
+
+  const rendered = renderAgentDeclineEmail({
+    agent_first_name: ctx.agent.first_name ?? '',
+    brokerage_name: ctx.brokerage.name,
+    property_address: ctx.deal.property_address,
+    decline_reason: declineReason,
+    brand_name: ctx.brand_name,
+    brand_tagline: ctx.brand_tagline,
+    agent_dashboard_url: buildAgentDashboardUrl(dealId),
+  })
+
+  const send = await sendOne({
+    to: [ctx.agent.email],
+    subject: rendered.subject,
+    html: rendered.html,
+    text: rendered.text,
+  })
+
+  if (!send.ok) {
+    return { deal_id: dealId, outcome: 'errored', recipients: [ctx.agent.email], error: send.error }
+  }
+  return { deal_id: dealId, outcome: 'sent', recipients: [ctx.agent.email], provider_id: send.provider_id }
 }
 
 export async function sendInternalEscalation4h(
