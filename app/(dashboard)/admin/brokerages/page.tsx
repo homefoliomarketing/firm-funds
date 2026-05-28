@@ -21,6 +21,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // ============================================================================
 // Types
@@ -3128,126 +3136,132 @@ export default function BrokeragesPage() {
         </div>
       )}
       {/* Pre-auth form inline viewer */}
-      {preauthViewUrl && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={() => { if (preauthViewUrl) URL.revokeObjectURL(preauthViewUrl); setPreauthViewUrl(null) }}>
-          <div className="relative w-full max-w-3xl mx-4 bg-card rounded-xl overflow-hidden border border-border/50" style={{ height: '80vh' }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-              <h3 className="text-sm font-semibold text-foreground">Pre-Authorization Form</h3>
-              <button onClick={() => { if (preauthViewUrl) URL.revokeObjectURL(preauthViewUrl); setPreauthViewUrl(null) }} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                <X size={16} /> Close
-              </button>
-            </div>
-            {preauthViewType === 'image' ? (
-              <div className="w-full overflow-auto p-4" style={{ height: 'calc(80vh - 52px)' }}>
+      <Dialog
+        open={!!preauthViewUrl}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (preauthViewUrl) URL.revokeObjectURL(preauthViewUrl)
+            setPreauthViewUrl(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl h-[80vh] p-0 gap-0">
+          <DialogHeader className="px-4 py-3 border-b border-border/50">
+            <DialogTitle>Pre-Authorization Form</DialogTitle>
+          </DialogHeader>
+          {preauthViewUrl && (
+            preauthViewType === 'image' ? (
+              <div className="w-full overflow-auto p-4" style={{ height: 'calc(80vh - 60px)' }}>
                 {/* Supabase signed URL — next/image domain config would
                     require knowing the project ref at build time. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={preauthViewUrl} alt="Pre-Authorization Form" className="w-full rounded-lg" />
               </div>
             ) : (
-              <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 52px)' }} />
+              <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 60px)' }} />
+            )
+          )}
+        </DialogContent>
+      </Dialog>
+      {/* Balance Adjustment Modal */}
+      <Dialog
+        open={!!adjustBalanceForAgentId}
+        onOpenChange={(open) => {
+          if (!open && !adjustSubmitting) closeAdjustBalanceModal()
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign size={14} className="text-status-amber" />
+              Adjust Agent Balance
+            </DialogTitle>
+            <DialogDescription>
+              Post a credit or charge to this agent&apos;s ledger. The reason is audit-logged.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Direction</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAdjustDirection('credit')}
+                  aria-pressed={adjustDirection === 'credit'}
+                  className={`px-3 py-2 rounded text-xs font-medium border transition-colors ${
+                    adjustDirection === 'credit'
+                      ? 'bg-status-teal/20 border-status-teal text-status-teal'
+                      : 'bg-muted/20 border-border/50 text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Credit (reduce balance)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjustDirection('charge')}
+                  aria-pressed={adjustDirection === 'charge'}
+                  className={`px-3 py-2 rounded text-xs font-medium border transition-colors ${
+                    adjustDirection === 'charge'
+                      ? 'bg-status-amber/20 border-status-amber text-status-amber'
+                      : 'bg-muted/20 border-border/50 text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Charge (increase balance)
+                </button>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="adjust-amount" className="block text-xs font-medium text-muted-foreground mb-1.5">Amount (CAD)</label>
+              <Input
+                id="adjust-amount"
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                value={adjustAmount}
+                onChange={(e) => setAdjustAmount(e.target.value)}
+                placeholder="0.00"
+                disabled={adjustSubmitting}
+              />
+            </div>
+            <div>
+              <label htmlFor="adjust-description" className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
+              <textarea
+                id="adjust-description"
+                value={adjustDescription}
+                onChange={(e) => setAdjustDescription(e.target.value)}
+                placeholder="Reason for this adjustment (required, audit-logged)"
+                disabled={adjustSubmitting}
+                rows={3}
+                className="w-full px-3 py-2 text-xs bg-muted/30 border border-border/50 rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-status-amber"
+              />
+            </div>
+            {adjustError && (
+              <div className="px-3 py-2 rounded text-xs bg-destructive/15 border border-destructive/30 text-destructive">
+                {adjustError}
+              </div>
             )}
           </div>
-        </div>
-      )}
-      {/* Balance Adjustment Modal */}
-      {adjustBalanceForAgentId && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-          onClick={closeAdjustBalanceModal}>
-          <div className="relative w-full max-w-md mx-4 bg-card rounded-xl overflow-hidden border border-border/50" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <DollarSign size={14} className="text-status-amber" />
-                Adjust Agent Balance
-              </h3>
-              <button onClick={closeAdjustBalanceModal} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Direction</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAdjustDirection('credit')}
-                    aria-pressed={adjustDirection === 'credit'}
-                    className={`px-3 py-2 rounded text-xs font-medium border transition-colors ${
-                      adjustDirection === 'credit'
-                        ? 'bg-status-teal/20 border-status-teal text-status-teal'
-                        : 'bg-muted/20 border-border/50 text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    Credit (reduce balance)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAdjustDirection('charge')}
-                    aria-pressed={adjustDirection === 'charge'}
-                    className={`px-3 py-2 rounded text-xs font-medium border transition-colors ${
-                      adjustDirection === 'charge'
-                        ? 'bg-status-amber/20 border-status-amber text-status-amber'
-                        : 'bg-muted/20 border-border/50 text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    Charge (increase balance)
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label htmlFor="adjust-amount" className="block text-xs font-medium text-muted-foreground mb-1.5">Amount (CAD)</label>
-                <Input
-                  id="adjust-amount"
-                  type="number"
-                  inputMode="decimal"
-                  min="0.01"
-                  step="0.01"
-                  value={adjustAmount}
-                  onChange={(e) => setAdjustAmount(e.target.value)}
-                  placeholder="0.00"
-                  disabled={adjustSubmitting}
-                />
-              </div>
-              <div>
-                <label htmlFor="adjust-description" className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
-                <textarea
-                  id="adjust-description"
-                  value={adjustDescription}
-                  onChange={(e) => setAdjustDescription(e.target.value)}
-                  placeholder="Reason for this adjustment (required, audit-logged)"
-                  disabled={adjustSubmitting}
-                  rows={3}
-                  className="w-full px-3 py-2 text-xs bg-muted/30 border border-border/50 rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-status-amber"
-                />
-              </div>
-              {adjustError && (
-                <div className="px-3 py-2 rounded text-xs bg-destructive/15 border border-destructive/30 text-destructive">
-                  {adjustError}
-                </div>
-              )}
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={closeAdjustBalanceModal}
-                  disabled={adjustSubmitting}
-                  className="px-3 py-1.5 rounded text-xs font-medium text-muted-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={submitBalanceAdjustment}
-                  disabled={adjustSubmitting || !adjustAmount || !adjustDescription.trim()}
-                  className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-status-amber hover:bg-status-amber/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {adjustSubmitting ? 'Posting...' : `Post ${adjustDirection === 'credit' ? 'Credit' : 'Charge'}`}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={closeAdjustBalanceModal}
+              disabled={adjustSubmitting}
+              className="px-3 py-1.5 rounded text-xs font-medium text-muted-foreground bg-muted/40 hover:bg-muted/60 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitBalanceAdjustment}
+              disabled={adjustSubmitting || !adjustAmount || !adjustDescription.trim()}
+              className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-status-amber hover:bg-status-amber/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {adjustSubmitting ? 'Posting...' : `Post ${adjustDirection === 'credit' ? 'Credit' : 'Charge'}`}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <style>{`
         @keyframes slideInRight {
           from { transform: translateX(100%); }
