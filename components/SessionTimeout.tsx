@@ -2,13 +2,16 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 import { ADMIN_INACTIVITY_TIMEOUT_MS, AGENT_INACTIVITY_TIMEOUT_MS, ADMIN_ROLES } from '@/lib/constants'
 import { Clock, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface SessionTimeoutProps {
   userRole: string
+  /**
+   * Optional user id. Reserved for future server-side auditing — accepted in
+   * the props for forward compatibility but not used in this component today.
+   */
   userId?: string
 }
 
@@ -30,8 +33,7 @@ const SERVER_PING_THROTTLE_MS = 60_000
  * - Periodically updates server-side last_active_at for defense-in-depth
  * - Logs session timeout events to audit trail
  */
-export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps) {
-  const router = useRouter()
+export default function SessionTimeout({ userRole }: SessionTimeoutProps) {
   const [showWarning, setShowWarning] = useState(false)
   const [countdown, setCountdown] = useState(120) // seconds remaining
   const [loggingOut, setLoggingOut] = useState(false)
@@ -39,11 +41,13 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const warningTimerRef = useRef<NodeJS.Timeout | null>(null)
   const countdownRef = useRef<NodeJS.Timeout | null>(null)
-  const lastResetRef = useRef(Date.now())
+  // Initialised to 0 then bumped on mount — Date.now() at module/ref-init time
+  // is flagged by react-hooks/purity as impure during render.
+  const lastResetRef = useRef(0)
   const lastServerPingRef = useRef(0)
   const isWarningVisibleRef = useRef(false)
 
-  const isAdmin = ADMIN_ROLES.includes(userRole as any)
+  const isAdmin = (ADMIN_ROLES as readonly string[]).includes(userRole)
   const timeoutMs = isAdmin ? ADMIN_INACTIVITY_TIMEOUT_MS : AGENT_INACTIVITY_TIMEOUT_MS
   const warningMs = timeoutMs - WARNING_BEFORE_TIMEOUT_MS
 
@@ -155,7 +159,15 @@ export default function SessionTimeout({ userRole, userId }: SessionTimeoutProps
 
     events.forEach(event => document.addEventListener(event, throttledReset, { passive: true }))
 
-    // Start initial timer
+    // Seed the throttle clock so the first user event after mount is treated
+    // like the user has just been active — matches pre-refactor behavior.
+    lastResetRef.current = Date.now()
+
+    // Start initial timer.
+    // Intentional set-state-in-effect: resetTimer() may call setShowWarning(false)
+    // on mount to clear any stale warning state. We're synchronizing with timers
+    // (an external system), not deriving state from props.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     resetTimer()
     // Initial server ping
     pingServer()

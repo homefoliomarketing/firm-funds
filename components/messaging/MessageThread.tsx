@@ -28,11 +28,12 @@ export default function MessageThread({ messages, viewerRole, loading, emptyMess
   }, [messages.length])
 
   // Scroll to bottom on initial load
+  const hasMessages = messages.length > 0
   useEffect(() => {
-    if (messages.length > 0 && containerRef.current) {
+    if (hasMessages && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight
     }
-  }, [messages.length > 0])
+  }, [hasMessages])
 
   if (loading) {
     return (

@@ -52,9 +52,13 @@ export default function RecordPaymentModal({ open, initialDealId, onClose, onSuc
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Load eligible deals when modal opens
+  // Load eligible deals when modal opens.
+  // Intentional set-state-in-effect: opening the modal triggers an API fetch
+  // (external system synchronization), not a derived-state computation that
+  // could be moved to render.
   useEffect(() => {
     if (!open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null)
     setDealsLoading(true)
     getBrokeragePayableDeals().then(r => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Clock, AlertTriangle, Info, ChevronDown, ChevronUp,
+  Clock, Info, ChevronDown, ChevronUp,
   ArrowRight, User, FileText, CheckCircle2, XCircle, DollarSign,
   Upload, Trash2, Eye, LogIn, LogOut, Edit2, Send, Undo2
 } from 'lucide-react'
@@ -66,8 +66,8 @@ function ValueDiff({
   oldValue,
   newValue,
 }: {
-  oldValue: Record<string, any> | null
-  newValue: Record<string, any> | null
+  oldValue: Record<string, unknown> | null
+  newValue: Record<string, unknown> | null
 }) {
   if (!oldValue && !newValue) return null
 
@@ -108,7 +108,7 @@ function ValueDiff({
 // Metadata Summary
 // ============================================================================
 
-function MetadataSummary({ metadata }: { metadata: Record<string, any> }) {
+function MetadataSummary({ metadata }: { metadata: Record<string, unknown> }) {
   if (!metadata || Object.keys(metadata).length === 0) return null
 
   const skipKeys = ['deal_id', 'agent_id', 'brokerage_id']
@@ -154,6 +154,10 @@ export default function AuditTimeline({ entityType, entityId, maxItems = 50 }: A
   }, [entityType, entityId, maxItems])
 
   useEffect(() => {
+    // Intentional: fetch the audit log from the server when entity/limit changes.
+    // This is synchronizing React with an external system (the API), which the
+    // "set state in effect" rule misidentifies as a derived-state bug.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTimeline()
   }, [loadTimeline])
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { LogOut, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { logLogout } from '@/lib/actions/auth-actions'
@@ -43,7 +44,13 @@ export default function SignOutModal({ onConfirm }: SignOutModalProps) {
       <DialogContent className="sm:max-w-sm">
         <DialogHeader className="text-center sm:text-center">
           <div className="mx-auto mb-4">
-            <img src="/brand/white.png" alt="Firm Funds" className="h-14 w-auto mx-auto mb-4" />
+            <Image
+              src="/brand/white.png"
+              alt="Firm Funds"
+              width={140}
+              height={56}
+              className="h-14 w-auto mx-auto mb-4"
+            />
             <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
               <LogOut size={24} className="text-primary" />
             </div>

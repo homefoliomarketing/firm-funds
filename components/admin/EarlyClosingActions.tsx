@@ -20,18 +20,29 @@ import { formatCurrency, formatDate } from '@/lib/formatting'
 
 // Lazy-bind to the server action. If it isn't there yet (the backend agent is
 // still scaffolding `lib/actions/admin-actions.ts`), surface a clean error.
+interface RecordEarlyClosingResult {
+  success: boolean
+  error?: string
+  data?: { refundAmount?: number } | null
+}
+
 async function callRecordEarlyClosing(payload: {
   dealId: string
   actualClosingDate: string
-}): Promise<any> {
+}): Promise<RecordEarlyClosingResult> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod: any = await import('@/lib/actions/admin-actions' as any)
+    // Dynamic import — module may not exist yet.
+    const mod = (await import(
+      '@/lib/actions/admin-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof mod.recordEarlyClosing === 'function') {
       return mod.recordEarlyClosing(payload)
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dealMod: any = await import('@/lib/actions/deal-actions' as any)
+    const dealMod = (await import(
+      '@/lib/actions/deal-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof dealMod.recordEarlyClosing === 'function') {
       return dealMod.recordEarlyClosing(payload)
     }
@@ -142,7 +153,7 @@ export function EarlyClosingButton({
         return
       }
       const serverRefund =
-        (result.data as any)?.refundAmount ?? refundPreview?.refund ?? null
+        result.data?.refundAmount ?? refundPreview?.refund ?? null
       toast.success('Early closing recorded', {
         description:
           serverRefund != null
@@ -152,8 +163,9 @@ export function EarlyClosingButton({
       setOpen(false)
       setActualDate('')
       await onChanged()
-    } catch (err: any) {
-      setError(err?.message || 'Unexpected error')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unexpected error'
+      setError(message)
     } finally {
       setSubmitting(false)
     }

@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { FileText, Download, X } from 'lucide-react'
 import { formatFileSize } from '@/lib/formatting'
 
@@ -23,9 +24,14 @@ export default function FilePreview({ fileName, fileType, fileSize, fileUrl, onR
     return (
       <div className="relative group">
         <a href={fileUrl} target="_blank" rel="noopener noreferrer">
-          <img
+          {/* Signed/short-lived attachment URL — `unoptimized` skips next/image
+              proxy/cache so we don't leak file contents into our CDN. */}
+          <Image
             src={fileUrl}
             alt={fileName}
+            width={compact ? 200 : 280}
+            height={compact ? 150 : 200}
+            unoptimized
             className={`rounded-lg object-cover border border-border/50 ${compact ? 'max-w-[200px] max-h-[150px]' : 'max-w-[280px] max-h-[200px]'}`}
           />
         </a>

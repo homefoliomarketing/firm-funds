@@ -81,16 +81,23 @@ const SECTION_CONFIG: Record<AssignmentSection, SectionConfig> = {
 // The dedicated server action may not be checked in yet — fall back to a
 // direct deal-actions update so the UI still works once the backend agent
 // ships their module.
-let assignImpl: any = null
-async function callAssignDealToUnderwriter(payload: {
-  dealId: string
-  userId: string | null
-}): Promise<any> {
+
+type AssignResult = { success: boolean; error?: string }
+type AssignPayload = { dealId: string; userId: string | null }
+type AssignFn = (payload: AssignPayload) => Promise<AssignResult>
+
+let assignImpl: AssignFn | null = null
+async function callAssignDealToUnderwriter(payload: AssignPayload): Promise<AssignResult> {
   if (!assignImpl) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod: any = await import('@/lib/actions/assignment-actions' as any)
-      assignImpl = mod.assignDealToUnderwriter
+      // The dedicated assignment-actions module may not be checked in yet —
+      // dynamic-import lazily and cast through unknown since the path is
+      // resolved at runtime.
+      const mod = (await import(
+        /* webpackIgnore: true */ '@/lib/actions/assignment-actions' as string
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      )) as { assignDealToUnderwriter: AssignFn } | any
+      assignImpl = mod.assignDealToUnderwriter as AssignFn
     } catch {
       // Best-effort fallback: when the dedicated action doesn't exist yet,
       // surface a friendly error so the admin can re-try later.
@@ -147,8 +154,9 @@ export function AssignmentsTable({
       } else {
         toast.error(res?.error || 'Could not assign deal')
       }
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not assign deal')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not assign deal'
+      toast.error(message)
     } finally {
       setPendingId(null)
     }

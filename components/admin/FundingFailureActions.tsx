@@ -27,20 +27,29 @@ import { formatDate } from '@/lib/formatting'
 
 // Server actions may not exist yet — see Task spec. Bind lazily and surface a
 // graceful "not deployed" message if the module can't be resolved.
+interface ActionResult {
+  success: boolean
+  error?: string
+}
+
 async function callMarkFundingFailed(payload: {
   dealId: string
   failureReason: string
   notes?: string
-}): Promise<any> {
+}): Promise<ActionResult> {
   try {
     // Prefer the dedicated module described in the brief.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod: any = await import('@/lib/actions/deal-actions' as any)
+    const mod = (await import(
+      '@/lib/actions/deal-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof mod.markFundingFailed === 'function') {
       return mod.markFundingFailed(payload)
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adminMod: any = await import('@/lib/actions/admin-actions' as any)
+    const adminMod = (await import(
+      '@/lib/actions/admin-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof adminMod.markFundingFailed === 'function') {
       return adminMod.markFundingFailed(payload)
     }
@@ -58,15 +67,19 @@ async function callMarkFundingFailed(payload: {
 
 async function callRetryFundingAfterFailure(payload: {
   dealId: string
-}): Promise<any> {
+}): Promise<ActionResult> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod: any = await import('@/lib/actions/deal-actions' as any)
+    const mod = (await import(
+      '@/lib/actions/deal-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof mod.retryFundingAfterFailure === 'function') {
       return mod.retryFundingAfterFailure(payload)
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adminMod: any = await import('@/lib/actions/admin-actions' as any)
+    const adminMod = (await import(
+      '@/lib/actions/admin-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof adminMod.retryFundingAfterFailure === 'function') {
       return adminMod.retryFundingAfterFailure(payload)
     }
@@ -85,11 +98,13 @@ async function callRetryFundingAfterFailure(payload: {
 async function callUpdateDealStatus(payload: {
   dealId: string
   newStatus: string
-}): Promise<any> {
+}): Promise<ActionResult> {
   // updateDealStatus is a known-existing action in lib/actions/deal-actions.ts
   // (used elsewhere on this page). Bind it without indirection.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mod: any = await import('@/lib/actions/deal-actions' as any)
+  const mod = (await import(
+    '@/lib/actions/deal-actions' as string
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  )) as any
   return mod.updateDealStatus(payload)
 }
 
@@ -143,8 +158,9 @@ export function MarkFundingFailedButton({
       setNotes('')
       setReason('wrong_bank_account')
       await onChanged()
-    } catch (err: any) {
-      setError(err?.message || 'Unexpected error')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unexpected error'
+      setError(message)
     } finally {
       setSubmitting(false)
     }

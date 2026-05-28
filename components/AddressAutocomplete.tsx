@@ -21,7 +21,9 @@ interface AddressAutocompleteProps {
 }
 
 // Google Maps script loader — singleton, idempotent across mounts.
-// Types are kept as `any` so we don't need to install @types/google.maps.
+// Types are kept loose so we don't need to install @types/google.maps.
+// The `any`s below are intentional — the global google.maps namespace is not typed.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 let mapsLoadPromise: Promise<any> | null = null
 function loadGoogleMaps(apiKey: string): Promise<any> {
   if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'))
@@ -49,6 +51,7 @@ function loadGoogleMaps(apiKey: string): Promise<any> {
   })
   return mapsLoadPromise
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 interface AddressComponentNew {
   types: string[]
@@ -74,6 +77,8 @@ function partsFromComponents(components: AddressComponentNew[]): AddressParts {
 interface Suggestion {
   text: string
   placeId: string
+  // Google Maps Place object is untyped — kept as `any` since we don't install @types/google.maps
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fetchPlace: () => Promise<any>
 }
 
@@ -91,7 +96,10 @@ export default function AddressAutocomplete({
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [mapsReady, setMapsReady] = useState(false)
+  // Google Maps places library / session token — untyped without @types/google.maps
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const placesLibRef = useRef<any>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sessionTokenRef = useRef<any>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -137,9 +145,12 @@ export default function AddressAutocomplete({
           includedRegionCodes: [country],
           sessionToken: sessionTokenRef.current,
         })
+        // Google Maps suggestion results are untyped — cast through unknown
         const mapped: Suggestion[] = (results || [])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .filter((s: any) => s.placePrediction)
           .slice(0, 6)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((s: any) => ({
             text: s.placePrediction.text?.toString?.() || '',
             placeId: s.placePrediction.placeId,

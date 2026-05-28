@@ -34,10 +34,30 @@ import { cn } from '@/lib/utils'
 // Server-action call wrappers — lazily resolved
 // ============================================================================
 
-async function callListBrokerageAdmins(brokerageId: string): Promise<any> {
+interface ActionResult<T = unknown> {
+  success: boolean
+  error?: string
+  data?: T
+}
+
+interface LegacyBrokerageUser {
+  id: string
+  role?: 'admin' | 'primary_admin'
+  full_name: string | null
+  email: string | null
+  created_at?: string | null
+  last_login?: string | null
+}
+
+async function callListBrokerageAdmins(
+  brokerageId: string,
+): Promise<ActionResult<BrokerageAdminRow[]>> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod: any = await import('@/lib/actions/brokerage-admin-actions' as any)
+    // Dynamic import — the dedicated module may not be checked in yet.
+    const mod = (await import(
+      '@/lib/actions/brokerage-admin-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof mod.listBrokerageAdmins === 'function') {
       return mod.listBrokerageAdmins(brokerageId)
     }
@@ -46,13 +66,19 @@ async function callListBrokerageAdmins(brokerageId: string): Promise<any> {
   }
   // Fallback to the existing getBrokerageUserProfiles helper in admin-actions
   // until the dedicated list module ships. Shape: { brokerageAdmins: [], agents: [] }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const legacy: any = await import('@/lib/actions/admin-actions')
+  const legacy = (await import('@/lib/actions/admin-actions')) as unknown as {
+    getBrokerageUserProfiles: (args: { brokerageId: string }) => Promise<
+      ActionResult<{ brokerageAdmins?: LegacyBrokerageUser[] }>
+    >
+  }
   const result = await legacy.getBrokerageUserProfiles({ brokerageId })
-  if (!result?.success) return result
+  if (!result?.success) {
+    // Propagate the error envelope without the (now-incompatible) data field.
+    return { success: false, error: result?.error }
+  }
   return {
     success: true,
-    data: (result.data?.brokerageAdmins ?? []).map((u: any) => ({
+    data: (result.data?.brokerageAdmins ?? []).map((u): BrokerageAdminRow => ({
       id: u.id,
       user_id: u.id,
       brokerage_id: brokerageId,
@@ -65,23 +91,32 @@ async function callListBrokerageAdmins(brokerageId: string): Promise<any> {
   }
 }
 
-async function callInviteBrokerageAdmin(payload: {
+interface InvitePayload {
   brokerageId: string
   firstName: string
   lastName: string
   email: string
   role: 'admin' | 'primary_admin'
-}): Promise<any> {
+}
+
+async function callInviteBrokerageAdmin(payload: InvitePayload): Promise<ActionResult> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod: any = await import('@/lib/actions/brokerage-admin-actions' as any)
+    const mod = (await import(
+      '@/lib/actions/brokerage-admin-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof mod.inviteBrokerageAdmin === 'function') {
       return mod.inviteBrokerageAdmin(payload)
     }
   } catch {}
   // Fallback to the long-standing legacy helper that takes fullName + email.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const legacy: any = await import('@/lib/actions/admin-actions')
+  const legacy = (await import('@/lib/actions/admin-actions')) as unknown as {
+    inviteBrokerageAdmin: (args: {
+      brokerageId: string
+      fullName: string
+      email: string
+    }) => Promise<ActionResult>
+  }
   return legacy.inviteBrokerageAdmin({
     brokerageId: payload.brokerageId,
     fullName: `${payload.firstName} ${payload.lastName}`.trim(),
@@ -92,10 +127,12 @@ async function callInviteBrokerageAdmin(payload: {
 async function callRemoveBrokerageAdmin(payload: {
   brokerageId: string
   userId: string
-}): Promise<any> {
+}): Promise<ActionResult> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod: any = await import('@/lib/actions/brokerage-admin-actions' as any)
+    const mod = (await import(
+      '@/lib/actions/brokerage-admin-actions' as string
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )) as any
     if (typeof mod.removeBrokerageAdmin === 'function') {
       return mod.removeBrokerageAdmin(payload)
     }
@@ -164,8 +201,9 @@ export function BrokerageAdminsPanel({
         return
       }
       setAdmins((result.data ?? []) as BrokerageAdminRow[])
-    } catch (err: any) {
-      setError(err?.message || 'Unexpected error loading admins.')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unexpected error loading admins.'
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -213,8 +251,9 @@ export function BrokerageAdminsPanel({
       setInviteRole('admin')
       startTransition(() => loadAdmins())
       router.refresh()
-    } catch (err: any) {
-      setInviteError(err?.message || 'Unexpected error')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unexpected error'
+      setInviteError(message)
     } finally {
       setInviting(false)
     }

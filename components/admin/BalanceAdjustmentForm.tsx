@@ -31,21 +31,47 @@ import { formatCurrency } from '@/lib/formatting'
 import { cn } from '@/lib/utils'
 
 // The server action wiring lives in lib/actions/balance-adjustment-actions.ts.
-// It may not exist yet — see Task 1 in the prompt. Import is intentionally
-// `as any` so TypeScript doesn't choke if the module is still being scaffolded
-// by the backend agent. When the file lands we'll drop the cast.
-let adjustAgentBalanceImpl: any = null
-async function callAdjustAgentBalance(payload: any): Promise<any> {
+// It may not exist yet — see Task 1 in the prompt. Imports use a loose shape
+// so TypeScript doesn't choke if the module is still being scaffolded by the
+// backend agent. When the file lands we'll drop the cast.
+
+interface AdjustAgentBalancePayload {
+  agentId: string
+  amount: number
+  description: string
+  reason: string
+  notes: string
+  idempotencyKey: string
+}
+
+interface AdjustAgentBalanceResult {
+  success: boolean
+  error?: string
+  data?: { newBalance?: number } | null
+}
+
+type AdjustAgentBalanceFn = (
+  payload: AdjustAgentBalancePayload,
+) => Promise<AdjustAgentBalanceResult>
+
+let adjustAgentBalanceImpl: AdjustAgentBalanceFn | null = null
+async function callAdjustAgentBalance(
+  payload: AdjustAgentBalancePayload,
+): Promise<AdjustAgentBalanceResult> {
   if (!adjustAgentBalanceImpl) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod: any = await import('@/lib/actions/balance-adjustment-actions' as any)
-      adjustAgentBalanceImpl = mod.adjustAgentBalance
+      // Dynamic import — module may not exist yet, cast loosely.
+      const mod = (await import(
+        '@/lib/actions/balance-adjustment-actions' as string
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      )) as any
+      adjustAgentBalanceImpl = mod.adjustAgentBalance as AdjustAgentBalanceFn
     } catch {
       // Fallback to the long-standing per-agent action in brokerages page so
       // we always have a working server call until the dedicated module ships.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fallback: any = await import('@/lib/actions/account-actions')
+      const fallback = (await import('@/lib/actions/account-actions')) as unknown as {
+        adjustAgentBalance: AdjustAgentBalanceFn
+      }
       adjustAgentBalanceImpl = fallback.adjustAgentBalance
     }
   }
@@ -195,7 +221,7 @@ export function BalanceAdjustmentForm({
       }
 
       const newBalance =
-        (result.data as any)?.newBalance ??
+        result.data?.newBalance ??
         // Optimistic fallback so the toast can still show a number when the
         // server response shape predates `newBalance`.
         selectedAgent.account_balance + signedAmount
@@ -213,8 +239,9 @@ export function BalanceAdjustmentForm({
       setReason('refund')
       setSearch('')
       router.refresh()
-    } catch (err: any) {
-      setError(err?.message || 'An unexpected error occurred.')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred.'
+      setError(message)
     } finally {
       setSubmitting(false)
     }

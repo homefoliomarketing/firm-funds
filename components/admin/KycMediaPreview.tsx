@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -55,13 +56,19 @@ export function KycMediaPreview({
           style={{ height: 400 }}
         />
       ) : (
-        <img
+        // KYC scans are short-lived signed URLs from Supabase Storage — `unoptimized`
+        // bypasses next/image's optimizer/proxy, which is the right call for sensitive
+        // personal docs (no caching on our edge, no leaked thumbnails).
+        <Image
           src={src}
           alt={alt}
+          width={600}
+          height={400}
+          unoptimized
           onLoad={() => setLoaded(true)}
           onError={() => setErrored(true)}
           className={cn(
-            'relative w-full rounded-lg border border-border transition-opacity duration-200',
+            'relative w-full h-auto rounded-lg border border-border transition-opacity duration-200',
             loaded ? 'opacity-100' : 'opacity-0',
           )}
         />

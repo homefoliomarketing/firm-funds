@@ -2,10 +2,19 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import Image from 'next/image'
 import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
+
+function NotificationBadge({ count }: { count: number }) {
+  return (
+    <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
 
 interface AgentHeaderProps {
   agentName: string
@@ -99,8 +108,11 @@ export default function AgentHeader({
   }, [agentId, requestNotificationPermission])
 
   useEffect(() => {
+    // Intentional: bootstrap + poll notification counts from the server every 30s.
+    // The "set state in effect" warning is a false positive for polling patterns —
+    // we're synchronizing React with an external system (the API), not deriving state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadNotifications()
-    // Poll every 30 seconds for new notifications
     const interval = setInterval(loadNotifications, 30000)
     return () => clearInterval(interval)
   }, [loadNotifications])
@@ -123,12 +135,6 @@ export default function AgentHeader({
         : 'text-white/50 hover:text-white/80 hover:bg-white/5'
     }`
 
-  const NotificationBadge = ({ count }: { count: number }) => (
-    <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
-      {count > 99 ? '99+' : count}
-    </span>
-  )
-
   return (
     <header className="bg-card/80 ff-header-blur border-b border-border/50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -143,22 +149,29 @@ export default function AgentHeader({
             >
               {brokerageLogo ? (
                 <>
-                  <img
+                  <Image
                     src={brokerageLogo}
                     alt={`${brokerageName || 'Brokerage'} logo`}
+                    width={160}
+                    height={80}
+                    unoptimized
                     className="h-12 sm:h-16 md:h-20 w-auto object-contain"
                   />
                   <div className="w-px h-8 bg-white/15" aria-hidden="true" />
-                  <img
+                  <Image
                     src="/brand/white.png"
                     alt="Firm Funds"
+                    width={120}
+                    height={40}
                     className="h-8 sm:h-10 w-auto opacity-60"
                   />
                 </>
               ) : (
-                <img
+                <Image
                   src="/brand/white.png"
                   alt="Firm Funds"
+                  width={224}
+                  height={112}
                   className="h-16 sm:h-20 md:h-28 w-auto"
                 />
               )}
