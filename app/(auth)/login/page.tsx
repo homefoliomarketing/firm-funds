@@ -73,17 +73,40 @@ function LoginPageInner() {
     setError(null)
     setResetSent(false)
 
-    const result = await loginWithPassword({
-      email,
-      password,
-    })
+    // Single generic copy for every post-auth rejection (inactive profile,
+    // flagged agent, suspended brokerage, missing profile, etc). The server
+    // records the specific reason in audit_log.metadata.reason — never leak
+    // it to the browser.
+    const BLOCKED_LOGIN_MESSAGE =
+      'Your account is not currently active. Please contact your brokerage administrator.'
 
-    if (!result.success) {
-      setError(result.error || 'Unable to sign in.')
+    let result: Awaited<ReturnType<typeof loginWithPassword>>
+    try {
+      result = await loginWithPassword({
+        email,
+        password,
+      })
+    } catch {
+      // Server action threw (network blip, server exception, revalidation
+      // error, etc). Surface a generic failure and always release the
+      // spinner so the user can retry.
+      setError('Unable to sign in. Please try again.')
       setLoading(false)
       return
     }
 
+    if (!result.success) {
+      const message =
+        result.code === 'blocked'
+          ? BLOCKED_LOGIN_MESSAGE
+          : result.error || 'Unable to sign in.'
+      setError(message)
+      setLoading(false)
+      return
+    }
+
+    // Success — keep the spinner active while we navigate so the button
+    // does not flicker back to "Sign In" mid-redirect.
     const role = result.data?.role || 'agent'
     if (redirectTo) {
       const roleRoutes: Record<string, string> = {
@@ -197,7 +220,12 @@ function LoginPageInner() {
                 </Alert>
               )}
               {error && (
-                <Alert variant="destructive" className="bg-destructive/10 border-destructive/30">
+                <Alert
+                  variant="destructive"
+                  className="bg-destructive/10 border-destructive/30"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-sm">{error}</AlertDescription>
                 </Alert>

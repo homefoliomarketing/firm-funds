@@ -14,6 +14,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 type LoginResult = {
   success: boolean
   error?: string
+  /**
+   * Discriminator for the client. 'blocked' means the user authenticated
+   * successfully but failed a post-auth status check (inactive profile,
+   * flagged agent, suspended brokerage, missing profile row, etc). The
+   * client uses this to render a single generic message so the rejection
+   * reason is not leaked to the browser — the specific reason is preserved
+   * in the audit_log row written by blockAuthenticatedLogin.
+   */
+  code?: 'blocked'
   data?: {
     role: string
   }
@@ -101,7 +110,7 @@ async function blockAuthenticatedLogin(input: {
     actorRole: input.actorRole,
     metadata: { email: input.actorEmail, reason: input.reason },
   })
-  return { success: false, error: input.error }
+  return { success: false, error: input.error, code: 'blocked' }
 }
 
 async function getBrokerageStatusForLogin(
