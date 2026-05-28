@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { dispatchFirmDealNotification } from '@/lib/firm-deal-detection/dispatch-notification'
 import type { ParsedFirmDeal } from '@/lib/firm-deal-detection/parse-event'
+import { logAuditEvent } from '@/lib/audit'
 
 type ActionResult<T = unknown> = { success: boolean; error?: string; data?: T }
 
@@ -196,8 +197,36 @@ export async function approveAndSendFirmDealOffer(eventId: string): Promise<Acti
     .eq('id', eventId)
   if (updErr) return { success: false, error: updErr.message }
 
+  await logAuditEvent({
+    action: 'firm_deal_review.approved',
+    entityType: 'firm_deal_event',
+    entityId: eventId,
+    oldValue: { status: existing.status },
+    newValue: { status: 'approved' },
+    metadata: {
+      event_id: eventId,
+      matched_agent_id: existing.matched_agent_id,
+      reviewed_by_user_id: auth.user?.id,
+    },
+  })
+
   // Dispatch inline
   const result = await dispatchFirmDealNotification(eventId, supabase)
+
+  await logAuditEvent({
+    action: 'firm_deal_review.dispatch_completed',
+    entityType: 'firm_deal_event',
+    entityId: eventId,
+    severity: result.outcome === 'offer_sent' ? 'info' : 'warning',
+    metadata: {
+      event_id: eventId,
+      dispatch_outcome: result.outcome,
+      dispatch_message: result.message ?? null,
+      matched_agent_id: existing.matched_agent_id,
+      reviewed_by_user_id: auth.user?.id,
+    },
+  })
+
   return {
     success: result.outcome === 'offer_sent',
     error: result.outcome !== 'offer_sent' ? result.message ?? `Dispatch outcome: ${result.outcome}` : undefined,
@@ -212,6 +241,17 @@ export async function rejectFirmDealOffer(eventId: string): Promise<ActionResult
   const auth = await getAuthenticatedAdmin()
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
+
+  // Load the prior status for the audit trail. A maybeSingle keeps the
+  // reject path resilient if the event was deleted out from under us — we
+  // still try the update (and surface the error) but log the audit with a
+  // null previous status rather than blowing up the whole call.
+  const { data: prior } = await supabase
+    .from('firm_deal_events')
+    .select('status, brokerage_id, brokerage_pipe_id, matched_agent_id')
+    .eq('id', eventId)
+    .maybeSingle()
+
   const { error } = await supabase
     .from('firm_deal_events')
     .update({
@@ -221,6 +261,22 @@ export async function rejectFirmDealOffer(eventId: string): Promise<ActionResult
     })
     .eq('id', eventId)
   if (error) return { success: false, error: error.message }
+
+  await logAuditEvent({
+    action: 'firm_deal_review.rejected',
+    entityType: 'firm_deal_event',
+    entityId: eventId,
+    oldValue: prior ? { status: prior.status } : undefined,
+    newValue: { status: 'rejected' },
+    metadata: {
+      event_id: eventId,
+      brokerage_id: prior?.brokerage_id ?? null,
+      brokerage_pipe_id: prior?.brokerage_pipe_id ?? null,
+      matched_agent_id: prior?.matched_agent_id ?? null,
+      reviewed_by_user_id: auth.user?.id,
+    },
+  })
+
   return { success: true }
 }
 
@@ -402,6 +458,37 @@ export async function resolveUnmatchedFirmDealEvent(
     .update(updateFields)
     .eq('id', input.event_id)
   if (updErr) return { success: false, error: updErr.message }
+
+  await logAuditEvent({
+    action: 'firm_deal_review.event_resolved',
+    entityType: 'firm_deal_event',
+    entityId: input.event_id,
+    oldValue: {
+      status: event.status,
+      listing_matched_agent_id: prevListing,
+      selling_matched_agent_id: prevSelling,
+      matched_agent_id: event.matched_agent_id,
+      second_matched_agent_id: event.second_matched_agent_id,
+    },
+    newValue: {
+      status: newStatus,
+      listing_matched_agent_id: listingAgentId,
+      selling_matched_agent_id: sellingAgentId,
+      matched_agent_id: primaryAgentId,
+      second_matched_agent_id: secondaryAgentId,
+    },
+    metadata: {
+      event_id: input.event_id,
+      brokerage_id: event.brokerage_id,
+      listing_action_kind: input.listing_action.kind,
+      selling_action_kind: input.selling_action.kind,
+      ready_to_approve: input.ready_to_approve,
+      target_agent_ids: targetList,
+      mappings_remembered: mappingRows.length,
+      mapping_shorthands: mappingRows.map(m => m.shorthand),
+      reviewed_by_user_id: auth.user?.id ?? null,
+    },
+  })
 
   return { success: true }
 }

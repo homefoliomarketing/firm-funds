@@ -3,6 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { listTabs, readAllTabValues } from '@/lib/firm-deal-detection/sheets-client'
+import { logAuditEvent } from '@/lib/audit'
 
 type ActionResult<T = unknown> = { success: boolean; error?: string; data?: T }
 
@@ -447,6 +448,16 @@ export async function setPipeNotificationRecipients(input: {
   }
 
   const supabase = createServiceRoleClient()
+
+  // Load the prior recipients + brokerage so the audit log shows what
+  // changed. Best-effort: if the pipe is gone the update below will fail
+  // anyway and we'll surface the real error to the caller.
+  const { data: priorPipe } = await supabase
+    .from('brokerage_pipes')
+    .select('brokerage_id, notification_recipients')
+    .eq('id', input.pipeId)
+    .maybeSingle()
+
   const { error } = await supabase
     .from('brokerage_pipes')
     .update({ notification_recipients: recipients })
@@ -454,6 +465,25 @@ export async function setPipeNotificationRecipients(input: {
   if (error) {
     return { success: false, error: `Failed to save recipients: ${error.message}` }
   }
+
+  await logAuditEvent({
+    action: 'firm_deal_pipe.notification_recipients_updated',
+    entityType: 'brokerage_pipe',
+    entityId: input.pipeId,
+    oldValue: priorPipe?.notification_recipients
+      ? { notification_recipients: priorPipe.notification_recipients }
+      : undefined,
+    newValue: { notification_recipients: recipients },
+    metadata: {
+      pipe_id: input.pipeId,
+      brokerage_id: priorPipe?.brokerage_id ?? null,
+      include_broker_of_record: recipients.include_broker_of_record,
+      extra_emails_count: recipients.extra_emails.length,
+      extra_emails: recipients.extra_emails,
+      updated_by_user_id: auth.user?.id ?? null,
+    },
+  })
+
   return { success: true, data: recipients }
 }
 
@@ -466,6 +496,16 @@ export async function setPipeAutoFire(input: {
   if (!input.pipeId) return { success: false, error: 'Missing pipe id.' }
 
   const supabase = createServiceRoleClient()
+
+  // Snapshot the prior value so the audit row shows old → new for the
+  // auto-fire flag. This is a critical control — flipping it on lets the
+  // pipeline dispatch offers without admin review, so we want a clear trail.
+  const { data: prior } = await supabase
+    .from('brokerage_pipes')
+    .select('brokerage_id, auto_fire_enabled')
+    .eq('id', input.pipeId)
+    .maybeSingle()
+
   const { data, error } = await supabase
     .from('brokerage_pipes')
     .update({ auto_fire_enabled: input.enabled })
@@ -475,6 +515,22 @@ export async function setPipeAutoFire(input: {
   if (error || !data) {
     return { success: false, error: error?.message ?? 'Failed to update pipe.' }
   }
+
+  await logAuditEvent({
+    action: 'firm_deal_pipe.auto_fire_toggled',
+    entityType: 'brokerage_pipe',
+    entityId: input.pipeId,
+    severity: 'warning',
+    oldValue: prior ? { auto_fire_enabled: prior.auto_fire_enabled } : undefined,
+    newValue: { auto_fire_enabled: data.auto_fire_enabled },
+    metadata: {
+      pipe_id: input.pipeId,
+      brokerage_id: prior?.brokerage_id ?? null,
+      enabled: data.auto_fire_enabled,
+      toggled_by_user_id: auth.user?.id ?? null,
+    },
+  })
+
   return { success: true, data: { auto_fire_enabled: data.auto_fire_enabled } }
 }
 
@@ -572,6 +628,28 @@ export async function createBrokeragePipe(
   if (insErr || !inserted) {
     return { success: false, error: `Failed to create pipe: ${insErr?.message ?? 'unknown error'}` }
   }
+
+  await logAuditEvent({
+    action: 'firm_deal_pipe.created',
+    entityType: 'brokerage_pipe',
+    entityId: inserted.id,
+    metadata: {
+      pipe_id: inserted.id,
+      brokerage_id: input.brokerageId,
+      brokerage_name: brokerage.name,
+      pipe_type: 'spreadsheet',
+      sheet_id: input.sheetId,
+      sheet_url: config.sheet_url,
+      conditional_tab: input.conditionalTab,
+      tabs_to_watch: input.tabsToWatch,
+      column_mapping: cleanedMapping,
+      brand_name: brandName,
+      brand_tagline: brandTagline,
+      auto_fire_enabled: false,
+      enabled: true,
+      created_by_user_id: auth.user?.id ?? null,
+    },
+  })
 
   return { success: true, data: { pipeId: inserted.id } }
 }
