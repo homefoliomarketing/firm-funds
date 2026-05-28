@@ -127,8 +127,9 @@ export async function updateAgentProfile(data: {
           changedAtIso: changedAt,
         })
       }
-    } catch (notifyErr: any) {
-      console.error('Phone-changed notification error (non-fatal):', notifyErr?.message)
+    } catch (notifyErr: unknown) {
+      const notifyMessage = notifyErr instanceof Error ? notifyErr.message : 'Unknown error'
+      console.error('Phone-changed notification error (non-fatal):', notifyMessage)
     }
   }
 
@@ -168,7 +169,24 @@ export async function markKycModalSeen(agentId: string) {
 // ============================================================================
 
 /** Helper: verify caller is brokerage_admin and agent belongs to their brokerage */
-async function verifyBrokerageAgentAccess(agentId: string) {
+async function verifyBrokerageAgentAccess(agentId: string): Promise<
+  | { error: string }
+  | {
+      user: { id: string; email?: string }
+      profile: { brokerage_id: string | null; role: string; full_name: string | null }
+      agent: {
+        id: string
+        first_name: string | null
+        last_name: string | null
+        email: string | null
+        kyc_status: string | null
+        kyc_document_path: string | null
+        kyc_document_type: string | null
+        brokerage_id: string | null
+      }
+      serviceClient: ReturnType<typeof createServiceRoleClient>
+    }
+> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
@@ -202,8 +220,8 @@ async function verifyBrokerageAgentAccess(agentId: string) {
 /** Brokerage admin: verify agent KYC */
 export async function brokerageVerifyAgentKyc(input: { agentId: string }) {
   const access = await verifyBrokerageAgentAccess(input.agentId)
-  if ('error' in access && !('agent' in access)) return { success: false, error: access.error }
-  const { profile, agent, serviceClient } = access as any
+  if ('error' in access) return { success: false, error: access.error }
+  const { profile, agent, serviceClient } = access
 
   if (agent.kyc_status !== 'submitted') {
     return { success: false, error: `Cannot verify agent in "${agent.kyc_status}" status.` }
@@ -239,7 +257,7 @@ export async function brokerageVerifyAgentKyc(input: { agentId: string }) {
           checked_at: now,
           notes: 'Auto-checked: Agent KYC verified by brokerage',
         })
-        .in('deal_id', agentDeals.map((d: any) => d.id))
+        .in('deal_id', agentDeals.map((d: { id: string }) => d.id))
         .eq('checklist_item', 'Agent ID - FINTRAC Verification')
     }
   } catch { /* non-fatal */ }
@@ -270,8 +288,8 @@ export async function brokerageVerifyAgentKyc(input: { agentId: string }) {
 /** Brokerage admin: reject agent KYC */
 export async function brokerageRejectAgentKyc(input: { agentId: string; reason: string }) {
   const access = await verifyBrokerageAgentAccess(input.agentId)
-  if ('error' in access && !('agent' in access)) return { success: false, error: access.error }
-  const { profile, agent, serviceClient } = access as any
+  if ('error' in access) return { success: false, error: access.error }
+  const { profile, agent, serviceClient } = access
 
   if (agent.kyc_status !== 'submitted') {
     return { success: false, error: `Cannot reject agent in "${agent.kyc_status}" status.` }
@@ -304,8 +322,8 @@ export async function brokerageRejectAgentKyc(input: { agentId: string; reason: 
 /** Brokerage admin: get agent KYC document URLs */
 export async function brokerageGetAgentKycDocumentUrl(input: { agentId: string }) {
   const access = await verifyBrokerageAgentAccess(input.agentId)
-  if ('error' in access && !('agent' in access)) return { success: false, error: access.error }
-  const { agent, serviceClient } = access as any
+  if ('error' in access) return { success: false, error: access.error }
+  const { agent, serviceClient } = access
 
   if (!agent.kyc_document_path) {
     return { success: false, error: 'No KYC document found for this agent' }
@@ -637,9 +655,10 @@ export async function updateAgentBanking(data: {
         }
       }
     }
-  } catch (preauthErr: any) {
+  } catch (preauthErr: unknown) {
     // Non-fatal — don't fail the banking verification
-    console.error('Auto-attach preauth form error (non-fatal):', preauthErr?.message)
+    const preauthMessage = preauthErr instanceof Error ? preauthErr.message : 'Unknown error'
+    console.error('Auto-attach preauth form error (non-fatal):', preauthMessage)
   }
 
   return { success: true }
@@ -723,8 +742,9 @@ export async function submitAgentBanking(data: {
       agentName: profile.full_name || profile.email || 'Unknown Agent',
       agentEmail: profile.email || '',
     })
-  } catch (emailErr: any) {
-    console.error('Banking notification email error (non-fatal):', emailErr?.message)
+  } catch (emailErr: unknown) {
+    const emailMessage = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+    console.error('Banking notification email error (non-fatal):', emailMessage)
   }
 
   return { success: true }
@@ -811,8 +831,9 @@ export async function approveAgentBanking(data: { agentId: string }) {
       agentName,
       approved: true,
     })
-  } catch (emailErr: any) {
-    console.error('Banking approval email error (non-fatal):', emailErr?.message)
+  } catch (emailErr: unknown) {
+    const emailMessage = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+    console.error('Banking approval email error (non-fatal):', emailMessage)
   }
 
   return { success: true }
@@ -886,8 +907,9 @@ export async function rejectAgentBanking(data: { agentId: string; reason: string
       approved: false,
       reason: data.reason.trim(),
     })
-  } catch (emailErr: any) {
-    console.error('Banking rejection email error (non-fatal):', emailErr?.message)
+  } catch (emailErr: unknown) {
+    const emailMessage = emailErr instanceof Error ? emailErr.message : 'Unknown error'
+    console.error('Banking rejection email error (non-fatal):', emailMessage)
   }
 
   return { success: true }

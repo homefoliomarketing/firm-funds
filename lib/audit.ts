@@ -21,10 +21,10 @@ export interface AuditEntry {
   action: string            // e.g. 'deal.submit', 'deal.status_change', 'document.upload'
   entityType: string        // e.g. 'deal', 'document', 'agent', 'brokerage'
   entityId?: string         // UUID of affected entity
-  metadata?: Record<string, any>  // Additional context
+  metadata?: Record<string, unknown>  // Additional context
   severity?: AuditSeverity  // Defaults to 'info'
-  oldValue?: Record<string, any>  // Previous state (for changes)
-  newValue?: Record<string, any>  // New state (for changes)
+  oldValue?: Record<string, unknown>  // Previous state (for changes)
+  newValue?: Record<string, unknown>  // New state (for changes)
 }
 
 /**
@@ -263,12 +263,12 @@ export async function extractRequestContext(request: Request): Promise<AuditCont
  * Only includes fields that actually changed.
  */
 export async function diffValues(
-  oldRecord: Record<string, any>,
-  newRecord: Record<string, any>,
+  oldRecord: Record<string, unknown>,
+  newRecord: Record<string, unknown>,
   fields: string[]
-): Promise<{ oldValue: Record<string, any>; newValue: Record<string, any> } | null> {
-  const oldValue: Record<string, any> = {}
-  const newValue: Record<string, any> = {}
+): Promise<{ oldValue: Record<string, unknown>; newValue: Record<string, unknown> } | null> {
+  const oldValue: Record<string, unknown> = {}
+  const newValue: Record<string, unknown> = {}
   let hasChanges = false
 
   for (const field of fields) {

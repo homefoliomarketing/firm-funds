@@ -1,7 +1,7 @@
 'use server'
 
 import crypto from 'crypto'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification, sendBrokerageInviteNotification, sendPasswordResetNotification, sendEmailChangeNotification } from '@/lib/email'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
@@ -24,7 +24,6 @@ import {
   insertPayment,
   deletePayment,
   reviewPayment,
-  fetchPaymentsForDeal,
   sumConfirmedPayments,
 } from '@/lib/brokerage-payments'
 
@@ -69,7 +68,7 @@ export async function recordLateStrike(input: {
 
     // Sanity: only allow strike if the deal is actually past its due_date
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-    const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as any).toISOString().slice(0, 10)
+    const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as string | number | Date).toISOString().slice(0, 10)
     if (today <= dueDateStr) {
       return { success: false, error: 'Deal is not yet past its Payment Due Date' }
     }
@@ -102,8 +101,9 @@ export async function recordLateStrike(input: {
       return { success: false, error: `Failed to record strike: ${strikeErr?.message || 'unknown error'}` }
     }
 
-    const newCount = Number((strikeRows[0] as any).new_strike_count) || 0
-    const shouldBump = Boolean((strikeRows[0] as any).bumped_now)
+    const strikeRow = strikeRows[0] as { new_strike_count?: number; bumped_now?: boolean }
+    const newCount = Number(strikeRow.new_strike_count) || 0
+    const shouldBump = Boolean(strikeRow.bumped_now)
 
     // Fetch brokerage name for audit metadata (no longer pre-fetched above).
     const { data: brokerage } = await serviceClient
@@ -141,9 +141,10 @@ export async function recordLateStrike(input: {
     }
 
     return { success: true, data: { newStrikeCount: newCount, bumped: shouldBump } }
-  } catch (err: any) {
-    console.error('recordLateStrike error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('recordLateStrike error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }
 
@@ -184,7 +185,18 @@ export async function getOverdueSettlementDeals(): Promise<ActionResult> {
       return { success: false, error: error.message }
     }
 
-    const rows = (data || []).map((d: any) => {
+    type OverdueDealRow = {
+      id: string
+      property_address: string
+      closing_date: string
+      due_date: string | null
+      amount_due_from_brokerage: number | string | null
+      brokerage_payments: { amount: number; status: 'pending' | 'confirmed' | 'rejected' }[] | null
+      settlement_days_at_funding: number | null
+      agents: { first_name: string | null; last_name: string | null } | null
+      brokerages: { id: string; name: string | null } | null
+    }
+    const rows = ((data as unknown as OverdueDealRow[]) || []).map((d) => {
       const amountDue = Number(d.amount_due_from_brokerage) || 0
       const confirmedTotal = sumConfirmedPayments(d.brokerage_payments)
       const outstanding = Math.max(0, Math.round((amountDue - confirmedTotal) * 100) / 100)
@@ -209,9 +221,10 @@ export async function getOverdueSettlementDeals(): Promise<ActionResult> {
     })
 
     return { success: true, data: rows }
-  } catch (err: any) {
-    console.error('getOverdueSettlementDeals error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getOverdueSettlementDeals error:', _msg)
+    return { success: false, error: _msg }
   }
 }
 
@@ -222,6 +235,8 @@ export async function getOverdueSettlementDeals(): Promise<ActionResult> {
 interface ActionResult {
   success: boolean
   error?: string
+  // Callers consume specific shapes via assertion; using any preserves call-site compatibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: Record<string, any>
 }
 
@@ -355,8 +370,9 @@ export async function createBrokerage(input: {
     })
 
     return { success: true, data: brokerage }
-  } catch (err: any) {
-    console.error('Brokerage create error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage create error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -472,8 +488,9 @@ export async function updateBrokerage(input: {
     }
 
     return { success: true, data: { ...brokerage, welcomeQueued } }
-  } catch (err: any) {
-    console.error('Brokerage update error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage update error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -555,8 +572,9 @@ export async function createAgent(input: {
     })
 
     return { success: true, data: agent }
-  } catch (err: any) {
-    console.error('Agent create error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent create error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -833,8 +851,9 @@ export async function bulkImportAgents(input: {
       success: true,
       data: { imported, skipped, errors },
     }
-  } catch (err: any) {
-    console.error('Bulk import error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Bulk import error:', _msg)
     return { success: false, error: 'An unexpected error occurred during import' }
   }
 }
@@ -851,7 +870,7 @@ export async function updateAgent(input: {
   flaggedByBrokerage: boolean
   outstandingRecovery: number
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -892,8 +911,9 @@ export async function updateAgent(input: {
     })
 
     return { success: true, data: agent }
-  } catch (err: any) {
-    console.error('Agent update error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent update error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -910,7 +930,7 @@ export async function createUserAccount(input: {
   agentId?: string
   brokerageId?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -964,8 +984,9 @@ export async function createUserAccount(input: {
     })
 
     return { success: true, data: { userId: authData.user.id } }
-  } catch (err: any) {
-    console.error('User account create error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('User account create error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1041,8 +1062,9 @@ export async function archiveAgent(input: {
     })
 
     return { success: true, data: { agentId: input.agentId } }
-  } catch (err: any) {
-    console.error('Agent archive error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent archive error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1099,8 +1121,9 @@ export async function softDeleteAgent(input: {
     })
 
     return { success: true, data: { agentId: input.agentId } }
-  } catch (err: any) {
-    console.error('Agent soft delete error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent soft delete error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1193,8 +1216,9 @@ export async function permanentlyDeleteAgent(input: {
     })
 
     return { success: true, data: { agentId: input.agentId } }
-  } catch (err: any) {
-    console.error('Agent permanent delete error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent permanent delete error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1285,8 +1309,9 @@ export async function archiveBrokerage(input: {
     })
 
     return { success: true, data: { brokerageId: input.brokerageId } }
-  } catch (err: any) {
-    console.error('Brokerage archive error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage archive error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1362,8 +1387,9 @@ export async function softDeleteBrokerage(input: {
     })
 
     return { success: true, data: { brokerageId: input.brokerageId } }
-  } catch (err: any) {
-    console.error('Brokerage soft delete error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage soft delete error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1458,18 +1484,20 @@ export async function permanentlyDeleteBrokerage(input: {
     for (const profile of profilesForAuthCleanup) {
       try {
         await serviceClient.auth.admin.deleteUser(profile.id)
-      } catch (authErr: any) {
-        console.warn(`Auth user delete failed for profile ${profile.id} (${profile.email}):`, authErr?.message)
+      } catch (authErr: unknown) {
+        const authMessage = authErr instanceof Error ? authErr.message : 'Unknown error'
+        console.warn(`Auth user delete failed for profile ${profile.id} (${profile.email}):`, authMessage)
         if (profile.email) {
           try {
             const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
-            const match = users.find((u: any) => u.email === profile.email)
+            const match = users.find((u: { id: string; email?: string }) => u.email === profile.email)
             if (match) {
               await serviceClient.auth.admin.deleteUser(match.id)
               console.log(`Auth user cleaned up via email fallback for ${profile.email}`)
             }
-          } catch (fallbackErr: any) {
-            console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackErr?.message)
+          } catch (fallbackErr: unknown) {
+            const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : 'Unknown error'
+            console.warn(`Auth fallback cleanup also failed for ${profile.email}:`, fallbackMessage)
           }
         }
       }
@@ -1487,8 +1515,9 @@ export async function permanentlyDeleteBrokerage(input: {
     })
 
     return { success: true, data: { brokerageId: input.brokerageId } }
-  } catch (err: any) {
-    console.error('Brokerage permanent delete error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage permanent delete error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1596,8 +1625,9 @@ export async function inviteAgent(input: {
         // Delete the old auth user using the proper admin SDK method
         try {
           await serviceClient.auth.admin.deleteUser(oldProfile.id)
-        } catch (delErr: any) {
-          console.error('Failed to delete old auth user via admin API:', delErr?.message)
+        } catch (delErr: unknown) {
+          const _msg = delErr instanceof Error ? delErr.message : "Unknown error"
+          console.error('Failed to delete old auth user via admin API:', _msg)
         }
         // Delete the old profile record
         await serviceClient
@@ -1611,13 +1641,14 @@ export async function inviteAgent(input: {
         while (!deletedOldUser) {
           const { data: { users = [] } = {}, error: listErr } = await serviceClient.auth.admin.listUsers({ page, perPage: 1000 })
           if (listErr || users.length === 0) break
-          const match = users.find((u: any) => u.email === email)
+          const match = users.find((u: { id: string; email?: string }) => u.email === email)
           if (match) {
             try {
               await serviceClient.auth.admin.deleteUser(match.id)
               deletedOldUser = true
-            } catch (delErr: any) {
-              console.error('Failed to delete old auth user from listUsers match:', delErr?.message)
+            } catch (delErr: unknown) {
+              const _msg = delErr instanceof Error ? delErr.message : "Unknown error"
+              console.error('Failed to delete old auth user from listUsers match:', _msg)
             }
             break
           }
@@ -1737,8 +1768,9 @@ export async function inviteAgent(input: {
         emailSent: true,
       },
     }
-  } catch (err: any) {
-    console.error('Agent invite error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent invite error:', _msg)
     return { success: false, error: 'An unexpected error occurred during agent invitation' }
   }
 }
@@ -1878,8 +1910,9 @@ export async function resendAgentWelcomeEmail(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Resend welcome email error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Resend welcome email error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2006,9 +2039,10 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
           .eq('id', agent.id)
 
         sent++
-      } catch (err: any) {
-        console.error(`Failed to send welcome to ${agent.email}:`, err?.message)
-        errors.push(`${agent.first_name} ${agent.last_name}: ${err?.message || 'Unknown error'}`)
+      } catch (err: unknown) {
+        const _msg = err instanceof Error ? err.message : "Unknown error"
+        console.error(`Failed to send welcome to ${agent.email}:`, _msg)
+        errors.push(`${agent.first_name} ${agent.last_name}: ${_msg}`)
         failed++
       }
     }
@@ -2037,8 +2071,9 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
     }
 
     return { success: true, data: { sent, failed, skipped } }
-  } catch (err: any) {
-    console.error('Send all welcome emails error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Send all welcome emails error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2109,8 +2144,9 @@ export async function recordEftTransfer(input: {
     })
 
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
-    console.error('EFT transfer error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('EFT transfer error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2160,7 +2196,7 @@ export async function confirmEftTransfer(input: {
     })
 
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2224,7 +2260,7 @@ export async function removeEftTransfer(input: {
     })
 
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2306,9 +2342,10 @@ export async function recordBrokeragePayment(input: {
     // each overdue deal manually and records a strike via recordLateStrike()
     // if appropriate (e.g., to allow for in-transit wires admin hasn't logged yet).
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
-    console.error('Brokerage payment error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage payment error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }
 
@@ -2344,8 +2381,9 @@ export async function removeBrokeragePayment(input: {
     })
 
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    return { success: false, error: message }
   }
 }
 
@@ -2456,7 +2494,7 @@ export async function resetBrokerageLateStrikes(input: {
       .single()
     if (getErr || !brokerage) return { success: false, error: 'Brokerage not found' }
 
-    const patch: Record<string, any> = {
+    const patch: Record<string, unknown> = {
       late_strike_count: 0,
       last_strike_reset_at: new Date().toISOString(),
     }
@@ -2483,8 +2521,9 @@ export async function resetBrokerageLateStrikes(input: {
     })
 
     return { success: true, data: { brokerageId: input.brokerageId } }
-  } catch (err: any) {
-    console.error('resetBrokerageLateStrikes error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('resetBrokerageLateStrikes error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2504,7 +2543,15 @@ export async function adminResetUserPassword(input: {
     const serviceClient = createServiceRoleClient()
 
     // Resolve user profile ID — either direct or via agent_id lookup
-    let targetProfile: any = null
+    type TargetProfile = {
+      id: string
+      email: string | null
+      full_name: string | null
+      role: string
+      agent_id: string | null
+      brokerage_id: string | null
+    }
+    let targetProfile: TargetProfile | null = null
     if (input.userId) {
       const { data, error } = await serviceClient
         .from('user_profiles')
@@ -2566,7 +2613,7 @@ export async function adminResetUserPassword(input: {
     // Send reset email
     await sendPasswordResetNotification({
       recipientName: targetProfile.full_name?.split(' ')[0] || 'User',
-      recipientEmail: targetProfile.email,
+      recipientEmail: targetProfile.email ?? '',
       inviteToken,
       roleName,
     })
@@ -2585,8 +2632,9 @@ export async function adminResetUserPassword(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Admin reset password error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Admin reset password error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2612,7 +2660,15 @@ export async function adminChangeUserEmail(input: {
     const serviceClient = createServiceRoleClient()
 
     // Resolve user profile
-    let targetProfile: any = null
+    type TargetProfile2 = {
+      id: string
+      email: string | null
+      full_name: string | null
+      role: string
+      agent_id: string | null
+      brokerage_id: string | null
+    }
+    let targetProfile: TargetProfile2 | null = null
     if (input.userId) {
       const { data, error } = await serviceClient
         .from('user_profiles')
@@ -2636,7 +2692,7 @@ export async function adminChangeUserEmail(input: {
     const oldEmail = targetProfile.email
     const newEmail = input.newEmail.toLowerCase()
 
-    if (oldEmail.toLowerCase() === newEmail) {
+    if (oldEmail && oldEmail.toLowerCase() === newEmail) {
       return { success: false, error: 'New email is the same as the current email' }
     }
 
@@ -2667,7 +2723,7 @@ export async function adminChangeUserEmail(input: {
     // Send notification to old email
     await sendEmailChangeNotification({
       recipientName: targetProfile.full_name?.split(' ')[0] || 'User',
-      oldEmail,
+      oldEmail: oldEmail ?? '',
       newEmail,
     })
 
@@ -2686,8 +2742,9 @@ export async function adminChangeUserEmail(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Admin change email error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Admin change email error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2724,7 +2781,7 @@ export async function getBrokerageUserProfiles(brokerageId: string): Promise<Act
         agents: agentProfiles || [],
       },
     }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2787,19 +2844,21 @@ export async function inviteBrokerageAdmin(input: {
       if (oldProfile?.id) {
         try {
           await serviceClient.auth.admin.deleteUser(oldProfile.id)
-        } catch (delErr: any) {
-          console.error('Failed to delete old auth user via admin API:', delErr?.message)
+        } catch (delErr: unknown) {
+          const _msg = delErr instanceof Error ? delErr.message : "Unknown error"
+          console.error('Failed to delete old auth user via admin API:', _msg)
         }
         await serviceClient.from('user_profiles').delete().eq('id', oldProfile.id)
       } else {
         // No profile found — search auth users by email
         const { data: { users = [] } = {} } = await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
-        const match = users.find((u: any) => u.email === input.email)
+        const match = users.find((u: { id: string; email?: string }) => u.email === input.email)
         if (match) {
           try {
             await serviceClient.auth.admin.deleteUser(match.id)
-          } catch (delErr: any) {
-            console.error('Failed to delete orphaned auth user:', delErr?.message)
+          } catch (delErr: unknown) {
+            const _msg = delErr instanceof Error ? delErr.message : "Unknown error"
+            console.error('Failed to delete orphaned auth user:', _msg)
           }
         }
       }
@@ -2868,8 +2927,9 @@ export async function inviteBrokerageAdmin(input: {
       if (junctionErr) {
         console.warn('[inviteBrokerageAdmin] brokerage_admins seed failed (non-fatal):', junctionErr.message)
       }
-    } catch (junctionErr: any) {
-      console.warn('[inviteBrokerageAdmin] brokerage_admins seed threw (non-fatal):', junctionErr?.message)
+    } catch (junctionErr: unknown) {
+      const junctionMessage = junctionErr instanceof Error ? junctionErr.message : 'Unknown error'
+      console.warn('[inviteBrokerageAdmin] brokerage_admins seed threw (non-fatal):', junctionMessage)
     }
 
     // Generate magic link token (72-hour expiry)
@@ -2937,13 +2997,15 @@ export async function inviteBrokerageAdmin(input: {
           }
         }
       }
-    } catch (bcaErr: any) {
-      console.warn('BCA auto-send skipped (non-blocking):', bcaErr?.message)
+    } catch (bcaErr: unknown) {
+      const bcaMessage = bcaErr instanceof Error ? bcaErr.message : 'Unknown error'
+      console.warn('BCA auto-send skipped (non-blocking):', bcaMessage)
     }
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Invite brokerage admin error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Invite brokerage admin error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -3026,8 +3088,9 @@ export async function resendBrokerageSetupLink(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Resend brokerage setup link error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Resend brokerage setup link error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -3069,10 +3132,10 @@ export async function uploadBrokerageDocument(formData: FormData): Promise<Actio
 
     const fileName = file.name.toLowerCase()
     const ext = '.' + fileName.split('.').pop()
-    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+    if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) {
       return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
     }
-    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+    if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
       return { success: false, error: 'File MIME type not allowed' }
     }
     const magicBytesValid = await verifyFileMagicBytes(file)
@@ -3138,8 +3201,9 @@ export async function uploadBrokerageDocument(formData: FormData): Promise<Actio
     })
 
     return { success: true, data: { document: inserted } }
-  } catch (err: any) {
-    console.error('uploadBrokerageDocument error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('uploadBrokerageDocument error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -3197,8 +3261,9 @@ export async function deleteBrokerageDocument(input: {
     })
 
     return { success: true, data: { brokerageId: doc.brokerage_id } }
-  } catch (err: any) {
-    console.error('deleteBrokerageDocument error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('deleteBrokerageDocument error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -3242,8 +3307,9 @@ export async function getBrokerageDocumentSignedUrl(input: {
     })
 
     return { success: true, data: { signedUrl: data.signedUrl } }
-  } catch (err: any) {
-    console.error('getBrokerageDocumentSignedUrl error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getBrokerageDocumentSignedUrl error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -3288,8 +3354,9 @@ export async function getAgentPreauthFormSignedUrl(input: {
     })
 
     return { success: true, data: { signedUrl: data.signedUrl } }
-  } catch (err: any) {
-    console.error('getAgentPreauthFormSignedUrl error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getAgentPreauthFormSignedUrl error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -3449,8 +3516,9 @@ export async function recordEarlyClosing(input: {
     })
 
     return { success: true, data: { refund_amount: refundTotal, days_saved: daysSaved } }
-  } catch (err: any) {
-    console.error('recordEarlyClosing error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('recordEarlyClosing error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }

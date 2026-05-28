@@ -271,8 +271,9 @@ export async function getValidAccessToken(): Promise<{
       accountId: row.account_id,
       baseUri: row.base_uri,
     }
-  } catch (err: any) {
-    console.error('Failed to refresh DocuSign token — admin may need to re-authorize:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Failed to refresh DocuSign token — admin may need to re-authorize:', message)
     try { await client.query('ROLLBACK') } catch { /* nothing to roll back */ }
     return null
   } finally {
@@ -368,7 +369,7 @@ export async function createAndSendEnvelope(params: {
 
 export async function getEnvelopeStatus(envelopeId: string): Promise<{
   status: string
-  recipients?: any
+  recipients?: unknown
 }> {
   const auth = await getValidAccessToken()
   if (!auth) throw new Error('DocuSign not connected')

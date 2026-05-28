@@ -5,7 +5,7 @@ import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import { liveFailedDealInterestOwed } from '@/lib/calculations'
 
-type ActionResult = { success: boolean; error?: string; data?: any }
+type ActionResult = { success: boolean; error?: string; data?: unknown }
 
 export interface RemediationDealInput {
   failedDealId: string
@@ -103,9 +103,10 @@ export async function createRemediationDeal(input: RemediationDealInput): Promis
     })
 
     return { success: true, data: { id: inserted!.id } }
-  } catch (err: any) {
-    console.error('createRemediationDeal error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('createRemediationDeal error:', message)
+    return { success: false, error: message }
   }
 }
 
@@ -134,7 +135,7 @@ export async function updateRemediationDeal(
       return { success: false, error: `Cannot edit a remediation deal in status "${existing.status}". Cancel it and create a new one.` }
     }
 
-    const patch: Record<string, any> = {}
+    const patch: Record<string, unknown> = {}
     if (input.propertyAddress !== undefined) patch.property_address = input.propertyAddress.trim()
     if (input.mlsNumber !== undefined) patch.mls_number = input.mlsNumber?.trim() || null
     if (input.brokerageId !== undefined) patch.brokerage_id = input.brokerageId || null
@@ -174,9 +175,10 @@ export async function updateRemediationDeal(
     })
 
     return { success: true, data: { id } }
-  } catch (err: any) {
-    console.error('updateRemediationDeal error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('updateRemediationDeal error:', message)
+    return { success: false, error: message }
   }
 }
 
@@ -229,9 +231,10 @@ export async function cancelRemediationDeal(id: string, reason: string): Promise
     })
 
     return { success: true, data: { id } }
-  } catch (err: any) {
-    console.error('cancelRemediationDeal error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('cancelRemediationDeal error:', message)
+    return { success: false, error: message }
   }
 }
 
@@ -413,7 +416,7 @@ export async function markRemediationDealRemitted(input: {
     // above so a concurrent remittance against the same failed deal cannot
     // silently overwrite a fresher balance with our stale snapshot.
     // -----------------------------------------------------------------------
-    const failedDealPatch: Record<string, any> = {
+    const failedDealPatch: Record<string, unknown> = {
       outstanding_balance: newPrincipal,
       failed_deal_interest_charged: newFailedDealInterestCharged,
       failed_deal_interest_calculated_at: new Date().toISOString(),
@@ -502,9 +505,10 @@ export async function markRemediationDealRemitted(input: {
         creditApplied: creditAmount,
       },
     }
-  } catch (err: any) {
-    console.error('markRemediationDealRemitted error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('markRemediationDealRemitted error:', message)
+    return { success: false, error: message }
   }
 }
 
@@ -527,9 +531,10 @@ export async function getRemediationDealsForFailedDeal(failedDealId: string): Pr
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: data || [] }
-  } catch (err: any) {
-    console.error('getRemediationDealsForFailedDeal error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('getRemediationDealsForFailedDeal error:', message)
+    return { success: false, error: message }
   }
 }
 

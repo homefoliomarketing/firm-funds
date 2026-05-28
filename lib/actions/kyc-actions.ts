@@ -14,6 +14,8 @@ import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 interface ActionResult {
   success: boolean
   error?: string
+  // Callers consume specific shapes via assertion; using any preserves call-site compatibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: Record<string, any>
 }
 
@@ -66,8 +68,9 @@ export async function verifyBrokerageKyc(input: {
     })
 
     return { success: true, data: brokerage }
-  } catch (err: any) {
-    console.error('Brokerage KYC verify error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage KYC verify error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -106,8 +109,9 @@ export async function revokeBrokerageKyc(input: {
     })
 
     return { success: true, data: brokerage }
-  } catch (err: any) {
-    console.error('Brokerage KYC revoke error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage KYC revoke error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -202,8 +206,9 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
     })
 
     return { success: true, data: agent }
-  } catch (err: any) {
-    console.error('Agent KYC submit error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent KYC submit error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -334,9 +339,10 @@ export async function verifyAgentKyc(input: {
           }
         }
       }
-    } catch (autoCheckErr: any) {
+    } catch (autoCheckErr: unknown) {
       // Non-fatal — log but don't fail the KYC verification
-      console.error('Auto-check KYC checklist error (non-fatal):', autoCheckErr?.message)
+      const autoCheckMessage = autoCheckErr instanceof Error ? autoCheckErr.message : 'Unknown error'
+      console.error('Auto-check KYC checklist error (non-fatal):', autoCheckMessage)
     }
 
     await logAuditEvent({
@@ -359,8 +365,9 @@ export async function verifyAgentKyc(input: {
     }
 
     return { success: true, data: updatedAgent }
-  } catch (err: any) {
-    console.error('Agent KYC verify error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent KYC verify error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -417,8 +424,9 @@ export async function rejectAgentKyc(input: {
     })
 
     return { success: true, data: updatedAgent }
-  } catch (err: any) {
-    console.error('Agent KYC reject error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Agent KYC reject error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -474,8 +482,9 @@ export async function getAgentKycDocumentUrl(input: {
 
     // Return both: `url` (first, for backward compat) and `urls` (all)
     return { success: true, data: { url: urls[0], urls } }
-  } catch (err: any) {
-    console.error('KYC document URL error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('KYC document URL error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -561,8 +570,9 @@ export async function sendKycMobileLink(): Promise<ActionResult> {
     })
 
     return { success: true, data: { email: agent.email } }
-  } catch (err: any) {
-    console.error('Send KYC mobile link error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Send KYC mobile link error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -670,8 +680,9 @@ export async function submitKycViaMobileToken(formData: FormData): Promise<Actio
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('KYC mobile upload error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('KYC mobile upload error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -715,8 +726,9 @@ export async function validateKycToken(token: string): Promise<ActionResult> {
         agentName: agent ? `${agent.first_name} ${agent.last_name}` : 'Agent',
       },
     }
-  } catch (err: any) {
-    console.error('Validate KYC token error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Validate KYC token error:', _msg)
     return { success: false, error: 'invalid' }
   }
 }

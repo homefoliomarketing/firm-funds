@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { liveFailedDealInterestOwed, failedDealAccrualStartDate } from '@/lib/calculations'
 
-type ActionResult<T = any> = { success: boolean; error?: string; data?: T }
+type ActionResult<T = unknown> = { success: boolean; error?: string; data?: T }
 
 export type RemediationSummary = {
   id: string
@@ -103,7 +103,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
 
     // Pull every remediation deal tied to these failed deals in one shot, then
     // pick the most recent per failed_deal_id.
-    let remediationsByFailedDeal = new Map<string, RemediationSummary>()
+    const remediationsByFailedDeal = new Map<string, RemediationSummary>()
     if (failedDealIds.length > 0) {
       const { data: remediations, error: remErr } = await serviceClient
         .from('remediation_deals')
@@ -129,7 +129,26 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       }
     }
 
-    const pending: PendingCureElectionRow[] = (failedDeals || []).map((d: any) => {
+    type FailedDealRow = {
+      id: string
+      property_address: string
+      failed_to_close_at: string | null
+      outstanding_balance: number | string | null
+      failed_deal_interest_charged: number | string | null
+      cure_election: string | null
+      cure_election_at: string | null
+      cure_election_deadline: string | null
+      agent_id: string | null
+      agents: {
+        id: string
+        first_name: string | null
+        last_name: string | null
+        email: string | null
+        brokerage_id: string | null
+        brokerages: { name: string | null } | null
+      } | null
+    }
+    const pending: PendingCureElectionRow[] = ((failedDeals as unknown as FailedDealRow[]) || []).map((d) => {
       const agent = d.agents
       const brokerage = agent?.brokerages
       const principal = Number(d.outstanding_balance) || 0
@@ -144,7 +163,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       return {
         deal_id: d.id,
         property_address: d.property_address,
-        failed_to_close_at: d.failed_to_close_at,
+        failed_to_close_at: d.failed_to_close_at as string,
         cure_election: d.cure_election as PendingCureElectionRow['cure_election'],
         cure_election_at: d.cure_election_at,
         cure_election_deadline: d.cure_election_deadline,
@@ -156,7 +175,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
         accrual_start_date: accrualStart,
         in_grace_period: inGrace,
         agent: {
-          id: agent?.id || d.agent_id,
+          id: agent?.id || d.agent_id || '',
           first_name: agent?.first_name || null,
           last_name: agent?.last_name || null,
           email: agent?.email || null,
@@ -190,13 +209,26 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       console.error('getPendingCureElections cured deals error:', curedErr.message)
     }
 
-    const recentlyCured: CuredDealRow[] = (curedDeals || []).map((d: any) => ({
+    type CuredDealQueryRow = {
+      id: string
+      property_address: string
+      failed_to_close_at: string
+      failed_deal_interest_calculated_at: string | null
+      agent_id: string | null
+      agents: {
+        id: string
+        first_name: string | null
+        last_name: string | null
+        email: string | null
+      } | null
+    }
+    const recentlyCured: CuredDealRow[] = ((curedDeals as unknown as CuredDealQueryRow[]) || []).map((d) => ({
       deal_id: d.id,
       property_address: d.property_address,
       failed_to_close_at: d.failed_to_close_at,
       cured_at: d.failed_deal_interest_calculated_at || d.failed_to_close_at,
       agent: {
-        id: d.agents?.id || d.agent_id,
+        id: d.agents?.id || d.agent_id || '',
         first_name: d.agents?.first_name || null,
         last_name: d.agents?.last_name || null,
         email: d.agents?.email || null,
@@ -207,8 +239,9 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       success: true,
       data: { pending, recently_cured: recentlyCured, as_of: today },
     }
-  } catch (err: any) {
-    console.error('getPendingCureElections error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('getPendingCureElections error:', message)
+    return { success: false, error: message }
   }
 }

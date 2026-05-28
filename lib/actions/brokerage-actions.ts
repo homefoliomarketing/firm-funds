@@ -11,6 +11,8 @@ import { insertPayment } from '@/lib/brokerage-payments'
 interface ActionResult {
   success: boolean
   error?: string
+  // Callers consume specific shapes via assertion; using any preserves call-site compatibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: Record<string, any>
 }
 
@@ -129,8 +131,9 @@ export async function addAgentAsBrokerage(input: {
 
           welcomeSent = true
         }
-      } catch (err: any) {
-        console.error('Welcome email send failed:', err?.message)
+      } catch (err: unknown) {
+        const _msg = err instanceof Error ? err.message : "Unknown error"
+        console.error('Welcome email send failed:', _msg)
       }
     }
 
@@ -148,8 +151,9 @@ export async function addAgentAsBrokerage(input: {
     })
 
     return { success: true, data: { ...agent, welcomeSent } }
-  } catch (err: any) {
-    console.error('Brokerage agent create error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage agent create error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -196,7 +200,7 @@ export async function brokerageUpdateAgentContact(input: {
   }
 
   const serviceClient = createServiceRoleClient()
-  const updates: Record<string, any> = {}
+  const updates: Record<string, unknown> = {}
   if (input.email !== undefined) updates.email = newEmail
   if (input.phone !== undefined) updates.phone = input.phone?.trim() || null
   if (input.recoNumber !== undefined) updates.reco_number = input.recoNumber?.trim() || null
@@ -463,8 +467,9 @@ export async function submitBrokeragePaymentClaim(input: {
       },
       serviceClient,
     )
-  } catch (err: any) {
-    console.error('Payment claim insert error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Payment claim insert error:', _msg)
     return { success: false, error: 'Failed to record payment claim' }
   }
 

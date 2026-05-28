@@ -2,7 +2,6 @@ import { z } from 'zod'
 import {
   MIN_GROSS_COMMISSION,
   MAX_GROSS_COMMISSION,
-  MIN_DAYS_UNTIL_CLOSING,
   MAX_DAYS_UNTIL_CLOSING,
 } from './constants'
 

@@ -309,8 +309,9 @@ export async function updateBrokerageContactEmail(newEmail: string) {
         expiresAtIso: expiresAt.toISOString(),
       })
     }
-  } catch (emailErr: any) {
-    console.error('Brokerage email change notification error (non-fatal):', emailErr?.message)
+  } catch (emailErr: unknown) {
+    const _msg = emailErr instanceof Error ? emailErr.message : "Unknown error"
+    console.error('Brokerage email change notification error (non-fatal):', _msg)
   }
 
   return {

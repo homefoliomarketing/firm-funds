@@ -10,6 +10,8 @@ import { getAuthenticatedUser } from '@/lib/auth-helpers'
 interface ActionResult {
   success: boolean
   error?: string
+  // Callers consume specific shapes via assertion; using any preserves call-site compatibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: any
 }
 
@@ -113,8 +115,9 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
         total: unreadMessages + (pendingReturns || 0),
       },
     }
-  } catch (err: any) {
-    console.error('getAgentNotificationCounts error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error"
+    console.error('getAgentNotificationCounts error:', message)
     return { success: false, error: 'Failed to load notification counts' }
   }
 }
@@ -244,8 +247,9 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
       success: true,
       data: { inbox: inboxDeals, pendingReturns },
     }
-  } catch (err: any) {
-    console.error('getAgentInbox error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error"
+    console.error('getAgentInbox error:', message)
     return { success: false, error: 'Failed to load inbox' }
   }
 }
@@ -284,7 +288,7 @@ export async function getDealMessages(dealId: string): Promise<ActionResult> {
     if (error) return { success: false, error: error.message }
 
     return { success: true, data: messages || [] }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to load messages' }
   }
 }
@@ -319,7 +323,7 @@ export async function markDealMessagesRead(input: {
     if (error) return { success: false, error: error.message }
 
     return { success: true }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to mark messages as read' }
   }
 }
@@ -406,7 +410,7 @@ export async function sendAgentReply(input: {
     } catch { /* non-fatal */ }
 
     return { success: true, data: msg }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to send reply' }
   }
 }
@@ -450,7 +454,7 @@ export async function getNewMessages(input: {
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: messages || [] }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to load messages' }
   }
 }
@@ -503,7 +507,7 @@ export async function autoResolvePendingReturns(input: {
     if (error) return { success: false, error: error.message }
 
     return { success: true, data: { resolvedCount: resolved?.length || 0 } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to resolve returns' }
   }
 }
@@ -580,7 +584,7 @@ export async function getAdminInbox(): Promise<ActionResult> {
 
       const msgs = allMessages.filter(m => m.deal_id === dealId)
       const latestMsg = msgs[0] // already sorted desc
-      const agent = (deal as any).agents
+      const agent = (deal as { agents?: { first_name?: string | null; last_name?: string | null; email?: string | null } | null }).agents
 
       // needs_reply = last message from agent or brokerage AND not dismissed after that message
       let needsReply = latestMsg.sender_role === 'agent' || latestMsg.sender_role === 'brokerage_admin'
@@ -617,8 +621,9 @@ export async function getAdminInbox(): Promise<ActionResult> {
     })
 
     return { success: true, data: { inbox } }
-  } catch (err: any) {
-    console.error('getAdminInbox error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error"
+    console.error('getAdminInbox error:', message)
     return { success: false, error: 'Failed to load admin inbox' }
   }
 }
@@ -643,7 +648,7 @@ export async function dismissDealMessages(dealId: string): Promise<ActionResult>
 
     if (error) return { success: false, error: error.message }
     return { success: true }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to dismiss messages' }
   }
 }
@@ -667,7 +672,7 @@ export async function getAdminDealMessages(dealId: string): Promise<ActionResult
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: messages || [] }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to load messages' }
   }
 }
@@ -725,7 +730,7 @@ export async function sendAdminMessage(input: {
     if (error) return { success: false, error: error.message }
 
     // Send email notification to agent — throttled to 1 per deal per 15 min
-    const agent = (deal as any).agents
+    const agent = (deal as { agents?: { first_name?: string | null; email?: string | null } | null }).agents
     if (agent?.email) {
       const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
       const { data: recentAdminMsgs } = await serviceClient
@@ -744,8 +749,8 @@ export async function sendAdminMessage(input: {
         sendDealMessageNotification({
           dealId: deal.id,
           propertyAddress: deal.property_address,
-          agentEmail: agent.email,
-          agentFirstName: agent.first_name,
+          agentEmail: agent.email ?? '',
+          agentFirstName: agent.first_name ?? '',
           message: input.message.trim(),
           senderName: profile?.full_name || 'Firm Funds',
         })
@@ -753,7 +758,7 @@ export async function sendAdminMessage(input: {
     }
 
     return { success: true, data: msg }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to send message' }
   }
 }
@@ -831,7 +836,7 @@ export async function sendBrokerageMessage(input: {
     }
 
     return { success: true, data: msg }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to send message' }
   }
 }
@@ -899,7 +904,7 @@ export async function getBrokerageInbox(brokerageId: string): Promise<ActionResu
 
     const inbox = deals.map(d => {
       const msgEntry = msgMap.get(d.id)
-      const agent = d.agent as any
+      const agent = d.agent as { first_name?: string | null; last_name?: string | null } | null
       return {
         deal_id: d.id,
         property_address: d.property_address,
@@ -914,7 +919,7 @@ export async function getBrokerageInbox(brokerageId: string): Promise<ActionResu
     })
 
     return { success: true, data: { inbox } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to load inbox' }
   }
 }
@@ -978,8 +983,9 @@ export async function getBrokerageNotificationCounts(brokerageId: string): Promi
       success: true,
       data: { unreadMessages },
     }
-  } catch (err: any) {
-    console.error('getBrokerageNotificationCounts error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error"
+    console.error('getBrokerageNotificationCounts error:', message)
     return { success: false, error: 'Failed to load notification counts' }
   }
 }
@@ -1021,7 +1027,7 @@ export async function markBrokerageMessagesRead(dealId: string): Promise<ActionR
 
     if (error) return { success: false, error: error.message }
     return { success: true }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to mark messages as read' }
   }
 }

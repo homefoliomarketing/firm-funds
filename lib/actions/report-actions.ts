@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 
@@ -405,8 +404,8 @@ export async function fetchBrokerageDetail(input: {
     // Fetch brokerage, its agents, and all its deals in parallel
     const [
       { data: brokerage, error: brokErr },
-      { data: agents, error: agentsErr },
-      { data: deals, error: dealsErr },
+      { data: agents },
+      { data: deals },
     ] = await Promise.all([
       supabase.from('brokerages').select('*').eq('id', input.brokerageId).single(),
       supabase.from('agents').select('id, first_name, last_name, status').eq('brokerage_id', input.brokerageId).order('last_name'),

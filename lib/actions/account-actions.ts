@@ -23,6 +23,8 @@ import {
 interface ActionResult {
   success: boolean
   error?: string
+  // Callers consume specific shapes via assertion; using any preserves call-site compatibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: any
 }
 
@@ -57,7 +59,7 @@ export async function chargeLatePaymentInterest(input: {
 
     const closingStr = typeof deal.closing_date === 'string'
       ? deal.closing_date.slice(0, 10)
-      : new Date(deal.closing_date as any).toISOString().slice(0, 10)
+      : new Date(deal.closing_date as string | number | Date).toISOString().slice(0, 10)
 
     const totalInterestOwed = calculateLateInterest(deal.advance_amount, closingStr, input.throughDate)
     const accrualStart = lateInterestAccrualStartDate(closingStr)
@@ -95,8 +97,9 @@ export async function chargeLatePaymentInterest(input: {
     })
 
     return { success: true, data: { interest: result.delta_posted, newBalance: result.total_after } }
-  } catch (err: any) {
-    console.error('Late payment interest error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Late payment interest error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -163,7 +166,7 @@ export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
     try {
       const closingStr = typeof deal.closing_date === 'string'
         ? deal.closing_date.slice(0, 10)
-        : new Date(deal.closing_date as any).toISOString().slice(0, 10)
+        : new Date(deal.closing_date as string | number | Date).toISOString().slice(0, 10)
 
       const accrualStart = lateInterestAccrualStartDate(closingStr)
 
@@ -394,7 +397,7 @@ export async function deductBalanceFromAdvance(input: {
     })
 
     return { success: true, data: { deducted: result.deducted, newBalance: result.new_balance } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -462,7 +465,7 @@ export async function adjustAgentBalance(input: {
       })
 
     if (rpcErr || !txn) return { success: false, error: `Failed to adjust balance: ${rpcErr?.message || 'unknown error'}` }
-    const newBalance = (txn as any).running_balance
+    const newBalance = (txn as { running_balance: number }).running_balance
 
     await logAuditEvent({
       action: 'account.adjustment',
@@ -472,7 +475,7 @@ export async function adjustAgentBalance(input: {
     })
 
     return { success: true, data: { newBalance } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -552,8 +555,9 @@ export async function generateInvoice(input: {
     })
 
     return { success: true, data: { invoice } }
-  } catch (err: any) {
-    console.error('Generate invoice error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Generate invoice error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -601,7 +605,7 @@ export async function sendInvoiceEmail(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -663,7 +667,7 @@ export async function markInvoicePaid(input: {
     })
 
     return { success: true, data: { paidAmount: result.paid_amount, newBalance: result.new_balance } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -745,7 +749,7 @@ export async function sendDealMessage(input: {
     })
 
     return { success: true, data: { message: msg } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -829,7 +833,7 @@ export async function returnDocument(input: {
     })
 
     return { success: true, data: { returnId: returnRecord.id } }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -872,7 +876,7 @@ export async function getAgentTransactions(agentId: string): Promise<ActionResul
         currentBalance: agent?.account_balance ?? 0,
       },
     }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -910,7 +914,7 @@ export async function getAgentBalanceSummary(agentId: string): Promise<ActionRes
         transactionCount: count ?? 0,
       },
     }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -949,7 +953,7 @@ export async function resolveDocumentReturn(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

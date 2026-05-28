@@ -2,7 +2,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
-import { calculateDeal, effectiveSettlementDays } from '@/lib/calculations'
+import { calculateDeal } from '@/lib/calculations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
   SETTLEMENT_PERIOD_DAYS,
@@ -21,7 +21,7 @@ import {
   sendAmendmentRejectedNotification,
 } from '@/lib/email'
 
-interface ActionResult<T = any> {
+interface ActionResult<T = unknown> {
   success: boolean
   error?: string
   data?: T
@@ -125,10 +125,10 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
 
     const fileName = file.name.toLowerCase()
     const ext = '.' + fileName.split('.').pop()
-    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+    if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) {
       return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
     }
-    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+    if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
       return { success: false, error: 'File MIME type not allowed' }
     }
 
@@ -279,8 +279,9 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
     }
 
     return { success: true, data: { amendmentId: amendment.id } }
-  } catch (err: any) {
-    console.error('Submit closing date amendment error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Submit closing date amendment error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -352,10 +353,10 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
 
     const fileName = file.name.toLowerCase()
     const ext = '.' + fileName.split('.').pop()
-    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+    if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) {
       return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
     }
-    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+    if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
       return { success: false, error: 'File MIME type not allowed' }
     }
 
@@ -492,8 +493,9 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
     }
 
     return { success: true, data: { amendmentId: amendment.id } }
-  } catch (err: any) {
-    console.error('Submit brokerage closing date amendment error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Submit brokerage closing date amendment error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -519,7 +521,7 @@ export async function getBrokeragePendingAmendments(): Promise<ActionResult> {
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: data || [] }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to fetch pending amendments' }
   }
 }
@@ -552,7 +554,32 @@ export async function approveClosingDateAmendment(input: {
       return { success: false, error: 'Amendment has already been reviewed' }
     }
 
-    const deal = amendment.deals as any
+    type DealWithAgents = {
+      id: string
+      status: string
+      property_address: string
+      closing_date: string
+      agent_id: string
+      gross_commission: number
+      brokerage_split_pct: number
+      brokerage_referral_pct: number | null
+      settlement_days_at_funding: number | null
+      advance_amount: number | null
+      discount_fee?: number | null
+      settlement_period_fee?: number | null
+      net_commission?: number | null
+      due_date?: string | null
+      version?: number
+      agents?: {
+        id: string
+        first_name: string
+        last_name: string
+        email: string | null
+        brokerages?: { name?: string | null; logo_url?: string | null } | null
+      } | null
+    } | null
+
+    const deal = amendment.deals as DealWithAgents
     if (!deal) return { success: false, error: 'Deal not found' }
 
     // Recalculate what fees WOULD be with the new closing date
@@ -745,8 +772,9 @@ export async function approveClosingDateAmendment(input: {
           .update({ amended_envelope_id: envelopeId })
           .eq('id', input.amendmentId)
       }
-    } catch (err: any) {
-      console.error('Failed to send amended CPA:', err?.message)
+    } catch (err: unknown) {
+      const sendMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.error('Failed to send amended CPA:', sendMessage)
       // Don't fail the whole approval — amendment is approved, envelope can be retried
     }
 
@@ -778,8 +806,9 @@ export async function approveClosingDateAmendment(input: {
     }
 
     return { success: true, data: { envelopeId } }
-  } catch (err: any) {
-    console.error('Approve amendment error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Approve amendment error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -837,10 +866,17 @@ export async function rejectClosingDateAmendment(input: {
       return { success: false, error: 'Amendment has already been reviewed' }
     }
 
+    type RejectDealRef = {
+      id: string
+      property_address: string
+      agents?: { first_name: string; email: string | null } | null
+    } | null
+    const dealRef = amendment.deals as RejectDealRef
+
     await logAuditEvent({
       action: 'amendment.rejected',
       entityType: 'deal',
-      entityId: (amendment.deals as any)?.id,
+      entityId: dealRef?.id,
       metadata: {
         amendment_id: input.amendmentId,
         reason,
@@ -848,7 +884,7 @@ export async function rejectClosingDateAmendment(input: {
     })
 
     // Notify agent
-    const deal = amendment.deals as any
+    const deal = dealRef
     const agent = deal?.agents
     if (agent?.email && deal) {
       sendAmendmentRejectedNotification({
@@ -861,8 +897,9 @@ export async function rejectClosingDateAmendment(input: {
     }
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Reject amendment error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('Reject amendment error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -910,7 +947,7 @@ export async function getDealAmendments(dealId: string): Promise<ActionResult> {
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: data || [] }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to fetch amendments' }
   }
 }
@@ -934,7 +971,7 @@ export async function getPendingAmendments(): Promise<ActionResult> {
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: data || [] }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'Failed to fetch pending amendments' }
   }
 }
@@ -1157,14 +1194,16 @@ export async function requestClosingDateAmendment(input: {
           oldClosingDate: deal.closing_date,
           newClosingDate: input.newClosingDate,
         })
-      } catch (notifyErr: any) {
-        console.warn('[requestClosingDateAmendment] notify failed (non-fatal):', notifyErr?.message)
+      } catch (notifyErr: unknown) {
+        const notifyMessage = notifyErr instanceof Error ? notifyErr.message : 'Unknown error'
+        console.warn('[requestClosingDateAmendment] notify failed (non-fatal):', notifyMessage)
       }
     }
 
     return { success: true, data: { amendment_id: amendment.id } }
-  } catch (err: any) {
-    console.error('requestClosingDateAmendment error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('requestClosingDateAmendment error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

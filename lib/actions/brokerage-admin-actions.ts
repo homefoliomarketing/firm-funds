@@ -29,7 +29,7 @@ import { sendBrokerageInviteNotification } from '@/lib/email'
 // Types
 // ============================================================================
 
-interface ActionResult<T = any> {
+interface ActionResult<T = unknown> {
   success: boolean
   error?: string
   data?: T
@@ -199,12 +199,13 @@ export async function inviteBrokerageAdmin(input: {
         // Orphaned auth user from a prior cleanup — list and delete by email.
         const { data: { users = [] } = {} } =
           await serviceClient.auth.admin.listUsers({ page: 1, perPage: 1000 })
-        const match = users.find((u: any) => u.email === email)
+        const match = users.find((u: { id: string; email?: string }) => u.email === email)
         if (match) {
           try {
             await serviceClient.auth.admin.deleteUser(match.id)
-          } catch (delErr: any) {
-            console.error('[inviteBrokerageAdmin] orphan delete failed:', delErr?.message)
+          } catch (delErr: unknown) {
+            const _msg = delErr instanceof Error ? delErr.message : "Unknown error"
+            console.error('[inviteBrokerageAdmin] orphan delete failed:', _msg)
           }
         }
         const retry = await serviceClient.auth.admin.createUser({
@@ -318,8 +319,9 @@ export async function inviteBrokerageAdmin(input: {
     })
 
     return { success: true, data: { admin_id: junction.id } }
-  } catch (err: any) {
-    console.error('inviteBrokerageAdmin error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('inviteBrokerageAdmin error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -401,8 +403,9 @@ export async function removeBrokerageAdmin(input: {
       try {
         await serviceClient.auth.admin.deleteUser(row.user_id)
         authDeleted = true
-      } catch (authErr: any) {
-        console.warn('[removeBrokerageAdmin] auth delete non-fatal:', authErr?.message)
+      } catch (authErr: unknown) {
+        const authMessage = authErr instanceof Error ? authErr.message : 'Unknown error'
+        console.warn('[removeBrokerageAdmin] auth delete non-fatal:', authMessage)
       }
     }
 
@@ -424,8 +427,9 @@ export async function removeBrokerageAdmin(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('removeBrokerageAdmin error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('removeBrokerageAdmin error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -500,8 +504,9 @@ export async function listBrokerageAdmins(
     })
 
     return { success: true, data: rows }
-  } catch (err: any) {
-    console.error('listBrokerageAdmins error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('listBrokerageAdmins error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -597,8 +602,9 @@ export async function acceptBrokerageAdminInvite(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('acceptBrokerageAdminInvite error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('acceptBrokerageAdminInvite error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

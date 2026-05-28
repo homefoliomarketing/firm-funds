@@ -14,13 +14,17 @@ import {
   BROKERAGE_BUMPED_SETTLEMENT_DAYS,
 } from '@/lib/constants'
 
+// Callers consume specific shapes via assertion; using any preserves call-site compatibility
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ActionResult = { success: boolean; error?: string; data?: any }
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-async function getAuthenticatedAdmin(): Promise<{ error?: string; user?: any; supabase: any }> {
+import type { User, SupabaseClient } from '@supabase/supabase-js'
+
+async function getAuthenticatedAdmin(): Promise<{ error?: string; user?: User; supabase: SupabaseClient }> {
   const { createClient } = await import('@/lib/supabase/server')
   const supabase = await createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
@@ -125,8 +129,9 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
     // mutation) lands first, this CAS fails and we bail out cleanly instead
     // of creating duplicate envelopes. The version-bump trigger from
     // migration 083 increments deal.version atomically on every UPDATE.
-    const initialVersion = (deal as any).version
+    const initialVersion = (deal as { version?: number }).version
     if (typeof initialVersion === 'number') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- service-role supabase client supplies a relaxed typing for select chains
       const { data: claimed, error: claimErr } = await (supabase as any)
         .from('deals')
         .update({ updated_at: new Date().toISOString() })
@@ -317,8 +322,9 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       console.error('Failed to save envelope records:', insertErr.message)
       try {
         await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
-      } catch (voidErr: any) {
-        console.error('Failed to void DocuSign envelope during cleanup:', voidErr?.message)
+      } catch (voidErr: unknown) {
+        const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
+        console.error('Failed to void DocuSign envelope during cleanup:', _msg)
       }
       const isUniqueViolation = (insertErr as { code?: string }).code === '23505'
       return {
@@ -337,9 +343,10 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
     })
 
     return { success: true, data: { envelopeId: result.envelopeId } }
-  } catch (err: any) {
-    console.error('sendForSignature error:', err?.message)
-    return { success: false, error: err?.message || 'Failed to send for signature' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('sendForSignature error:', _msg)
+    return { success: false, error: _msg || 'Failed to send for signature' }
   }
 }
 
@@ -383,8 +390,9 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
       try {
         await voidEnvelope(eid, reason)
         voided.push(eid)
-      } catch (voidErr: any) {
-        failed.push({ envelopeId: eid, error: voidErr?.message || 'Unknown void error' })
+      } catch (voidErr: unknown) {
+        const voidMessage = voidErr instanceof Error ? voidErr.message : 'Unknown void error'
+        failed.push({ envelopeId: eid, error: voidMessage })
       }
     }
 
@@ -418,9 +426,10 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
     }
 
     return { success: true, data: { voided } }
-  } catch (err: any) {
-    console.error('voidDealEnvelopes error:', err?.message)
-    return { success: false, error: err?.message || 'Failed to void envelopes' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('voidDealEnvelopes error:', _msg)
+    return { success: false, error: _msg || 'Failed to void envelopes' }
   }
 }
 
@@ -612,8 +621,9 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
       console.error('Failed to save BCA envelope record:', insertErr.message)
       try {
         await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
-      } catch (voidErr: any) {
-        console.error('Failed to void DocuSign BCA envelope during cleanup:', voidErr?.message)
+      } catch (voidErr: unknown) {
+        const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
+        console.error('Failed to void DocuSign BCA envelope during cleanup:', _msg)
       }
       return { success: false, error: 'Failed to record BCA envelope; DocuSign envelope was voided.' }
     }
@@ -631,9 +641,10 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
     })
 
     return { success: true, data: { envelopeId: result.envelopeId } }
-  } catch (err: any) {
-    console.error('sendBcaForSignature error:', err?.message)
-    return { success: false, error: err?.message || 'Failed to send BCA for signature' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('sendBcaForSignature error:', _msg)
+    return { success: false, error: _msg || 'Failed to send BCA for signature' }
   }
 }
 
@@ -675,8 +686,9 @@ export async function voidBcaEnvelope(brokerageId: string, reason: string): Prom
       try {
         await voidEnvelope(eid, reason)
         voided.push(eid)
-      } catch (voidErr: any) {
-        failed.push({ envelopeId: eid, error: voidErr?.message || 'Unknown void error' })
+      } catch (voidErr: unknown) {
+        const voidMessage = voidErr instanceof Error ? voidErr.message : 'Unknown void error'
+        failed.push({ envelopeId: eid, error: voidMessage })
       }
     }
 
@@ -710,9 +722,10 @@ export async function voidBcaEnvelope(brokerageId: string, reason: string): Prom
     }
 
     return { success: true, data: { voided } }
-  } catch (err: any) {
-    console.error('voidBcaEnvelope error:', err?.message)
-    return { success: false, error: err?.message || 'Failed to void BCA envelope' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('voidBcaEnvelope error:', _msg)
+    return { success: false, error: _msg || 'Failed to void BCA envelope' }
   }
 }
 
@@ -895,8 +908,9 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
       console.error('Failed to save amendment envelope record:', insertErr.message)
       try {
         await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
-      } catch (voidErr: any) {
-        console.error('Failed to void DocuSign amendment envelope during cleanup:', voidErr?.message)
+      } catch (voidErr: unknown) {
+        const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
+        console.error('Failed to void DocuSign amendment envelope during cleanup:', _msg)
       }
       const isUniqueViolation = (insertErr as { code?: string }).code === '23505'
       return {
@@ -918,9 +932,10 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
     })
 
     return { success: true, data: { envelopeId: result.envelopeId } }
-  } catch (err: any) {
-    console.error('Send amended CPA error:', err?.message)
-    return { success: false, error: err?.message || 'Failed to send amended CPA' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Send amended CPA error:', _msg)
+    return { success: false, error: _msg || 'Failed to send amended CPA' }
   }
 }
 
@@ -1067,7 +1082,7 @@ export async function sendRemediationIdpForSignature(input: {
         }] : [],
         status: 'sent',
       })
-    } catch (envelopeErr: any) {
+    } catch (envelopeErr: unknown) {
       await supabase
         .from('remediation_deals')
         .update({ status: 'pending' })
@@ -1096,8 +1111,9 @@ export async function sendRemediationIdpForSignature(input: {
       console.error('Failed to save Remediation IDP envelope record:', insertErr.message)
       try {
         await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
-      } catch (voidErr: any) {
-        console.error('Failed to void DocuSign envelope during cleanup:', voidErr?.message)
+      } catch (voidErr: unknown) {
+        const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
+        console.error('Failed to void DocuSign envelope during cleanup:', _msg)
       }
       await supabase
         .from('remediation_deals')
@@ -1122,8 +1138,9 @@ export async function sendRemediationIdpForSignature(input: {
     })
 
     return { success: true, data: { envelopeId: result.envelopeId, directedAmount } }
-  } catch (err: any) {
-    console.error('sendRemediationIdpForSignature error:', err?.message)
-    return { success: false, error: err?.message || 'Failed to send Remediation IDP' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('sendRemediationIdpForSignature error:', _msg)
+    return { success: false, error: _msg || 'Failed to send Remediation IDP' }
   }
 }

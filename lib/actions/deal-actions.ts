@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { calculateDeal, effectiveSettlementDays } from '@/lib/calculations'
 import { DealSubmissionSchema, DealStatusChangeSchema } from '@/lib/validations'
 import { voidEnvelope } from '@/lib/docusign'
@@ -12,7 +12,6 @@ import {
   ALLOWED_UPLOAD_MIME_TYPES,
   ALLOWED_UPLOAD_EXTENSIONS,
   VALID_DOCUMENT_TYPE_VALUES,
-  VALID_UPLOAD_SOURCES,
   calcDaysUntilClosing,
 } from '@/lib/constants'
 import { logAuditEvent } from '@/lib/audit'
@@ -34,6 +33,8 @@ import { verifyFileMagicBytes } from '@/lib/file-validation'
 interface ActionResult {
   success: boolean
   error?: string
+  // Callers consume specific shapes via assertion; using any preserves call-site compatibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: Record<string, any>
 }
 
@@ -66,7 +67,16 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
       .eq('id', input.agentId)
       .single()
 
-    const brokerage = (agentData as any)?.brokerages
+    type AgentWithBrokerage = {
+      brokerage_id?: string
+      account_balance?: number
+      brokerages?: {
+        referral_fee_percentage: number | null
+        settlement_days_override?: number | null
+        auto_bumped_to_14_days_at?: string | null
+      } | null
+    }
+    const brokerage = (agentData as AgentWithBrokerage | null)?.brokerages
     const referralPct = brokerage?.referral_fee_percentage
 
     if (referralPct === null || referralPct === undefined) {
@@ -101,8 +111,9 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
         settlementPeriodDays: settlementDays,
       },
     }
-  } catch (err: any) {
-    console.error('Deal preview calculation error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Deal preview calculation error:', _msg)
     return { success: false, error: 'Failed to calculate deal preview. Please check your inputs.' }
   }
 }
@@ -217,7 +228,8 @@ export async function submitDeal(formData: {
         payment_status: 'not_applicable', // not funded yet
         // Task 5: lineage link for resubmissions of previously denied deals.
         ...(formData.revisedFromDealId
-          ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)  // TODO: regen types after migration 084 applied
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO: regen types after migration 084 applied
+          ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
           : {}),
       })
       .select()
@@ -282,8 +294,9 @@ export async function submitDeal(formData: {
         estimatedBalanceDeduction: 0,
       },
     }
-  } catch (err: any) {
-    console.error('Deal submission error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Deal submission error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -313,7 +326,7 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
       return { success: false, error: 'Agent does not belong to your brokerage' }
     }
 
-    const brokerage = (agentData as any).brokerages
+    const brokerage = (agentData as unknown as { brokerages?: { name?: string | null; referral_fee_percentage: number | null; settlement_days_override?: number | null; auto_bumped_to_14_days_at?: string | null } | null }).brokerages
     const referralPct = brokerage?.referral_fee_percentage
     if (referralPct === null || referralPct === undefined) {
       return { success: false, error: 'Brokerage referral fee not configured.' }
@@ -347,8 +360,9 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
         agentActivated: !!agentData.account_activated_at,
       },
     }
-  } catch (err: any) {
-    console.error('Brokerage deal preview error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage deal preview error:', _msg)
     return { success: false, error: 'Failed to calculate deal preview.' }
   }
 }
@@ -410,7 +424,7 @@ export async function submitDealAsBrokerage(formData: {
       return { success: false, error: `${agentData.first_name} ${agentData.last_name} hasn't activated their account yet. Trigger the welcome email and have them complete setup before submitting a deal.` }
     }
 
-    const brokerage = (agentData as any).brokerages
+    const brokerage = (agentData as unknown as { brokerages?: { name?: string | null; referral_fee_percentage: number | null; settlement_days_override?: number | null; auto_bumped_to_14_days_at?: string | null } | null }).brokerages
     const referralPct = brokerage?.referral_fee_percentage
     if (referralPct === null || referralPct === undefined) {
       return { success: false, error: 'Brokerage referral fee not configured.' }
@@ -497,7 +511,8 @@ export async function submitDealAsBrokerage(formData: {
           // Task 5: link the revised deal back to the originally denied one
           // when supplied. NULL on the standard offer-conversion path.
           ...(formData.revisedFromDealId
-            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)  // TODO: regen types after migration 084 applied
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO: regen types after migration 084 applied
+            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
             : {}),
         })
         .eq('id', formData.fromOfferDealId)
@@ -534,7 +549,8 @@ export async function submitDealAsBrokerage(formData: {
           payment_status: 'not_applicable',
           // Task 5: lineage link for resubmissions of previously denied deals.
           ...(formData.revisedFromDealId
-            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)  // TODO: regen types after migration 084 applied
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO: regen types after migration 084 applied
+            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
             : {}),
         })
         .select('id')
@@ -582,8 +598,9 @@ export async function submitDealAsBrokerage(formData: {
         daysUntilClosing,
       },
     }
-  } catch (err: any) {
-    console.error('Brokerage deal submission error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Brokerage deal submission error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -691,7 +708,7 @@ export async function updateDealStatus(input: {
     }
 
     // Build update payload
-    const updateData: Record<string, any> = { status: input.newStatus }
+    const updateData: Record<string, unknown> = { status: input.newStatus }
 
     if (input.newStatus === 'denied') {
       updateData.denial_reason = input.denialReason!.trim()
@@ -846,7 +863,8 @@ export async function updateDealStatus(input: {
     // .eq('version', ...) doesn't blow up TS2589 (the supabase generic
     // recursion limit chokes when the column name isn't in the generated
     // types yet — TODO: regen types after migration 083 applied).
-    const currentVersion = (deal as any).version ?? null
+    const currentVersion = (deal as { version?: number }).version ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase generic recursion limit chokes on .eq('version') until types are regenerated
     const { data: updatedRows, error: updateError } = await ((supabase as any)
       .from('deals')
       .update(updateData)
@@ -961,13 +979,15 @@ export async function updateDealStatus(input: {
                   void_reason: reason,
                 })
                 .eq('envelope_id', env.envelope_id)
-            } catch (voidErr: any) {
-              console.error(`Failed to void envelope ${env.envelope_id} on deal denial:`, voidErr?.message)
+            } catch (voidErr: unknown) {
+              const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
+              console.error(`Failed to void envelope ${env.envelope_id} on deal denial:`, _msg)
             }
           }
         }
-      } catch (envQueryErr: any) {
-        console.error('Failed to query envelopes for void on denial:', envQueryErr?.message)
+      } catch (envQueryErr: unknown) {
+        const _msg = envQueryErr instanceof Error ? envQueryErr.message : "Unknown error"
+        console.error('Failed to query envelopes for void on denial:', _msg)
       }
     }
 
@@ -1033,8 +1053,9 @@ export async function updateDealStatus(input: {
       success: true,
       data: updateData,
     }
-  } catch (err: any) {
-    console.error('Deal status change error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Deal status change error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -1102,8 +1123,9 @@ export async function toggleChecklistItem(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Checklist toggle error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Checklist toggle error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1142,8 +1164,9 @@ export async function toggleChecklistItemNA(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Checklist N/A toggle error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Checklist N/A toggle error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1191,8 +1214,9 @@ export async function linkDocumentToChecklist(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Link document error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Link document error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1254,8 +1278,9 @@ export async function deleteDocument(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Document delete error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Document delete error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1283,9 +1308,12 @@ export async function getDocumentSignedUrl(input: {
       return { success: false, error: 'Document not found' }
     }
 
-    const deal = Array.isArray((document as any).deals)
-      ? (document as any).deals[0]
-      : (document as any).deals
+    type DocumentDealJoin = { agent_id?: string | null; brokerage_id?: string | null }
+    type DocumentWithDeals = { deals: DocumentDealJoin | DocumentDealJoin[] | null }
+    const docWithDeals = document as DocumentWithDeals
+    const deal: DocumentDealJoin | null = Array.isArray(docWithDeals.deals)
+      ? docWithDeals.deals[0] ?? null
+      : docWithDeals.deals
 
     if (!deal) {
       return { success: false, error: 'Document deal not found' }
@@ -1326,8 +1354,9 @@ export async function getDocumentSignedUrl(input: {
     })
 
     return { success: true, data: { signedUrl: data.signedUrl } }
-  } catch (err: any) {
-    console.error('Signed URL error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Signed URL error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1398,12 +1427,12 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
     // Validate file extension
     const fileName = file.name.toLowerCase()
     const ext = '.' + fileName.split('.').pop()
-    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) {
+    if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) {
       return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
     }
 
     // Validate MIME type
-    if (!ALLOWED_UPLOAD_MIME_TYPES.includes(file.type as any)) {
+    if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
       return { success: false, error: 'File MIME type not allowed' }
     }
 
@@ -1479,7 +1508,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
         .eq('id', dealId)
         .single()
 
-      const agent = (dealInfo as any)?.agents
+      const agent = (dealInfo as { agents?: { first_name: string; last_name: string } | null } | null)?.agents
       const uploaderName = profile.full_name || 'Unknown User'
 
       sendDocumentUploadedNotification({
@@ -1507,8 +1536,9 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
         uploaded_by: user.id,
       },
     }
-  } catch (err: any) {
-    console.error('Document upload error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Document upload error:', _msg)
     return { success: false, error: 'An unexpected error occurred during upload' }
   }
 }
@@ -1619,8 +1649,9 @@ export async function updateDealDetails(input: {
     })
 
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
-    console.error('Deal update error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Deal update error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1693,7 +1724,8 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
     // concurrent admin write cannot silently clobber other fields between our
     // SELECT above and this UPDATE. Builder cast to any to dodge TS2589 until
     // types are regenerated post migration 083.
-    const cancelVersion = (deal as any).version ?? null
+    const cancelVersion = (deal as { version?: number }).version ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase generic recursion limit chokes on .eq('version') until types are regenerated
     const { data: updatedDeal, error: updateError } = await ((adminClient as any)
       .from('deals')
       .update({ status: 'cancelled' })
@@ -1719,8 +1751,9 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
     })
 
     return { success: true, data: updatedDeal }
-  } catch (err: any) {
-    console.error('Deal cancel error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Deal cancel error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1824,8 +1857,9 @@ export async function deleteDeal(input: { dealId: string }): Promise<ActionResul
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Deal delete error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Deal delete error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1908,8 +1942,9 @@ export async function requestDocument(input: {
     })
 
     return { success: true, data: { requestId: docRequest.id } }
-  } catch (err: any) {
-    console.error('Document request error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Document request error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1962,8 +1997,9 @@ export async function fulfillDocumentRequest(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
-    console.error('Fulfill request error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Fulfill request error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2005,7 +2041,7 @@ export async function cancelDocumentRequest(input: {
     })
 
     return { success: true }
-  } catch (err: any) {
+  } catch {
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2037,8 +2073,9 @@ export async function saveAdminNotes(input: { dealId: string; adminNotes: string
     })
 
     return { success: true, data: { admin_notes: input.adminNotes.trim() || null } }
-  } catch (err: any) {
-    console.error('Admin notes save error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Admin notes save error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2088,8 +2125,9 @@ export async function addAdminNote(input: { dealId: string; note: string }): Pro
     })
 
     return { success: true, data: { timeline: timeline ?? [], newEntry } }
-  } catch (err: any) {
-    console.error('Admin note add error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Admin note add error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2122,7 +2160,8 @@ export async function updateClosingDate(input: {
       return { success: false, error: `New closing date must be at least ${MIN_DAYS_UNTIL_CLOSING} days from today` }
     }
 
-    const referralPct = (deal as any).brokerages?.referral_fee_percentage
+    type DealWithBrokerage = { brokerages?: { referral_fee_percentage: number | null; settlement_days_override?: number | null; auto_bumped_to_14_days_at?: string | null } | null }
+    const referralPct = (deal as DealWithBrokerage).brokerages?.referral_fee_percentage
     if (referralPct === null || referralPct === undefined) {
       return { success: false, error: 'Brokerage referral fee not configured' }
     }
@@ -2130,7 +2169,7 @@ export async function updateClosingDate(input: {
     // Use the snapshotted settlement window if the deal has already been funded;
     // otherwise compute from the brokerage's current effective settings.
     const settlementDays = deal.settlement_days_at_funding
-      ?? effectiveSettlementDays((deal as any).brokerages)
+      ?? effectiveSettlementDays((deal as DealWithBrokerage).brokerages)
 
     // Recalculate with new days
     const newCalc = calculateDeal({
@@ -2210,8 +2249,9 @@ export async function updateClosingDate(input: {
         },
       },
     }
-  } catch (err: any) {
-    console.error('Closing date update error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Closing date update error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -2278,7 +2318,8 @@ export async function markDealFailedToClose(input: {
     // deal with no ledger entry. Status equality preserved as belt+suspenders.
     // Builder cast to any to dodge TS2589 until types are regenerated post
     // migration 083.
-    const currentVersion = (deal as any).version ?? null
+    const currentVersion = (deal as { version?: number }).version ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase generic recursion limit chokes on .eq('version') until types are regenerated
     const { data: updatedRows, error: updateError } = await ((supabase as any)
       .from('deals')
       .update({
@@ -2370,8 +2411,9 @@ export async function markDealFailedToClose(input: {
     }
 
     return { success: true, data: { dealId: deal.id } }
-  } catch (err: any) {
-    console.error('markDealFailedToClose error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('markDealFailedToClose error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -2422,7 +2464,8 @@ export async function submitCureElection(input: {
     // Builder cast to any to dodge TS2589 until types are regenerated post
     // migration 083.
     const serviceClient = createServiceRoleClient()
-    const electionVersion = (deal as any).version ?? null
+    const electionVersion = (deal as { version?: number }).version ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase generic recursion limit chokes on .eq('version') until types are regenerated
     const { data: updated, error: updateError } = await ((serviceClient as any)
       .from('deals')
       .update({
@@ -2452,8 +2495,9 @@ export async function submitCureElection(input: {
     })
 
     return { success: true, data: { election: input.election } }
-  } catch (err: any) {
-    console.error('submitCureElection error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('submitCureElection error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -2490,13 +2534,14 @@ export async function markFundingFailed(input: {
       return { success: false, error: `Cannot mark funding as failed: deal status is "${deal.status}". Only funded deals can be marked.` }
     }
 
-    const currentVersion = (deal as any).version ?? null  // TODO: regen types after migration 083 applied
+    const currentVersion = (deal as { version?: number }).version ?? null  // TODO: regen types after migration 083 applied
     const priorBalanceDeducted = Number(deal.balance_deducted || 0)
     const now = new Date().toISOString()
 
     // CAS-claim the deal so a concurrent admin action can't race us into a
     // double-reversal of the balance deduction. Builder cast to any to dodge
     // TS2589 until types are regenerated post migrations 083 + 084.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase generic recursion limit chokes on .eq('version') until types are regenerated
     const { data: updatedRows, error: updateError } = await ((supabase as any)
       .from('deals')
       .update({
@@ -2579,8 +2624,9 @@ export async function markFundingFailed(input: {
         balanceReversed: priorBalanceDeducted,
       },
     }
-  } catch (err: any) {
-    console.error('markFundingFailed error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('markFundingFailed error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -2612,13 +2658,14 @@ export async function retryFundingAfterFailure(input: {
       return { success: false, error: `Cannot retry funding: deal status is "${deal.status}", expected "funding_failed".` }
     }
 
-    const currentVersion = (deal as any).version ?? null  // TODO: regen types after migration 083 applied
+    const currentVersion = (deal as { version?: number }).version ?? null  // TODO: regen types after migration 083 applied
 
     // Flip back to approved. We deliberately do NOT re-deduct here — the
     // existing approved->funded path runs the balance deduction so we keep
     // exactly one code path that touches the agent ledger on funding. Builder
     // cast to any to dodge TS2589 until types are regenerated post migrations
     // 083 + 084.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase generic recursion limit chokes on .eq('version') until types are regenerated
     const { data: updatedRows, error: updateError } = await ((supabase as any)
       .from('deals')
       .update({
@@ -2664,8 +2711,9 @@ export async function retryFundingAfterFailure(input: {
         status: 'approved',
       },
     }
-  } catch (err: any) {
-    console.error('retryFundingAfterFailure error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('retryFundingAfterFailure error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -2743,8 +2791,9 @@ export async function createRevisedDealFromDenied(input: {
         denialReason: original.denial_reason,
       },
     }
-  } catch (err: any) {
-    console.error('createRevisedDealFromDenied error:', err?.message)
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('createRevisedDealFromDenied error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }

@@ -25,7 +25,7 @@ import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import type { Deal } from '@/types/database'
 
-interface ActionResult<T = any> {
+interface ActionResult<T = unknown> {
   success: boolean
   error?: string
   data?: T
@@ -154,9 +154,10 @@ export async function assignDealToUnderwriter(input: {
         version: updated.version,
       },
     }
-  } catch (err: any) {
-    console.error('assignDealToUnderwriter error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('assignDealToUnderwriter error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }
 
@@ -179,9 +180,10 @@ export async function getUnassignedDeals(): Promise<ActionResult<Deal[]>> {
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: (data || []) as unknown as Deal[] }
-  } catch (err: any) {
-    console.error('getUnassignedDeals error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getUnassignedDeals error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }
 
@@ -205,9 +207,10 @@ export async function getMyAssignedDeals(): Promise<ActionResult<Deal[]>> {
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: (data || []) as unknown as Deal[] }
-  } catch (err: any) {
-    console.error('getMyAssignedDeals error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getMyAssignedDeals error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }
 
@@ -249,8 +252,9 @@ export async function getOverdueAssignments(
 
     if (error) return { success: false, error: error.message }
     return { success: true, data: (data || []) as unknown as Deal[] }
-  } catch (err: any) {
-    console.error('getOverdueAssignments error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getOverdueAssignments error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }

@@ -21,12 +21,12 @@ export interface AuditLogRow {
   action: string
   entity_type: string
   entity_id: string | null
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   severity: AuditSeverity
   actor_email: string | null
   actor_role: string | null
-  old_value: Record<string, any> | null
-  new_value: Record<string, any> | null
+  old_value: Record<string, unknown> | null
+  new_value: Record<string, unknown> | null
   ip_address: string | null
   user_agent: string | null
   session_id: string | null

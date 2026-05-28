@@ -21,7 +21,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 
-interface ActionResult<T = any> {
+interface ActionResult<T = unknown> {
   success: boolean
   error?: string
   data?: T
@@ -134,7 +134,7 @@ export async function adjustAgentBalance(input: {
 
     // apply_agent_balance_delta returns the full agent_transactions row. The
     // running_balance column is the post-update agent.account_balance.
-    const newBalance = Number((rpcRow as any)?.running_balance ?? 0)
+    const newBalance = Number((rpcRow as { running_balance?: number } | null)?.running_balance ?? 0)
 
     await logAuditEvent({
       action: 'account.manual_adjustment',
@@ -155,9 +155,10 @@ export async function adjustAgentBalance(input: {
     })
 
     return { success: true, data: { new_balance: newBalance } }
-  } catch (err: any) {
-    console.error('adjustAgentBalance error:', err?.message)
-    return { success: false, error: err?.message || 'An unexpected error occurred' }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('adjustAgentBalance error:', _msg)
+    return { success: false, error: _msg || 'An unexpected error occurred' }
   }
 }
 
