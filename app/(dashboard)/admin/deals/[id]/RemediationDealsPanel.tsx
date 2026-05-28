@@ -11,6 +11,14 @@ import {
   getRemediationDealsForFailedDeal,
 } from '@/lib/actions/remediation-actions'
 import { sendRemediationIdpForSignature } from '@/lib/actions/esign-actions'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface RemediationDealRow {
   id: string
@@ -409,319 +417,311 @@ export default function RemediationDealsPanel({
       {/* ============================================================ */}
       {/* Add Remediation Deal modal */}
       {/* ============================================================ */}
-      {showAddModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 overflow-y-auto"
-          onClick={() => !addSaving && setShowAddModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="add-remediation-title"
-        >
-          <div
-            className="w-full max-w-2xl rounded-2xl bg-card border border-amber-800/50 shadow-2xl my-8"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
+      <Dialog open={showAddModal} onOpenChange={(v) => !addSaving && setShowAddModal(v)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-300">
               <FileSignature className="w-5 h-5 text-amber-400" />
-              <h2 id="add-remediation-title" className="text-base font-bold text-amber-300">Add Remediation Deal</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Record an upcoming commission the agent will assign to clear the failed-deal balance.
-                Brokerage details default from the agent&apos;s file; override if the agent has transferred.
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Property Address *</label>
-                  <input
-                    type="text"
-                    value={form.propertyAddress}
-                    onChange={(e) => setForm(f => ({ ...f, propertyAddress: e.target.value }))}
-                    placeholder="e.g. 123 Main St, Toronto, ON, M4V 1L7"
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">MLS Number</label>
-                  <input
-                    type="text"
-                    value={form.mlsNumber}
-                    onChange={(e) => setForm(f => ({ ...f, mlsNumber: e.target.value }))}
-                    placeholder="Optional"
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Expected Commission (CAD)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.expectedCommission}
-                    onChange={(e) => setForm(f => ({ ...f, expectedCommission: e.target.value }))}
-                    placeholder="Net to agent"
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Expected Closing Date</label>
-                  <input
-                    type="date"
-                    value={form.expectedClosingDate}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setForm(f => ({ ...f, expectedClosingDate: v, expectedPaymentDate: f.expectedPaymentDate || addDaysIso(v, SETTLEMENT_PERIOD_DAYS) }))
-                    }}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Expected Payment Date</label>
-                  <input
-                    type="date"
-                    value={form.expectedPaymentDate}
-                    onChange={(e) => setForm(f => ({ ...f, expectedPaymentDate: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                  <p className="text-[10px] text-muted-foreground/60 mt-1">Defaults to closing + {SETTLEMENT_PERIOD_DAYS} days</p>
-                </div>
-
-                <div className="sm:col-span-2 pt-2 border-t border-border/30">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Brokerage handling this commission</p>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Brokerage Legal Name *</label>
-                  <input
-                    type="text"
-                    value={form.brokerageLegalName}
-                    onChange={(e) => setForm(f => ({ ...f, brokerageLegalName: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Brokerage Address</label>
-                  <input
-                    type="text"
-                    value={form.brokerageAddress}
-                    onChange={(e) => setForm(f => ({ ...f, brokerageAddress: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Broker of Record</label>
-                  <input
-                    type="text"
-                    value={form.brokerOfRecordName}
-                    onChange={(e) => setForm(f => ({ ...f, brokerOfRecordName: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Broker of Record Email</label>
-                  <input
-                    type="email"
-                    value={form.brokerOfRecordEmail}
-                    onChange={(e) => setForm(f => ({ ...f, brokerOfRecordEmail: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
-                  />
-                </div>
-
-                <div className="sm:col-span-2 pt-2 border-t border-border/30">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Direction</p>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Directed Amount (CAD) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={form.directedAmount}
-                    onChange={(e) => setForm(f => ({ ...f, directedAmount: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
-                  />
-                  <p className="text-[10px] text-muted-foreground/60 mt-1">
-                    Defaults to current live balance owing on the failed deal ({formatCurrency(liveBalanceOwed)}).
-                    Override if the agent and Firm Funds have agreed to a different amount on this assignment.
-                  </p>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Notes</label>
-                  <textarea
-                    value={form.notes}
-                    onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
-                    rows={2}
-                    placeholder="Any context — e.g. partial assignment, dispute, etc."
-                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary resize-none"
-                  />
-                </div>
-              </div>
-
-              {addError && (
-                <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                  <p className="text-xs text-destructive">{addError}</p>
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowAddModal(false)}
-                disabled={addSaving}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAdd}
-                disabled={addSaving}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-amber-600 hover:bg-amber-600/90 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {addSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                {addSaving ? 'Saving…' : 'Add Remediation Deal'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================ */}
-      {/* Mark Remitted modal */}
-      {/* ============================================================ */}
-      {activeMarkRemittedId && activeRemittedRow && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => !remitSaving && setActiveMarkRemittedId(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="remit-title"
-        >
-          <div className="w-full max-w-md rounded-2xl bg-card border border-emerald-800/50 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-              <h2 id="remit-title" className="text-base font-bold text-emerald-300">Mark Remitted</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Record the payment received from <strong className="text-foreground">{activeRemittedRow.brokerage_legal_name}</strong> for {activeRemittedRow.property_address}.
-                The amount will be applied against the failed-deal balance (accrued interest first, then principal).
-              </p>
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Amount Remitted (CAD) *</label>
+              Add Remediation Deal
+            </DialogTitle>
+            <DialogDescription>
+              Record an upcoming commission the agent will assign to clear the failed-deal balance.
+              Brokerage details default from the agent&apos;s file; override if the agent has transferred.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Property Address *</label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={remitForm.amount}
-                  onChange={(e) => setRemitForm(f => ({ ...f, amount: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
-                />
-                <p className="text-[10px] text-muted-foreground/60 mt-1">
-                  Directed amount on IDP: {formatCurrency(Number(activeRemittedRow.directed_amount))}
-                </p>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Date Received *</label>
-                <input
-                  type="date"
-                  value={remitForm.date}
-                  onChange={(e) => setRemitForm(f => ({ ...f, date: e.target.value }))}
+                  type="text"
+                  value={form.propertyAddress}
+                  onChange={(e) => setForm(f => ({ ...f, propertyAddress: e.target.value }))}
+                  placeholder="e.g. 123 Main St, Toronto, ON, M4V 1L7"
                   className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
                 />
               </div>
               <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">MLS Number</label>
+                <input
+                  type="text"
+                  value={form.mlsNumber}
+                  onChange={(e) => setForm(f => ({ ...f, mlsNumber: e.target.value }))}
+                  placeholder="Optional"
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Expected Commission (CAD)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.expectedCommission}
+                  onChange={(e) => setForm(f => ({ ...f, expectedCommission: e.target.value }))}
+                  placeholder="Net to agent"
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Expected Closing Date</label>
+                <input
+                  type="date"
+                  value={form.expectedClosingDate}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setForm(f => ({ ...f, expectedClosingDate: v, expectedPaymentDate: f.expectedPaymentDate || addDaysIso(v, SETTLEMENT_PERIOD_DAYS) }))
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Expected Payment Date</label>
+                <input
+                  type="date"
+                  value={form.expectedPaymentDate}
+                  onChange={(e) => setForm(f => ({ ...f, expectedPaymentDate: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+                <p className="text-[10px] text-muted-foreground/60 mt-1">Defaults to closing + {SETTLEMENT_PERIOD_DAYS} days</p>
+              </div>
+
+              <div className="sm:col-span-2 pt-2 border-t border-border/30">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Brokerage handling this commission</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Brokerage Legal Name *</label>
+                <input
+                  type="text"
+                  value={form.brokerageLegalName}
+                  onChange={(e) => setForm(f => ({ ...f, brokerageLegalName: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Brokerage Address</label>
+                <input
+                  type="text"
+                  value={form.brokerageAddress}
+                  onChange={(e) => setForm(f => ({ ...f, brokerageAddress: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Broker of Record</label>
+                <input
+                  type="text"
+                  value={form.brokerOfRecordName}
+                  onChange={(e) => setForm(f => ({ ...f, brokerOfRecordName: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Broker of Record Email</label>
+                <input
+                  type="email"
+                  value={form.brokerOfRecordEmail}
+                  onChange={(e) => setForm(f => ({ ...f, brokerOfRecordEmail: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="sm:col-span-2 pt-2 border-t border-border/30">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-2">Direction</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Directed Amount (CAD) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={form.directedAmount}
+                  onChange={(e) => setForm(f => ({ ...f, directedAmount: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
+                />
+                <p className="text-[10px] text-muted-foreground/60 mt-1">
+                  Defaults to current live balance owing on the failed deal ({formatCurrency(liveBalanceOwed)}).
+                  Override if the agent and Firm Funds have agreed to a different amount on this assignment.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Notes</label>
                 <textarea
-                  value={remitForm.notes}
-                  onChange={(e) => setRemitForm(f => ({ ...f, notes: e.target.value }))}
+                  value={form.notes}
+                  onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
                   rows={2}
-                  placeholder="EFT reference, etc."
+                  placeholder="Any context — e.g. partial assignment, dispute, etc."
                   className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary resize-none"
                 />
               </div>
-              {remitError && (
-                <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                  <p className="text-xs text-destructive">{remitError}</p>
-                </div>
-              )}
             </div>
-            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setActiveMarkRemittedId(null)}
-                disabled={remitSaving}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleMarkRemitted}
-                disabled={remitSaving}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-700/90 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {remitSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                {remitSaving ? 'Recording…' : 'Record Remittance'}
-              </button>
-            </div>
+
+            {addError && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                <p className="text-xs text-destructive">{addError}</p>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <button
+              onClick={() => setShowAddModal(false)}
+              disabled={addSaving}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAdd}
+              disabled={addSaving}
+              className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-amber-600 hover:bg-amber-600/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              {addSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              {addSaving ? 'Saving…' : 'Add Remediation Deal'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================ */}
+      {/* Mark Remitted modal */}
+      {/* ============================================================ */}
+      <Dialog
+        open={!!activeMarkRemittedId && !!activeRemittedRow}
+        onOpenChange={(v) => !remitSaving && !v && setActiveMarkRemittedId(null)}
+      >
+        <DialogContent className="max-w-md">
+          {activeRemittedRow && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-emerald-300">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  Mark Remitted
+                </DialogTitle>
+                <DialogDescription>
+                  Record the payment received from <strong className="text-foreground">{activeRemittedRow.brokerage_legal_name}</strong> for {activeRemittedRow.property_address}.
+                  The amount will be applied against the failed-deal balance (accrued interest first, then principal).
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Amount Remitted (CAD) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={remitForm.amount}
+                    onChange={(e) => setRemitForm(f => ({ ...f, amount: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary tabular-nums"
+                  />
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">
+                    Directed amount on IDP: {formatCurrency(Number(activeRemittedRow.directed_amount))}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Date Received *</label>
+                  <input
+                    type="date"
+                    value={remitForm.date}
+                    onChange={(e) => setRemitForm(f => ({ ...f, date: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Notes</label>
+                  <textarea
+                    value={remitForm.notes}
+                    onChange={(e) => setRemitForm(f => ({ ...f, notes: e.target.value }))}
+                    rows={2}
+                    placeholder="EFT reference, etc."
+                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary resize-none"
+                  />
+                </div>
+                {remitError && (
+                  <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                    <p className="text-xs text-destructive">{remitError}</p>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <button
+                  onClick={() => setActiveMarkRemittedId(null)}
+                  disabled={remitSaving}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleMarkRemitted}
+                  disabled={remitSaving}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-700/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  {remitSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {remitSaving ? 'Recording…' : 'Record Remittance'}
+                </button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ============================================================ */}
       {/* Cancel modal */}
       {/* ============================================================ */}
-      {activeCancelId && activeCancelRow && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => !cancelSaving && setActiveCancelId(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="cancel-rem-title"
-        >
-          <div className="w-full max-w-md rounded-2xl bg-card border border-destructive/40 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              <h2 id="cancel-rem-title" className="text-base font-bold text-destructive">Cancel Remediation Deal</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Cancel the remediation deal for <strong className="text-foreground">{activeCancelRow.property_address}</strong>.
-                This does <strong>not</strong> clear the failed-deal balance — the agent still owes it. Use Cancel when this specific commission won&apos;t be the one used to remediate (e.g. deal fell through, agent reassigned).
-              </p>
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Reason *</label>
-                <textarea
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  rows={3}
-                  placeholder="e.g. Buyer terminated on conditional; agent will reassign to a different upcoming commission."
-                  className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary resize-none"
-                />
-              </div>
-              {cancelError && (
-                <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-                  <p className="text-xs text-destructive">{cancelError}</p>
+      <Dialog
+        open={!!activeCancelId && !!activeCancelRow}
+        onOpenChange={(v) => !cancelSaving && !v && setActiveCancelId(null)}
+      >
+        <DialogContent className="max-w-md">
+          {activeCancelRow && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
+                  Cancel Remediation Deal
+                </DialogTitle>
+                <DialogDescription>
+                  Cancel the remediation deal for <strong className="text-foreground">{activeCancelRow.property_address}</strong>.
+                  This does <strong>not</strong> clear the failed-deal balance — the agent still owes it. Use Cancel when this specific commission won&apos;t be the one used to remediate (e.g. deal fell through, agent reassigned).
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Reason *</label>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. Buyer terminated on conditional; agent will reassign to a different upcoming commission."
+                    className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary resize-none"
+                  />
                 </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setActiveCancelId(null)}
-                disabled={cancelSaving}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
-              >
-                Keep
-              </button>
-              <button
-                onClick={handleCancel}
-                disabled={cancelSaving || !cancelReason.trim()}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-destructive hover:bg-destructive/90 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {cancelSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                {cancelSaving ? 'Cancelling…' : 'Confirm Cancel'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                {cancelError && (
+                  <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+                    <p className="text-xs text-destructive">{cancelError}</p>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <button
+                  onClick={() => setActiveCancelId(null)}
+                  disabled={cancelSaving}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/70 disabled:opacity-50 transition-colors"
+                >
+                  Keep
+                </button>
+                <button
+                  onClick={handleCancel}
+                  disabled={cancelSaving || !cancelReason.trim()}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-destructive hover:bg-destructive/90 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  {cancelSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {cancelSaving ? 'Cancelling…' : 'Confirm Cancel'}
+                </button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }
