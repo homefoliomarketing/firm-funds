@@ -112,3 +112,53 @@ Recommended sequence:
 5. Apply migration 094 to Supabase.
 6. Run post-deploy smoke tests.
 7. Merge only after the smoke tests pass.
+
+## 2026-05-28 Production Smoke Update
+
+This update records the follow-up run that required production Netlify and Supabase access. The Netlify/Supabase details below are based on Claude's reported run from 2026-05-28. The local code state was independently verified after pulling the branch update.
+
+### Claude-Reported Production/Preview Results
+
+- Production Supabase migration `094_active_status_rls_and_storage.sql` was applied in a transaction.
+- Netlify production environment variable names were reported present for Supabase, Upstash/cron, and DocuSign.
+- DocuSign URLs were reported as production URLs, not demo/sandbox URLs.
+- A Netlify branch preview was deployed at `https://audit-port-current-main--unique-faloodeh-288d13.netlify.app`.
+- Smoke tests passed for admin login, admin preauth viewing, brokerage admin login, brokerage document viewing, agent login, agent deal document viewing, agent deal document upload, and inactive/flagged access denial.
+- Smoke test fixtures were reported cleaned up after verification.
+
+### Required Hotfix Discovered During Smoke Testing
+
+Applying migration 094 exposed a real production RLS regression:
+
+- Policies created in 094 queried `public.brokerage_admins` directly.
+- The existing `brokerage_admins_select` policy self-references that same table.
+- Authenticated reads that evaluated those new policies could fail with Postgres RLS infinite-recursion errors.
+- The storage policies also had a column-shadowing bug: inside joins that included `brokerages`, the unqualified `name` in `storage.foldername(name)` could resolve to `brokerages.name` instead of `storage.objects.name`.
+
+Claude added, applied, committed, and pushed `supabase/migrations/095_fix_brokerage_admins_recursion.sql` in commit `d541892`.
+
+Migration 095 is mandatory with migration 094. Do not apply or ship 094 without 095.
+
+Migration 095:
+
+- Adds `public.is_user_brokerage_admin_of(user_id, brokerage_id)` as a `SECURITY DEFINER` helper for brokerage-admin membership checks that must bypass RLS recursion.
+- Recreates the affected `deal-documents` storage policies using that helper.
+- Qualifies `storage.objects.name` inside the storage folder checks.
+- Recreates the affected `brokerage_documents` brokerage-admin select policy using the helper.
+
+### Local Verification After Pulling 095
+
+After fast-forwarding local branch `audit-port-current-main` to `d541892`, these commands passed from `C:\tmp\firm-funds-audit-port`:
+
+- `npx.cmd tsc --noEmit --incremental false`
+- `npm.cmd audit --json`
+- `npm.cmd run build`
+
+Full-repository lint is still not clean; this remains the existing broad lint baseline noted earlier in this report.
+
+### Remaining Items
+
+- Merge `audit-port-current-main` only with both migrations 094 and 095 included.
+- After merge/deploy to production, run one final production smoke test on `firmfunds.ca`.
+- Fix the flagged-agent login UX follow-up: Claude reported access is correctly blocked, but the login button can remain stuck on `Signing in...` instead of showing a clear rejection message.
+- Separately confirm Supabase backup/PITR and Storage encryption posture from the Supabase dashboard or another authorized production source.
