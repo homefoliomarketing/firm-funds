@@ -1,0 +1,127 @@
+# Continuous Integration
+#
+# Runs on every pull request and every push to main. Three gates:
+#
+#   1. Type check (`tsc --noEmit`) — catches type errors before they hit prod.
+#   2. Lint (`npm run lint`) — keeps the codebase consistent.
+#   3. Build (`npm run build`) — catches build-time regressions before Netlify
+#      sees them.
+#
+# CI never talks to real services. Placeholder env vars below let `next build`
+# compile without contacting Supabase / DocuSign / Resend / Twilio / Upstash.
+# Production secrets live in Netlify and never appear here.
+#
+# To enforce these as required checks before merging to main:
+# Settings → Branches → Branch protection rules → Add rule → main →
+#   "Require status checks to pass before merging" → search for "Type-check,
+#   lint, build" and tick it. (The job name comes from `name:` below.)
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel any in-flight CI run on the same branch when a new commit lands.
+# Saves CI minutes and surfaces only the latest state on the PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only by default. CI never needs to write to the repo, post comments,
+# or publish packages. Locking permissions here limits the blast radius if
+# a third-party action is ever compromised.
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Type-check, lint, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Don't expose the auto-generated GITHUB_TOKEN to later steps.
+          # We're not pushing or commenting from CI, so the token isn't needed.
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          # ---------------------------------------------------------------
+          # Build-time placeholders.
+          #
+          # next build needs *something* for these so the bundle can compile,
+          # but nothing in the build path makes real network calls. Production
+          # values live in Netlify environment variables.
+          #
+          # If a build step in the future genuinely needs a real value (e.g.
+          # to fetch remote config at build time), wire it through GitHub
+          # Actions Secrets instead of pasting it here.
+          # ---------------------------------------------------------------
+          NODE_OPTIONS: --max-old-space-size=4096
+
+          # Supabase
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+          SUPABASE_DB_URL: postgresql://placeholder:placeholder@placeholder/placeholder
+
+          # Site
+          NEXT_PUBLIC_SITE_URL: https://firmfunds.ca
+
+          # Anthropic
+          ANTHROPIC_API_KEY: ci-placeholder
+
+          # Resend
+          RESEND_API_KEY: ci-placeholder
+          FIRM_DEAL_FROM_ADDRESS: ci-placeholder@example.com
+          FIRM_FUNDS_OFFER_INBOX: ci-placeholder@example.com
+
+          # Twilio
+          TWILIO_ACCOUNT_SID: ci-placeholder
+          TWILIO_API_KEY_SID: ci-placeholder
+          TWILIO_API_KEY_SECRET: ci-placeholder
+          TWILIO_PHONE_NUMBER: '+15555555555'
+
+          # Upstash
+          UPSTASH_REDIS_REST_URL: https://placeholder.upstash.io
+          UPSTASH_REDIS_REST_TOKEN: ci-placeholder
+
+          # DocuSign
+          DOCUSIGN_INTEGRATION_KEY: ci-placeholder
+          DOCUSIGN_SECRET_KEY: ci-placeholder
+          DOCUSIGN_ACCOUNT_ID: ci-placeholder
+          DOCUSIGN_BASE_URL: https://account-d.docusign.com
+          DOCUSIGN_AUTH_URL: https://account-d.docusign.com
+          DOCUSIGN_REDIRECT_URI: https://firmfunds.ca/api/docusign/callback
+          DOCUSIGN_HMAC_SECRET: ci-placeholder
+
+          # Cron auth
+          CRON_SECRET: ci-placeholder
+          CRON_BACKFILL_SECRET: ci-placeholder
+
+          # Google Sheets
+          GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON: '{}'
+
+          # Seed route auth
+          SEED_SECRET: ci-placeholder
