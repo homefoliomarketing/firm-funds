@@ -1,6 +1,9 @@
 ﻿'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
+import type { User } from '@supabase/supabase-js'
+import type { UserProfile } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox } from 'lucide-react'
@@ -52,6 +55,12 @@ interface Agent {
   // White-label activation tracking (Session 34)
   welcome_email_sent_at: string | null
   account_activated_at: string | null
+  // Mailing address fields — surfaced on the KYC preview panel but not on
+  // every agent fetch path, so they're optional here.
+  address_street?: string | null
+  address_city?: string | null
+  address_province?: string | null
+  address_postal_code?: string | null
   created_at: string
 }
 
@@ -89,6 +98,14 @@ interface Brokerage {
   auto_bumped_to_14_days_at: string | null
   last_strike_reset_at: string | null
   settlement_days_override: number | null
+  // KYC verification fields (loaded with the brokerage row but typed as
+  // optional because not every code path populates them).
+  kyc_verified?: boolean | null
+  kyc_verified_at?: string | null
+  kyc_verified_by?: string | null
+  reco_registration_number?: string | null
+  reco_verification_date?: string | null
+  reco_verification_notes?: string | null
   created_at: string
   updated_at: string
 }
@@ -127,6 +144,23 @@ interface AgentFormData {
 }
 
 const emptyAgentForm: AgentFormData = { firstName: '', lastName: '', email: '', phone: '', recoNumber: '' }
+
+// Subset of the user_profiles + agents tables surfaced by the user-management
+// modal. Used as the inner row type for brokerageUserProfiles state.
+interface BrokerageUserProfile {
+  id: string
+  full_name?: string | null
+  email?: string | null
+  role?: string | null
+  agent_id?: string | null
+  brokerage_id?: string | null
+  is_active?: boolean
+  last_login?: string | null
+  created_at?: string
+  // Agents lookup may also carry the agents row directly.
+  first_name?: string | null
+  last_name?: string | null
+}
 
 // ============================================================================
 // Status badge helper (local â€” no colors dependency)
@@ -271,7 +305,9 @@ function LateStrikeSection({ brokerage, onChange }: { brokerage: Brokerage; onCh
 function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
   const [bcaLoading, setBcaLoading] = useState(false)
   const [bcaStatus, setBcaStatus] = useState<string | null>(null)
-  const [bcaEnvelopeId, setBcaEnvelopeId] = useState<string | null>(null)
+  // Envelope id is tracked for future void/resend flows; rendering uses it
+  // implicitly through the void action which calls the server.
+  const [, setBcaEnvelopeId] = useState<string | null>(null)
   const [bcaError, setBcaError] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [showVoidInput, setShowVoidInput] = useState(false)
@@ -433,8 +469,9 @@ function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
 // ============================================================================
 
 export default function BrokeragesPage() {
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
+  // `user` retained for parity / future audit-log integration.
+  const [, setUser] = useState<User | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [brokerages, setBrokerages] = useState<BrokerageWithAgents[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -474,7 +511,8 @@ export default function BrokeragesPage() {
   const [kycChecks, setKycChecks] = useState({ nameMatch: false, addressMatch: false, idValid: false })
   const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
-  const [kycViewingUrl, setKycViewingUrl] = useState<string | null>(null)
+  // Legacy single-URL preview state removed — KYC preview now flows through
+  // kycPreviewPanel, which manages multiple blob URLs and lifecycle.
   const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; fileName: string; agentName: string; agentId: string; agentPhone: string | null; agentAddress: string | null } | null>(null)
   const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
   // Banking state
@@ -493,7 +531,7 @@ export default function BrokeragesPage() {
   const [changingEmailForUserId, setChangingEmailForUserId] = useState<string | null>(null)
   const [changeEmailValue, setChangeEmailValue] = useState('')
   const [changingEmailSaving, setChangingEmailSaving] = useState(false)
-  const [brokerageUserProfiles, setBrokerageUserProfiles] = useState<Record<string, { brokerageAdmins: any[]; agents: any[] }>>({})
+  const [brokerageUserProfiles, setBrokerageUserProfiles] = useState<Record<string, { brokerageAdmins: BrokerageUserProfile[]; agents: BrokerageUserProfile[] }>>({})
   const [loadingUserProfiles, setLoadingUserProfiles] = useState<string | null>(null)
   const [showUserManagement, setShowUserManagement] = useState<string | null>(null)
   const [showCreateBrokerageLogin, setShowCreateBrokerageLogin] = useState(false)
@@ -562,7 +600,7 @@ export default function BrokeragesPage() {
       if (txnResult.success && txnResult.data) {
         setAgentTransactions(prev => ({ ...prev, [adjustBalanceForAgentId]: txnResult.data || [] }))
       }
-      const newBalance = (result.data as any)?.newBalance
+      const newBalance = (result.data as { newBalance?: number } | null)?.newBalance
       if (typeof newBalance === 'number') {
         setBrokerages(prev => prev.map(b => ({
           ...b,
@@ -570,8 +608,9 @@ export default function BrokeragesPage() {
         })))
       }
       closeAdjustBalanceModal()
-    } catch (err: any) {
-      setAdjustError(err?.message || 'An unexpected error occurred.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred.'
+      setAdjustError(msg)
     } finally {
       setAdjustSubmitting(false)
     }
@@ -606,6 +645,10 @@ export default function BrokeragesPage() {
       setLoading(false)
     }
     loadPage()
+    // loadBrokerages is intentionally not in deps — its identity changes on
+    // every render and the auth+load flow only runs on mount. router/supabase
+    // are stable refs in this tree.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Auto-expand the first brokerage with pending actions
@@ -617,6 +660,10 @@ export default function BrokeragesPage() {
     if (brokerageWithAction) {
       setExpandedId(brokerageWithAction.id)
     }
+    // We re-check only when loading flips or the list length changes — adding
+    // the full `brokerages` array would auto-expand on every internal edit,
+    // which is jarring.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, brokerages.length])
 
   async function loadBrokerages() {
@@ -724,7 +771,7 @@ export default function BrokeragesPage() {
       status: editFormData.status,
     })
     if (result.success) {
-      const queued = (result.data as any)?.welcomeQueued
+      const queued = (result.data as { welcomeQueued?: { sent: number; failed: number } } | null)?.welcomeQueued
       let msg = 'Brokerage updated successfully'
       if (queued) {
         msg += ` â€” welcome emails queued: ${queued.sent} sent, ${queued.failed} failed`
@@ -842,7 +889,7 @@ export default function BrokeragesPage() {
     setSubmitting(false)
   }
 
-  const openEditAgent = (agent: Agent, brokerageId: string) => {
+  const openEditAgent = (agent: Agent) => {
     setEditAgentForm({
       firstName: agent.first_name, lastName: agent.last_name, email: agent.email || '',
       phone: agent.phone || '', recoNumber: agent.reco_number || '',
@@ -1071,7 +1118,7 @@ export default function BrokeragesPage() {
       if (brokerageId) {
         const refreshed = await getBrokerageUserProfiles(brokerageId)
         if (refreshed.success && refreshed.data) {
-          setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: refreshed.data as { brokerageAdmins: any[]; agents: any[] } }))
+          setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: refreshed.data as { brokerageAdmins: BrokerageUserProfile[]; agents: BrokerageUserProfile[] } }))
         }
       }
     } else {
@@ -1088,7 +1135,7 @@ export default function BrokeragesPage() {
     setLoadingUserProfiles(brokerageId)
     const result = await getBrokerageUserProfiles(brokerageId)
     if (result.success && result.data) {
-      setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: result.data as { brokerageAdmins: any[]; agents: any[] } }))
+      setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: result.data as { brokerageAdmins: BrokerageUserProfile[]; agents: BrokerageUserProfile[] } }))
     }
     setShowUserManagement(brokerageId)
     setLoadingUserProfiles(null)
@@ -1128,7 +1175,7 @@ export default function BrokeragesPage() {
       // Reload the user profiles to show the new login
       const refreshed = await getBrokerageUserProfiles(brokerageId)
       if (refreshed.success && refreshed.data) {
-        setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: refreshed.data as { brokerageAdmins: any[]; agents: any[] } }))
+        setBrokerageUserProfiles(prev => ({ ...prev, [brokerageId]: refreshed.data as { brokerageAdmins: BrokerageUserProfile[]; agents: BrokerageUserProfile[] } }))
       }
     } else {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to invite brokerage admin' })
@@ -1211,6 +1258,10 @@ export default function BrokeragesPage() {
     if (agentMatchBrokerageIds.length === 1) {
       setExpandedId(agentMatchBrokerageIds[0])
     }
+    // Only re-run on searchQuery changes — agentMatchBrokerageIds is derived
+    // and re-evaluated every render, so adding it would cause an extra
+    // expand cycle after every keystroke-induced filter pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery])
 
   // ---- Input class helper (replaces inputStyle object) ----
@@ -1284,7 +1335,7 @@ export default function BrokeragesPage() {
               >
                 <ChevronLeft size={20} />
               </button>
-              <img src="/brand/white.png" alt="Firm Funds" className="h-16 sm:h-20 md:h-28 w-auto" />
+              <Image src="/brand/white.png" alt="Firm Funds" width={280} height={112} className="h-16 sm:h-20 md:h-28 w-auto" />
               <div className="w-px h-10 bg-white/15" />
               <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Brokerages</p>
             </div>
@@ -1368,6 +1419,9 @@ export default function BrokeragesPage() {
                 <div>
                   <label className="block text-sm font-medium mb-2 text-muted-foreground">Brokerage Logo</label>
                   <div className="flex items-center gap-3">
+                    {/* User-supplied external URL — next/image would need
+                        runtime domain config for arbitrary brokerage hosts. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     {createFormData.logoUrl && <img src={createFormData.logoUrl} alt="Logo" className="h-10 w-auto rounded bg-muted" />}
                     <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors bg-input border border-border text-foreground hover:bg-muted ${uploadingLogo ? 'opacity-50' : ''}`}>
                       <Upload size={14} />
@@ -1510,9 +1564,9 @@ export default function BrokeragesPage() {
                       <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-md ${getLocalStatusBadgeClass(brokerage.status)}`}>
                         {brokerage.status.charAt(0).toUpperCase() + brokerage.status.slice(1)}
                       </span>
-                      {(brokerage as any).kyc_verified ? (
+                      {brokerage.kyc_verified ? (
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ${getKycBadgeClass('verified')}`}
-                          title={`KYC verified${(brokerage as any).kyc_verified_at ? ' on ' + new Date((brokerage as any).kyc_verified_at).toLocaleDateString('en-CA') : ''}`}
+                          title={`KYC verified${brokerage.kyc_verified_at ? ' on ' + new Date(brokerage.kyc_verified_at).toLocaleDateString('en-CA') : ''}`}
                         >
                           <Shield size={11} /> KYC
                         </span>
@@ -1595,6 +1649,8 @@ export default function BrokeragesPage() {
                             <div>
                               <label className="block text-sm font-medium mb-2 text-muted-foreground">Brokerage Logo</label>
                               <div className="flex items-center gap-3">
+                                {/* User-supplied external URL. */}
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 {editFormData.logoUrl && <img src={editFormData.logoUrl} alt="Logo" className="h-10 w-auto rounded bg-muted" />}
                                 <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors bg-input border border-border text-foreground hover:bg-muted ${uploadingLogo ? 'opacity-50' : ''}`}>
                                   <Upload size={14} />
@@ -1689,40 +1745,40 @@ export default function BrokeragesPage() {
                       {/* FINTRAC KYC Verification */}
                       <div className="px-6 py-4 border-b border-border/50">
                         <div className="flex items-center gap-2 mb-3">
-                          <Shield size={15} className={(brokerage as any).kyc_verified ? 'text-primary' : 'text-primary'} />
+                          <Shield size={15} className={brokerage.kyc_verified ? 'text-primary' : 'text-primary'} />
                           <h4 className="text-sm font-bold text-foreground">
                             FINTRAC â€” RECO Verification
                           </h4>
-                          {(brokerage as any).kyc_verified && (
+                          {brokerage.kyc_verified && (
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getKycBadgeClass('verified')}`}>
                               <CheckCircle size={11} /> Verified
                             </span>
                           )}
                         </div>
 
-                        {(brokerage as any).kyc_verified ? (
+                        {brokerage.kyc_verified ? (
                           /* Verified state â€” show verification details */
                           <div className="space-y-2">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">RECO Reg #</p>
-                                <p className="text-foreground">{(brokerage as any).reco_registration_number || 'â€”'}</p>
+                                <p className="text-foreground">{brokerage.reco_registration_number || 'â€”'}</p>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Verified On</p>
                                 <p className="text-foreground">
-                                  {(brokerage as any).reco_verification_date
-                                    ? new Date((brokerage as any).reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+                                  {brokerage.reco_verification_date
+                                    ? new Date(brokerage.reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
                                     : 'â€”'}
                                 </p>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Verified By</p>
-                                <p className="text-foreground">{(brokerage as any).kyc_verified_by || 'â€”'}</p>
+                                <p className="text-foreground">{brokerage.kyc_verified_by || 'â€”'}</p>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Notes</p>
-                                <p className="text-foreground">{(brokerage as any).reco_verification_notes || 'â€”'}</p>
+                                <p className="text-foreground">{brokerage.reco_verification_notes || 'â€”'}</p>
                               </div>
                             </div>
                             <button
@@ -2070,7 +2126,7 @@ export default function BrokeragesPage() {
                               </div>
                             ) : (
                               <div className="space-y-2">
-                                {brokerageUserProfiles[brokerage.id].brokerageAdmins.map((admin: any) => (
+                                {brokerageUserProfiles[brokerage.id].brokerageAdmins.map(admin => (
                                   <div key={admin.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-card border border-border/50">
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm font-medium truncate text-foreground">{admin.full_name}</p>
@@ -2081,14 +2137,14 @@ export default function BrokeragesPage() {
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                       <button
-                                        onClick={() => handleResetPassword(admin.id, admin.full_name, 'user')}
+                                        onClick={() => handleResetPassword(admin.id, admin.full_name ?? admin.email ?? admin.id, 'user')}
                                         disabled={resettingPasswordForUserId === admin.id}
                                         className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50 bg-yellow-950/50 text-yellow-400 border border-yellow-800 hover:bg-yellow-950/70"
                                       >
                                         <KeyRound size={12} /> Reset Password
                                       </button>
                                       <button
-                                        onClick={() => { setChangingEmailForUserId(changingEmailForUserId === admin.id ? null : admin.id); setChangeEmailValue(admin.email) }}
+                                        onClick={() => { setChangingEmailForUserId(changingEmailForUserId === admin.id ? null : admin.id); setChangeEmailValue(admin.email ?? '') }}
                                         className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors border ${
                                           changingEmailForUserId === admin.id
                                             ? 'bg-primary/20 text-blue-400 border-primary'
@@ -2098,7 +2154,7 @@ export default function BrokeragesPage() {
                                         <AtSign size={12} /> Change Email
                                       </button>
                                       <button
-                                        onClick={() => handleResendSetupLink(admin.id, admin.full_name)}
+                                        onClick={() => handleResendSetupLink(admin.id, admin.full_name ?? admin.email ?? admin.id)}
                                         disabled={resendingSetupLink === admin.id}
                                         className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50 text-primary bg-card border border-border hover:bg-muted hover:border-primary"
                                       >
@@ -2108,7 +2164,7 @@ export default function BrokeragesPage() {
                                   </div>
                                 ))}
                                 {/* Inline email change for brokerage admin */}
-                                {brokerageUserProfiles[brokerage.id].brokerageAdmins.some((a: any) => changingEmailForUserId === a.id) && (
+                                {brokerageUserProfiles[brokerage.id].brokerageAdmins.some(a => changingEmailForUserId === a.id) && (
                                   <div className="flex items-center gap-2 p-2 rounded-lg bg-card border border-border">
                                     <input
                                       type="email"
@@ -2119,8 +2175,8 @@ export default function BrokeragesPage() {
                                     />
                                     <button
                                       onClick={() => {
-                                        const admin = brokerageUserProfiles[brokerage.id].brokerageAdmins.find((a: any) => a.id === changingEmailForUserId)
-                                        if (admin) handleChangeEmail(admin.id, admin.full_name, 'user', brokerage.id)
+                                        const admin = brokerageUserProfiles[brokerage.id].brokerageAdmins.find(a => a.id === changingEmailForUserId)
+                                        if (admin) handleChangeEmail(admin.id, admin.full_name ?? admin.email ?? admin.id, 'user', brokerage.id)
                                       }}
                                       disabled={changingEmailSaving || !changeEmailValue.trim()}
                                       className="text-xs font-semibold px-3 py-1 rounded-md disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90"
@@ -2333,7 +2389,7 @@ export default function BrokeragesPage() {
                                             {expandedAgentId !== agent.id && <ChevronRight size={14} />}
                                           </button>
                                           {(() => {
-                                            const addr = [(agent as any).address_street, (agent as any).address_city, (agent as any).address_province, (agent as any).address_postal_code].filter(Boolean).join(', ')
+                                            const addr = [agent.address_street, agent.address_city, agent.address_province, agent.address_postal_code].filter(Boolean).join(', ')
                                             return addr ? (
                                               <p className="text-[11px] text-muted-foreground/70 mt-0.5 leading-tight">{addr}</p>
                                             ) : null
@@ -2420,10 +2476,10 @@ export default function BrokeragesPage() {
                                                             setKycChecks({ nameMatch: false, addressMatch: false, idValid: false })
                                                             // Build address string from agent fields
                                                             const addrParts = [
-                                                              (agent as any).address_street,
-                                                              (agent as any).address_city,
-                                                              (agent as any).address_province,
-                                                              (agent as any).address_postal_code,
+                                                              agent.address_street,
+                                                              agent.address_city,
+                                                              agent.address_province,
+                                                              agent.address_postal_code,
                                                             ].filter(Boolean)
                                                             setKycPreviewPanel({
                                                               blobUrls,
@@ -2431,7 +2487,7 @@ export default function BrokeragesPage() {
                                                               fileName: `${agent.first_name}_${agent.last_name}_ID`,
                                                               agentName: `${agent.first_name} ${agent.last_name}`,
                                                               agentId: agent.id,
-                                                              agentPhone: (agent as any).phone || null,
+                                                              agentPhone: agent.phone || null,
                                                               agentAddress: addrParts.length > 0 ? addrParts.join(', ') : null,
                                                             })
                                                           } catch {
@@ -2503,7 +2559,7 @@ export default function BrokeragesPage() {
                                         <td className="px-4 py-3 text-right">
                                           <div className="flex items-center justify-end gap-1">
                                             <button
-                                              onClick={() => openEditAgent(agent, brokerage.id)}
+                                              onClick={() => openEditAgent(agent)}
                                               className="text-xs px-2 py-1 rounded transition-colors text-muted-foreground hover:text-primary hover:bg-primary/10"
                                               title="Edit agent"
                                             >
@@ -3084,6 +3140,9 @@ export default function BrokeragesPage() {
             </div>
             {preauthViewType === 'image' ? (
               <div className="w-full overflow-auto p-4" style={{ height: 'calc(80vh - 52px)' }}>
+                {/* Supabase signed URL — next/image domain config would
+                    require knowing the project ref at build time. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={preauthViewUrl} alt="Pre-Authorization Form" className="w-full rounded-lg" />
               </div>
             ) : (

@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
 import {
-  ArrowLeft, CheckCircle2, Circle, FileText, DollarSign, MapPin,
+  ArrowLeft, CheckCircle2, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
   StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap, FileSignature
@@ -39,13 +40,12 @@ import { MarkFundingFailedButton, FundingFailedBanner } from '@/components/admin
 import { EarlyClosingButton } from '@/components/admin/EarlyClosingActions'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, MAX_DAILY_EFT, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
 import { calculateDeal, getChargeDays, liveFailedDealInterestOwed } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -100,15 +100,36 @@ function useDragToPan(scrollRef: React.RefObject<HTMLDivElement | null>, isZoome
 const PDFJS_VERSION = '3.11.174'
 const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
 
-function loadPdfJs(): Promise<any> {
-  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib)
-  if ((window as any)._pdfjsLoading) return (window as any)._pdfjsLoading
+// Minimal shape we actually consume from pdf.js. The CDN build is loaded at
+// runtime, so we treat it as an opaque module with the methods we call.
+type PdfPage = {
+  getViewport: (opts: { scale: number }) => { width: number; height: number }
+  render: (opts: { canvasContext: CanvasRenderingContext2D; viewport: { width: number; height: number } }) => { promise: Promise<void> }
+}
+type PdfDocument = {
+  numPages: number
+  getPage: (n: number) => Promise<PdfPage>
+}
+type PdfJsLib = {
+  GlobalWorkerOptions: { workerSrc: string }
+  getDocument: (src: { data: ArrayBuffer }) => { promise: Promise<PdfDocument> }
+}
 
-  const promise = new Promise<any>((resolve, reject) => {
+type PdfJsWindow = Window & {
+  pdfjsLib?: PdfJsLib
+  _pdfjsLoading?: Promise<PdfJsLib>
+}
+
+function loadPdfJs(): Promise<PdfJsLib> {
+  const w = window as PdfJsWindow
+  if (w.pdfjsLib) return Promise.resolve(w.pdfjsLib)
+  if (w._pdfjsLoading) return w._pdfjsLoading
+
+  const promise = new Promise<PdfJsLib>((resolve, reject) => {
     const script = document.createElement('script')
     script.src = `${PDFJS_CDN}/pdf.min.js`
     script.onload = () => {
-      const lib = (window as any).pdfjsLib
+      const lib = (window as PdfJsWindow).pdfjsLib
       if (!lib) { reject(new Error('pdfjsLib not found after script load')); return }
       lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`
       resolve(lib)
@@ -117,7 +138,7 @@ function loadPdfJs(): Promise<any> {
     document.head.appendChild(script)
   })
 
-  ;(window as any)._pdfjsLoading = promise
+  w._pdfjsLoading = promise
   return promise
 }
 
@@ -126,7 +147,7 @@ const DEFAULT_ZOOM_INDEX = 1
 
 function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const pdfRef = useRef<any>(null)
+  const pdfRef = useRef<PdfDocument | null>(null)
   const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading')
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX)
   const [numPages, setNumPages] = useState(0)
@@ -160,7 +181,7 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
     async function renderPages() {
       const pdf = pdfRef.current
       const container = containerRef.current
-      if (!container) return
+      if (!container || !pdf) return
 
       const toRemove = container.querySelectorAll('canvas, .pdf-page-sep')
       toRemove.forEach((el: Element) => el.remove())
@@ -297,6 +318,9 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
     }
     el.addEventListener('wheel', handler, { passive: false })
     return () => el.removeEventListener('wheel', handler)
+    // imgZoomLevels.length is a constant for the component lifetime; src
+    // change is the only reason to re-bind the wheel listener.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src])
 
   return (
@@ -322,6 +346,10 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
         className="flex-1 overflow-auto p-2"
         style={{ cursor: isImgZoomed ? 'grab' : 'default' }}
       >
+        {/* Supabase signed URL with dynamic scale transforms — next/image
+            cannot zoom past its rendered intrinsic size and would require
+            domain whitelisting on every project ref. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
           alt={alt}
@@ -374,6 +402,11 @@ interface Deal {
   cure_election_deadline: string | null
   failed_deal_interest_charged: number | null
   failed_deal_interest_calculated_at: string | null
+  // Funding failure tracking (migration 084) — populated only for the
+  // funding_failed status, otherwise null.
+  funding_failure_reason?: string | null
+  funding_failure_notes?: string | null
+  funding_failed_at?: string | null
 }
 
 interface DealMessage {
@@ -430,6 +463,22 @@ interface Agent {
   flagged_by_brokerage: boolean; outstanding_recovery: number | null
 }
 
+// Subset of the closing_date_amendments columns we render. Server action
+// returns these as untyped rows; we narrow to what the UI reads.
+interface ClosingDateAmendment {
+  id: string
+  status: 'pending' | 'approved' | 'rejected'
+  old_closing_date: string
+  new_closing_date: string
+  old_advance_amount: number | null
+  new_advance_amount: number | null
+  fee_adjustment_amount: number | null
+  adjustment_scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' | null
+  amendment_document_id: string | null
+  rejection_reason: string | null
+  created_at: string
+}
+
 interface Brokerage {
   id: string; name: string; brand: string | null; address: string | null
   city: string | null; province: string | null; postal_code: string | null
@@ -459,9 +508,14 @@ const STATUS_LABELS: Record<string, string> = {
   cured: 'Cured',
 }
 
+// Lucide icons are React components with a stable {size, className} prop API.
+// We pass them around as bare components — no need for the full LucideIcon
+// import surface, this lightweight type covers everything we render.
+type IconComponent = React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>
+
 interface ChecklistCategory {
   label: string
-  icon: any
+  icon: IconComponent
   color: string
   bg: string
   border: string
@@ -469,7 +523,7 @@ interface ChecklistCategory {
   matchingDocs: Map<string, DealDocument[]>
 }
 
-const CATEGORY_STYLES: Record<string, { icon: any; color: string; bg: string; border: string }> = {
+const CATEGORY_STYLES: Record<string, { icon: IconComponent; color: string; bg: string; border: string }> = {
   'Agent Verification': { icon: User, color: 'var(--checklist-purple)', bg: 'color-mix(in srgb, var(--action-purple) 15%, transparent)', border: 'color-mix(in srgb, var(--action-purple) 30%, transparent)' },
   'Deal Verification': { icon: FileText, color: 'var(--checklist-blue)', bg: 'color-mix(in srgb, var(--action-blue) 15%, transparent)', border: 'color-mix(in srgb, var(--action-blue) 30%, transparent)' },
   'Deal Document Review': { icon: FileText, color: 'var(--checklist-blue)', bg: 'color-mix(in srgb, var(--action-blue) 15%, transparent)', border: 'color-mix(in srgb, var(--action-blue) 30%, transparent)' },
@@ -511,7 +565,7 @@ function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
   return result
 }
 
-const ACTION_CONFIG: Record<string, { label: string; icon: any; bg: string; hoverBg: string }> = {
+const ACTION_CONFIG: Record<string, { label: string; icon: IconComponent; bg: string; hoverBg: string }> = {
   under_review: { label: 'Start Review', icon: RefreshCw, bg: 'var(--action-blue)', hoverBg: 'var(--action-blue-hover)' },
   approved:     { label: 'Approve Deal', icon: CheckCircle2, bg: 'var(--action-green)', hoverBg: 'var(--action-green-hover)' },
   funded:       { label: 'Mark as Funded', icon: Banknote, bg: 'var(--action-purple)', hoverBg: 'var(--action-purple-hover)' },
@@ -547,7 +601,7 @@ export default function DealDetailPage() {
   const [sendingForSignature, setSendingForSignature] = useState(false)
   const [voidingEnvelopes, setVoidingEnvelopes] = useState(false)
   // Closing date amendment state
-  const [amendments, setAmendments] = useState<any[]>([])
+  const [amendments, setAmendments] = useState<ClosingDateAmendment[]>([])
   const [amendmentProcessing, setAmendmentProcessing] = useState<string | null>(null)
   const [rejectingAmendment, setRejectingAmendment] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -561,15 +615,24 @@ export default function DealDetailPage() {
   const [eftReference, setEftReference] = useState('')
   const [eftSaving, setEftSaving] = useState(false)
   const [adminNotes, setAdminNotes] = useState('')
-  const [adminNotesSaving, setAdminNotesSaving] = useState(false)
-  const [adminNotesLastSaved, setAdminNotesLastSaved] = useState<string | null>(null)
+  // adminNotesSaving / adminNotesLastSaved are set by handleSaveAdminNotes but
+  // no UI currently surfaces them — the timeline approach (notesTimeline +
+  // addAdminNote) replaced the in-place save. State is retained because the
+  // handler is still wired up.
+  const [, setAdminNotesSaving] = useState(false)
+  const [, setAdminNotesLastSaved] = useState<string | null>(null)
   const [notesTimeline, setNotesTimeline] = useState<{ id: string; text: string; author_name: string; created_at: string }[]>([])
   const [newNoteText, setNewNoteText] = useState('')
   const [addingNote, setAddingNote] = useState(false)
   const [editingClosingDate, setEditingClosingDate] = useState(false)
   const [newClosingDate, setNewClosingDate] = useState('')
   const [closingDateSaving, setClosingDateSaving] = useState(false)
-  const [closingDateComparison, setClosingDateComparison] = useState<{ old: Record<string, any>; new: Record<string, any> } | null>(null)
+  interface DateRecalc {
+    days_until_closing: number
+    discount_fee: number
+    advance_amount: number
+  }
+  const [closingDateComparison, setClosingDateComparison] = useState<{ old: DateRecalc; new: DateRecalc } | null>(null)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
@@ -584,7 +647,9 @@ export default function DealDetailPage() {
   const [viewLoading, setViewLoading] = useState<string | null>(null)
   // Messages
   const [messages, setMessages] = useState<DealMessage[]>([])
-  const [showMessageForm, setShowMessageForm] = useState(false)
+  // Inline form has been replaced by an always-visible composer; setter is
+  // still called to reset after a successful send.
+  const [, setShowMessageForm] = useState(false)
   const [messageText, setMessageText] = useState('')
   const [messageSending, setMessageSending] = useState(false)
   const [showDealQuickReplies, setShowDealQuickReplies] = useState(false)
@@ -632,6 +697,10 @@ export default function DealDetailPage() {
     router.push('/login')
   }
 
+  // loadDealData is declared further down using `async function`. It only
+  // depends on dealId from this component's state, so we re-run when dealId
+  // changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadDealData() }, [dealId])
 
   // After expanding messages, scroll the inner container to bottom so newest messages are visible
@@ -690,7 +759,7 @@ export default function DealDetailPage() {
     if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
     // Load amendments
     const amendResult = await getDealAmendments(dealId)
-    if (amendResult.success) setAmendments(amendResult.data || [])
+    if (amendResult.success) setAmendments((amendResult.data as ClosingDateAmendment[] | null) || [])
     setLoading(false)
 
     // After ALL data is loaded, handle auto-expand + scroll for #messages hash or unread messages
@@ -1045,6 +1114,11 @@ export default function DealDetailPage() {
     setStatusMessage({ type: 'success', text: 'Document deleted' })
   }
 
+  // Single-textarea save handler — legacy path. The timeline (handleAddNote
+  // above) is the active UI; kept around so it can be re-wired without
+  // re-implementing the contract with saveAdminNotes. Currently unbound to
+  // any button.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSaveAdminNotes = async () => {
     if (!deal) return
     setAdminNotesSaving(true)
@@ -1077,7 +1151,7 @@ export default function DealDetailPage() {
     setClosingDateSaving(true)
     const result = await updateClosingDate({ dealId: deal.id, newClosingDate })
     if (result.success && result.data) {
-      setClosingDateComparison({ old: result.data.old, new: result.data.new })
+      setClosingDateComparison({ old: result.data.old as DateRecalc, new: result.data.new as DateRecalc })
       const updated = result.data.new
       setDeal({
         ...deal,
@@ -1192,7 +1266,7 @@ export default function DealDetailPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <Image src="/brand/white.png" alt="Firm Funds" width={120} height={40} className="h-8 sm:h-10 w-auto" />
               <Separator orientation="vertical" className="h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}
@@ -1247,9 +1321,9 @@ export default function DealDetailPage() {
       {deal.status === 'funding_failed' && (
         <FundingFailedBanner
           dealId={deal.id}
-          failureReason={(deal as any).funding_failure_reason}
-          failureNotes={(deal as any).funding_failure_notes}
-          failedAt={(deal as any).funding_failed_at}
+          failureReason={deal.funding_failure_reason}
+          failureNotes={deal.funding_failure_notes}
+          failedAt={deal.funding_failed_at}
           onChanged={loadDealData}
         />
       )}
@@ -2075,7 +2149,7 @@ export default function DealDetailPage() {
                   const isApproved = am.status === 'approved'
                   const isRejected = am.status === 'rejected'
                   const docLink = am.amendment_document_id
-                    ? documents.find((d: any) => d.id === am.amendment_document_id)
+                    ? documents.find(d => d.id === am.amendment_document_id)
                     : null
                   const scenario = am.adjustment_scenario || 'approved_recalc'
                   const feeAdj = am.fee_adjustment_amount || 0
@@ -2210,17 +2284,17 @@ export default function DealDetailPage() {
               Financial Breakdown
             </h2>
             <div className="space-y-0">
-              {[
+              {([
                 { label: 'Gross Commission', value: formatCurrency(deal.gross_commission) },
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
                 { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
                 { label: `Settlement Period Fee (${deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d)`, value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
                 { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
-              ].map((row) => (
+              ] as { label: string; value: string; bold?: boolean; color?: string }[]).map((row) => (
                 <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
                   <span className="text-muted-foreground">{row.label}</span>
-                  <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'} ${(row as any).color || ''}`}>{row.value}</span>
+                  <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'} ${row.color || ''}`}>{row.value}</span>
                 </div>
               ))}
               {deal.broker_share_pct_at_funding != null && (
@@ -2261,7 +2335,7 @@ export default function DealDetailPage() {
                 <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>
               </div>
               {(() => {
-                const brokerageTotal = (deal.brokerage_payments || []).reduce((sum: number, p: any) => sum + p.amount, 0)
+                const brokerageTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)
                 if (brokerageTotal <= 0) return null
                 const isFullyPaid = Math.abs(brokerageTotal - deal.amount_due_from_brokerage) < 0.01
                 const isOver = brokerageTotal > deal.amount_due_from_brokerage + 0.01
@@ -2914,7 +2988,7 @@ export default function DealDetailPage() {
         {/* LATE SETTLEMENT STRIKE */}
         {deal && ['funded', 'completed'].includes(deal.status) && deal.due_date && (() => {
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-          const dueDateStr = typeof deal.due_date === 'string' ? deal.due_date.slice(0, 10) : new Date(deal.due_date as any).toISOString().slice(0, 10)
+          const dueDateStr = deal.due_date.slice(0, 10)
           const isPastDue = todayStr > dueDateStr
           if (!isPastDue && !deal.late_strike_recorded) return null
           return (
@@ -2932,11 +3006,11 @@ export default function DealDetailPage() {
               </div>
               <div className="px-4 py-3 space-y-2">
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Brokerage settlement was due {formatDate(dueDateStr)} ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}-day window). Recording a strike contributes toward the brokerage's auto-bump to a {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day window after {BROKERAGE_LATE_STRIKE_THRESHOLD} total strikes. Only record when you've confirmed the brokerage actually paid late (or hasn't paid).
+                  Brokerage settlement was due {formatDate(dueDateStr)} ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}-day window). Recording a strike contributes toward the brokerage&apos;s auto-bump to a {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day window after {BROKERAGE_LATE_STRIKE_THRESHOLD} total strikes. Only record when you&apos;ve confirmed the brokerage actually paid late (or hasn&apos;t paid).
                 </p>
                 {deal.late_strike_recorded ? (
                   <p className="text-[11px] text-amber-300/80">
-                    A strike has already been recorded for this deal. To undo, reset the brokerage's strikes from /admin/brokerages.
+                    A strike has already been recorded for this deal. To undo, reset the brokerage&apos;s strikes from /admin/brokerages.
                   </p>
                 ) : !showStrikeForm ? (
                   <button
@@ -3106,7 +3180,7 @@ export default function DealDetailPage() {
             </div>
             <div className="px-6 py-5 space-y-4">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                This will set the deal status to <strong>Failed to Close</strong>, charge the outstanding amount to the agent's ledger, and email the agent to choose a cure method within 15 days (per CPA Article 5.5).
+                This will set the deal status to <strong>Failed to Close</strong>, charge the outstanding amount to the agent&apos;s ledger, and email the agent to choose a cure method within 15 days (per CPA Article 5.5).
               </p>
 
               <div>

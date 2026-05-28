@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { FileSignature, Plus, RefreshCw, AlertTriangle, CheckCircle2, XCircle, Clock, DollarSign, Send } from 'lucide-react'
+import { FileSignature, Plus, RefreshCw, AlertTriangle, CheckCircle2, XCircle, DollarSign, Send } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
 import {
@@ -145,6 +145,10 @@ export default function RemediationDealsPanel({
     setRefreshing(false)
   }, [failedDealId])
 
+  // Effect kicks off the initial load; React Compiler flags the indirect
+  // setState calls inside load(), but this is the standard fetch-on-mount
+  // pattern — load() only re-runs when failedDealId changes.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
 
   const openAddModal = () => {
@@ -233,13 +237,16 @@ export default function RemediationDealsPanel({
     })
     setRemitSaving(false)
     if (result.success) {
-      const cured = result.data?.fullyCleared
+      const data = result.data as
+        | { fullyCleared?: boolean; newPrincipal?: number; creditApplied?: number }
+        | undefined
+      const cured = data?.fullyCleared
       setActiveMarkRemittedId(null)
       setTopLevelMessage({
         type: 'success',
         text: cured
           ? `Remittance recorded. Failed deal balance fully cleared — status changed to Cured.`
-          : `Remittance recorded. ${formatCurrency(result.data?.creditApplied || 0)} applied to balance. ${formatCurrency(result.data?.newPrincipal || 0)} principal still owing plus any remaining interest.`,
+          : `Remittance recorded. ${formatCurrency(data?.creditApplied || 0)} applied to balance. ${formatCurrency(data?.newPrincipal || 0)} principal still owing plus any remaining interest.`,
       })
       await load()
       if (cured) onCured?.()
@@ -421,7 +428,7 @@ export default function RemediationDealsPanel({
             <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Record an upcoming commission the agent will assign to clear the failed-deal balance.
-                Brokerage details default from the agent's file; override if the agent has transferred.
+                Brokerage details default from the agent&apos;s file; override if the agent has transferred.
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -677,7 +684,7 @@ export default function RemediationDealsPanel({
             <div className="px-6 py-5 space-y-4">
               <p className="text-xs text-muted-foreground leading-relaxed">
                 Cancel the remediation deal for <strong className="text-foreground">{activeCancelRow.property_address}</strong>.
-                This does <strong>not</strong> clear the failed-deal balance — the agent still owes it. Use Cancel when this specific commission won't be the one used to remediate (e.g. deal fell through, agent reassigned).
+                This does <strong>not</strong> clear the failed-deal balance — the agent still owes it. Use Cancel when this specific commission won&apos;t be the one used to remediate (e.g. deal fell through, agent reassigned).
               </p>
               <div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Reason *</label>

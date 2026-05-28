@@ -1,12 +1,12 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback, useMemo } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Shield, Search, X, ChevronLeft, ChevronRight, Download, Filter,
-  Clock, User, ArrowLeft, ChevronDown, ChevronUp, ArrowRight,
-  AlertTriangle, Info, FileText, Eye, ExternalLink, Zap
+  Clock, ArrowLeft, ChevronDown, ChevronUp, ArrowRight, Zap
 } from 'lucide-react'
 import { getActionLabel } from '@/lib/audit-labels'
 import {
@@ -20,7 +20,6 @@ import { formatDateTime } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 
 // ============================================================================
@@ -62,8 +61,8 @@ function InlineValueDiff({
   oldValue,
   newValue,
 }: {
-  oldValue: Record<string, any> | null
-  newValue: Record<string, any> | null
+  oldValue: Record<string, unknown> | null
+  newValue: Record<string, unknown> | null
 }) {
   if (!oldValue && !newValue) return null
   const allKeys = new Set([
@@ -174,9 +173,9 @@ export default function AuditExplorerPage() {
 function AuditExplorerInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [logs, setLogs] = useState<AuditLogRow[]>([])
@@ -222,7 +221,7 @@ function AuditExplorerInner() {
       setUser(user)
     }
     checkAuth()
-  }, [])
+  }, [router, supabase])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -248,7 +247,7 @@ function AuditExplorerInner() {
 
     const filters: AuditQueryFilters = {}
     if (searchQuery.trim()) filters.search = searchQuery.trim()
-    if (severity) filters.severity = severity as any
+    if (severity) filters.severity = severity as AuditQueryFilters['severity']
     if (actionFilter) filters.action = actionFilter
     if (entityTypeFilter) filters.entityType = entityTypeFilter
     if (actorEmailFilter.trim()) filters.actorEmail = actorEmailFilter.trim()
@@ -298,7 +297,7 @@ function AuditExplorerInner() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-    } catch (err) {
+    } catch {
       alert('Export failed. Please try again.')
     } finally {
       setExporting(false)

@@ -53,13 +53,26 @@ export default async function BalanceAdjustmentPage() {
     .order('last_name')
     .limit(2000)
 
-  const agents: BalanceAdjustmentAgent[] = (agentRows ?? []).map((a: any) => ({
+  type AgentRow = {
+    id: string
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    account_balance: number | string | null
+    brokerage_id: string | null
+    brokerages: { name: string | null }[] | { name: string | null } | null
+  }
+  const pickOneBrokerage = (rel: AgentRow['brokerages']): { name: string | null } | null => {
+    if (rel == null) return null
+    return Array.isArray(rel) ? rel[0] ?? null : rel
+  }
+  const agents: BalanceAdjustmentAgent[] = ((agentRows ?? []) as AgentRow[]).map(a => ({
     id: a.id,
-    first_name: a.first_name,
-    last_name: a.last_name,
+    first_name: a.first_name ?? '',
+    last_name: a.last_name ?? '',
     email: a.email,
     account_balance: Number(a.account_balance) || 0,
-    brokerage_name: a.brokerages?.name ?? null,
+    brokerage_name: pickOneBrokerage(a.brokerages)?.name ?? null,
   }))
 
   return (

@@ -59,15 +59,30 @@ export default async function AssignmentsPage() {
 
   // Look up assignee names for any deals that ARE assigned. Avoid a per-row
   // join to keep the page fast.
+  type DealRow = {
+    id: string
+    property_address: string
+    status: string
+    created_at: string
+    assigned_to_user_id: string | null
+    agents: { first_name: string | null; last_name: string | null }[] | { first_name: string | null; last_name: string | null } | null
+    brokerages: { name: string | null }[] | { name: string | null } | null
+  }
+  const rows = (dealRows ?? []) as DealRow[]
+  // PostgREST returns nested relations as arrays even on singular FKs.
+  const pickOne = <T,>(rel: T[] | T | null | undefined): T | null => {
+    if (rel == null) return null
+    return Array.isArray(rel) ? rel[0] ?? null : rel
+  }
   const assigneeIds = Array.from(
     new Set(
-      (dealRows ?? [])
-        .map((d: any) => d.assigned_to_user_id)
-        .filter((id: string | null): id is string => !!id),
+      rows
+        .map(d => d.assigned_to_user_id)
+        .filter((id): id is string => !!id),
     ),
   )
 
-  let assigneeMap = new Map<string, string>()
+  const assigneeMap = new Map<string, string>()
   if (assigneeIds.length > 0) {
     const { data: assignees } = await service
       .from('user_profiles')
@@ -78,13 +93,16 @@ export default async function AssignmentsPage() {
     }
   }
 
-  const allDeals: AssignmentDealRow[] = (dealRows ?? []).map((d: any) => ({
+  const allDeals: AssignmentDealRow[] = rows.map(d => {
+    const agentRow = pickOne(d.agents)
+    const brokerageRow = pickOne(d.brokerages)
+    return {
     id: d.id,
     property_address: d.property_address,
-    agent_name: d.agents
-      ? `${d.agents.first_name ?? ''} ${d.agents.last_name ?? ''}`.trim() || null
+    agent_name: agentRow
+      ? `${agentRow.first_name ?? ''} ${agentRow.last_name ?? ''}`.trim() || null
       : null,
-    brokerage_name: d.brokerages?.name ?? null,
+    brokerage_name: brokerageRow?.name ?? null,
     status: d.status,
     created_at: d.created_at,
     assigned_to_user_id: d.assigned_to_user_id,
@@ -92,7 +110,8 @@ export default async function AssignmentsPage() {
       ? assigneeMap.get(d.assigned_to_user_id) ?? null
       : null,
     days_in_queue: daysBetween(d.created_at),
-  }))
+    }
+  })
 
   const unassigned = allDeals.filter(d => !d.assigned_to_user_id)
   const mine = allDeals.filter(d => d.assigned_to_user_id === user.id)

@@ -279,8 +279,10 @@ function FirmDealReviewPageInner() {
     await loadQueue()
   }
 
-  const allPending = data?.pending ?? []
-  const allResolved = data?.recently_resolved ?? []
+  // Wrap in useMemo so identity is stable across renders when `data` hasn't
+  // changed — keeps downstream useMemo deps from invalidating every render.
+  const allPending = useMemo(() => data?.pending ?? [], [data])
+  const allResolved = useMemo(() => data?.recently_resolved ?? [], [data])
 
   // Distinct brokerages across the combined queue — drives the selector
   // dropdown. Only show the selector when >1 brokerage is represented,

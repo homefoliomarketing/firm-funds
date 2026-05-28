@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import type { UserProfile } from '@/types/database'
 import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, FileSignature, ExternalLink } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
@@ -21,7 +23,7 @@ import {
 import { getDocuSignStatus } from '@/lib/actions/esign-actions'
 
 export default function AdminSettingsPage() {
-  const [profile, setProfile] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [currentPassword, setCurrentPassword] = useState('')
@@ -52,7 +54,7 @@ export default function AdminSettingsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     async function load() {
@@ -86,7 +88,7 @@ export default function AdminSettingsPage() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [router, supabase])
 
   const showMsg = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -170,7 +172,7 @@ export default function AdminSettingsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <Image src="/brand/white.png" alt="Firm Funds" width={120} height={40} className="h-8 sm:h-10 w-auto" />
               <div className="w-px h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}

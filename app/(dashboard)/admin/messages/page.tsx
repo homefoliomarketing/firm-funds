@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import type { UserProfile } from '@/types/database'
 import {
   MessageSquare, ExternalLink, Inbox, Search, ArrowLeft,
-  AlertCircle, CheckCheck, X,
+  AlertCircle, CheckCheck,
 } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
@@ -27,7 +29,7 @@ import {
 import { uploadDocument } from '@/lib/actions/deal-actions'
 
 export default function AdminMessagesPage() {
-  const [profile, setProfile] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [inbox, setInbox] = useState<AdminInboxDeal[]>([])
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null)
@@ -37,7 +39,14 @@ export default function AdminMessagesPage() {
   const [filterMode, setFilterMode] = useState<'all' | 'needs_reply'>('all')
   const [isMobile, setIsMobile] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
+
+  const loadInbox = useCallback(async () => {
+    const result = await getAdminInbox()
+    if (result.success && result.data) {
+      setInbox(result.data.inbox)
+    }
+  }, [])
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -64,14 +73,7 @@ export default function AdminMessagesPage() {
       }
     }
     load()
-  }, [])
-
-  const loadInbox = useCallback(async () => {
-    const result = await getAdminInbox()
-    if (result.success && result.data) {
-      setInbox(result.data.inbox)
-    }
-  }, [])
+  }, [router, supabase, loadInbox])
 
   const selectDeal = useCallback(async (dealId: string) => {
     setSelectedDealId(dealId)
@@ -101,12 +103,13 @@ export default function AdminMessagesPage() {
       if (!lastMsg) return
       const result = await getNewMessages({ dealId: selectedDealId, afterTimestamp: lastMsg.created_at })
       if (result.success && result.data && result.data.length > 0) {
+        const newData = result.data as MessageData[]
         setMessages(prev => {
           const existingIds = new Set(prev.map(m => m.id))
-          const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
+          const newMsgs = newData.filter(m => !existingIds.has(m.id))
           return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
         })
-        const hasAgentMsg = result.data.some((m: any) => m.sender_role === 'agent')
+        const hasAgentMsg = newData.some(m => m.sender_role === 'agent')
         if (hasAgentMsg) {
           setInbox(prev => prev.map(item =>
             item.deal_id === selectedDealId ? { ...item, needs_reply: true } : item
@@ -189,7 +192,7 @@ export default function AdminMessagesPage() {
   const showList = !isMobile || !selectedDealId
   const showThread = !isMobile || !!selectedDealId
 
-  const quickReplies = ADMIN_QUICK_REPLIES.map((t: any) => ({ label: t.label, message: t.message }))
+  const quickReplies = ADMIN_QUICK_REPLIES.map(t => ({ label: t.label, message: t.message }))
 
   if (loading) {
     return (
@@ -215,7 +218,7 @@ export default function AdminMessagesPage() {
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center gap-4">
               <button onClick={() => router.push('/admin')} aria-label="Go to admin dashboard">
-                <img src="/brand/white.png" alt="Firm Funds" className="h-14 sm:h-18 md:h-24 w-auto cursor-pointer" />
+                <Image src="/brand/white.png" alt="Firm Funds" width={240} height={96} className="h-14 sm:h-18 md:h-24 w-auto cursor-pointer" />
               </button>
               <div className="w-px h-8 bg-white/15" />
               <button

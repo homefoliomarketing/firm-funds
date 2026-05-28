@@ -1,12 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import Image from 'next/image'
+import type { User } from '@supabase/supabase-js'
+import type { UserProfile } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
-  CreditCard, Eye, EyeOff, Loader2, ClipboardList, TimerReset, Inbox,
+  CreditCard, Eye, EyeOff, ClipboardList, TimerReset, Inbox,
   TrendingUp,
 } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -44,9 +47,70 @@ interface DashboardStats {
   overdueAssignedCount: number
 }
 
+// Shapes returned by the dashboard SELECTs. PostgREST nests one-to-many
+// FKs but our admin queries hit unique 1:1 relations (deal -> single agent,
+// agent -> single brokerage), so we model the joined fields as the singular
+// row shape directly — the runtime payload matches.
+type DashboardDeal = {
+  id: string
+  status: string
+  property_address: string | null
+  closing_date: string | null
+  advance_amount: number | null
+  gross_commission: number | null
+  created_at: string
+  assigned_to_user_id: string | null
+  // See note on `brokerages`. We pick the first element defensively below.
+  agents?: { first_name: string | null; last_name: string | null }[] | { first_name: string | null; last_name: string | null } | null
+}
+
+type DashboardBankingAgent = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  banking_submitted_at: string | null
+  banking_approval_status: string | null
+  banking_submitted_transit: string | null
+  banking_submitted_institution: string | null
+  banking_submitted_account: string | null
+  preauth_form_path: string | null
+  brokerage_id: string | null
+  // PostgREST types nested relations as arrays. Runtime is a single row for
+  // a many-to-one FK; we read the optional `?.name` defensively in render.
+  brokerages?: { name: string | null }[] | { name: string | null } | null
+}
+
+type DashboardKycAgent = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  kyc_status: string | null
+  kyc_submitted_at: string | null
+  kyc_document_path: string | null
+  kyc_document_type: string | null
+  brokerage_id: string | null
+  // PostgREST types nested relations as arrays. Runtime is a single row for
+  // a many-to-one FK; we read the optional `?.name` defensively in render.
+  brokerages?: { name: string | null }[] | { name: string | null } | null
+}
+
+type OverdueSettlementRow = {
+  deal_id: string
+  property_address: string | null
+  agent_name: string | null
+  brokerage_name: string | null
+  due_date: string | null
+  days_overdue: number
+  outstanding: number
+  amount_due: number
+}
+
 export default function AdminDashboard() {
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
+  // `user` is captured for parity with other pages; not currently rendered.
+  const [, setUser] = useState<User | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [stats, setStats] = useState<DashboardStats>({
     underReviewDeals: 0,
     pendingKycCount: 0,
@@ -57,10 +121,10 @@ export default function AdminDashboard() {
     unassignedCount: 0,
     overdueAssignedCount: 0,
   })
-  const [allDeals, setAllDeals] = useState<any[]>([])
-  const [overdueSettlements, setOverdueSettlements] = useState<any[]>([])
-  const [pendingBankingAgents, setPendingBankingAgents] = useState<any[]>([])
-  const [pendingKycAgents, setPendingKycAgents] = useState<any[]>([])
+  const [allDeals, setAllDeals] = useState<DashboardDeal[]>([])
+  const [overdueSettlements, setOverdueSettlements] = useState<OverdueSettlementRow[]>([])
+  const [pendingBankingAgents, setPendingBankingAgents] = useState<DashboardBankingAgent[]>([])
+  const [pendingKycAgents, setPendingKycAgents] = useState<DashboardKycAgent[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [rejectingAgentId, setRejectingAgentId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -72,7 +136,7 @@ export default function AdminDashboard() {
   const [currentPage, setCurrentPage] = useState(1)
   const DEALS_PER_PAGE = 15
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     async function loadDashboard() {
@@ -119,9 +183,9 @@ export default function AdminDashboard() {
           .in('status', ['unmatched', 'awaiting_approval', 'errored']),
       ])
 
-      setPendingBankingAgents(bankingAgents || [])
-      setPendingKycAgents(kycAgents || [])
-      const allDealsList = deals || []
+      setPendingBankingAgents((bankingAgents || []) as DashboardBankingAgent[])
+      setPendingKycAgents((kycAgents || []) as DashboardKycAgent[])
+      const allDealsList = (deals || []) as DashboardDeal[]
 
       const dismissMap = new Map<string, string>()
       if (dismissals) {
@@ -164,12 +228,12 @@ export default function AdminDashboard() {
 
       // Settlement-overdue deals (funded, past due_date, no strike yet)
       const overdueResult = await getOverdueSettlementDeals()
-      if (overdueResult.success) setOverdueSettlements(overdueResult.data as any[] || [])
+      if (overdueResult.success) setOverdueSettlements((overdueResult.data as OverdueSettlementRow[]) || [])
 
       setLoading(false)
     }
     loadDashboard()
-  }, [])
+  }, [router, supabase])
 
   // Poll for new messages + firm-deal review queue every 30 seconds. Cheap
   // count queries — no row payload pulled across the wire for either.
@@ -216,7 +280,7 @@ export default function AdminDashboard() {
       }
     }, 30000)
     return () => clearInterval(interval)
-  }, [loading])
+  }, [loading, supabase])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -248,12 +312,19 @@ export default function AdminDashboard() {
     under_review: 0, approved: 1, funded: 2, completed: 3, denied: 4, cancelled: 5,
   }
 
+  // PostgREST joins surface as arrays even on singular FKs; normalize.
+  const pickAgent = (rel: DashboardDeal['agents']) => {
+    if (!rel) return null
+    return Array.isArray(rel) ? rel[0] ?? null : rel
+  }
+
   let filtered = allDeals
   if (statusFilter) filtered = filtered.filter(d => d.status === statusFilter)
   if (searchQuery.trim()) {
     const q = searchQuery.toLowerCase()
     filtered = filtered.filter(d => {
-      const agentName = d.agents ? `${d.agents.first_name || ''} ${d.agents.last_name || ''}`.toLowerCase() : ''
+      const a = pickAgent(d.agents)
+      const agentName = a ? `${a.first_name || ''} ${a.last_name || ''}`.toLowerCase() : ''
       return d.property_address?.toLowerCase().includes(q) || agentName.includes(q)
     })
   }
@@ -286,7 +357,7 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-9 sm:h-10 w-auto" />
+              <Image src="/brand/white.png" alt="Firm Funds" width={120} height={40} className="h-9 sm:h-10 w-auto" />
               <Separator orientation="vertical" className="h-6 bg-border/30" />
               <span className="text-sm font-semibold tracking-wide text-muted-foreground">Admin</span>
             </div>
@@ -431,7 +502,7 @@ export default function AdminDashboard() {
                       <p className="text-sm font-medium text-foreground">
                         {agent.first_name} {agent.last_name}
                         <span className="text-xs font-normal ml-2 text-muted-foreground">
-                          {agent.brokerages?.name || ''} · {agent.email || 'No email'}
+                          {(Array.isArray(agent.brokerages) ? agent.brokerages[0]?.name : agent.brokerages?.name) || ''} · {agent.email || 'No email'}
                         </span>
                       </p>
                       <div className="flex items-center gap-2 mt-1">
@@ -553,7 +624,7 @@ export default function AdminDashboard() {
                       <p className="text-sm font-medium text-foreground">
                         {agent.first_name} {agent.last_name}
                         <span className="text-xs font-normal ml-2 text-muted-foreground">
-                          {agent.brokerages?.name || ''} · {agent.email || 'No email'}
+                          {(Array.isArray(agent.brokerages) ? agent.brokerages[0]?.name : agent.brokerages?.name) || ''} · {agent.email || 'No email'}
                         </span>
                       </p>
                       {agent.kyc_submitted_at && (
@@ -602,7 +673,7 @@ export default function AdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0 divide-y divide-border/50">
-                {overdueSettlements.map((d: any) => (
+                {overdueSettlements.map(d => (
                   <div key={d.deal_id} className="px-4 py-3 flex items-start justify-between gap-4 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">
@@ -810,16 +881,19 @@ export default function AdminDashboard() {
                           </span>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
+                          {(() => {
+                            const a = pickAgent(deal.agents)
+                            return a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : '—'
+                          })()}
                         </TableCell>
                         <TableCell>
                           <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}>
                             {formatStatusLabel(deal.status)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-sm font-medium">{formatCurrency(deal.gross_commission)}</TableCell>
+                        <TableCell className="text-sm font-medium">{formatCurrency(deal.gross_commission ?? 0)}</TableCell>
                         <TableCell className={`text-sm font-bold tabular-nums ${['denied', 'cancelled'].includes(deal.status) ? 'text-status-red' : 'text-primary'}`}>
-                          {formatCurrency(deal.advance_amount)}
+                          {formatCurrency(deal.advance_amount ?? 0)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
@@ -853,7 +927,10 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <p className="text-sm text-muted-foreground truncate">
-                          {deal.agents ? `${deal.agents.first_name || ''} ${deal.agents.last_name || ''}`.trim() : '—'}
+                          {(() => {
+                            const a = pickAgent(deal.agents)
+                            return a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : '—'
+                          })()}
                         </p>
                         <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap ${getStatusBadgeClass(deal.status)}`}>
                           {formatStatusLabel(deal.status)}
@@ -862,12 +939,12 @@ export default function AdminDashboard() {
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <p className="text-xs text-muted-foreground">Commission</p>
-                          <p className="text-sm font-medium">{formatCurrency(deal.gross_commission)}</p>
+                          <p className="text-sm font-medium">{formatCurrency(deal.gross_commission ?? 0)}</p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Advance</p>
                           <p className={`text-sm font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-emerald-400'}`}>
-                            {formatCurrency(deal.advance_amount)}
+                            {formatCurrency(deal.advance_amount ?? 0)}
                           </p>
                         </div>
                         <div>

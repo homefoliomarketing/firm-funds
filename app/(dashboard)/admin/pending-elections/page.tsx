@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -72,7 +72,7 @@ function electionTone(row: PendingCureElectionRow): string {
 
 export default function PendingCureElectionsPage() {
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [authChecked, setAuthChecked] = useState(false)
   const [data, setData] = useState<PendingCureElectionsResult | null>(null)
@@ -84,6 +84,20 @@ export default function PendingCureElectionsPage() {
   const [brokerageFilter, setBrokerageFilter] = useState<string>('all')
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [sortBy, setSortBy] = useState<'deadline' | 'balance' | 'failed_at'>('deadline')
+
+  const loadData = useCallback(async (isRefresh: boolean) => {
+    if (isRefresh) setRefreshing(true)
+    else setLoading(true)
+    setError(null)
+    const res = await getPendingCureElections()
+    if (res.success) {
+      setData(res.data as PendingCureElectionsResult)
+    } else {
+      setError(res.error || 'Failed to load pending cure elections')
+    }
+    setLoading(false)
+    setRefreshing(false)
+  }, [])
 
   useEffect(() => {
     async function check() {
@@ -97,26 +111,15 @@ export default function PendingCureElectionsPage() {
       setAuthChecked(true)
     }
     check()
-  }, [])
+  }, [router, supabase])
 
   useEffect(() => {
     if (!authChecked) return
+    // loadData calls setState; standard fetch pattern. Effect re-runs only
+    // when authChecked flips true.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData(false)
-  }, [authChecked])
-
-  async function loadData(isRefresh: boolean) {
-    if (isRefresh) setRefreshing(true)
-    else setLoading(true)
-    setError(null)
-    const res = await getPendingCureElections()
-    if (res.success) {
-      setData(res.data as PendingCureElectionsResult)
-    } else {
-      setError(res.error || 'Failed to load pending cure elections')
-    }
-    setLoading(false)
-    setRefreshing(false)
-  }
+  }, [authChecked, loadData])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
@@ -11,7 +12,7 @@ import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // ============================================================================
@@ -266,7 +267,7 @@ export default function ReportsPage() {
   const [selectedBrokerage, setSelectedBrokerage] = useState<BrokerageDetail | null>(null)
   const [brokerageLoading, setBrokerageLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -310,7 +311,12 @@ export default function ReportsPage() {
       loadMetrics(dateRange)
     }
     init()
-  }, [])
+    // `dateRange` is read once on mount; subsequent changes flow through
+    // handleDateChange/handleCustomDateApply which call loadMetrics directly.
+    // Re-running auth+load on every range tweak would fire a redundant getUser
+    // call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, supabase, loadMetrics])
 
   const handleDateChange = (range: DateRange) => {
     setDateRange(range)
@@ -441,7 +447,7 @@ export default function ReportsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <Image src="/brand/white.png" alt="Firm Funds" width={120} height={40} className="h-8 sm:h-10 w-auto" />
               <div className="w-px h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}
@@ -836,7 +842,7 @@ export default function ReportsPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {selectedBrokerage.agents.map((agent, i) => (
+                            {selectedBrokerage.agents.map(agent => (
                               <tr key={agent.id} className="border-b border-border/30 last:border-0">
                                 <td className="px-4 py-3 text-sm font-medium text-foreground">{agent.name}</td>
                                 <td className="px-4 py-3 text-sm text-right text-foreground/80">{agent.totalDeals}</td>
@@ -866,7 +872,7 @@ export default function ReportsPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {selectedBrokerage.recentDeals.map((deal, i) => (
+                            {selectedBrokerage.recentDeals.map(deal => (
                               <tr
                                 key={deal.id}
                                 className="cursor-pointer border-b border-border/30 last:border-0 hover:bg-muted/20 transition-colors"

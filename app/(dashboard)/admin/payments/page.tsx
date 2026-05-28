@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, DollarSign, Building2, ChevronDown, ChevronUp,
-  CheckCircle2, AlertTriangle, Clock, Search, FileText, XCircle,
+  CheckCircle2, AlertTriangle, Clock, Search, XCircle,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
@@ -38,7 +39,7 @@ interface Deal {
   brokerage_payments: PaymentEntry[] | null
   funding_date: string | null
   closing_date: string
-  agent: any
+  agent: { first_name: string | null; last_name: string | null } | null
 }
 
 const isCounted = (p: PaymentEntry) => p.status === 'confirmed'
@@ -67,13 +68,9 @@ export default function AdminPaymentsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'outstanding' | 'fully_paid'>('all')
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
-  useEffect(() => {
-    loadPaymentData()
-  }, [])
-
-  async function loadPaymentData() {
+  const loadPaymentData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
 
@@ -126,7 +123,7 @@ export default function AdminPaymentsPage() {
       const paid = payments.filter(isCounted).reduce((sum: number, p: PaymentEntry) => sum + (p.amount || 0), 0)
 
       const agentData = Array.isArray(deal.agent) ? deal.agent[0] || null : deal.agent
-      summary.deals.push({ ...deal, agent: agentData } as unknown as Deal)
+      summary.deals.push({ ...deal, agent: agentData } as Deal)
       summary.totalOwed += owed
       summary.totalPaid += paid
 
@@ -150,7 +147,15 @@ export default function AdminPaymentsPage() {
 
     setSummaries(results)
     setLoading(false)
-  }
+  }, [router, supabase])
+
+  useEffect(() => {
+    // Standard fetch-on-mount; loadPaymentData calls setState as the request
+    // resolves. The memoized callback's identity tracks router+supabase, so
+    // the effect won't fire spuriously.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPaymentData()
+  }, [loadPaymentData])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -299,7 +304,7 @@ export default function AdminPaymentsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-5">
             <div className="flex items-center gap-3">
-              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <Image src="/brand/white.png" alt="Firm Funds" width={120} height={40} className="h-8 sm:h-10 w-auto" />
               <div className="w-px h-6 bg-border/30" />
               <button
                 onClick={() => router.push('/admin')}

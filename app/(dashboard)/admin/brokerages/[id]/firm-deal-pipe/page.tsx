@@ -466,6 +466,10 @@ function ExistingPipeView({ pipe, brokerageId, brokerageName }: {
   // landed since the page first loaded).
   useEffect(() => {
     let cancelled = false
+    // Resetting loading/error state at the start of an effect-driven fetch is
+    // the canonical pattern. React Compiler flags this but it cannot cascade —
+    // the effect body fires once per dep change, not on every render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatsLoading(true)
     setStatsError(null)
     void getPipeStatistics({ brokerageId }).then(res => {
@@ -668,7 +672,7 @@ function AutoFireToggleCard({
             <DialogDescription>
               {enabling ? (
                 <>
-                  Offers will be sent automatically — no admin click between firm deal detection and the agent's inbox.
+                  Offers will be sent automatically — no admin click between firm deal detection and the agent&apos;s inbox.
                   {validatedEvents === null ? (
                     <> Stats are still loading…</>
                   ) : (
