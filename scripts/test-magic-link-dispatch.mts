@@ -145,6 +145,7 @@ console.log('Step 4/5: Run the dispatcher (sends real email + SMS via Resend + T
 const { dispatchFirmDealNotification } = await import(
   '../lib/firm-deal-detection/dispatch-notification'
 )
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import drops the SupabaseClient generic; runtime shape matches the dispatcher's expectation.
 const result = await dispatchFirmDealNotification(eventId, supabase as any)
 console.log('  Dispatch outcome:', JSON.stringify(result, null, 2))
 

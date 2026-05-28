@@ -13,7 +13,6 @@
  *          (requires --i-understand-this-is-production on prod; prompts to re-type hostname and 'yes')
  */
 import fs from 'node:fs';
-import path from 'node:path';
 import zlib from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 

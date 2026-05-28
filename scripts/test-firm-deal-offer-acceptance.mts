@@ -168,6 +168,7 @@ console.log('Step 4/5: Fire the brokerage notification (initial)…')
 const { sendBrokerageOfferNotification, sendBrokerageOfferNudge2h, sendInternalEscalation4h } = await import(
   '../lib/firm-deal-detection/dispatch-brokerage-offer'
 )
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import drops the SupabaseClient generic; runtime shape matches the dispatcher's expectation.
 const initial = await sendBrokerageOfferNotification(supabase as any, dealId)
 console.log('  Initial outcome:', JSON.stringify(initial, null, 2))
 
@@ -180,10 +181,12 @@ if (runNudges) {
     .from('deals')
     .update({ brokerage_notified_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() })
     .eq('id', dealId)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import drops the SupabaseClient generic; runtime shape matches the dispatcher's expectation.
   const nudge = await sendBrokerageOfferNudge2h(supabase as any, dealId)
   console.log('  Nudge outcome:', JSON.stringify(nudge, null, 2))
 
   console.log('Step 4c: Fire the 4-hour internal escalation…')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic import drops the SupabaseClient generic; runtime shape matches the dispatcher's expectation.
   const escalate = await sendInternalEscalation4h(supabase as any, dealId)
   console.log('  Escalation outcome:', JSON.stringify(escalate, null, 2))
 }
