@@ -52,6 +52,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 // ============================================================================
 // Drag-to-pan hook — click and drag to scroll a container when zoomed
@@ -3162,27 +3170,25 @@ export default function DealDetailPage() {
       </main>
 
       {/* Mark Failed to Close — Modal */}
-      {showFailedToCloseModal && deal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => !failedToCloseSaving && setShowFailedToCloseModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="failed-modal-title"
+      {deal && (
+        <Dialog
+          open={showFailedToCloseModal}
+          onOpenChange={(o) => {
+            if (!failedToCloseSaving) setShowFailedToCloseModal(o)
+          }}
         >
-          <div
-            className="w-full max-w-lg rounded-2xl bg-card border border-destructive/40 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-border/50 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              <h2 id="failed-modal-title" className="text-base font-bold text-destructive">Mark Deal as Failed to Close</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-xs text-muted-foreground leading-relaxed">
+          <DialogContent className="sm:max-w-lg border-destructive/40">
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                Mark Deal as Failed to Close
+              </DialogTitle>
+              <DialogDescription>
                 This will set the deal status to <strong>Failed to Close</strong>, charge the outstanding amount to the agent&apos;s ledger, and email the agent to choose a cure method within 15 days (per CPA Article 5.5).
-              </p>
+              </DialogDescription>
+            </DialogHeader>
 
+            <div className="space-y-4">
               <div>
                 <label htmlFor="failure-type" className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Failure Type</label>
                 <select
@@ -3229,7 +3235,8 @@ export default function DealDetailPage() {
                 />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-2">
+
+            <DialogFooter>
               <button
                 onClick={() => setShowFailedToCloseModal(false)}
                 disabled={failedToCloseSaving}
@@ -3245,9 +3252,9 @@ export default function DealDetailPage() {
                 {failedToCloseSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 {failedToCloseSaving ? 'Processing...' : 'Mark as Failed to Close'}
               </button>
-            </div>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       </div>
