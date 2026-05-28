@@ -160,5 +160,14 @@ Full-repository lint is still not clean; this remains the existing broad lint ba
 
 - Merge `audit-port-current-main` only with both migrations 094 and 095 included.
 - After merge/deploy to production, run one final production smoke test on `firmfunds.ca`.
-- Fix the flagged-agent login UX follow-up: Claude reported access is correctly blocked, but the login button can remain stuck on `Signing in...` instead of showing a clear rejection message.
 - Separately confirm Supabase backup/PITR and Storage encryption posture from the Supabase dashboard or another authorized production source.
+
+### Follow-Up Login UX Fix
+
+After the main audit branch was merged, `lib/actions/auth-actions.ts` was updated so password login now checks agent status, brokerage status, and brokerage flags before returning a successful login result. Blocked users are signed back out, an `auth.login_blocked` audit event is recorded, and the login page receives a normal error response instead of hanging on `Signing in...`.
+
+Verified after this follow-up:
+
+- `npx.cmd tsc --noEmit --incremental false`
+- `npx.cmd eslint -- lib/actions/auth-actions.ts`
+- `npm.cmd run build`
