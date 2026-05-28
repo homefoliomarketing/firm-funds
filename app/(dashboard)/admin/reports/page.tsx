@@ -13,6 +13,12 @@ import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type Brok
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // ============================================================================
@@ -742,46 +748,42 @@ export default function ReportsPage() {
       </main>
 
       {/* Brokerage Detail Modal */}
-      {(selectedBrokerage || brokerageLoading) && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 bg-black/60"
-          onClick={() => { if (!brokerageLoading) setSelectedBrokerage(null) }}
-        >
-          <div
-            className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl bg-card border border-border/50 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {brokerageLoading ? (
+      <Dialog
+        open={selectedBrokerage !== null || brokerageLoading}
+        onOpenChange={(open) => {
+          if (!open && !brokerageLoading) setSelectedBrokerage(null)
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto p-0 gap-0 sm:max-w-4xl">
+          {brokerageLoading ? (
+            <>
+              <DialogHeader className="sr-only">
+                <DialogTitle>Loading brokerage details</DialogTitle>
+              </DialogHeader>
               <div className="p-8 text-center">
                 <Skeleton className="h-6 w-48 mx-auto mb-4" />
                 <Skeleton className="h-4 w-32 mx-auto" />
               </div>
-            ) : selectedBrokerage && (
-              <>
-                {/* Modal Header */}
-                <div className="px-6 py-5 flex items-center justify-between border-b border-border/50">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-xl font-bold text-foreground">{selectedBrokerage.name}</h3>
-                      <span
-                        className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(selectedBrokerage.status)}`}
-                      >
-                        {formatStatusLabel(selectedBrokerage.status)}
-                      </span>
-                    </div>
-                    {selectedBrokerage.brand && <p className="text-sm mt-0.5 text-muted-foreground">{selectedBrokerage.brand}</p>}
+            </>
+          ) : selectedBrokerage && (
+            <>
+              {/* Modal Header */}
+              <DialogHeader className="px-6 py-5 border-b border-border/50">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <DialogTitle className="text-xl font-bold text-foreground">{selectedBrokerage.name}</DialogTitle>
+                    <span
+                      className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(selectedBrokerage.status)}`}
+                    >
+                      {formatStatusLabel(selectedBrokerage.status)}
+                    </span>
                   </div>
-                  <Button
-                    onClick={() => setSelectedBrokerage(null)}
-                    variant="outline"
-                    size="sm"
-                  >
-                    ✕
-                  </Button>
+                  {selectedBrokerage.brand && <p className="text-sm mt-0.5 text-muted-foreground">{selectedBrokerage.brand}</p>}
                 </div>
+              </DialogHeader>
 
-                {/* KPI Cards */}
-                <div className="px-6 py-5">
+              {/* KPI Cards */}
+              <div className="px-6 py-5">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     {[
                       { label: 'Total Deals', value: selectedBrokerage.totalDeals.toString(), accent: 'var(--primary)' },
@@ -901,9 +903,8 @@ export default function ReportsPage() {
                 </div>
               </>
             )}
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        </Dialog>
     </div>
   )
 }
