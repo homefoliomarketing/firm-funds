@@ -69,7 +69,8 @@ const CONFIG = {
   },
 }
 
-const client = new Client({ connectionString: DB_URL })
+// ssl required: Supabase enforces SSL on direct Postgres connections.
+const client = new Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } })
 await client.connect()
 
 try {
