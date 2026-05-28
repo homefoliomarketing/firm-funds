@@ -28,6 +28,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
@@ -1218,16 +1226,25 @@ export default function AgentDealDetailPage() {
       </main>
 
       {/* Closing Date Amendment Modal */}
-      {showAmendmentModal && deal && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => !amendSubmitting && setShowAmendmentModal(false)}>
-          <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <CardHeader className="border-b border-border">
-              <CardTitle className="flex items-center gap-2 text-primary">
+      {deal && (
+        <Dialog
+          open={showAmendmentModal}
+          onOpenChange={(o) => {
+            if (!amendSubmitting) setShowAmendmentModal(o)
+          }}
+        >
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-primary">
                 <CalendarClock size={18} />
                 Amend Closing Date
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-5 space-y-4">
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                Submit a request to change the closing date for this deal and upload the executed amendment document.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
               <div className="rounded-lg p-3 bg-muted/30 border border-border text-xs space-y-1">
                 <p><span className="text-muted-foreground">Current closing date:</span> <span className="font-semibold text-foreground">{new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}</span></p>
                 <p><span className="text-muted-foreground">Current advance:</span> <span className="font-semibold text-foreground">{formatCurrency(deal.advance_amount)}</span></p>
@@ -1270,26 +1287,26 @@ export default function AgentDealDetailPage() {
                   {amendError}
                 </div>
               )}
+            </div>
 
-              <div className="flex gap-2 justify-end pt-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowAmendmentModal(false)}
-                  disabled={amendSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSubmitAmendment}
-                  disabled={amendSubmitting || !amendNewClosingDate || !amendFile}
-                >
-                  {amendSubmitting && <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />}
-                  {amendSubmitting ? 'Submitting…' : 'Submit Request'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowAmendmentModal(false)}
+                disabled={amendSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmitAmendment}
+                disabled={amendSubmitting || !amendNewClosingDate || !amendFile}
+              >
+                {amendSubmitting && <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />}
+                {amendSubmitting ? 'Submitting…' : 'Submit Request'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )
