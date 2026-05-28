@@ -103,13 +103,15 @@ export async function GET(request: NextRequest) {
         .from('docusign_tokens')
         .update({ linked_by_user_id: user.id, linked_at: new Date().toISOString() })
         .eq('id', 1)
-    } catch (auditErr: any) {
-      console.error('DocuSign callback: failed to record linker', auditErr?.message)
+    } catch (auditErr: unknown) {
+      const message = auditErr instanceof Error ? auditErr.message : 'unknown'
+      console.error('DocuSign callback: failed to record linker', message)
     }
 
     return NextResponse.redirect(new URL('/admin/settings?docusign=connected', request.url))
-  } catch (err: any) {
-    console.error('DocuSign callback error:', err?.message)
-    return NextResponse.redirect(new URL('/admin/settings?docusign=error&reason=' + encodeURIComponent(err?.message || 'unknown'), request.url))
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('DocuSign callback error:', message)
+    return NextResponse.redirect(new URL('/admin/settings?docusign=error&reason=' + encodeURIComponent(message), request.url))
   }
 }

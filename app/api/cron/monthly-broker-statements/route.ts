@@ -98,7 +98,7 @@ export async function GET(request: Request) {
     .insert({ job_name: JOB_NAME, period: periodKey })
     .select('id')
     .single()
-  if (claimErr && (claimErr as any).code === '23505') {
+  if (claimErr && (claimErr as { code?: string }).code === '23505') {
     return Response.json({ already_ran: true, period: periodKey }, { status: 200 })
   }
   if (claimErr || !claimRow) {
@@ -163,6 +163,9 @@ export async function GET(request: Request) {
       continue
     }
 
+    // Supabase types the joined `agents` as an array; runtime is a single
+    // object (or null). We read fields defensively via optional chaining.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = (deals || []).map((d: any) => {
       const pct = Number(d.broker_share_pct_at_funding ?? 0)
       // Match the brokerage_referral_fee formula: pct applies to discount + settlement.
@@ -198,8 +201,9 @@ export async function GET(request: Request) {
         totalUnremitted,
       })
       totalSent++
-    } catch (err: any) {
-      errors.push(`${brokerage.name}: ${err?.message || 'send failed'}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'send failed'
+      errors.push(`${brokerage.name}: ${message}`)
       totalSkipped++
     }
   }

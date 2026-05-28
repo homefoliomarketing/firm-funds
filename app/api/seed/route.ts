@@ -202,7 +202,7 @@ export async function GET(request: Request) {
 
         const agentEmail = `${firstName.toLowerCase()}.${lastName.toLowerCase().replace("'", '')}@${brokDef.name.toLowerCase().replace(/[^a-z]/g, '')}-test.ca`
 
-        const { data: agent, error: agentErr } = await supabase
+        const { data: agent } = await supabase
           .from('agents')
           .insert({
             brokerage_id: brokerage.id,
@@ -253,7 +253,7 @@ export async function GET(request: Request) {
           continue
         }
 
-        const { data: deal, error: dealErr } = await supabase
+        const { data: deal } = await supabase
           .from('deals')
           .insert({
             agent_id: agentId,
@@ -292,10 +292,11 @@ export async function GET(request: Request) {
       details: results,
     }, { status: 200 })
 
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
     return Response.json({
       success: false,
-      error: err.message,
+      error: message,
       details: results,
     }, { status: 500 })
   }
@@ -376,10 +377,11 @@ export async function DELETE(request: Request) {
       details: results,
     })
 
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
     return Response.json({
       success: false,
-      error: err.message,
+      error: message,
       details: results,
     }, { status: 500 })
   }

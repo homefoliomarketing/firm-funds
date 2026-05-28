@@ -66,8 +66,9 @@ export async function POST(request: Request) {
         tokenRecordId: tokenRecord.id,
       },
     })
-  } catch (err: any) {
-    console.error('KYC upload URL generation error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('KYC upload URL generation error:', message)
     return NextResponse.json({ success: false, error: 'An unexpected error occurred.' })
   }
 }
@@ -189,8 +190,9 @@ export async function PUT(request: Request) {
     })
 
     return NextResponse.json({ success: true })
-  } catch (err: any) {
-    console.error('KYC finalize error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('KYC finalize error:', message)
     return NextResponse.json({ success: false, error: 'An unexpected error occurred.' })
   }
 }

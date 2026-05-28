@@ -66,8 +66,9 @@ export async function POST(request: Request) {
         agentName,
       },
     })
-  } catch (err: any) {
-    console.error('Magic link validate error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('Magic link validate error:', message)
     return NextResponse.json({ success: false, error: 'An unexpected error occurred.' })
   }
 }
@@ -178,8 +179,9 @@ export async function PUT(request: Request) {
     })
 
     return NextResponse.json({ success: true })
-  } catch (err: any) {
-    console.error('Magic link set password error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('Magic link set password error:', message)
     return NextResponse.json({ success: false, error: 'An unexpected error occurred.' })
   }
 }

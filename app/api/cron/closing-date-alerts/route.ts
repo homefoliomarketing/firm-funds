@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     .insert({ job_name: JOB_NAME, period })
     .select('id')
     .single()
-  if (claimErr && (claimErr as any).code === '23505') {
+  if (claimErr && (claimErr as { code?: string }).code === '23505') {
     return Response.json({ already_ran: true, period }, { status: 200 })
   }
   if (claimErr || !claimRow) {
@@ -108,6 +108,10 @@ export async function GET(request: Request) {
     }[] = []
 
     for (const deal of activeDeals) {
+      // Supabase types the joined `deal.agents` as an array even for a 1:1 FK
+      // join. At runtime it's a single object (or null when there's no match);
+      // we read fields defensively below.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const agent = deal.agents as any
       const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown Agent'
       const closingDate = new Date(deal.closing_date + 'T00:00:00')
@@ -147,8 +151,9 @@ export async function GET(request: Request) {
     if (approachingDeals.length > 0 || overdueDeals.length > 0) {
       try {
         await sendClosingDateAlertDigest({ approachingDeals, overdueDeals })
-      } catch (err: any) {
-        failures.push({ stage: 'digest', error: err?.message || 'send failed' })
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'send failed'
+        failures.push({ stage: 'digest', error: message })
       }
     }
 
@@ -177,7 +182,10 @@ export async function GET(request: Request) {
 
     if (fundedDeals) {
       for (const deal of fundedDeals) {
+        // Same Supabase 1:1 join shape mismatch as above.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const agent = deal.agents as any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const brokerage = deal.brokerages as any
         if (!agent?.email) continue
 
@@ -211,8 +219,9 @@ export async function GET(request: Request) {
           try {
             await sendSettlementReminderClosingDay(reminderParams)
             remindersSent++
-          } catch (err: any) {
-            failures.push({ stage: 'reminder_closing_day', dealId: deal.id, error: err?.message || 'send failed' })
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'send failed'
+            failures.push({ stage: 'reminder_closing_day', dealId: deal.id, error: message })
           }
         }
         // Mid-window reminder: 3 days remaining in the deal's settlement window
@@ -221,8 +230,9 @@ export async function GET(request: Request) {
           try {
             await sendSettlementReminder3Day(reminderParams)
             remindersSent++
-          } catch (err: any) {
-            failures.push({ stage: 'reminder_3_day', dealId: deal.id, error: err?.message || 'send failed' })
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'send failed'
+            failures.push({ stage: 'reminder_3_day', dealId: deal.id, error: message })
           }
         }
       }
@@ -300,14 +310,15 @@ export async function GET(request: Request) {
       failures,
       partial_failure: partialFailure,
     })
-  } catch (err: any) {
-    console.error('[cron] Closing date alert error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown error'
+    console.error('[cron] Closing date alert error:', message)
     await serviceClient
       .from('cron_run_log')
       .update({
         completed_at: new Date().toISOString(),
         outcome: 'error',
-        details: { error: err?.message || 'unknown error' },
+        details: { error: message },
       })
       .eq('id', runId)
     return Response.json({ error: 'Internal error' }, { status: 500 })

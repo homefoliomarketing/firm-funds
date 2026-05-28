@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,7 +12,6 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
   const supabase = createClient()
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -126,6 +124,7 @@ export default function ChangePasswordPage() {
 
       <div className="relative max-w-md w-full mx-4">
         <div className="text-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 md:h-48 w-auto mx-auto mb-5" />
           <p className="text-sm font-medium tracking-wide text-primary">
             Commission Advance Portal

@@ -159,6 +159,7 @@ function LoginPageInner() {
       <div className="relative max-w-[420px] w-full mx-4">
         {/* Logo / Brand */}
         <div className="text-center mb-10">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img
             src="/brand/white.png"
             alt="Firm Funds"

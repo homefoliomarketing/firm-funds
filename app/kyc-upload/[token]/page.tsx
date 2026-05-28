@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Shield, Upload, Camera, CheckCircle, XCircle, AlertCircle, FileText, Clock, Smartphone } from 'lucide-react'
+import { Upload, Camera, CheckCircle, XCircle, AlertCircle, FileText, Clock, Smartphone } from 'lucide-react'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
 
 type PageStatus = 'loading' | 'valid' | 'used' | 'expired' | 'invalid' | 'uploading' | 'success'
@@ -92,12 +92,12 @@ export default function KycMobileUploadPage() {
       }
 
       // === Step 2: Upload files DIRECTLY to Supabase Storage (bypasses Netlify) ===
-      const { uploadUrls, agentId, tokenRecordId } = urlResult.data
+      const { uploadUrls, tokenRecordId } = urlResult.data
       const filePaths: string[] = []
 
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i]
-        const { signedUrl, token: uploadToken, path } = uploadUrls[i]
+        const { signedUrl, path } = uploadUrls[i]
 
         const uploadResponse = await fetch(signedUrl, {
           method: 'PUT',
@@ -145,6 +145,7 @@ export default function KycMobileUploadPage() {
     return (
       <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
         <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -176,6 +177,7 @@ export default function KycMobileUploadPage() {
     return (
       <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
         <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -194,6 +196,7 @@ export default function KycMobileUploadPage() {
     return (
       <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
         <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -217,6 +220,7 @@ export default function KycMobileUploadPage() {
     return (
       <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
         <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -236,6 +240,7 @@ export default function KycMobileUploadPage() {
   return (
     <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
       <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
+        {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
         <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
       </div>
 
@@ -280,6 +285,7 @@ export default function KycMobileUploadPage() {
               <div key={i} className="mb-[10px] relative">
                 {previewUrls[i] ? (
                   <div className="rounded-[10px] overflow-hidden border border-white/10">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied blob/object URL preview, not an optimizable asset */}
                     <img src={previewUrls[i]} alt={`ID photo ${i + 1}`} className="w-full block" />
                   </div>
                 ) : (

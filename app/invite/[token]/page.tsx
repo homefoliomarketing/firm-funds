@@ -108,6 +108,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
     return (
       <div className={bgClass}>
         <div className="text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 w-auto mx-auto mb-5" />
           <p className="text-sm text-muted-foreground">Validating your invite...</p>
         </div>
@@ -121,6 +122,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       <div className={bgClass}>
         <div className="relative max-w-md w-full mx-4">
           <div className="text-center mb-8">
+            {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
             <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 w-auto mx-auto mb-5" />
           </div>
           <Card className="border-border/50">
@@ -152,6 +154,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       <div className={bgClass}>
         <div className="relative max-w-md w-full mx-4">
           <div className="text-center mb-8">
+            {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
             <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 w-auto mx-auto mb-5" />
           </div>
           <Card className="border-border/50">
@@ -187,6 +190,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
 
       <div className="relative max-w-md w-full mx-4">
         <div className="text-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-28 sm:h-36 md:h-48 w-auto mx-auto mb-5" />
           <p className="text-sm font-medium tracking-wide text-primary">
             Commission Advance Portal

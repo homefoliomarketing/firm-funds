@@ -100,8 +100,6 @@ export async function GET(request: Request) {
   const PAGE_HEIGHT = 612
   const MARGIN = 40
   const GREEN = rgb(95 / 255, 168 / 255, 115 / 255) // #5FA873
-  const DARK_BG = rgb(30 / 255, 30 / 255, 30 / 255)
-  const WHITE = rgb(1, 1, 1)
   const GREY = rgb(0.6, 0.6, 0.6)
   const LIGHT_GREY = rgb(0.85, 0.85, 0.85)
 
@@ -116,8 +114,18 @@ export async function GET(request: Request) {
   }
 
   // Calculate totals
-  const totalReferralFees = (deals || []).reduce((sum, d: any) => sum + (d.brokerage_referral_fee || 0), 0)
-  const totalDiscountFees = (deals || []).reduce((sum, d: any) => sum + (d.discount_fee || 0), 0)
+  type DealRow = {
+    property_address: string
+    closing_date: string
+    gross_commission: number
+    net_commission: number
+    discount_fee: number
+    brokerage_referral_fee: number
+    agent?: { first_name?: string; last_name?: string; email?: string } | null
+  }
+  const dealRows = (deals || []) as DealRow[]
+  const totalReferralFees = dealRows.reduce((sum, d) => sum + (d.brokerage_referral_fee || 0), 0)
+  const totalDiscountFees = dealRows.reduce((sum, d) => sum + (d.discount_fee || 0), 0)
   const referralPct = brokerage.referral_fee_percentage ?? DEFAULT_BROKERAGE_REFERRAL_PCT
 
   // --- Page creation helper ---
@@ -290,7 +298,7 @@ export async function GET(request: Request) {
         drawTableHeader()
       }
 
-      const deal = deals[i] as any
+      const deal = dealRows[i]
       const rowColor = i % 2 === 0 ? rgb(1, 1, 1) : rgb(0.98, 0.98, 0.98)
 
       // Alternating row bg

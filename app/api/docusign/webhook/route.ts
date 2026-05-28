@@ -68,6 +68,11 @@ export async function POST(request: Request) {
       return new Response('Unauthorized', { status: 401 })
     }
 
+    // DocuSign Connect payload shape (REST v2.1, aggregate mode). Using
+    // `any` here because the payload nests dynamic shapes (status, recipients,
+    // data, EnvelopeStatus, etc.) — we read fields defensively via optional
+    // chaining below.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let payload: any
 
     // DocuSign sends JSON when configured for REST v2.1
@@ -168,7 +173,7 @@ export async function POST(request: Request) {
     const mappedStatus = statusMap[envelopeStatus?.toLowerCase()] || envelopeStatus?.toLowerCase()
 
     // Build envelope update data
-    const updateData: Record<string, any> = {
+    const updateData: Record<string, string | null> = {
       status: mappedStatus,
     }
 
@@ -268,8 +273,9 @@ export async function POST(request: Request) {
             } else {
               console.error(`DocuSign webhook: failed to download BCA doc: ${docRes.status}`)
             }
-          } catch (docErr: any) {
-            console.error('DocuSign webhook: error processing BCA document:', docErr?.message)
+          } catch (docErr: unknown) {
+            const message = docErr instanceof Error ? docErr.message : 'unknown'
+            console.error('DocuSign webhook: error processing BCA document:', message)
           }
 
           // 3. Update bca_signed_at on the brokerage record
@@ -396,8 +402,9 @@ export async function POST(request: Request) {
                 }
               }
 
-            } catch (docErr: any) {
-              console.error(`DocuSign webhook: error processing ${docType} document:`, docErr?.message)
+            } catch (docErr: unknown) {
+              const message = docErr instanceof Error ? docErr.message : 'unknown'
+              console.error(`DocuSign webhook: error processing ${docType} document:`, message)
               // Continue with the next document — don't fail the whole webhook
             }
           }
@@ -417,8 +424,9 @@ export async function POST(request: Request) {
       .eq('event_id', eventId)
 
     return new Response('OK', { status: 200 })
-  } catch (err: any) {
-    console.error('DocuSign webhook error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('DocuSign webhook error:', message)
     // Always return 200 — DocuSign retries on non-200 and we don't want to loop
     return new Response('OK', { status: 200 })
   }

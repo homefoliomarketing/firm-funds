@@ -50,8 +50,9 @@ export async function POST(request: Request) {
       success: true,
       data: { agentName: agent?.first_name || 'Agent' },
     })
-  } catch (err: any) {
-    console.error('KYC token validation error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('KYC token validation error:', message)
     return NextResponse.json({ success: false, error: 'invalid' })
   }
 }

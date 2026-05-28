@@ -50,8 +50,9 @@ export async function POST(request: Request) {
       allowed: true,
       remaining: result.remaining,
     })
-  } catch (err: any) {
-    console.error('[rate-limit] API error:', err?.message)
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown'
+    console.error('[rate-limit] API error:', message)
     // Fail open — don't block users if rate limiting is misconfigured
     return NextResponse.json({ allowed: true, remaining: -1 })
   }
