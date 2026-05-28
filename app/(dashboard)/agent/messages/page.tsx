@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
@@ -25,6 +25,12 @@ import { uploadDocument } from '@/lib/actions/deal-actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { UserProfile } from '@/types/database'
+
+interface AgentForMessages {
+  id: string
+  brokerages?: { name: string | null; logo_url: string | null; brand_color: string | null } | null
+}
 
 interface DocumentReturnItem {
   id: string
@@ -39,8 +45,8 @@ interface DocumentReturnItem {
 }
 
 export default function AgentMessagesPage() {
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentForMessages | null>(null)
   const [loading, setLoading] = useState(true)
   const [inbox, setInbox] = useState<InboxDeal[]>([])
   const [pendingReturns, setPendingReturns] = useState<DocumentReturnItem[]>([])
@@ -86,6 +92,9 @@ export default function AgentMessagesPage() {
       }
     }
     load()
+    // supabase/router are stable; loadInbox is intentionally re-created
+    // each render but we only want this effect to run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadInbox = useCallback(async (agentId: string) => {
@@ -126,7 +135,7 @@ export default function AgentMessagesPage() {
       if (result.success && result.data && result.data.length > 0) {
         setMessages(prev => {
           const existingIds = new Set(prev.map(m => m.id))
-          const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
+          const newMsgs = (result.data as MessageData[]).filter((m) => !existingIds.has(m.id))
           return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
         })
         if (agent?.id) {
@@ -163,7 +172,7 @@ export default function AgentMessagesPage() {
         fileName = file.name
         fileSize = file.size
         fileType = file.type
-      } catch (err) {
+      } catch {
         setStatusMessage({ type: 'error', text: 'File upload failed' })
         return
       }

@@ -24,6 +24,25 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import type { UserProfile } from '@/types/database'
+
+interface AgentForDashboard {
+  id: string
+  first_name: string
+  last_name: string
+  kyc_status: string
+  kyc_rejection_reason: string | null
+  kyc_verified_modal_seen?: boolean | null
+  banking_verified: boolean | null
+  preauth_form_path: string | null
+  account_activated_at: string | null
+  phone: string | null
+  address_street: string | null
+  address_city: string | null
+  address_province: string | null
+  address_postal_code: string | null
+  brokerages?: { name: string | null; logo_url: string | null; brand_color: string | null } | null
+}
 
 /**
  * Format a bare YYYY-MM-DD calendar date without timezone drift. The shared
@@ -75,8 +94,8 @@ export default function AgentDashboard() {
 }
 
 function AgentDashboardInner() {
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentForDashboard | null>(null)
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [showKycVerifiedModal, setShowKycVerifiedModal] = useState(false)
@@ -124,25 +143,28 @@ function AgentDashboardInner() {
           .select(`*, brokerages(${BROKERAGE_PUBLIC_COLUMNS})`)
           .eq('id', profile.agent_id)
           .single()
-        setAgent(agentData)
+        setAgent(agentData as AgentForDashboard | null)
 
         const { data: dealData } = await supabase
           .from('deals')
           .select('*')
           .eq('agent_id', profile.agent_id)
           .order('created_at', { ascending: false })
-        setDeals(dealData || [])
+        setDeals((dealData as Deal[] | null) || [])
 
         // Fetch account balance
         const balanceResult = await getAgentBalanceSummary(profile.agent_id)
         if (balanceResult.success && balanceResult.data) {
-          setAccountBalance(balanceResult.data.balance)
+          const bal = balanceResult.data as { balance: number }
+          setAccountBalance(bal.balance)
         }
       }
 
       setLoading(false)
     }
     loadAgent()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Fetch the firm-deal offer summary when the agent lands via the magic
@@ -520,7 +542,7 @@ function AgentDashboardInner() {
           )}
 
           {/* KYC Banner — only show when activated but somehow KYC issue (rare edge case) */}
-          {!notActivated && (kycPending || kycRejected) && (
+          {!notActivated && agent && (kycPending || kycRejected) && (
             <AgentKycGate agent={agent} onKycSubmitted={() => window.location.reload()} />
           )}
           {!notActivated && kycSubmitted && (

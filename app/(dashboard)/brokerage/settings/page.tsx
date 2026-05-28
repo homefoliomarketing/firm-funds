@@ -21,10 +21,24 @@ import {
   updateBrokerageContactEmail,
 } from '@/lib/actions/settings-actions'
 import { getBrokerageStaff, inviteBrokerageStaff, updateStaffTitle } from '@/lib/actions/profile-actions'
+import type { Brokerage, UserProfile } from '@/types/database'
+
+type BrokeragePublic = Pick<Brokerage,
+  | 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'
+  | 'broker_of_record_name' | 'broker_of_record_email'
+>
+
+interface StaffMember {
+  id: string
+  full_name: string
+  email: string
+  staff_title?: string | null
+  last_login?: string | null
+}
 
 export default function BrokerageSettingsPage() {
-  const [profile, setProfile] = useState<any>(null)
-  const [brokerage, setBrokerage] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [currentPassword, setCurrentPassword] = useState('')
@@ -52,8 +66,7 @@ export default function BrokerageSettingsPage() {
   const [notifSaving, setNotifSaving] = useState(false)
 
   // Staff management
-  const [staff, setStaff] = useState<any[]>([])
-  const [staffLoading, setStaffLoading] = useState(false)
+  const [staff, setStaff] = useState<StaffMember[]>([])
   const [showInviteStaff, setShowInviteStaff] = useState(false)
   const [inviteName, setInviteName] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
@@ -88,7 +101,7 @@ export default function BrokerageSettingsPage() {
           .from('brokerages')
           .select(BROKERAGE_PUBLIC_COLUMNS)
           .eq('id', profileData.brokerage_id)
-          .single<any>()
+          .single<BrokeragePublic>()
         setBrokerage(brokerageData)
         setContactEmail(brokerageData?.email || '')
       }
@@ -107,6 +120,8 @@ export default function BrokerageSettingsPage() {
       setLoading(false)
     }
     load()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const showMsg = (type: 'success' | 'error', text: string) => {
@@ -200,6 +215,7 @@ export default function BrokerageSettingsPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
               <div className="w-px h-8 bg-white/15" />
               <button

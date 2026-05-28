@@ -9,9 +9,15 @@ import { submitCureElection } from '@/lib/actions/deal-actions'
 import AgentHeader from '@/components/AgentHeader'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { UserProfile } from '@/types/database'
 
 interface PageProps {
   params: Promise<{ dealId: string }>
+}
+
+interface AgentForHeader {
+  id: string
+  brokerages?: { name: string | null; logo_url: string | null } | null
 }
 
 interface DealRow {
@@ -43,8 +49,8 @@ function daysRemaining(deadlineIso: string): number {
 
 export default function CureElectionPage({ params }: PageProps) {
   const { dealId } = use(params)
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentForHeader | null>(null)
   const [deal, setDeal] = useState<DealRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -98,6 +104,9 @@ export default function CureElectionPage({ params }: PageProps) {
       setLoading(false)
     }
     load()
+    // supabase + router are stable for the life of the page; including them
+    // here would cause an infinite re-fetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dealId])
 
   const handleSubmit = async () => {
@@ -221,12 +230,12 @@ export default function CureElectionPage({ params }: PageProps) {
                   {deal.cure_election === 'cash_repayment' ? (
                     <div className="text-xs text-muted-foreground leading-relaxed space-y-2 mt-3">
                       <p><strong className="text-foreground">Next steps:</strong> Pay the full outstanding balance to Firm Funds within 30 days of the failure notice by electronic funds transfer.</p>
-                      <p>Banking details for the transfer have been sent to your email. If you don't see them, reply to that message and we'll resend.</p>
+                      <p>Banking details for the transfer have been sent to your email. If you don&apos;t see them, reply to that message and we&apos;ll resend.</p>
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground leading-relaxed space-y-2 mt-3">
                       <p><strong className="text-foreground">Next steps:</strong> When your next commission becomes firm, notify Firm Funds within 2 business days (CPA 5.7).</p>
-                      <p>We'll send you a Remediation Direction to Pay to sign via DocuSign. Your brokerage will remit the commission directly to Firm Funds to clear the balance. No discount fee or settlement fee applies — this is not a new advance.</p>
+                      <p>We&apos;ll send you a Remediation Direction to Pay to sign via DocuSign. Your brokerage will remit the commission directly to Firm Funds to clear the balance. No discount fee or settlement fee applies — this is not a new advance.</p>
                     </div>
                   )}
                 </div>
@@ -311,7 +320,7 @@ export default function CureElectionPage({ params }: PageProps) {
                   </p>
                   <ul className="text-xs text-muted-foreground/80 mt-2 space-y-1 list-disc list-inside">
                     <li>No discount fee or settlement fee — this is not a new advance</li>
-                    <li>You'll sign a Remediation Direction to Pay when your next deal goes firm</li>
+                    <li>You&apos;ll sign a Remediation Direction to Pay when your next deal goes firm</li>
                     <li>24% interest compounds daily on the unpaid balance until cleared</li>
                   </ul>
                 </div>

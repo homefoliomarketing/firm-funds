@@ -97,7 +97,7 @@ function AmendmentNewInner() {
       )
       const pendingSet = new Set<string>()
       pendingChecks.forEach((res, i) => {
-        if (res.success && Array.isArray(res.data) && res.data.some((a: any) => a.status === 'pending')) {
+        if (res.success && Array.isArray(res.data) && res.data.some((a: { status?: string }) => a.status === 'pending')) {
           pendingSet.add(dealsList[i].id)
         }
       })
@@ -112,6 +112,8 @@ function AmendmentNewInner() {
       setLoading(false)
     }
     load()
+    // supabase/router/searchParams are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const eligibleDeals = useMemo(
@@ -215,6 +217,7 @@ function AmendmentNewInner() {
       <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
             <div className="w-px h-6 bg-border" />
             <button

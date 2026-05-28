@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent,
+  ArrowLeft, Calculator, Send, DollarSign, MapPin,
   Upload, FileText, X, Loader2, User as UserIcon,
 } from 'lucide-react'
 import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument, createRevisedDealFromDenied } from '@/lib/actions/deal-actions'
@@ -23,6 +23,9 @@ import {
   buildUploadItems,
   type FileUploadItem,
 } from '@/components/ui/file-upload-progress'
+import type { Brokerage, UserProfile } from '@/types/database'
+
+type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
 
 interface AgentRow {
   id: string
@@ -58,8 +61,9 @@ function NewBrokerageDealPageInner() {
   const fromOfferId = searchParams.get('from_offer')
   const revisedFromId = searchParams.get('revisedFrom')
   const supabase = createClient()
-  const [profile, setProfile] = useState<any>(null)
-  const [brokerage, setBrokerage] = useState<any>(null)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_profile, setProfile] = useState<UserProfile | null>(null)
+  const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [agents, setAgents] = useState<AgentRow[]>([])
   const [loading, setLoading] = useState(true)
   // Resubmit-from-denied banner state (mirrors the agent flow).
@@ -113,7 +117,7 @@ function NewBrokerageDealPageInner() {
       if (!prof || prof.role !== 'brokerage_admin' || !prof.brokerage_id) { router.push('/login'); return }
       setProfile(prof)
       const { data: brok } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', prof.brokerage_id).single()
-      setBrokerage(brok)
+      setBrokerage(brok as BrokeragePublic | null)
       const { data: ags } = await supabase
         .from('agents')
         .select('id, first_name, last_name, email, status, account_activated_at, kyc_status, banking_approval_status')
@@ -152,6 +156,8 @@ function NewBrokerageDealPageInner() {
       setLoading(false)
     }
     load()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromOfferId])
 
   // Pre-fill the form from a denied deal when ?revisedFrom=<id> is set.
@@ -293,11 +299,12 @@ function NewBrokerageDealPageInner() {
       } else {
         updateQueueItem(item.id, { status: 'failed', progress: 0, error: r.error || 'Upload failed' })
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload failed unexpectedly'
       updateQueueItem(item.id, {
         status: 'failed',
         progress: 0,
-        error: err?.message || 'Upload failed unexpectedly',
+        error: msg,
       })
     }
   }, [updateQueueItem])
@@ -390,6 +397,7 @@ function NewBrokerageDealPageInner() {
       <div className="min-h-screen bg-background">
         <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/white.png" alt="Firm Funds" className="h-10 w-auto" />
             <div className="w-px h-8 bg-white/15" />
             <p className="text-sm font-medium text-white">Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}</p>
@@ -441,6 +449,7 @@ function NewBrokerageDealPageInner() {
             <button onClick={() => router.push('/brokerage')} className="p-1.5 rounded-lg text-white/50 hover:text-primary" aria-label="Back">
               <ArrowLeft size={16} />
             </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/white.png" alt="Firm Funds" className="h-10 w-auto" />
             <div className="w-px h-8 bg-white/15 hidden sm:block" />
             <p className="text-sm font-medium text-white hidden sm:block">Submit Advance Request{brokerage ? ` — ${brokerage.name}` : ''}</p>

@@ -17,10 +17,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import type { UserProfile } from '@/types/database'
+
+interface AgentForSettings {
+  id: string
+  brokerages?: { name: string | null; logo_url?: string | null; brand_color?: string | null } | null
+}
 
 export default function AgentSettingsPage() {
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentForSettings | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Password state
@@ -87,6 +93,8 @@ export default function AgentSettingsPage() {
       setLoading(false)
     }
     load()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const showMsg = (type: 'success' | 'error', text: string) => {

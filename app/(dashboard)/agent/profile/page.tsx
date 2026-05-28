@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
-  User, Phone, MapPin, Building2, CreditCard, Upload, CheckCircle, AlertCircle, FileText, Loader2,
+  User, Phone, MapPin, CreditCard, Upload, CheckCircle, AlertCircle, FileText, Loader2,
 } from 'lucide-react'
 import { updateAgentProfile, submitAgentBanking } from '@/lib/actions/profile-actions'
 import AgentHeader from '@/components/AgentHeader'
@@ -12,10 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import type { Agent, UserProfile } from '@/types/database'
+
+interface AgentWithBrokerage extends Agent {
+  brokerages?: { name: string | null; logo_url?: string | null } | null
+}
 
 export default function AgentProfilePage() {
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentWithBrokerage | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -75,6 +80,8 @@ export default function AgentProfilePage() {
       setLoading(false)
     }
     load()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSaveProfile = async () => {
@@ -93,14 +100,14 @@ export default function AgentProfilePage() {
 
     if (result.success) {
       setSaveMessage({ type: 'success', text: 'Profile updated successfully' })
-      setAgent((prev: any) => ({
+      setAgent((prev) => prev ? ({
         ...prev,
         phone: phone.trim() || null,
         address_street: addressStreet.trim() || null,
         address_city: addressCity.trim() || null,
         address_province: addressProvince.trim() || null,
         address_postal_code: addressPostalCode.trim().toUpperCase() || null,
-      }))
+      }) : prev)
     } else {
       setSaveMessage({ type: 'error', text: result.error || 'Failed to update' })
     }
@@ -160,15 +167,15 @@ export default function AgentProfilePage() {
 
       if (finalData.success) {
         setUploadMessage({ type: 'success', text: 'Pre-authorized form uploaded successfully' })
-        setAgent((prev: any) => ({
+        setAgent((prev) => prev ? ({
           ...prev,
           preauth_form_path: urlData.data.path,
           preauth_form_uploaded_at: new Date().toISOString(),
-        }))
+        }) : prev)
       } else {
         setUploadMessage({ type: 'error', text: finalData.error || 'Failed to save upload' })
       }
-    } catch (err) {
+    } catch {
       setUploadMessage({ type: 'error', text: 'An unexpected error occurred' })
     }
 
@@ -190,14 +197,14 @@ export default function AgentProfilePage() {
 
     if (result.success) {
       setBankingMessage({ type: 'success', text: 'Banking info submitted for review' })
-      setAgent((prev: any) => ({
+      setAgent((prev) => prev ? ({
         ...prev,
         banking_submitted_transit: bankTransit.trim(),
         banking_submitted_institution: bankInstitution.trim(),
         banking_submitted_account: bankAccount.trim(),
-        banking_approval_status: 'pending',
+        banking_approval_status: 'pending' as const,
         banking_rejection_reason: null,
-      }))
+      }) : prev)
     } else {
       setBankingMessage({ type: 'error', text: result.error || 'Failed to submit' })
     }
@@ -361,7 +368,7 @@ export default function AgentProfilePage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Account</p>
-                    <p className="text-sm font-mono font-medium text-foreground">{'•'.repeat(agent.bank_account_number.length - 4)}{agent.bank_account_number.slice(-4)}</p>
+                    <p className="text-sm font-mono font-medium text-foreground">{'•'.repeat((agent.bank_account_number || '').length - 4)}{(agent.bank_account_number || '').slice(-4)}</p>
                   </div>
                 </div>
               </div>
@@ -372,7 +379,7 @@ export default function AgentProfilePage() {
                   <span className="text-sm font-semibold text-status-blue">Pending approval</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Your banking info has been submitted and is being reviewed. You'll receive an email once it's approved.
+                  Your banking info has been submitted and is being reviewed. You&apos;ll receive an email once it&apos;s approved.
                 </p>
               </div>
             ) : agent?.banking_approval_status === 'rejected' ? (

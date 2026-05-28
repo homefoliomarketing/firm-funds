@@ -7,7 +7,7 @@ import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
-  MessageSquare, Inbox, Settings, Bell, CheckCircle2, Eye, ExternalLink, X, Phone, MapPin,
+  MessageSquare, Inbox, Settings, Bell, Eye, ExternalLink, X, Phone,
   CalendarClock,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
@@ -25,9 +25,48 @@ import type { MessageData } from '@/components/messaging/MessageBubble'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import type { Brokerage, UserProfile } from '@/types/database'
+
+interface BrokerageInboxDeal {
+  deal_id: string
+  property_address: string
+  deal_status: string
+  agent_name: string
+  latest_message: string
+  latest_message_at: string
+  latest_sender_role: string
+  total_message_count: number
+  unread_message_count: number
+}
+
+type BrokeragePublic = Pick<Brokerage,
+  | 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'
+  | 'broker_of_record_name' | 'broker_of_record_email'
+>
+
+interface PendingAmendment {
+  id: string
+  old_closing_date: string
+  new_closing_date: string
+  created_at: string
+  deals?: { property_address?: string; agents?: { first_name?: string; last_name?: string } } | null
+}
+
+interface DealMessageData {
+  id: string
+  sender_role: string
+  sender_name: string | null
+  message: string
+  is_email_reply: boolean
+  file_path?: string | null
+  file_name?: string | null
+  file_size?: number | null
+  file_type?: string | null
+  created_at: string
+}
 
 interface Deal {
   id: string
@@ -45,6 +84,18 @@ interface Deal {
   amount_due_from_brokerage: number
   funding_date: string | null
   created_at: string
+  // White-label profit-share fields (joined when brokerage is partner)
+  broker_share_amount?: number | null
+  broker_share_remitted?: boolean | null
+  // brokerage_payments embed
+  brokerage_payments?: Array<{
+    id: string
+    amount: number
+    date: string
+    reference?: string | null
+    method?: string | null
+    status?: 'pending' | 'confirmed' | 'rejected' | null
+  }>
   // denial_reason intentionally not fetched for brokerage (admin's wording).
   denial_reason?: string | null
   agent?: {
@@ -65,11 +116,15 @@ interface Agent {
   flagged_by_brokerage: boolean
   kyc_status: string | null
   banking_verified: boolean
+  address_street?: string | null
+  address_city?: string | null
+  address_province?: string | null
+  address_postal_code?: string | null
 }
 
 export default function BrokerageDashboard() {
-  const [profile, setProfile] = useState<any>(null)
-  const [brokerage, setBrokerage] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [deals, setDeals] = useState<Deal[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [expandedDeal, setExpandedDeal] = useState<string | null>(null)
@@ -84,10 +139,10 @@ export default function BrokerageDashboard() {
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [downloadingCsv, setDownloadingCsv] = useState(false)
   const [showMonthlyChart, setShowMonthlyChart] = useState(true)
-  const [brokerageInbox, setBrokerageInbox] = useState<any[]>([])
-  const [pendingAmendments, setPendingAmendments] = useState<any[]>([])
+  const [brokerageInbox, setBrokerageInbox] = useState<BrokerageInboxDeal[]>([])
+  const [pendingAmendments, setPendingAmendments] = useState<PendingAmendment[]>([])
   const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
-  const [dealMessages, setDealMessages] = useState<any[]>([])
+  const [dealMessages, setDealMessages] = useState<DealMessageData[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [unreadNotifCount, setUnreadNotifCount] = useState(0)
 
@@ -116,7 +171,7 @@ export default function BrokerageDashboard() {
       if (profileData?.role !== 'brokerage_admin') { router.push('/login'); return }
       if (profileData?.brokerage_id) {
         const { data: brokerageData } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', profileData.brokerage_id).single()
-        setBrokerage(brokerageData)
+        setBrokerage(brokerageData as BrokeragePublic | null)
         // PII allow-list: excludes admin_notes, admin_notes_timeline, denial_reason,
         // failure_reason, outstanding_recovery, and cure_election* fields. Brokerage
         // staff see status + summary only, not admin's internal wording.
@@ -127,7 +182,7 @@ export default function BrokerageDashboard() {
           .order('created_at', { ascending: false })
         setDeals((dealData as unknown as Deal[]) || [])
         if (dealData && dealData.length > 0) {
-          const dealIds = dealData.map((d: any) => d.id)
+          const dealIds = (dealData as { id: string }[]).map((d) => d.id)
           const { data: tradeRecDocs } = await supabase
             .from('deal_documents')
             .select('deal_id, file_name, created_at')
@@ -160,6 +215,8 @@ export default function BrokerageDashboard() {
       setLoading(false)
     }
     loadBrokerage()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Poll for notification counts every 30 seconds
@@ -195,9 +252,9 @@ export default function BrokerageDashboard() {
       try {
         const result = await getNewMessages({ dealId: selectedMsgDealId, afterTimestamp: latestMsgRef.current })
         if (result.success && result.data && result.data.length > 0) {
-          setDealMessages((prev: any[]) => {
-            const existingIds = new Set(prev.map((m: any) => m.id))
-            const newMsgs = result.data.filter((m: any) => !existingIds.has(m.id))
+          setDealMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id))
+            const newMsgs = (result.data as DealMessageData[]).filter((m) => !existingIds.has(m.id))
             if (newMsgs.length === 0) return prev
             latestMsgRef.current = newMsgs[newMsgs.length - 1].created_at
             return [...prev, ...newMsgs]
@@ -210,6 +267,10 @@ export default function BrokerageDashboard() {
 
     const interval = setInterval(pollNewMessages, 5000)
     return () => clearInterval(interval)
+    // dealMessages.length is the only state we want to react to here;
+    // pollNewMessages closes over the latest ref so we don't need it
+    // in deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMsgDealId, dealMessages.length])
 
   // KYC panel helpers
@@ -311,7 +372,7 @@ export default function BrokerageDashboard() {
       const headers = Object.keys(rows[0] || { Property: '', Agent: '', 'Closing Date': '', Status: '', 'Referral Fee': '' })
       const csvContent = [
         headers.join(','),
-        ...rows.map(r => headers.map(h => `"${(r as any)[h]}"`).join(',')),
+        ...rows.map(r => headers.map(h => `"${(r as Record<string, string>)[h]}"`).join(',')),
       ].join('\n')
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
       const url = URL.createObjectURL(blob)
@@ -366,7 +427,7 @@ export default function BrokerageDashboard() {
     deals.filter(d => !['denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
     [deals, dealTradeRecords])
   const unansweredMessageCount = useMemo(() =>
-    brokerageInbox.reduce((sum: number, item: any) => sum + (item.unread_message_count || 0), 0),
+    brokerageInbox.reduce((sum, item) => sum + (item.unread_message_count || 0), 0),
     [brokerageInbox])
   const kycPendingCount = useMemo(() =>
     agents.filter(a => a.kyc_status === 'submitted').length, [agents])
@@ -449,6 +510,7 @@ export default function BrokerageDashboard() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
               <div className="w-px h-8 hidden sm:block bg-white/15" />
               <p className="text-xs sm:text-sm font-medium tracking-wide text-white hidden sm:block">
@@ -553,8 +615,8 @@ export default function BrokerageDashboard() {
                       An admin is reviewing the following closing-date amendment request{pendingAmendments.length === 1 ? '' : 's'}.
                     </p>
                     <ul className="space-y-2">
-                      {pendingAmendments.map((a: any) => {
-                        const deal = a.deals as { property_address?: string; agents?: { first_name?: string; last_name?: string } } | undefined
+                      {pendingAmendments.map((a) => {
+                        const deal = a.deals
                         const agentName = deal?.agents ? `${deal.agents.first_name ?? ''} ${deal.agents.last_name ?? ''}`.trim() : null
                         return (
                           <li key={a.id} className="rounded-lg border border-amber-500/20 bg-card/60 px-3 py-2 text-xs">
@@ -591,21 +653,21 @@ export default function BrokerageDashboard() {
                     <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">White-Label Partner</p>
                     <p className="text-sm text-muted-foreground">
                       Your share of the advance fees (discount + settlement period) on every funded deal:&nbsp;
-                      <span className="text-foreground font-bold">{Number(brokerage.profit_share_pct ?? 0).toFixed(1)}%</span>
+                      <span className="text-foreground font-bold">{Number(brokerage?.profit_share_pct ?? 0).toFixed(1)}%</span>
                     </p>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-right">
                     {(() => {
                       const now = new Date()
                       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-                      const fundedDeals = deals.filter(d => ['funded', 'completed'].includes(d.status) && (d as any).broker_share_amount)
+                      const fundedDeals = deals.filter(d => ['funded', 'completed'].includes(d.status) && d.broker_share_amount)
                       const mtd = fundedDeals
-                        .filter(d => new Date((d as any).funding_date || d.created_at) >= monthStart)
-                        .reduce((s, d) => s + Number((d as any).broker_share_amount || 0), 0)
-                      const allTime = fundedDeals.reduce((s, d) => s + Number((d as any).broker_share_amount || 0), 0)
+                        .filter(d => new Date(d.funding_date || d.created_at) >= monthStart)
+                        .reduce((s, d) => s + Number(d.broker_share_amount || 0), 0)
+                      const allTime = fundedDeals.reduce((s, d) => s + Number(d.broker_share_amount || 0), 0)
                       const unremitted = fundedDeals
-                        .filter(d => !(d as any).broker_share_remitted)
-                        .reduce((s, d) => s + Number((d as any).broker_share_amount || 0), 0)
+                        .filter(d => !d.broker_share_remitted)
+                        .reduce((s, d) => s + Number(d.broker_share_amount || 0), 0)
                       return (
                         <>
                           <div>
@@ -727,7 +789,7 @@ export default function BrokerageDashboard() {
                     const page = Math.min(dealsPage, totalPages)
                     const pagedDeals = sortedDeals.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
                     return pagedDeals
-                  })().map((deal, i) => (
+                  })().map((deal) => (
                     <div key={deal.id}>
                       <div
                         className="group px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-all duration-150 hover:bg-white/[0.03] border-b border-border/20"
@@ -893,8 +955,8 @@ export default function BrokerageDashboard() {
                                   if (result.success && result.data) setDealMessages(result.data)
                                   setMessagesLoading(false)
                                   await markBrokerageMessagesRead(deal.id)
-                                  setBrokerageInbox((prev: any[]) =>
-                                    prev.map((d: any) => d.deal_id === deal.id ? { ...d, unread_message_count: 0 } : d)
+                                  setBrokerageInbox((prev) =>
+                                    prev.map((d) => d.deal_id === deal.id ? { ...d, unread_message_count: 0 } : d)
                                   )
                                   if (profile?.brokerage_id) {
                                     const brokerageId = profile.brokerage_id
@@ -1086,10 +1148,10 @@ export default function BrokerageDashboard() {
                                     for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
                                   }
                                   const addrParts = [
-                                    (agent as any).address_street,
-                                    (agent as any).address_city,
-                                    (agent as any).address_province,
-                                    (agent as any).address_postal_code,
+                                    agent.address_street,
+                                    agent.address_city,
+                                    agent.address_province,
+                                    agent.address_postal_code,
                                   ].filter(Boolean)
                                   setKycPreviewPanel({
                                     blobUrls,
@@ -1467,13 +1529,14 @@ export default function BrokerageDashboard() {
 
                 // Confirmed and legacy (no status) entries count toward repayment.
                 // Pending claims are visible but not counted. Rejected are hidden.
-                const isCounted = (p: any) => p?.status === 'confirmed' || p?.status === undefined
-                const isPending = (p: any) => p?.status === 'pending'
+                type PaymentLike = NonNullable<Deal['brokerage_payments']>[number]
+                const isCounted = (p: PaymentLike | undefined) => p?.status === 'confirmed' || p?.status === undefined
+                const isPending = (p: PaymentLike | undefined) => p?.status === 'pending'
 
                 const totalOwed = fundedDeals.reduce((sum, d) => sum + (d.amount_due_from_brokerage || 0), 0)
                 const totalPaid = fundedDeals.reduce((sum, d) => {
-                  const payments = (d as any).brokerage_payments || []
-                  return sum + payments.filter(isCounted).reduce((s: number, p: any) => s + (p.amount || 0), 0)
+                  const payments = d.brokerage_payments || []
+                  return sum + payments.filter(isCounted).reduce((s: number, p) => s + (p.amount || 0), 0)
                 }, 0)
                 const paidPct = totalOwed > 0 ? Math.min((totalPaid / totalOwed) * 100, 100) : 0
 
@@ -1498,9 +1561,9 @@ export default function BrokerageDashboard() {
                     <div className="space-y-3">
                       {fundedDeals.map(deal => {
                         const owed = deal.amount_due_from_brokerage || 0
-                        const payments = (deal as any).brokerage_payments || []
-                        const confirmedPaid = payments.filter(isCounted).reduce((s: number, p: any) => s + (p.amount || 0), 0)
-                        const dealPending = payments.filter(isPending).reduce((s: number, p: any) => s + (p.amount || 0), 0)
+                        const payments = deal.brokerage_payments || []
+                        const confirmedPaid = payments.filter(isCounted).reduce((s: number, p) => s + (p.amount || 0), 0)
+                        const dealPending = payments.filter(isPending).reduce((s: number, p) => s + (p.amount || 0), 0)
                         const remaining = owed - confirmedPaid
                         const isPaid = Math.abs(remaining) < 0.01 && confirmedPaid > 0
                         const isPartial = confirmedPaid > 0 && !isPaid
@@ -1560,7 +1623,7 @@ export default function BrokerageDashboard() {
                             )}
                             {payments.length > 0 && (
                               <div className="mt-3 pt-2 border-t border-border/30">
-                                {payments.filter((p: any) => p.status !== 'rejected').map((p: any) => {
+                                {payments.filter((p) => p.status !== 'rejected').map((p) => {
                                   const pending = isPending(p)
                                   return (
                                     <div key={p.id} className="flex justify-between items-center text-xs py-1">
@@ -1614,7 +1677,7 @@ export default function BrokerageDashboard() {
                       <p className="text-xs text-muted-foreground">No active deals</p>
                     </div>
                   ) : (
-                    brokerageInbox.map((item: any) => {
+                    brokerageInbox.map((item) => {
                       const isSelected = item.deal_id === selectedMsgDealId
                       const hasUnread = (item.unread_message_count || 0) > 0
                       return (
@@ -1629,8 +1692,8 @@ export default function BrokerageDashboard() {
                             // Mark messages as read
                             await markBrokerageMessagesRead(item.deal_id)
                             // Update local unread count
-                            setBrokerageInbox((prev: any[]) =>
-                              prev.map((d: any) => d.deal_id === item.deal_id ? { ...d, unread_message_count: 0 } : d)
+                            setBrokerageInbox((prev) =>
+                              prev.map((d) => d.deal_id === item.deal_id ? { ...d, unread_message_count: 0 } : d)
                             )
                             // Refresh notification count
                             if (profile?.brokerage_id) {
@@ -1686,7 +1749,7 @@ export default function BrokerageDashboard() {
                   <>
                     <div className="px-4 py-2.5 flex items-center gap-2 border-b border-border/50">
                       <p className="text-xs font-bold truncate text-foreground">
-                        {brokerageInbox.find((d: any) => d.deal_id === selectedMsgDealId)?.property_address}
+                        {brokerageInbox.find((d) => d.deal_id === selectedMsgDealId)?.property_address}
                       </p>
                     </div>
 
@@ -1718,7 +1781,7 @@ export default function BrokerageDashboard() {
                         }
                         const result = await sendBrokerageMessage({ dealId: selectedMsgDealId, message, filePath, fileName, fileSize, fileType })
                         if (result.success && result.data) {
-                          setDealMessages((prev: any) => [...prev, result.data])
+                          setDealMessages((prev) => [...prev, result.data as DealMessageData])
                         } else {
                           throw new Error(result.error)
                         }
@@ -1791,6 +1854,7 @@ export default function BrokerageDashboard() {
                   {isPdf ? (
                     <iframe src={blobUrl} className="w-full border-0 rounded-lg border border-border" style={{ height: 400 }} />
                   ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={blobUrl} alt={`ID ${i + 1}`} className="w-full rounded-lg border border-border" />
                   )}
                 </div>

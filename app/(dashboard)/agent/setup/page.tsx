@@ -11,14 +11,36 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { submitAgentBanking } from '@/lib/actions/profile-actions'
+import type { UserProfile } from '@/types/database'
+
+interface AgentForSetup {
+  id: string
+  first_name: string
+  last_name: string
+  kyc_status: string
+  kyc_rejection_reason: string | null
+  banking_approval_status: 'none' | 'pending' | 'approved' | 'rejected' | null
+  banking_rejection_reason: string | null
+  banking_submitted_transit: string | null
+  banking_submitted_institution: string | null
+  banking_submitted_account: string | null
+  preauth_form_path: string | null
+  preauth_form_uploaded_at: string | null
+  phone: string | null
+  address_street: string | null
+  address_city: string | null
+  address_province: string | null
+  address_postal_code: string | null
+  brokerages?: { name: string; logo_url: string | null; brand_color: string | null; is_white_label_partner: boolean } | null
+}
 
 type StepKey = 'kyc' | 'banking' | 'done'
 
 export default function AgentSetupPage() {
   const router = useRouter()
   const supabase = createClient()
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentForSetup | null>(null)
   const [brokerage, setBrokerage] = useState<{ name: string; logo_url: string | null; brand_color: string | null; is_white_label_partner: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -54,15 +76,18 @@ export default function AgentSetupPage() {
         .single()
 
       if (agentData) {
-        setAgent(agentData)
-        setBrokerage(agentData.brokerages || null)
-        setBankTransit(agentData.banking_submitted_transit || '')
-        setBankInstitution(agentData.banking_submitted_institution || '')
-        setBankAccount(agentData.banking_submitted_account || '')
+        setAgent(agentData as AgentForSetup)
+        setBrokerage(((agentData as AgentForSetup).brokerages) || null)
+        const a = agentData as AgentForSetup
+        setBankTransit(a.banking_submitted_transit || '')
+        setBankInstitution(a.banking_submitted_institution || '')
+        setBankAccount(a.banking_submitted_account || '')
       }
       setLoading(false)
     }
     load()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const refreshAgent = async () => {
@@ -73,8 +98,8 @@ export default function AgentSetupPage() {
       .eq('id', profile.agent_id)
       .single()
     if (agentData) {
-      setAgent(agentData)
-      setBrokerage(agentData.brokerages || null)
+      setAgent(agentData as AgentForSetup)
+      setBrokerage(((agentData as AgentForSetup).brokerages) || null)
     }
   }
 
@@ -185,6 +210,7 @@ export default function AgentSetupPage() {
         <div className="mb-6 text-center">
           {brokerage?.logo_url && (
             <div className="flex items-center justify-center gap-3 mb-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={brokerage.logo_url} alt={brokerage.name} className="h-10 w-auto rounded bg-muted/30 p-1" />
               <span className="text-xs text-muted-foreground">Powered by Firm Funds</span>
             </div>
@@ -216,7 +242,7 @@ export default function AgentSetupPage() {
         </div>
 
         {/* Step content */}
-        {currentStep === 'kyc' && (
+        {currentStep === 'kyc' && agent && (
           <Card className="border-border/50">
             <CardHeader>
               <div className="flex items-center gap-3">

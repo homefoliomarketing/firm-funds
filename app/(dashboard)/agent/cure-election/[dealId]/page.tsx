@@ -19,6 +19,12 @@ import {
 } from '@/lib/calculations'
 import { submitCureElection } from '@/lib/actions/deal-actions'
 
+interface AgentMinimal {
+  id: string
+  first_name: string
+  last_name: string
+}
+
 interface FailedDeal {
   id: string
   agent_id: string
@@ -58,7 +64,7 @@ export default function CureElectionPage({ params }: PageProps) {
   const router = useRouter()
   const supabase = createClient()
 
-  const [agent, setAgent] = useState<any>(null)
+  const [agent, setAgent] = useState<AgentMinimal | null>(null)
   const [deal, setDeal] = useState<FailedDeal | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -140,9 +146,13 @@ export default function CureElectionPage({ params }: PageProps) {
     const total = principal + interest
 
     const failedDate = new Date(deal.failed_to_close_at)
+    // Intentional Date.now() during render — the setNowTick effect above
+    // re-runs this memo every 60s so the countdown stays current.
+    // eslint-disable-next-line react-hooks/purity
     const daysSinceFailed = Math.floor((Date.now() - failedDate.getTime()) / (1000 * 60 * 60 * 24))
 
     const deadline = deal.cure_election_deadline ? new Date(deal.cure_election_deadline) : null
+    // eslint-disable-next-line react-hooks/purity
     const msToDeadline = deadline ? deadline.getTime() - Date.now() : null
     const isOverdue = msToDeadline !== null ? msToDeadline < 0 : false
     const daysToDeadline = msToDeadline !== null

@@ -14,6 +14,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import type { Brokerage, UserProfile } from '@/types/database'
+
+type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
 
 interface AgentRow {
   id: string
@@ -51,8 +54,8 @@ function activationBadge(agent: AgentRow): { label: string; cls: string } {
 export default function BrokerageAgentsPage() {
   const router = useRouter()
   const supabase = createClient()
-  const [profile, setProfile] = useState<any>(null)
-  const [brokerage, setBrokerage] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [agents, setAgents] = useState<AgentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -96,11 +99,13 @@ export default function BrokerageAgentsPage() {
       if (!prof || prof.role !== 'brokerage_admin' || !prof.brokerage_id) { router.push('/login'); return }
       setProfile(prof)
       const { data: brok } = await supabase.from('brokerages').select(BROKERAGE_PUBLIC_COLUMNS).eq('id', prof.brokerage_id).single()
-      setBrokerage(brok)
+      setBrokerage(brok as BrokeragePublic | null)
       await loadAgents(prof.brokerage_id)
       setLoading(false)
     }
     load()
+    // supabase/router are stable; loadAgents is a stable function declaration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const flashStatus = (msg: { type: 'success' | 'error'; text: string }) => {
@@ -122,7 +127,7 @@ export default function BrokerageAgentsPage() {
       recoNumber: addRecoNumber.trim() || undefined,
     })
     if (result.success) {
-      const welcomeSent = (result.data as any)?.welcomeSent
+      const welcomeSent = (result.data as { welcomeSent?: boolean } | undefined)?.welcomeSent
       flashStatus({ type: 'success', text: welcomeSent ? 'Agent added and welcome email sent' : 'Agent added — no email on file, welcome email not sent' })
       setAddFirstName(''); setAddLastName(''); setAddEmail(''); setAddPhone(''); setAddRecoNumber('')
       setShowAddForm(false)
@@ -191,6 +196,7 @@ export default function BrokerageAgentsPage() {
           <button onClick={() => router.push('/brokerage')} className="p-1.5 rounded-lg text-white/50 hover:text-primary" aria-label="Back">
             <ArrowLeft size={16} />
           </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/white.png" alt="Firm Funds" className="h-10 w-auto" />
           <div className="w-px h-8 bg-white/15 hidden sm:block" />
           <p className="text-sm font-medium text-white hidden sm:block">Agents{brokerage ? ` — ${brokerage.name}` : ''}</p>

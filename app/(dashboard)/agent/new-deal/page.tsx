@@ -20,6 +20,12 @@ import {
   type FileUploadItem,
 } from '@/components/ui/file-upload-progress'
 
+interface AgentForNewDeal {
+  id: string
+  kyc_status: string | null
+  brokerages?: { name: string | null; logo_url: string | null; brand_color: string | null } | null
+}
+
 // Suspense boundary required by Next.js 16 for useSearchParams.
 export default function NewDealPage() {
   return (
@@ -35,8 +41,7 @@ function NewDealPageInner() {
   // Banner state populated when we successfully fetched prefill from a denied deal.
   const [revisedFromBanner, setRevisedFromBanner] = useState<{ dealId: string; reason: string | null } | null>(null)
   const [revisedFromError, setRevisedFromError] = useState<string | null>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [agent, setAgent] = useState<AgentForNewDeal | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -61,6 +66,8 @@ function NewDealPageInner() {
     amendment: [],
     banking_info: [],
   })
+  // Value isn't read currently; setter still drives the upload-progress UI.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [uploadingDocs, setUploadingDocs] = useState(false)
   /** Per-file upload queue (replaces the old aggregate uploadResults). */
   const [uploadQueue, setUploadQueue] = useState<FileUploadItem[]>([])
@@ -200,17 +207,18 @@ function NewDealPageInner() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
       const { data: profileData } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
-      setProfile(profileData)
       if (profileData?.role !== 'agent') { router.push('/login'); return }
       if (profileData?.agent_id) {
         const { data: agentData } = await supabase.from('agents').select(`*, brokerages(${BROKERAGE_PUBLIC_COLUMNS})`).eq('id', profileData.agent_id).single()
-        setAgent(agentData)
+        setAgent(agentData as AgentForNewDeal | null)
         const { count } = await supabase.from('deals').select('*', { count: 'exact', head: true }).eq('agent_id', profileData.agent_id).in('status', ['funded', 'completed'])
         setIsFirstAdvance(!count || count === 0)
       }
       setLoading(false)
     }
     loadAgent()
+    // supabase/router are stable for the life of the page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -247,13 +255,6 @@ function NewDealPageInner() {
   if (!grossCommission || parseFloat(grossCommission) <= 0) missingFields.push('Gross Commission')
   if (brokerageSplitPct === '' || isNaN(parseFloat(brokerageSplitPct)) || parseFloat(brokerageSplitPct) < 0 || parseFloat(brokerageSplitPct) > 100) missingFields.push('Brokerage Split %')
 
-  const handleSlotFileAdd = (slotKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
-    setDocSlots(prev => ({ ...prev, [slotKey]: [...prev[slotKey], ...Array.from(files)] }))
-    e.target.value = ''
-  }
-
   const handleSlotFileRemove = (slotKey: string, fileIndex: number) => {
     setDocSlots(prev => ({ ...prev, [slotKey]: prev[slotKey].filter((_, i) => i !== fileIndex) }))
   }
@@ -276,12 +277,13 @@ function NewDealPageInner() {
         progress: uploadResult.success ? 100 : 0,
         error: uploadResult.success ? undefined : (uploadResult.error || 'Upload failed'),
       } : i))
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload failed'
       setUploadQueue(prev => prev.map(i => i.id === id ? {
         ...i,
         status: 'failed',
         progress: 0,
-        error: err?.message || 'Upload failed',
+        error: msg,
       } : i))
     }
   }, [submittedDealId, uploadQueue])
@@ -340,12 +342,13 @@ function NewDealPageInner() {
               progress: uploadResult.success ? 100 : 0,
               error: uploadResult.success ? undefined : (uploadResult.error || 'Upload failed'),
             } : i))
-          } catch (err: any) {
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Upload failed — you can upload this from your dashboard'
             setUploadQueue(prev => prev.map(i => i.id === item.id ? {
               ...i,
               status: 'failed',
               progress: 0,
-              error: err?.message || 'Upload failed — you can upload this from your dashboard',
+              error: msg,
             } : i))
           }
         }
@@ -354,7 +357,7 @@ function NewDealPageInner() {
 
       clearDraft()
       setSubmitted(true)
-    } catch (err) {
+    } catch {
       if (dealSubmitted) {
         clearDraft()
         setSubmitted(true)
@@ -444,6 +447,7 @@ function NewDealPageInner() {
       <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border/50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4 py-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
             <div className="w-px h-10 bg-border" />
             <button

@@ -64,6 +64,15 @@ interface DealMessageItem {
   is_email_reply: boolean; created_at: string
 }
 
+interface AmendmentItem {
+  id: string
+  deal_id: string
+  old_closing_date: string
+  new_closing_date: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+}
+
 const DOCUMENT_TYPES = DOC_TYPES
 
 export default function AgentDealDetailPage() {
@@ -102,7 +111,7 @@ export default function AgentDealDetailPage() {
   const [amendFile, setAmendFile] = useState<File | null>(null)
   const [amendSubmitting, setAmendSubmitting] = useState(false)
   const [amendError, setAmendError] = useState<string | null>(null)
-  const [amendments, setAmendments] = useState<any[]>([])
+  const [amendments, setAmendments] = useState<AmendmentItem[]>([])
   const router = useRouter()
   const params = useParams()
   const dealId = params.id as string
@@ -113,6 +122,9 @@ export default function AgentDealDetailPage() {
     router.push('/login')
   }
 
+  // loadDealData is declared further down as a function declaration; React
+  // Compiler flags the hoisted reference but the runtime semantics are fine.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadDealData() }, [dealId])
 
   // Scroll message container to bottom (not the page)
@@ -164,6 +176,9 @@ export default function AgentDealDetailPage() {
       }
       doMark()
     }
+    // dealMessages array identity changes on every state update; we only
+    // care about length changing. supabase client is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dealMessages.length, dealId])
 
   async function loadDealData() {
@@ -191,7 +206,7 @@ export default function AgentDealDetailPage() {
     setDealMessages(messagesData || [])
     // Load amendments for this deal
     const amendResult = await getDealAmendments(dealId)
-    if (amendResult.success) setAmendments(amendResult.data || [])
+    if (amendResult.success) setAmendments((amendResult.data as AmendmentItem[] | undefined) || [])
     setLoading(false)
   }
 
@@ -214,7 +229,7 @@ export default function AgentDealDetailPage() {
       setStatusMessage({ type: 'success', text: 'Amendment request submitted. Admin will review and approve.' })
       // Reload amendments
       const amendResult = await getDealAmendments(deal.id)
-      if (amendResult.success) setAmendments(amendResult.data || [])
+      if (amendResult.success) setAmendments((amendResult.data as AmendmentItem[] | undefined) || [])
     } else {
       setAmendError(result.error || 'Failed to submit amendment')
     }
@@ -233,7 +248,7 @@ export default function AgentDealDetailPage() {
       const file = files[i]
       if (file.size > MAX_UPLOAD_SIZE_BYTES) { failures.push(`${file.name} (exceeds 10MB)`); continue }
       const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-      if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) { failures.push(`${file.name} (unsupported type)`); continue }
+      if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) { failures.push(`${file.name} (unsupported type)`); continue }
 
       const formData = new FormData()
       formData.append('file', file)
@@ -462,6 +477,7 @@ export default function AgentDealDetailPage() {
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
                 <div className="w-px h-6 bg-border" />
                 <button
@@ -574,6 +590,7 @@ export default function AgentDealDetailPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
               <div className="w-px h-6 bg-border" />
               <button
@@ -1239,7 +1256,7 @@ export default function AgentDealDetailPage() {
 
               <div className="rounded-lg px-3 py-2 bg-blue-500/10 border border-blue-500/20 text-xs">
                 <p className="text-blue-400 leading-relaxed">
-                  <strong>What happens next:</strong> Admin will review your request and the uploaded amendment. Once approved, you'll receive a new DocuSign email to sign the amended CPA.
+                  <strong>What happens next:</strong> Admin will review your request and the uploaded amendment. Once approved, you&apos;ll receive a new DocuSign email to sign the amended CPA.
                 </p>
                 {deal.status === 'funded' && (
                   <p className="text-blue-400 leading-relaxed mt-2">

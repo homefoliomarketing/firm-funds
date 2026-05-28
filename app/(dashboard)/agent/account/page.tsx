@@ -19,13 +19,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { AgentAccountTransaction } from '@/types/database'
+import type { AgentAccountTransaction, UserProfile } from '@/types/database'
 
 interface PendingElection {
   id: string
   property_address: string
   outstanding_balance: number | null
   cure_election_deadline: string | null
+}
+
+interface AgentForHeader {
+  id: string
+  brokerages?: { name: string | null; logo_url: string | null } | null
 }
 
 const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof ArrowUpRight }> = {
@@ -40,8 +45,8 @@ const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; ic
 }
 
 export default function AgentAccountPage() {
-  const [profile, setProfile] = useState<any>(null)
-  const [agent, setAgent] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [agent, setAgent] = useState<AgentForHeader | null>(null)
   const [transactions, setTransactions] = useState<AgentAccountTransaction[]>([])
   const [currentBalance, setCurrentBalance] = useState(0)
   const [pendingElections, setPendingElections] = useState<PendingElection[]>([])
@@ -69,13 +74,14 @@ export default function AgentAccountPage() {
           .select(`*, brokerages(${BROKERAGE_PUBLIC_COLUMNS})`)
           .eq('id', profileData.agent_id)
           .single()
-        setAgent(agentData)
+        setAgent(agentData as AgentForHeader | null)
 
         // Fetch transactions via server action (service role, bypasses RLS)
         const result = await getAgentTransactions(profileData.agent_id)
         if (result.success && result.data) {
-          setTransactions(result.data.transactions)
-          setCurrentBalance(result.data.currentBalance)
+          const data = result.data as { transactions: AgentAccountTransaction[]; currentBalance: number }
+          setTransactions(data.transactions)
+          setCurrentBalance(data.currentBalance)
         }
 
         // Fetch any pending cure elections — failed-to-close deals awaiting agent choice
@@ -93,6 +99,9 @@ export default function AgentAccountPage() {
       setLoading(false)
     }
     load()
+    // supabase + router are stable for the life of the page; including them
+    // here would cause an infinite re-fetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (loading) {

@@ -26,13 +26,16 @@ import {
   type BrokerageAdminRole,
 } from '@/lib/actions/brokerage-admin-actions'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import type { Brokerage, UserProfile } from '@/types/database'
+
+type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
 
 export default function BrokerageAdminsPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  const [profile, setProfile] = useState<any>(null)
-  const [brokerage, setBrokerage] = useState<any>(null)
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [admins, setAdmins] = useState<BrokerageAdmin[]>([])
   const [loading, setLoading] = useState(true)
   const [errMsg, setErrMsg] = useState<string | null>(null)
@@ -82,7 +85,7 @@ export default function BrokerageAdminsPage() {
         .from('brokerages')
         .select(BROKERAGE_PUBLIC_COLUMNS)
         .eq('id', profileData.brokerage_id)
-        .single<any>()
+        .single<BrokeragePublic>()
       setBrokerage(brokerageData)
 
       await refreshAdmins(profileData.brokerage_id)
@@ -172,6 +175,7 @@ export default function BrokerageAdminsPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
               <div className="w-px h-8 bg-white/15" />
               <button
