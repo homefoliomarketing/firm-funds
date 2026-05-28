@@ -13,7 +13,7 @@ The main risk areas fixed here are:
 - stale Next.js `middleware.ts` convention
 - script CSP hardening
 
-Nothing in this report proves production Supabase or Netlify are already updated. Those systems still need the new branch deployed and migration `094_active_status_rls_and_storage.sql` applied.
+Production verification was later completed against `firmfunds.ca`; see the final production verification section at the end of this report.
 
 ## Code Changes
 
@@ -83,7 +83,7 @@ Commands run from `C:\tmp\firm-funds-audit-port`:
 
 ## Still Required Outside This Branch
 
-These cannot be proven from local files alone:
+Historical note: these were the required external checks before production verification. They are superseded by the final production verification section below.
 
 - Deploy this branch before treating the fixes as live.
 - Apply `supabase/migrations/094_active_status_rls_and_storage.sql` to the production Supabase database.
@@ -100,6 +100,8 @@ These cannot be proven from local files alone:
 - Walk through admin, agent, and brokerage happy-path flows after deployment.
 
 ## Deployment Recommendation
+
+Historical note: this was the recommended sequence before the branch was merged and deployed. Production is now on commit `8ad5813a63b7e6f09262150c635dc14010018527`.
 
 Do not force-push `main`.
 
@@ -171,3 +173,96 @@ Verified after this follow-up:
 - `npx.cmd tsc --noEmit --incremental false`
 - `npx.cmd eslint -- lib/actions/auth-actions.ts`
 - `npm.cmd run build`
+
+## Final Production Verification - 2026-05-28
+
+This section records Claude's production dashboard/browser verification after `main` was updated to commit `8ad5813a63b7e6f09262150c635dc14010018527`.
+
+### Netlify
+
+- Deploy ID: `6a188b93f92e5f0009808a62`
+- Production URL: `https://firmfunds.ca`
+- Branch: `main`
+- Commit: `8ad5813a63b7e6f09262150c635dc14010018527`
+- Commit message: `fix(auth): block inactive agent login before redirect`
+- Status: published production deploy.
+- Deploy time: 2026-05-28 at 2:38 PM ET, deployed in 1m 41s.
+
+### Production Smoke Tests
+
+Claude reported these production smoke-test results:
+
+- Admin login: passed.
+- Admin brokerage page/agent-list load: passed.
+- Admin preauth form view: not interactively exercised because production has no uploaded preauth forms.
+- Brokerage admin login: passed.
+- Brokerage document access: passed for `deal_documents`; `brokerage_documents` had no production rows to click, but the 095 policy body was verified.
+- Agent login: passed.
+- Agent deal document view: passed.
+- Agent document upload: passed, then cleanup completed.
+- Inactive-agent login denial: passed; the page showed a visible inactive-account error and did not hang on `Signing in...`.
+- No 5xx responses, RLS recursion errors, or infinite-recursion policy errors were observed during the smoke test.
+
+### Supabase Migrations And Policies
+
+Claude reported production project ref `bzijzmxhrpiwuhzhbiqc`.
+
+Migration `094_active_status_rls_and_storage.sql` was verified applied:
+
+- Helper functions present: `public.get_user_role()`, `public.get_user_agent_id()`, `public.get_user_brokerage_id()`, `public.is_admin()`.
+- Storage policies present for scoped deal documents, active agent preauth forms, admin preauth reads, and admin brokerage logo writes.
+- Table policies present for active admin brokerage-document access and active brokerage-admin brokerage-document reads.
+
+Migration `095_fix_brokerage_admins_recursion.sql` was verified applied:
+
+- Helper present: `public.is_user_brokerage_admin_of(p_user_id uuid, p_brokerage_id uuid)`.
+- `deal_documents_select_scoped` uses the helper and qualified `storage.foldername(objects.name)`.
+- `brokerage_documents_brokerage_select_active` uses the helper.
+- No `brokerage_admins` RLS recursion was observed during smoke testing.
+
+### Environment And DocuSign
+
+Claude reported all required production Netlify environment variable names present. Values were not exposed.
+
+Required names confirmed:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `CRON_SECRET`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+- `DOCUSIGN_HMAC_SECRET`
+- `DOCUSIGN_ACCOUNT_ID`
+- `DOCUSIGN_AUTH_URL`
+- `DOCUSIGN_BASE_URL`
+- `DOCUSIGN_INTEGRATION_KEY`
+- `DOCUSIGN_REDIRECT_URI`
+- `DOCUSIGN_SECRET_KEY`
+
+DocuSign URLs were reported as production URLs:
+
+- `DOCUSIGN_AUTH_URL`: `account.docusign.com`, not demo.
+- `DOCUSIGN_BASE_URL`: Canadian production host `ca.docusign.net`, not demo.
+
+### Cleanup
+
+Claude reported the smoke-test upload row/object was deleted, local scratch files were removed, and the test agent `is_active` flag was restored.
+
+### Remaining Operational Risks
+
+These are not code defects in the deployed commit; they are production account/infrastructure settings to address before handling meaningful funds:
+
+- Supabase is on the Free plan, so scheduled backups are not available.
+- Supabase Point-in-Time Recovery is not available on the current plan.
+- Supabase incoming Postgres SSL enforcement is disabled.
+- Supabase database network restrictions/IP allowlisting are not configured.
+- Admin preauth-form viewing still needs a live-data smoke test once at least one production agent uploads a preauth form.
+
+Recommended priority:
+
+1. Upgrade Supabase to a plan that supports scheduled backups.
+2. Enable PITR if the business risk justifies the add-on cost.
+3. Enable `Enforce SSL on incoming connections`.
+4. Add a database IP allowlist once all legitimate direct database clients are known.
+5. Retest the admin preauth-form viewer after the first real preauth upload exists.
