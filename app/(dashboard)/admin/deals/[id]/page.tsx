@@ -514,6 +514,11 @@ const STATUS_LABELS: Record<string, string> = {
   funded: 'Funded', completed: 'Completed', denied: 'Denied', cancelled: 'Cancelled',
   failed_to_close: 'Failed to Close',
   cured: 'Cured',
+  // 'offered' = firm-deal offer accepted by agent, awaiting brokerage submission.
+  // The page renders the status badge in the sticky action bar; without this
+  // entry the badge was blank. Admin can't transition FROM 'offered' (it's not
+  // in STATUS_FLOW) — only the brokerage submission flips it to 'under_review'.
+  offered: 'Offered',
 }
 
 // Lucide icons are React components with a stable {size, className} prop API.

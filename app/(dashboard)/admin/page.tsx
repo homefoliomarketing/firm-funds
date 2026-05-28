@@ -307,9 +307,12 @@ export default function AdminDashboard() {
     )
   }
 
-  // Status filter + sorting logic
+  // Status filter + sorting logic. 'offered' sits after the active in-flight
+  // statuses but ahead of terminal ones — it's a placeholder waiting on the
+  // brokerage to submit, so admins should see them grouped near the top but
+  // below anything actively under review.
   const statusPriority: Record<string, number> = {
-    under_review: 0, approved: 1, funded: 2, completed: 3, denied: 4, cancelled: 5,
+    under_review: 0, approved: 1, funded: 2, offered: 3, completed: 4, denied: 5, cancelled: 6,
   }
 
   // PostgREST joins surface as arrays even on singular FKs; normalize.
@@ -772,6 +775,7 @@ export default function AdminDashboard() {
         <div className="flex flex-wrap gap-1.5 mb-4">
           {[
             { label: 'All', value: null },
+            { label: 'Offered', value: 'offered' },
             { label: 'Under Review', value: 'under_review' },
             { label: 'Approved', value: 'approved' },
             { label: 'Funded', value: 'funded' },
@@ -891,12 +895,23 @@ export default function AdminDashboard() {
                             {formatStatusLabel(deal.status)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-sm font-medium">{formatCurrency(deal.gross_commission ?? 0)}</TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {deal.status === 'offered'
+                            // Offered rows carry $0 placeholders until the
+                            // brokerage submits real numbers — showing
+                            // "$0.00" would be misleading.
+                            ? <span className="text-muted-foreground/50">Pending</span>
+                            : formatCurrency(deal.gross_commission ?? 0)}
+                        </TableCell>
                         <TableCell className={`text-sm font-bold tabular-nums ${['denied', 'cancelled'].includes(deal.status) ? 'text-status-red' : 'text-primary'}`}>
-                          {formatCurrency(deal.advance_amount ?? 0)}
+                          {deal.status === 'offered'
+                            ? <span className="text-muted-foreground/50 font-normal">Pending</span>
+                            : formatCurrency(deal.advance_amount ?? 0)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          {deal.closing_date
+                            ? new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+                            : <span className="text-muted-foreground/50">Pending</span>}
                         </TableCell>
                         <TableCell><ChevronRight size={14} className="text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" /></TableCell>
                       </TableRow>
@@ -939,18 +954,26 @@ export default function AdminDashboard() {
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <p className="text-xs text-muted-foreground">Commission</p>
-                          <p className="text-sm font-medium">{formatCurrency(deal.gross_commission ?? 0)}</p>
+                          <p className="text-sm font-medium">
+                            {deal.status === 'offered'
+                              ? <span className="text-muted-foreground/50">Pending</span>
+                              : formatCurrency(deal.gross_commission ?? 0)}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Advance</p>
                           <p className={`text-sm font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-emerald-400'}`}>
-                            {formatCurrency(deal.advance_amount ?? 0)}
+                            {deal.status === 'offered'
+                              ? <span className="text-muted-foreground/50 font-normal">Pending</span>
+                              : formatCurrency(deal.advance_amount ?? 0)}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Closing</p>
                           <p className="text-sm text-muted-foreground">
-                            {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                            {deal.closing_date
+                              ? new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+                              : <span className="text-muted-foreground/50">Pending</span>}
                           </p>
                         </div>
                       </div>
