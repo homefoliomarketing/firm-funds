@@ -15,6 +15,14 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   FileUploadProgress,
   buildUploadItems,
   type FileUploadItem,
@@ -893,16 +901,17 @@ function NewDealPageInner() {
         </form>
 
         {/* Confirmation Modal */}
-        {showConfirmation && preview && (
-          <ConfirmationModalA11y onClose={() => setShowConfirmation(false)}>
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="confirm-advance-title">
-            <div className="rounded-2xl max-w-lg w-full overflow-hidden bg-card border border-border/40 shadow-2xl">
-              <div className="px-6 py-5 bg-card border-b border-border/40">
-                <h3 id="confirm-advance-title" className="text-lg font-bold text-foreground">Confirm Your Advance Request</h3>
-                <p className="text-xs mt-1 text-primary">Please review the details below before submitting.</p>
-              </div>
-              <div className="p-6">
-                <div className="space-y-3 text-sm mb-5">
+        <Dialog open={showConfirmation && !!preview} onOpenChange={(open) => { if (!open) setShowConfirmation(false) }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-bold text-foreground">Confirm Your Advance Request</DialogTitle>
+              <DialogDescription className="text-xs text-primary">
+                Please review the details below before submitting.
+              </DialogDescription>
+            </DialogHeader>
+            {preview && (
+              <>
+                <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Property</span>
                     <span className="font-medium text-right max-w-[60%] text-foreground">{propertyAddress}</span>
@@ -917,7 +926,7 @@ function NewDealPageInner() {
                   </div>
                 </div>
 
-                <div className="rounded-xl p-4 mb-5 bg-muted border border-border">
+                <div className="rounded-xl p-4 bg-muted border border-border">
                   <div className="space-y-2.5 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Gross Commission</span>
@@ -944,21 +953,21 @@ function NewDealPageInner() {
                   </div>
                 </div>
 
-                <p className="text-xs mb-3 text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   By submitting, you confirm the above details are accurate and that this deal is firm with no outstanding conditions. Final amounts are subject to underwriting review.
                 </p>
                 {selectedFiles.length > 0 && (
-                  <p className="text-xs mb-3 text-blue-500">
+                  <p className="text-xs text-blue-500">
                     {selectedFiles.length} document{selectedFiles.length !== 1 ? 's' : ''} will be uploaded with your submission.
                   </p>
                 )}
                 {selectedFiles.length === 0 && (
-                  <p className="text-xs mb-3 text-yellow-600 dark:text-yellow-400">
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
                     No documents attached. You can upload your APS and supporting documents after submission from your dashboard.
                   </p>
                 )}
 
-                <div className="flex gap-3">
+                <DialogFooter className="flex-row gap-3 sm:flex-row">
                   <Button
                     type="button"
                     variant="outline"
@@ -977,41 +986,12 @@ function NewDealPageInner() {
                       ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting…</>
                       : (<><Send size={16} />Confirm &amp; Submit</>)}
                   </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-          </ConfirmationModalA11y>
-        )}
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )
-}
-
-/**
- * Thin a11y wrapper for hand-rolled modals. Saves the focused element when
- * opened, restores it on unmount, and closes on Escape. Visual styling is
- * left to children so we don't touch the existing layout — we just bolt on
- * the keyboard/focus behaviour that a Dialog component would have given us.
- */
-function ConfirmationModalA11y({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
-  const previouslyFocused = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    previouslyFocused.current = (document.activeElement as HTMLElement) ?? null
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handler)
-    return () => {
-      window.removeEventListener('keydown', handler)
-      // Defer focus return to the next tick so unmount completes first.
-      const target = previouslyFocused.current
-      if (target && typeof target.focus === 'function') {
-        setTimeout(() => target.focus(), 0)
-      }
-    }
-  }, [onClose])
-
-  return <>{children}</>
 }
