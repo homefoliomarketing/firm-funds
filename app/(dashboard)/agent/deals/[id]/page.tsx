@@ -17,7 +17,7 @@ import {
   getStatusBadgeClass,
   formatStatusLabel,
 } from '@/lib/constants'
-import { updateDealDetails, cancelDeal } from '@/lib/actions/deal-actions'
+import { updateDealDetails, cancelDeal, uploadDocument, getDocumentSignedUrl } from '@/lib/actions/deal-actions'
 import { getChargeDays } from '@/lib/calculations'
 import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
 import { submitClosingDateAmendment, getDealAmendments } from '@/lib/actions/amendment-actions'
@@ -225,8 +225,6 @@ export default function AgentDealDetailPage() {
     const files = e.target.files
     if (!files || files.length === 0 || !deal) return
     setUploading(true); setStatusMessage(null)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setStatusMessage({ type: 'error', text: 'You must be logged in to upload.' }); setUploading(false); return }
 
     let successCount = 0
     const failures: string[] = []
@@ -236,17 +234,20 @@ export default function AgentDealDetailPage() {
       if (file.size > MAX_UPLOAD_SIZE_BYTES) { failures.push(`${file.name} (exceeds 10MB)`); continue }
       const ext = '.' + file.name.split('.').pop()?.toLowerCase()
       if (!ALLOWED_UPLOAD_EXTENSIONS.includes(ext as any)) { failures.push(`${file.name} (unsupported type)`); continue }
-      const safeExt = file.name.split('.').pop()?.toLowerCase() || 'bin'
-      const sanitizedName = `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${safeExt}`
-      const filePath = `${deal.id}/${sanitizedName}`
-      const { error: uploadError } = await supabase.storage.from('deal-documents').upload(filePath, file)
-      if (uploadError) { failures.push(`${file.name} (upload failed)`); continue }
-      const { data: docRecord, error: insertError } = await supabase.from('deal_documents').insert({
-        deal_id: deal.id, uploaded_by: user.id, document_type: uploadDocType,
-        file_name: file.name, file_path: filePath, file_size: file.size, upload_source: 'manual_upload',
-      }).select().single()
-      if (insertError) { failures.push(`${file.name} (save failed)`); continue }
-      if (docRecord) { setDocuments(prev => [docRecord, ...prev]); successCount++ }
+
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('dealId', deal.id)
+      formData.append('documentType', uploadDocType)
+
+      const result = await uploadDocument(formData)
+      if (!result.success || !result.data) {
+        failures.push(`${file.name} (${result.error || 'upload failed'})`)
+        continue
+      }
+
+      setDocuments(prev => [result.data as unknown as DealDocument, ...prev])
+      successCount++
     }
 
     setUploading(false)
@@ -275,13 +276,12 @@ export default function AgentDealDetailPage() {
   }
 
   const handleDocumentDownload = async (doc: DealDocument) => {
-    const { data, error } = await supabase.storage
-      .from('deal-documents')
-      .createSignedUrl(doc.file_path, 3600, { download: false })
-    if (error || !data?.signedUrl) {
+    const result = await getDocumentSignedUrl({ documentId: doc.id })
+    const signedUrl = result.data?.signedUrl as string | undefined
+    if (!result.success || !signedUrl) {
       setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
     }
-    window.open(data.signedUrl, '_blank')
+    window.open(signedUrl, '_blank')
   }
 
   const startEditing = () => {

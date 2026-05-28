@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, ReactNode } from 'react'
 
 // =============================================================================
 // Theme Color Definitions
@@ -67,56 +67,6 @@ export interface ThemeColors {
   shadowColor: string
 }
 
-export const lightColors: ThemeColors = {
-  pageBg: '#F5F3EF',
-  cardBg: '#FFFFFF',
-  cardBorder: '#E8E4DF',
-  cardHoverBg: '#FAF8F5',
-
-  headerBg: '#1E1E1E',
-  headerBgGradient: 'linear-gradient(135deg, #1E1E1E, #2D2D2D)',
-
-  textPrimary: '#1E1E1E',
-  textSecondary: '#888888',
-  textMuted: '#B8B8B8',
-  textFaint: '#D0D0D0',
-
-  gold: '#5FA873',
-  goldDark: '#3D7A4F',
-  goldBg: '#EDFAF0',
-
-  border: '#E8E4DF',
-  borderLight: '#F0EDE8',
-  divider: '#F0EDE8',
-
-  inputBg: '#FFFFFF',
-  inputBorder: '#E8E4DF',
-  inputText: '#1E1E1E',
-
-  tableHeaderBg: '#FAF8F5',
-  tableRowHoverBg: '#FAF8F5',
-  tableRowBorder: '#F0EDE8',
-
-  skeletonBase: '#E8E4DF',
-  skeletonHighlight: '#F0EDE8',
-
-  successText: '#1A7A2E',
-  successBg: '#EDFAF0',
-  successBorder: '#B8E6C4',
-  errorText: '#993D3D',
-  errorBg: '#FFF0F0',
-  errorBorder: '#F0C5C5',
-  warningText: '#92700C',
-  warningBg: '#FFF8ED',
-  warningBorder: '#E8D5A8',
-  infoText: '#3D5A99',
-  infoBg: '#F0F4FF',
-  infoBorder: '#C5D3F0',
-
-  overlayBg: 'rgba(0,0,0,0.5)',
-  shadowColor: 'rgba(0,0,0,0.06)',
-}
-
 // Dark colors — synced with CSS variables in globals.css
 export const darkColors: ThemeColors = {
   pageBg: '#0B0B0F',
@@ -172,10 +122,8 @@ export const darkColors: ThemeColors = {
 // Theme Context
 // =============================================================================
 
-type ThemeMode = 'light' | 'dark'
-
 interface ThemeContextType {
-  mode: ThemeMode
+  mode: 'dark'
   colors: ThemeColors
   toggle: () => void
   isDark: boolean
@@ -189,8 +137,6 @@ const ThemeContext = createContext<ThemeContextType>({
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [mode] = useState<ThemeMode>('dark')
-
   useEffect(() => {
     document.documentElement.classList.add('dark')
   }, [])
@@ -199,7 +145,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const toggle = () => {}
 
   const value: ThemeContextType = {
-    mode,
+    mode: 'dark',
     colors: darkColors,
     toggle,
     isDark: true,

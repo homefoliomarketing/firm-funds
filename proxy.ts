@@ -1,9 +1,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { isAllowedOrigin } from '@/lib/csrf'
+import { getAgentStatusError, getProfileStatusError, isActiveBrokerageStatus } from '@/lib/access'
+import type { AgentStatus, BrokerageStatus, UserProfile, UserRole } from '@/types/database'
 
 // Role-to-route mapping for authorization
-const ROUTE_ROLES: Record<string, string[]> = {
+const ROUTE_ROLES: Record<string, readonly UserRole[]> = {
   '/admin': ['super_admin', 'firm_funds_admin'],
   '/brokerage': ['brokerage_admin'],
   '/agent': ['agent'],
@@ -40,7 +42,102 @@ function isApiCsrfExempt(pathname: string): boolean {
   return API_CSRF_EXEMPT_PREFIX.some(p => pathname.startsWith(p))
 }
 
-export async function middleware(request: NextRequest) {
+interface AgentAccessRecord {
+  id: string
+  brokerage_id: string | null
+  status: AgentStatus
+  flagged_by_brokerage: boolean
+}
+
+interface BrokerageAccessRecord {
+  id: string
+  status: BrokerageStatus
+}
+
+function buildContentSecurityPolicy(nonce: string) {
+  const isDev = process.env.NODE_ENV === 'development'
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''} https://cdnjs.cloudflare.com https://maps.googleapis.com https://maps.gstatic.com`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data: blob: https://*.supabase.co https://maps.gstatic.com https://maps.googleapis.com https://*.googleusercontent.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.upstash.io https://maps.googleapis.com https://places.googleapis.com",
+    "worker-src 'self' blob: https://cdnjs.cloudflare.com",
+    "media-src 'self' blob: data:",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    'upgrade-insecure-requests',
+  ].join('; ')
+}
+
+function withCsp(response: NextResponse, csp: string) {
+  response.headers.set('Content-Security-Policy', csp)
+  return response
+}
+
+function redirectWithCsp(request: NextRequest, csp: string, pathname = '/login') {
+  const url = request.nextUrl.clone()
+  url.pathname = pathname
+  return withCsp(NextResponse.redirect(url), csp)
+}
+
+async function getBrokerageStatus(
+  supabase: ReturnType<typeof createServerClient>,
+  brokerageId: string | null
+) {
+  if (!brokerageId) return null
+
+  const { data: brokerage } = await supabase
+    .from('brokerages')
+    .select('id, status')
+    .eq('id', brokerageId)
+    .single()
+
+  return (brokerage as BrokerageAccessRecord | null)?.status ?? null
+}
+
+async function validateProfileIsAllowed(
+  supabase: ReturnType<typeof createServerClient>,
+  profile: UserProfile
+) {
+  if (getProfileStatusError(profile)) return false
+
+  if (profile.role === 'agent') {
+    if (!profile.agent_id) return false
+
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('id, brokerage_id, status, flagged_by_brokerage')
+      .eq('id', profile.agent_id)
+      .single()
+
+    const agentRecord = agent as AgentAccessRecord | null
+    if (!agentRecord) return false
+    if (getAgentStatusError(agentRecord)) return false
+
+    const brokerageStatus = await getBrokerageStatus(supabase, agentRecord.brokerage_id)
+    return isActiveBrokerageStatus(brokerageStatus)
+  }
+
+  if (profile.role === 'brokerage_admin') {
+    const brokerageStatus = await getBrokerageStatus(supabase, profile.brokerage_id)
+    return isActiveBrokerageStatus(brokerageStatus)
+  }
+
+  return true
+}
+
+export async function proxy(request: NextRequest) {
+  const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
+  const csp = buildContentSecurityPolicy(nonce)
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-nonce', nonce)
+  requestHeaders.set('Content-Security-Policy', csp)
+
   // CSRF enforcement for state-changing /api/* requests. Runs BEFORE the
   // Supabase client is built and BEFORE auth checks so a forged POST never
   // touches the auth subsystem and is rejected with 403 (not 302'd to /login).
@@ -53,13 +150,13 @@ export async function middleware(request: NextRequest) {
     !isApiCsrfExempt(csrfPath) &&
     !isAllowedOrigin(request)
   ) {
-    return NextResponse.json(
+    return withCsp(NextResponse.json(
       { error: 'Forbidden: invalid or missing Origin' },
       { status: 403 }
-    )
+    ), csp)
   }
 
-  let supabaseResponse = NextResponse.next({ request })
+  let supabaseResponse = withCsp(NextResponse.next({ request: { headers: requestHeaders } }), csp)
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,7 +170,7 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
-          supabaseResponse = NextResponse.next({ request })
+          supabaseResponse = withCsp(NextResponse.next({ request: { headers: requestHeaders } }), csp)
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -127,7 +224,7 @@ export async function middleware(request: NextRequest) {
     url.pathname = '/login'
     // Pass the original destination so login can redirect back
     url.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(url)
+    return withCsp(NextResponse.redirect(url), csp)
   }
 
   // For authenticated users: enforce role-based route access
@@ -136,17 +233,17 @@ export async function middleware(request: NextRequest) {
     // and role checks below. user_profiles.is_active=false means the user was
     // deactivated; we sign them out immediately rather than letting their
     // existing session ride to expiry.
-    const { data: profile } = await supabase
+    const { data: profileData } = await supabase
       .from('user_profiles')
-      .select('role, is_active, must_reset_password')
+      .select('*')
       .eq('id', user.id)
       .single()
 
-    if (profile && profile.is_active === false) {
+    const profile = profileData as UserProfile | null
+
+    if (profile && !(await validateProfileIsAllowed(supabase, profile))) {
       await supabase.auth.signOut()
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      return NextResponse.redirect(url)
+      return redirectWithCsp(request, csp)
     }
 
     // Check if user must reset their password (first login after invite).
@@ -175,14 +272,12 @@ export async function middleware(request: NextRequest) {
         // For API requests, return 403 JSON instead of an HTML redirect so
         // clients (fetch callers) get a clear error rather than a redirect chain.
         if (pathname.startsWith('/api/')) {
-          return NextResponse.json(
+          return withCsp(NextResponse.json(
             { error: 'Password reset required' },
             { status: 403 }
-          )
+          ), csp)
         }
-        const url = request.nextUrl.clone()
-        url.pathname = '/change-password'
-        return NextResponse.redirect(url)
+        return redirectWithCsp(request, csp, '/change-password')
       }
     }
 
@@ -225,12 +320,12 @@ export async function middleware(request: NextRequest) {
           (parsedRedirect.pathname === allowedPrefix ||
             parsedRedirect.pathname.startsWith(allowedPrefix + '/'))
         if (parsedRedirect && isSameOrigin && pathMatchesRole) {
-          return NextResponse.redirect(
+          return withCsp(NextResponse.redirect(
             new URL(
               parsedRedirect.pathname + parsedRedirect.search,
               request.url
             )
-          )
+          ), csp)
         }
         // Otherwise fall through to the default role-based redirect below.
       }
@@ -242,7 +337,7 @@ export async function middleware(request: NextRequest) {
         case 'super_admin': url.pathname = '/admin'; break
         default: url.pathname = '/agent'
       }
-      return NextResponse.redirect(url)
+      return withCsp(NextResponse.redirect(url), csp)
     }
 
     // Check role-based access for protected routes. Public paths are
@@ -256,9 +351,7 @@ export async function middleware(request: NextRequest) {
           if (!profile || !allowedRoles.includes(profile.role)) {
             // User doesn't have the right role or no profile — sign out and redirect to login
             await supabase.auth.signOut()
-            const url = request.nextUrl.clone()
-            url.pathname = '/login'
-            return NextResponse.redirect(url)
+            return redirectWithCsp(request, csp)
           }
           break
         }

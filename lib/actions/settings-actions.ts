@@ -223,6 +223,7 @@ function getDefaultPrefs() {
 export async function updateBrokerageContactEmail(newEmail: string) {
   const { error: authError, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
   if (authError || !user || !profile) return { success: false, error: authError || 'Not authorized' }
+  if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   if (!emailRegex.test(newEmail)) {

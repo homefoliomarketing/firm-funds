@@ -1,17 +1,16 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgents, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsCsv, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
 import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
 import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
-import * as XLSX from 'xlsx'
 import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS, BRAND_GREEN_HEX } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
 import { KycMediaPreview } from '@/components/admin/KycMediaPreview'
@@ -28,7 +27,7 @@ interface Agent {
   id: string
   first_name: string
   last_name: string
-  email: string | null  // ⚠️ TEMPORARY: nullable for testing — revert before go-live
+  email: string | null  // âš ï¸ TEMPORARY: nullable for testing â€” revert before go-live
   phone: string | null
   reco_number: string | null
   status: 'active' | 'suspended' | 'archived'
@@ -130,7 +129,7 @@ interface AgentFormData {
 const emptyAgentForm: AgentFormData = { firstName: '', lastName: '', email: '', phone: '', recoNumber: '' }
 
 // ============================================================================
-// Status badge helper (local — no colors dependency)
+// Status badge helper (local â€” no colors dependency)
 // ============================================================================
 
 function getLocalStatusBadgeClass(status: string): string {
@@ -255,7 +254,7 @@ function LateStrikeSection({ brokerage, onChange }: { brokerage: Brokerage; onCh
                 disabled={submitting || !reason.trim()}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition"
               >
-                {submitting ? 'Resetting…' : 'Confirm reset'}
+                {submitting ? 'Resettingâ€¦' : 'Confirm reset'}
               </button>
             </div>
           </div>
@@ -343,8 +342,8 @@ function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
         {displayStatus && (
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getBcaBadgeClass(displayStatus)}`}>
             {displayStatus === 'signed' && <><CheckCircle size={11} /> Signed</>}
-            {displayStatus === 'sent' && 'Sent — Awaiting Signature'}
-            {displayStatus === 'delivered' && 'Delivered — Awaiting Signature'}
+            {displayStatus === 'sent' && 'Sent â€” Awaiting Signature'}
+            {displayStatus === 'delivered' && 'Delivered â€” Awaiting Signature'}
             {displayStatus === 'declined' && <><XCircle size={11} /> Declined</>}
             {displayStatus === 'voided' && 'Voided'}
           </span>
@@ -667,52 +666,24 @@ export default function BrokeragesPage() {
       // If a roster file was attached, import it now
       if (createRosterFile && newBrokerageId) {
         try {
-          const fileData = await createRosterFile.arrayBuffer()
-          const workbook = XLSX.read(fileData, { type: 'array' })
-          const sheet = workbook.Sheets[workbook.SheetNames[0]]
-          // Auto-detect header row (skip branded header rows in premium template)
-          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-          let headerRowIdx = 0
-          for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
-            const rowText = rawRows[i].join(' ').toLowerCase()
-            if (rowText.includes('first') && rowText.includes('email')) { headerRowIdx = i; break }
-          }
-          const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '', range: headerRowIdx })
-
-          if (rows.length > 0) {
-            const agents = rows.map((row) => {
-              const keys = Object.keys(row)
-              const find = (needles: string[]) => {
-                const key = keys.find(k => needles.some(n => k.toLowerCase().replace(/[^a-z]/g, '').includes(n)))
-                return key ? String(row[key]).trim() : ''
-              }
-              return {
-                firstName: find(['firstname', 'first']),
-                lastName: find(['lastname', 'last']),
-                email: find(['email', 'mail']),
-                phone: find(['phone', 'cell', 'mobile', 'tel']) || undefined,
-                recoNumber: find(['reco', 'license', 'licence', 'registration']) || undefined,
-                addressStreet: find(['street', 'addressstreet', 'streetaddress', 'address']) || undefined,
-                addressCity: find(['city', 'addresscity']) || undefined,
-                addressProvince: find(['province', 'addressprovince', 'state', 'prov']) || undefined,
-                addressPostalCode: find(['postal', 'postalcode', 'zip', 'addresspostalcode']) || undefined,
-              }
-            })
-
-            const importRes = await bulkImportAgents({ brokerageId: newBrokerageId, agents })
-            if (importRes.success && importRes.data) {
-              rosterMsg = ` — ${importRes.data.imported} agent${importRes.data.imported !== 1 ? 's' : ''} imported`
-              if (importRes.data.skipped > 0) rosterMsg += ` (${importRes.data.skipped} skipped)`
-              if (importRes.data.errors.length > 0) {
-                setImportResult(importRes.data)
-                setImportingFor(newBrokerageId)
-                setExpandedId(newBrokerageId)
-              }
+          const formData = new FormData()
+          formData.append('brokerageId', newBrokerageId)
+          formData.append('file', createRosterFile)
+          const importRes = await bulkImportAgentsCsv(formData)
+          if (importRes.success && importRes.data) {
+            rosterMsg = ` - ${importRes.data.imported} agent${importRes.data.imported !== 1 ? 's' : ''} imported`
+            if (importRes.data.skipped > 0) rosterMsg += ` (${importRes.data.skipped} skipped)`
+            if (importRes.data.errors.length > 0) {
+              setImportResult(importRes.data)
+              setImportingFor(newBrokerageId)
+              setExpandedId(newBrokerageId)
             }
+          } else {
+            rosterMsg = ` - roster import failed: ${importRes.error || 'invalid CSV'}`
           }
         } catch (err) {
           console.error('Roster import error during create:', err)
-          rosterMsg = ' — roster import failed, you can re-upload from the brokerage view'
+          rosterMsg = ' - roster import failed, you can re-upload from the brokerage view'
         }
       }
 
@@ -756,7 +727,7 @@ export default function BrokeragesPage() {
       const queued = (result.data as any)?.welcomeQueued
       let msg = 'Brokerage updated successfully'
       if (queued) {
-        msg += ` — welcome emails queued: ${queued.sent} sent, ${queued.failed} failed`
+        msg += ` â€” welcome emails queued: ${queued.sent} sent, ${queued.failed} failed`
       }
       setStatusMessage({ type: 'success', text: msg })
       setEditingBrokerageId(null)
@@ -819,7 +790,7 @@ export default function BrokeragesPage() {
   // ---- Agent CRUD ----
   const handleAddAgent = async (e: React.FormEvent, brokerageId: string) => {
     e.preventDefault()
-    // ⚠️ TEMPORARY: email not required for testing — REVERT BEFORE GO-LIVE
+    // âš ï¸ TEMPORARY: email not required for testing â€” REVERT BEFORE GO-LIVE
     if (!agentForm.firstName.trim() || !agentForm.lastName.trim()) {
       setStatusMessage({ type: 'error', text: 'First name and last name are required' }); return
     }
@@ -828,7 +799,7 @@ export default function BrokeragesPage() {
     setSubmitting(true)
 
     if (canInvite) {
-      // Create agent record + auth user (no email yet — send in bulk when brokerage is ready)
+      // Create agent record + auth user (no email yet â€” send in bulk when brokerage is ready)
       const result = await inviteAgent({
         brokerageId,
         firstName: agentForm.firstName, lastName: agentForm.lastName,
@@ -916,46 +887,10 @@ export default function BrokeragesPage() {
     setImportingFor(brokerageId)
 
     try {
-      const data = await file.arrayBuffer()
-      const workbook = XLSX.read(data, { type: 'array' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      // Auto-detect header row (skip branded header rows in premium template)
-      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-      let headerRowIdx = 0
-      for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
-        const rowText = rawRows[i].join(' ').toLowerCase()
-        if (rowText.includes('first') && rowText.includes('email')) { headerRowIdx = i; break }
-      }
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '', range: headerRowIdx })
-
-      if (rows.length === 0) {
-        setStatusMessage({ type: 'error', text: 'The file appears to be empty. Make sure row 1 has headers.' })
-        setSubmitting(false)
-        setImportingFor(null)
-        return
-      }
-
-      // Map columns (flexible matching)
-      const agents = rows.map((row) => {
-        const keys = Object.keys(row)
-        const find = (needles: string[]) => {
-          const key = keys.find(k => needles.some(n => k.toLowerCase().replace(/[^a-z]/g, '').includes(n)))
-          return key ? String(row[key]).trim() : ''
-        }
-        return {
-          firstName: find(['firstname', 'first']),
-          lastName: find(['lastname', 'last']),
-          email: find(['email', 'mail']),
-          phone: find(['phone', 'cell', 'mobile', 'tel']) || undefined,
-          recoNumber: find(['reco', 'license', 'licence', 'registration']) || undefined,
-          addressStreet: find(['street', 'addressstreet', 'streetaddress', 'address']) || undefined,
-          addressCity: find(['city', 'addresscity']) || undefined,
-          addressProvince: find(['province', 'addressprovince', 'state', 'prov']) || undefined,
-          addressPostalCode: find(['postal', 'postalcode', 'zip', 'addresspostalcode']) || undefined,
-        }
-      })
-
-      const result = await bulkImportAgents({ brokerageId, agents })
+      const formData = new FormData()
+      formData.append('brokerageId', brokerageId)
+      formData.append('file', file)
+      const result = await bulkImportAgentsCsv(formData)
 
       if (result.success && result.data) {
         setImportResult(result.data)
@@ -968,10 +903,11 @@ export default function BrokeragesPage() {
       } else {
         setStatusMessage({ type: 'error', text: result.error || 'Import failed' })
       }
-    } catch (err: any) {
-      console.error('File parse error:', err)
-      setStatusMessage({ type: 'error', text: 'Failed to read the file. Make sure it\'s a valid .xlsx or .csv file.' })
+    } catch (err: unknown) {
+      console.error('CSV import error:', err)
+      setStatusMessage({ type: 'error', text: 'Failed to read the file. Make sure it is a valid CSV file.' })
     }
+    setImportingFor(null)
     setSubmitting(false)
   }
 
@@ -1022,16 +958,26 @@ export default function BrokeragesPage() {
     await loadBrokerageDocs(brokerageId)
   }
 
-  const handleBrokerageDocView = async (doc: { file_path: string }) => {
-    const { data } = await supabase.storage.from('deal-documents').createSignedUrl(doc.file_path, 3600)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  const handleBrokerageDocView = async (doc: { id: string }) => {
+    const result = await getBrokerageDocumentSignedUrl({ documentId: doc.id })
+    const signedUrl = result.data?.signedUrl as string | undefined
+    if (result.success && signedUrl) {
+      window.open(signedUrl, '_blank')
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to open document' })
+    }
   }
 
   const downloadTemplate = () => {
+    const csv = [
+      'First Name,Last Name,Email,Phone,RECO Number,Address Street,Address City,Address Province,Address Postal Code',
+      'Jane,Realtor,jane@example.com,+1 416 555 0100,1234567,123 Main St,Toronto,ON,M5V 1A1',
+    ].join('\r\n')
     const link = document.createElement('a')
-    link.href = '/firm-funds-agent-import-template.xlsx'
-    link.download = 'firm-funds-agent-import-template.xlsx'
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    link.download = 'firm-funds-agent-import-template.csv'
     link.click()
+    URL.revokeObjectURL(link.href)
   }
 
   const handleArchiveAgent = async (agentId: string, agentName: string) => {
@@ -1074,7 +1020,7 @@ export default function BrokeragesPage() {
       const sent = result.data?.sent || 0
       const failed = result.data?.failed || 0
       if (failed > 0) {
-        setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}. ${failed} failed — use individual resend for those.` })
+        setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}. ${failed} failed â€” use individual resend for those.` })
       } else {
         setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}!` })
       }
@@ -1325,7 +1271,7 @@ export default function BrokeragesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Main content area — shrinks when KYC panel is open */}
+      {/* Main content area â€” shrinks when KYC panel is open */}
       <div style={{ marginRight: kycPreviewPanel ? kycPanelWidth : 0, transition: 'margin-right 0.2s ease-out' }}>
       {/* Header */}
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50 sticky top-0 z-50">
@@ -1373,7 +1319,7 @@ export default function BrokeragesPage() {
           <div>
             <h2 className="text-2xl font-bold text-foreground">Brokerages</h2>
             <p className="text-sm mt-1 text-muted-foreground">
-              {brokerages.length} brokerage{brokerages.length !== 1 ? 's' : ''} · {brokerages.reduce((sum, b) => sum + b.agents.length, 0)} total agents
+              {brokerages.length} brokerage{brokerages.length !== 1 ? 's' : ''} Â· {brokerages.reduce((sum, b) => sum + b.agents.length, 0)} total agents
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1457,7 +1403,7 @@ export default function BrokeragesPage() {
                   </button>
                 </div>
                 <p className="text-xs mb-3 text-muted-foreground">
-                  Upload an .xlsx or .csv with columns: First Name, Last Name, Email, Phone, RECO Number. Agents will be imported automatically when the brokerage is created.
+                  Upload a .csv with columns: First Name, Last Name, Email, Phone, RECO Number. Agents will be imported automatically when the brokerage is created.
                 </p>
                 <div className="flex items-center gap-3">
                   <label
@@ -1467,7 +1413,7 @@ export default function BrokeragesPage() {
                     {createRosterFile ? 'Change File' : 'Choose File'}
                     <input
                       type="file"
-                      accept=".xlsx,.xls,.csv"
+                      accept=".csv,text/csv"
                       className="hidden"
                       onChange={(e) => setCreateRosterFile(e.target.files?.[0] || null)}
                     />
@@ -1546,7 +1492,7 @@ export default function BrokeragesPage() {
                         )}
                         {brokerage.is_white_label_partner && (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30"
-                            title={`White-label partner — ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
+                            title={`White-label partner â€” ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
                           >
                             White-Label
                           </span>
@@ -1670,7 +1616,7 @@ export default function BrokeragesPage() {
                               rows={3} className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary resize-none transition-colors" />
                           </div>
 
-                          {/* Profit Share — every onboarded brokerage is a white-label partner */}
+                          {/* Profit Share â€” every onboarded brokerage is a white-label partner */}
                           <div className="border border-border/60 rounded-lg p-4 bg-muted/20 space-y-3">
                             <div>
                               <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
@@ -1693,7 +1639,7 @@ export default function BrokeragesPage() {
                                 className={inputCls}
                               />
                               <p className="text-[11px] mt-1.5 text-muted-foreground/70">
-                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal — renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
+                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal â€” renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
                               </p>
                               <p className="text-[11px] mt-1 text-amber-400/80">
                                 Setting this above 0 (when previously 0) queues welcome emails to roster agents with an email on file.
@@ -1715,24 +1661,24 @@ export default function BrokeragesPage() {
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Address</p>
                             <p className="text-foreground">
-                              {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || '—'}
+                              {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'â€”'}
                             </p>
                           </div>
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Phone</p>
-                            <p className="text-foreground">{brokerage.phone || '—'}</p>
+                            <p className="text-foreground">{brokerage.phone || 'â€”'}</p>
                           </div>
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Transaction System</p>
-                            <p className="text-foreground">{brokerage.transaction_system || '—'}</p>
+                            <p className="text-foreground">{brokerage.transaction_system || 'â€”'}</p>
                           </div>
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Notes</p>
-                            <p className="text-foreground">{brokerage.notes || '—'}</p>
+                            <p className="text-foreground">{brokerage.notes || 'â€”'}</p>
                           </div>
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Broker of Record</p>
-                            <p className="text-foreground">{brokerage.broker_of_record_name || '—'}</p>
+                            <p className="text-foreground">{brokerage.broker_of_record_name || 'â€”'}</p>
                             {brokerage.broker_of_record_email && (
                               <p className="text-xs mt-0.5 text-muted-foreground">{brokerage.broker_of_record_email}</p>
                             )}
@@ -1745,7 +1691,7 @@ export default function BrokeragesPage() {
                         <div className="flex items-center gap-2 mb-3">
                           <Shield size={15} className={(brokerage as any).kyc_verified ? 'text-primary' : 'text-primary'} />
                           <h4 className="text-sm font-bold text-foreground">
-                            FINTRAC — RECO Verification
+                            FINTRAC â€” RECO Verification
                           </h4>
                           {(brokerage as any).kyc_verified && (
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getKycBadgeClass('verified')}`}>
@@ -1755,28 +1701,28 @@ export default function BrokeragesPage() {
                         </div>
 
                         {(brokerage as any).kyc_verified ? (
-                          /* Verified state — show verification details */
+                          /* Verified state â€” show verification details */
                           <div className="space-y-2">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">RECO Reg #</p>
-                                <p className="text-foreground">{(brokerage as any).reco_registration_number || '—'}</p>
+                                <p className="text-foreground">{(brokerage as any).reco_registration_number || 'â€”'}</p>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Verified On</p>
                                 <p className="text-foreground">
                                   {(brokerage as any).reco_verification_date
                                     ? new Date((brokerage as any).reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-                                    : '—'}
+                                    : 'â€”'}
                                 </p>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Verified By</p>
-                                <p className="text-foreground">{(brokerage as any).kyc_verified_by || '—'}</p>
+                                <p className="text-foreground">{(brokerage as any).kyc_verified_by || 'â€”'}</p>
                               </div>
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Notes</p>
-                                <p className="text-foreground">{(brokerage as any).reco_verification_notes || '—'}</p>
+                                <p className="text-foreground">{(brokerage as any).reco_verification_notes || 'â€”'}</p>
                               </div>
                             </div>
                             <button
@@ -1799,7 +1745,7 @@ export default function BrokeragesPage() {
                             </button>
                           </div>
                         ) : (
-                          /* Not verified — show verification form */
+                          /* Not verified â€” show verification form */
                           <div className="space-y-3">
                             <p className="text-xs text-muted-foreground">
                               Verify this brokerage on the RECO Public Register, then record the verification below.
@@ -1991,7 +1937,7 @@ export default function BrokeragesPage() {
                                 <Upload size={13} /> Import Roster
                                 <input
                                   type="file"
-                                  accept=".xlsx,.xls,.csv"
+                                  accept=".csv,text/csv"
                                   className="hidden"
                                   onChange={(e) => handleFileUpload(e, brokerage.id)}
                                   disabled={submitting}
@@ -2000,7 +1946,7 @@ export default function BrokeragesPage() {
                               <button
                                 onClick={downloadTemplate}
                                 className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors text-muted-foreground border border-border hover:bg-muted hover:text-foreground"
-                                title="Download template spreadsheet"
+                                title="Download CSV template"
                               >
                                 <Download size={13} /> Template
                               </button>
@@ -2117,7 +2063,7 @@ export default function BrokeragesPage() {
                                     </div>
                                     <p className="text-[10px] text-muted-foreground/60">
                                       <Mail size={10} className="inline mr-1" style={{ verticalAlign: 'middle' }} />
-                                      A branded setup email will be sent with a magic link. They&apos;ll set their own password — no credentials to share.
+                                      A branded setup email will be sent with a magic link. They&apos;ll set their own password â€” no credentials to share.
                                     </p>
                                   </div>
                                 )}
@@ -2226,7 +2172,7 @@ export default function BrokeragesPage() {
                                 Create login
                               </label>
                               <span className="text-xs text-muted-foreground">
-                                {sendInvite ? '(login created — send welcome email later)' : '(roster only — no login)'}
+                                {sendInvite ? '(login created â€” send welcome email later)' : '(roster only â€” no login)'}
                               </span>
                             </div>
                             <div className="flex gap-3 pt-1">
@@ -2419,9 +2365,9 @@ export default function BrokeragesPage() {
                                             </span>
                                           ) : null}
                                         </td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email || '—'}</td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || '—'}</td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.reco_number || '—'}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email || 'â€”'}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || 'â€”'}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.reco_number || 'â€”'}</td>
                                         <td className="px-4 py-3">
                                           <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded ${getLocalStatusBadgeClass(agent.status)}`}>
                                             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
@@ -2434,7 +2380,7 @@ export default function BrokeragesPage() {
                                               {formatCurrency(agent.account_balance)}
                                             </span>
                                           ) : (
-                                            <span className="text-xs text-muted-foreground/50">—</span>
+                                            <span className="text-xs text-muted-foreground/50">â€”</span>
                                           )}
                                         </td>
                                         <td className="px-4 py-3">
@@ -2450,7 +2396,7 @@ export default function BrokeragesPage() {
                                                 </span>
                                                 {kycStatus === 'submitted' && (
                                                   <div className="flex flex-col gap-1.5 mt-1.5">
-                                                    {/* VIEW ID — large button */}
+                                                    {/* VIEW ID â€” large button */}
                                                     <button
                                                       onClick={async (e) => {
                                                         e.stopPropagation()
@@ -2666,10 +2612,10 @@ export default function BrokeragesPage() {
                                                         onClick={async () => {
                                                           try {
                                                             setPreauthViewingAgentId(agent.id)
-                                                            const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path!, 300)
-                                                            if (data?.signedUrl) {
+                                                            const result = await getAgentPreauthFormSignedUrl({ agentId: agent.id })
+                                                            if (result.success && typeof result.data?.signedUrl === 'string') {
                                                               // Fetch as blob to bypass content-blocking headers
-                                                              const response = await fetch(data.signedUrl)
+                                                              const response = await fetch(result.data.signedUrl)
                                                               const arrayBuffer = await response.arrayBuffer()
                                                               const mimeType = response.headers.get('content-type') || 'application/pdf'
                                                               const blob = new Blob([arrayBuffer], { type: mimeType })
@@ -2706,7 +2652,7 @@ export default function BrokeragesPage() {
                                                     </div>
                                                     <div className="flex items-center gap-4 mb-2">
                                                       <span className="text-xs font-mono text-muted-foreground">
-                                                        Transit: {agent.banking_submitted_transit} · Inst: {agent.banking_submitted_institution} · Acct: {agent.banking_submitted_account}
+                                                        Transit: {agent.banking_submitted_transit} Â· Inst: {agent.banking_submitted_institution} Â· Acct: {agent.banking_submitted_account}
                                                       </span>
                                                     </div>
                                                     {bankingRejectingId === agent.id ? (
@@ -2785,7 +2731,7 @@ export default function BrokeragesPage() {
                                                       <span className="text-xs font-medium text-primary">Verified</span>
                                                     </div>
                                                     <span className="text-xs font-mono text-muted-foreground">
-                                                      Transit: {agent.bank_transit_number} · Inst: {agent.bank_institution_number} · Acct: {'•'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
+                                                      Transit: {agent.bank_transit_number} Â· Inst: {agent.bank_institution_number} Â· Acct: {'â€¢'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
                                                     </span>
                                                     <button
                                                       onClick={() => {
@@ -2930,7 +2876,7 @@ export default function BrokeragesPage() {
                                                               <p className="text-xs text-foreground truncate">{tx.description}</p>
                                                               <p className="text-[10px] text-muted-foreground/60 tabular-nums mt-0.5">
                                                                 {new Date(tx.created_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
-                                                                {' · '}{tx.type.replace(/_/g, ' ')}
+                                                                {' Â· '}{tx.type.replace(/_/g, ' ')}
                                                               </p>
                                                             </div>
                                                             <div className="text-right shrink-0 ml-3">
@@ -2998,7 +2944,7 @@ export default function BrokeragesPage() {
       </main>
       </div>{/* end of content area that shrinks */}
 
-      {/* KYC Document Side Panel — sits beside main content, not on top */}
+      {/* KYC Document Side Panel â€” sits beside main content, not on top */}
       {kycPreviewPanel && (
         <div
           className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl bg-card border-l-2 border-l-primary"
@@ -3035,7 +2981,7 @@ export default function BrokeragesPage() {
               </button>
             </div>
           </div>
-          {/* Agent Address — for cross-referencing with ID */}
+          {/* Agent Address â€” for cross-referencing with ID */}
           {kycPreviewPanel.agentAddress && (
             <div className="px-3 py-2 border-b border-border bg-primary/5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">Address on File</p>
@@ -3048,7 +2994,7 @@ export default function BrokeragesPage() {
               <p className="text-[11px] text-muted-foreground">Agent hasn&apos;t submitted their address yet</p>
             </div>
           )}
-          {/* Panel Content — shows all uploaded ID images */}
+          {/* Panel Content â€” shows all uploaded ID images */}
           <div className="flex-1 overflow-auto p-3">
             {kycPreviewPanel.blobUrls.map((blobUrl, i) => {
               const ext = kycPreviewPanel.originalUrls[i]?.split('?')[0].split('.').pop()?.toLowerCase() || ''
@@ -3088,7 +3034,7 @@ export default function BrokeragesPage() {
               </label>
             ))}
           </div>
-          {/* Panel Footer — Approve/Reject actions */}
+          {/* Panel Footer â€” Approve/Reject actions */}
           <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0 border-t border-border bg-background">
             <button
               onClick={async () => {

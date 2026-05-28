@@ -1203,18 +1203,28 @@ export async function linkDocumentToChecklist(input: {
 
 export async function deleteDocument(input: {
   documentId: string
-  filePath: string
 }): Promise<ActionResult> {
-  const { error: authErr, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
   if (authErr) return { success: false, error: authErr }
 
   try {
+    const adminSupabase = createServiceRoleClient()
+    const { data: document, error: documentError } = await adminSupabase
+      .from('deal_documents')
+      .select('id, deal_id, file_name, file_path')
+      .eq('id', input.documentId)
+      .single()
+
+    if (documentError || !document) {
+      return { success: false, error: 'Document not found' }
+    }
+
     // Delete DB row FIRST, then storage file. If storage delete fails we have
     // an orphaned file (recoverable via storage admin) instead of an orphan
     // DB pointer to a missing file (which surfaces as a broken download for
     // the user). Original order was reversed and would silently leave the
     // metadata row pointing at a missing object when the DB delete failed.
-    const { error: dbError } = await supabase
+    const { error: dbError } = await adminSupabase
       .from('deal_documents')
       .delete()
       .eq('id', input.documentId)
@@ -1224,7 +1234,7 @@ export async function deleteDocument(input: {
       return { success: false, error: 'Failed to delete document record' }
     }
 
-    const { error: storageError } = await supabase.storage.from('deal-documents').remove([input.filePath])
+    const { error: storageError } = await adminSupabase.storage.from('deal-documents').remove([document.file_path])
     if (storageError) {
       console.error('Document storage delete error (DB row already removed):', storageError.message)
       // Best-effort: DB row is gone, the orphaned storage object is leaked
@@ -1236,7 +1246,11 @@ export async function deleteDocument(input: {
       action: 'document.delete',
       entityType: 'document',
       entityId: input.documentId,
-      metadata: { file_path: input.filePath, storage_orphaned: Boolean(storageError) },
+      metadata: {
+        deal_id: document.deal_id,
+        file_name: document.file_name,
+        storage_orphaned: Boolean(storageError),
+      },
     })
 
     return { success: true }
@@ -1252,54 +1266,64 @@ export async function deleteDocument(input: {
 
 export async function getDocumentSignedUrl(input: {
   documentId: string
-  filePath: string
-  dealId: string
 }): Promise<ActionResult> {
   // Allow admins, agents, and brokerage admins
-  const { error: authErr, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent', 'brokerage_admin'])
+  const { error: authErr, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent', 'brokerage_admin'])
   if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    // Authorization: verify the user actually has access to this deal
+    const serviceClient = createServiceRoleClient()
+    const { data: document, error: documentError } = await serviceClient
+      .from('deal_documents')
+      .select('id, deal_id, file_name, file_path, deals(agent_id, brokerage_id)')
+      .eq('id', input.documentId)
+      .single()
+
+    if (documentError || !document) {
+      return { success: false, error: 'Document not found' }
+    }
+
+    const deal = Array.isArray((document as any).deals)
+      ? (document as any).deals[0]
+      : (document as any).deals
+
+    if (!deal) {
+      return { success: false, error: 'Document deal not found' }
+    }
+
+    // Authorization: verify the user actually has access to the document's deal.
+    // The storage path is intentionally loaded from the trusted DB record, not
+    // supplied by the caller.
     if (profile.role === 'agent') {
-      const { data: deal } = await supabase
-        .from('deals')
-        .select('agent_id')
-        .eq('id', input.dealId)
-        .single()
       if (!deal || deal.agent_id !== profile.agent_id) {
         return { success: false, error: 'Access denied' }
       }
     } else if (profile.role === 'brokerage_admin') {
-      const { data: deal } = await supabase
-        .from('deals')
-        .select('brokerage_id')
-        .eq('id', input.dealId)
-        .single()
       if (!deal || deal.brokerage_id !== profile.brokerage_id) {
         return { success: false, error: 'Access denied' }
       }
     }
     // super_admin and firm_funds_admin can access all deals
 
-    // see audit finding #11: storage paths are scoped by deal id; reject any
-    // request asking for a path that doesn't belong to the authorized deal.
-    if (!input.filePath.startsWith(input.dealId + '/')) {
-      return { success: false, error: 'File path does not belong to the requested deal' }
-    }
-
-    // Use service role client to bypass RLS/storage policies
-    const { createServiceRoleClient } = await import('@/lib/supabase/server')
-    const serviceClient = createServiceRoleClient()
-
     const { data, error } = await serviceClient.storage
       .from('deal-documents')
-      .createSignedUrl(input.filePath, 3600, { download: false })
+      .createSignedUrl(document.file_path, 3600, { download: false })
 
     if (error) {
       console.error('Signed URL error:', error.message)
       return { success: false, error: 'Failed to generate download link' }
     }
+
+    await logAuditEvent({
+      action: 'document.view',
+      entityType: 'document',
+      entityId: document.id,
+      metadata: {
+        deal_id: document.deal_id,
+        file_name: document.file_name,
+        access_type: 'signed_url',
+      },
+    })
 
     return { success: true, data: { signedUrl: data.signedUrl } }
   } catch (err: any) {

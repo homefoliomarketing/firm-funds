@@ -7,33 +7,36 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 // DocuSign Configuration
 // ============================================================================
 
-const DOCUSIGN_INTEGRATION_KEY = process.env.DOCUSIGN_INTEGRATION_KEY!
-const DOCUSIGN_SECRET_KEY = process.env.DOCUSIGN_SECRET_KEY!
-const DOCUSIGN_ACCOUNT_ID = process.env.DOCUSIGN_ACCOUNT_ID!
-
 // In production, all three URLs MUST be set explicitly. Defaulting to
 // demo.docusign.net / account-d.docusign.com silently routes signed CPAs
 // through the sandbox, where they are not legally enforceable. Dev keeps
 // the sandbox defaults for local testing.
-const DOCUSIGN_AUTH_URL = process.env.DOCUSIGN_AUTH_URL || 'https://account-d.docusign.com'
-const DOCUSIGN_BASE_URL = process.env.DOCUSIGN_BASE_URL
-const DOCUSIGN_REDIRECT_URI = process.env.DOCUSIGN_REDIRECT_URI
+function getDocuSignConfig() {
+  const integrationKey = process.env.DOCUSIGN_INTEGRATION_KEY
+  const secretKey = process.env.DOCUSIGN_SECRET_KEY
+  const accountId = process.env.DOCUSIGN_ACCOUNT_ID
+  const authUrl = process.env.DOCUSIGN_AUTH_URL || 'https://account-d.docusign.com'
+  const baseUrl = process.env.DOCUSIGN_BASE_URL
+  const redirectUri = process.env.DOCUSIGN_REDIRECT_URI
 
-if (process.env.NODE_ENV === 'production') {
-  if (!process.env.DOCUSIGN_AUTH_URL) {
-    throw new Error('DOCUSIGN_AUTH_URL not configured for production')
+  if (process.env.NODE_ENV === 'production') {
+    if (!integrationKey) throw new Error('DOCUSIGN_INTEGRATION_KEY not configured for production')
+    if (!secretKey) throw new Error('DOCUSIGN_SECRET_KEY not configured for production')
+    if (!accountId) throw new Error('DOCUSIGN_ACCOUNT_ID not configured for production')
+    if (!process.env.DOCUSIGN_AUTH_URL) throw new Error('DOCUSIGN_AUTH_URL not configured for production')
+    if (!baseUrl) throw new Error('DOCUSIGN_BASE_URL not configured for production')
+    if (!redirectUri) throw new Error('DOCUSIGN_REDIRECT_URI not configured for production')
+    if (authUrl.includes('account-d.docusign.com')) throw new Error('DOCUSIGN_AUTH_URL points at sandbox in production')
+    if (baseUrl.includes('demo.docusign.net')) throw new Error('DOCUSIGN_BASE_URL points at sandbox in production')
   }
-  if (!DOCUSIGN_BASE_URL) {
-    throw new Error('DOCUSIGN_BASE_URL not configured for production')
-  }
-  if (!DOCUSIGN_REDIRECT_URI) {
-    throw new Error('DOCUSIGN_REDIRECT_URI not configured for production')
-  }
-  if (DOCUSIGN_AUTH_URL.includes('account-d.docusign.com')) {
-    throw new Error('DOCUSIGN_AUTH_URL points at sandbox in production')
-  }
-  if (DOCUSIGN_BASE_URL.includes('demo.docusign.net')) {
-    throw new Error('DOCUSIGN_BASE_URL points at sandbox in production')
+
+  return {
+    integrationKey,
+    secretKey,
+    accountId,
+    authUrl,
+    baseUrl,
+    redirectUri,
   }
 }
 
@@ -52,9 +55,10 @@ export async function exchangeCodeForTokens(code: string): Promise<{
   expires_in: number
   token_type: string
 }> {
-  const basicAuth = Buffer.from(`${DOCUSIGN_INTEGRATION_KEY}:${DOCUSIGN_SECRET_KEY}`).toString('base64')
+  const config = getDocuSignConfig()
+  const basicAuth = Buffer.from(`${config.integrationKey}:${config.secretKey}`).toString('base64')
 
-  const res = await fetch(`${DOCUSIGN_AUTH_URL}/oauth/token`, {
+  const res = await fetch(`${config.authUrl}/oauth/token`, {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${basicAuth}`,
@@ -63,7 +67,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: DOCUSIGN_REDIRECT_URI || 'http://localhost:3000/api/docusign/callback',
+      redirect_uri: config.redirectUri || 'http://localhost:3000/api/docusign/callback',
     }),
   })
 
@@ -86,9 +90,10 @@ async function refreshAccessToken(refreshToken: string): Promise<{
   expires_in: number
   token_type: string
 }> {
-  const basicAuth = Buffer.from(`${DOCUSIGN_INTEGRATION_KEY}:${DOCUSIGN_SECRET_KEY}`).toString('base64')
+  const config = getDocuSignConfig()
+  const basicAuth = Buffer.from(`${config.integrationKey}:${config.secretKey}`).toString('base64')
 
-  const res = await fetch(`${DOCUSIGN_AUTH_URL}/oauth/token`, {
+  const res = await fetch(`${config.authUrl}/oauth/token`, {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${basicAuth}`,
@@ -116,7 +121,8 @@ async function refreshAccessToken(refreshToken: string): Promise<{
 export async function getUserInfo(accessToken: string): Promise<{
   accounts: { account_id: string; base_uri: string; is_default: boolean }[]
 }> {
-  const res = await fetch(`${DOCUSIGN_AUTH_URL}/oauth/userinfo`, {
+  const config = getDocuSignConfig()
+  const res = await fetch(`${config.authUrl}/oauth/userinfo`, {
     headers: { 'Authorization': `Bearer ${accessToken}` },
   })
 

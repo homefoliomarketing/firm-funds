@@ -31,7 +31,7 @@ export type DocumentType =
   | 'other'
 
 export type BrokerageStatus = 'active' | 'suspended' | 'inactive' | 'archived'
-export type AgentStatus = 'active' | 'suspended' | 'flagged' | 'archived'
+export type AgentStatus = 'active' | 'inactive' | 'suspended' | 'flagged' | 'archived'
 export type UploadSource = 'nexone_auto' | 'manual_upload'
 export type DealSource = 'nexone_auto' | 'manual_portal'
 
@@ -286,6 +286,7 @@ export interface UserProfile {
   brokerage_id: string | null
   full_name: string
   is_active: boolean
+  must_reset_password: boolean
   last_login: string | null
   created_at: string
 }

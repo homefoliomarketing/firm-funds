@@ -588,6 +588,149 @@ interface BulkImportResult {
   }
 }
 
+const MAX_ROSTER_CSV_BYTES = 256 * 1024
+const MAX_ROSTER_ROWS = 200
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let value = ''
+  let inQuotes = false
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    const next = text[i + 1]
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        value += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(value)
+      value = ''
+      continue
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && next === '\n') i++
+      row.push(value)
+      if (row.some(cell => cell.trim() !== '')) rows.push(row)
+      row = []
+      value = ''
+      continue
+    }
+
+    value += char
+  }
+
+  row.push(value)
+  if (row.some(cell => cell.trim() !== '')) rows.push(row)
+  return rows
+}
+
+function normalizeHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+function isPhoneHeader(header: string) {
+  const normalized = normalizeHeader(header)
+  return ['phone', 'cell', 'mobile', 'tel', 'telephone'].some(term => normalized.includes(term))
+}
+
+function hasSpreadsheetFormulaRisk(value: string, header: string) {
+  const trimmed = value.trimStart()
+  if (!/^[=+\-@]/.test(trimmed)) return false
+
+  // Phone numbers commonly start with + and may contain hyphens; allow only
+  // those characters in phone-like columns.
+  if (isPhoneHeader(header) && /^[+\-\d\s().]+$/.test(trimmed)) return false
+
+  return true
+}
+
+function rowsToBulkAgents(rows: string[][]): { agents: BulkAgentRow[]; error?: string } {
+  let headerRowIdx = -1
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const rowText = rows[i].join(' ').toLowerCase()
+    if (rowText.includes('first') && rowText.includes('email')) {
+      headerRowIdx = i
+      break
+    }
+  }
+
+  if (headerRowIdx < 0) {
+    return { agents: [], error: 'CSV must include a header row with First Name and Email columns' }
+  }
+
+  const headers = rows[headerRowIdx].map(header => header.trim())
+  const dataRows = rows.slice(headerRowIdx + 1)
+  if (dataRows.length === 0) return { agents: [], error: 'CSV contains no agent rows' }
+  if (dataRows.length > MAX_ROSTER_ROWS) {
+    return { agents: [], error: `Maximum ${MAX_ROSTER_ROWS} agents per import` }
+  }
+
+  for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+      const cell = dataRows[rowIdx][colIdx] ?? ''
+      if (hasSpreadsheetFormulaRisk(cell, headers[colIdx] ?? '')) {
+        return {
+          agents: [],
+          error: `Row ${rowIdx + headerRowIdx + 2}: spreadsheet formula-like values are not allowed`,
+        }
+      }
+    }
+  }
+
+  const findValue = (row: string[], needles: string[]) => {
+    const idx = headers.findIndex(header => {
+      const normalized = normalizeHeader(header)
+      return needles.some(needle => normalized.includes(needle))
+    })
+    return idx >= 0 ? String(row[idx] ?? '').trim() : ''
+  }
+
+  return {
+    agents: dataRows.map(row => ({
+      firstName: findValue(row, ['firstname', 'first']),
+      lastName: findValue(row, ['lastname', 'last']),
+      email: findValue(row, ['email', 'mail']),
+      phone: findValue(row, ['phone', 'cell', 'mobile', 'tel']) || undefined,
+      recoNumber: findValue(row, ['reco', 'license', 'licence', 'registration']) || undefined,
+      addressStreet: findValue(row, ['street', 'addressstreet', 'streetaddress', 'address']) || undefined,
+      addressCity: findValue(row, ['city', 'addresscity']) || undefined,
+      addressProvince: findValue(row, ['province', 'addressprovince', 'state', 'prov']) || undefined,
+      addressPostalCode: findValue(row, ['postal', 'postalcode', 'zip', 'addresspostalcode']) || undefined,
+    })),
+  }
+}
+
+export async function bulkImportAgentsCsv(formData: FormData): Promise<BulkImportResult> {
+  const { error: authErr } = await getAuthenticatedAdmin()
+  if (authErr) return { success: false, error: authErr }
+
+  const brokerageId = String(formData.get('brokerageId') || '')
+  const file = formData.get('file') as File | null
+  if (!brokerageId) return { success: false, error: 'Brokerage is required' }
+  if (!file) return { success: false, error: 'CSV file is required' }
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    return { success: false, error: 'Only CSV roster imports are supported' }
+  }
+  if (file.size > MAX_ROSTER_CSV_BYTES) {
+    return { success: false, error: 'CSV file must be 256KB or smaller' }
+  }
+
+  const parsed = rowsToBulkAgents(parseCsv(await file.text()))
+  if (parsed.error) return { success: false, error: parsed.error }
+
+  return bulkImportAgents({ brokerageId, agents: parsed.agents })
+}
+
 export async function bulkImportAgents(input: {
   brokerageId: string
   agents: BulkAgentRow[]
@@ -3056,6 +3199,97 @@ export async function deleteBrokerageDocument(input: {
     return { success: true, data: { brokerageId: doc.brokerage_id } }
   } catch (err: any) {
     console.error('deleteBrokerageDocument error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function getBrokerageDocumentSignedUrl(input: {
+  documentId: string
+}): Promise<ActionResult> {
+  const { error: authErr } = await getAuthenticatedAdmin()
+  if (authErr) return { success: false, error: authErr }
+  if (!input.documentId) return { success: false, error: 'Document id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+    const { data: doc, error: lookupErr } = await serviceClient
+      .from('brokerage_documents')
+      .select('id, brokerage_id, file_name, file_path')
+      .eq('id', input.documentId)
+      .single()
+
+    if (lookupErr || !doc) return { success: false, error: 'Document not found' }
+    if (!doc.file_path.startsWith(`brokerages/${doc.brokerage_id}/`)) {
+      return { success: false, error: 'Document path is invalid' }
+    }
+
+    const { data, error } = await serviceClient.storage
+      .from('deal-documents')
+      .createSignedUrl(doc.file_path, 3600, { download: false })
+
+    if (error || !data?.signedUrl) {
+      return { success: false, error: 'Failed to generate document link' }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.document_view',
+      entityType: 'brokerage',
+      entityId: doc.brokerage_id,
+      metadata: {
+        document_id: doc.id,
+        file_name: doc.file_name,
+      },
+    })
+
+    return { success: true, data: { signedUrl: data.signedUrl } }
+  } catch (err: any) {
+    console.error('getBrokerageDocumentSignedUrl error:', err?.message)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+export async function getAgentPreauthFormSignedUrl(input: {
+  agentId: string
+}): Promise<ActionResult> {
+  const { error: authErr } = await getAuthenticatedAdmin()
+  if (authErr) return { success: false, error: authErr }
+  if (!input.agentId) return { success: false, error: 'Agent id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+    const { data: agent, error: lookupErr } = await serviceClient
+      .from('agents')
+      .select('id, first_name, last_name, email, preauth_form_path')
+      .eq('id', input.agentId)
+      .single()
+
+    if (lookupErr || !agent) return { success: false, error: 'Agent not found' }
+    if (!agent.preauth_form_path) return { success: false, error: 'No pre-auth form found for this agent' }
+    if (!agent.preauth_form_path.startsWith(`${agent.id}/`) || agent.preauth_form_path.includes('..')) {
+      return { success: false, error: 'Pre-auth form path is invalid' }
+    }
+
+    const { data, error } = await serviceClient.storage
+      .from('agent-preauth-forms')
+      .createSignedUrl(agent.preauth_form_path, 300, { download: false })
+
+    if (error || !data?.signedUrl) {
+      return { success: false, error: 'Failed to generate pre-auth form link' }
+    }
+
+    await logAuditEvent({
+      action: 'agent.preauth_form_view',
+      entityType: 'agent',
+      entityId: agent.id,
+      metadata: {
+        agent_email: agent.email,
+        agent_name: `${agent.first_name} ${agent.last_name}`,
+      },
+    })
+
+    return { success: true, data: { signedUrl: data.signedUrl } }
+  } catch (err: any) {
+    console.error('getAgentPreauthFormSignedUrl error:', err?.message)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

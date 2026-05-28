@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
+import { loginWithPassword } from '@/lib/actions/auth-actions'
 
 export default function LoginPage() {
   return (
@@ -72,89 +73,45 @@ function LoginPageInner() {
     setError(null)
     setResetSent(false)
 
-    // Rate limit check
-    try {
-      const rlRes = await fetch('/api/rate-limit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login' }),
-      })
-      const rlData = await rlRes.json()
-      if (!rlData.allowed) {
-        setError(rlData.error || 'Too many login attempts. Please try again later.')
-        setLoading(false)
-        return
-      }
-    } catch {
-      // Rate limit check failed — continue (fail open)
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({
+    const result = await loginWithPassword({
       email,
       password,
     })
 
-    if (error) {
-      void supabase.from('audit_log').insert({
-        action: 'auth.login_failed',
-        entity_type: 'auth',
-        severity: 'warning',
-        metadata: { email, reason: error.message },
-        actor_email: email,
-      })
-      setError(error.message)
+    if (!result.success) {
+      setError(result.error || 'Unable to sign in.')
       setLoading(false)
       return
     }
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      void supabase.from('audit_log').insert({
-        user_id: user.id,
-        action: 'auth.login',
-        entity_type: 'auth',
-        severity: 'info',
-        actor_email: user.email,
-        actor_role: profile?.role || null,
-        metadata: { email: user.email },
-      })
-
-      if (profile) {
-        if (redirectTo) {
-          const roleRoutes: Record<string, string> = {
-            agent: '/agent',
-            brokerage_admin: '/brokerage',
-            firm_funds_admin: '/admin',
-            super_admin: '/admin',
-          }
-          const allowedPrefix = roleRoutes[profile.role] || '/agent'
-          if (redirectTo.startsWith(allowedPrefix)) {
-            router.push(redirectTo)
-            return
-          }
-        }
-
-        switch (profile.role) {
-          case 'agent':
-            router.push('/agent')
-            break
-          case 'brokerage_admin':
-            router.push('/brokerage')
-            break
-          case 'firm_funds_admin':
-          case 'super_admin':
-            router.push('/admin')
-            break
-          default:
-            router.push('/agent')
-        }
+    const role = result.data?.role || 'agent'
+    if (redirectTo) {
+      const roleRoutes: Record<string, string> = {
+        agent: '/agent',
+        brokerage_admin: '/brokerage',
+        firm_funds_admin: '/admin',
+        super_admin: '/admin',
       }
+      const allowedPrefix = roleRoutes[role] || '/agent'
+      if (redirectTo.startsWith(allowedPrefix)) {
+        router.push(redirectTo)
+        return
+      }
+    }
+
+    switch (role) {
+      case 'agent':
+        router.push('/agent')
+        break
+      case 'brokerage_admin':
+        router.push('/brokerage')
+        break
+      case 'firm_funds_admin':
+      case 'super_admin':
+        router.push('/admin')
+        break
+      default:
+        router.push('/agent')
     }
   }
 

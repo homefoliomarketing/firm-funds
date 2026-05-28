@@ -156,7 +156,8 @@ export async function logAuditEvent(
       }
     }
 
-    const { error } = await supabase.from('audit_log').insert({
+    const serviceClient = createServiceRoleClient()
+    const { error } = await serviceClient.from('audit_log').insert({
       user_id: user?.id || null,
       action: entry.action,
       entity_type: entry.entityType,

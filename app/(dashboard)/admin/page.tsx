@@ -12,7 +12,7 @@ import {
 import { EmptyState } from '@/components/ui/empty-state'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
-import { getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
+import { getAgentPreauthFormSignedUrl, getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
@@ -467,8 +467,10 @@ export default function AdminDashboard() {
                           size="sm"
                           className="gap-1 text-xs"
                           onClick={async () => {
-                            const { data } = await supabase.storage.from('agent-preauth-forms').createSignedUrl(agent.preauth_form_path, 300)
-                            if (data?.signedUrl) setPreauthViewUrl(data.signedUrl)
+                            const result = await getAgentPreauthFormSignedUrl({ agentId: agent.id })
+                            if (result.success && typeof result.data?.signedUrl === 'string') {
+                              setPreauthViewUrl(result.data.signedUrl)
+                            }
                           }}
                         >
                           <Eye size={12} />

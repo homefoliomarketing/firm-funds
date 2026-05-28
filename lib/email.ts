@@ -646,13 +646,8 @@ export async function sendDocumentRequestNotification(params: {
 // Email: Agent Invite → New Agent
 // ============================================================================
 
-// TODO(callers): the legacy `tempPassword` parameter was removed for security
-// (Finding #69 — plaintext credentials in email). All callers must pass
-// `inviteToken` instead. The remaining stale call site that still passes
-// `tempPassword` is in `lib/actions/admin-actions.ts` around line 1641 (the
-// `else` branch of the `if (inviteToken)` block in the resend-invite flow).
-// That branch must be deleted or refactored to mint a fresh invite token via
-// the existing token-issuance helper before it is shipped.
+// The legacy `tempPassword` parameter was removed for security.
+// All callers now pass an invite token instead of sending credentials in email.
 export async function sendAgentInviteNotification(params: {
   agentFirstName: string
   agentEmail: string

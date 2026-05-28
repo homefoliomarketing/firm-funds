@@ -15,6 +15,7 @@ import {
   toggleChecklistItem as serverToggleChecklistItem,
   toggleChecklistItemNA as serverToggleChecklistItemNA,
   deleteDocument as serverDeleteDocument,
+  getDocumentSignedUrl,
   saveAdminNotes,
   addAdminNote,
   updateClosingDate,
@@ -975,34 +976,20 @@ export default function DealDetailPage() {
     setVoidingEnvelopes(false)
   }
 
-  const getSignedUrl = async (filePath: string) => {
-    const { data, error } = await supabase.storage
-      .from('deal-documents')
-      .createSignedUrl(filePath, 3600, { download: false })
-    if (error || !data?.signedUrl) {
-      console.error('Signed URL error:', error?.message)
+  const getSignedUrl = async (doc: { id: string }) => {
+    const result = await getDocumentSignedUrl({ documentId: doc.id })
+    const signedUrl = result.data?.signedUrl as string | undefined
+    if (!result.success || !signedUrl) {
+      console.error('Signed URL error:', result.error)
       return null
     }
-    return data.signedUrl
+    return signedUrl
   }
 
   const handleDocumentDownload = async (doc: DealDocument) => {
-    const signedUrl = await getSignedUrl(doc.file_path)
+    const signedUrl = await getSignedUrl(doc)
     if (!signedUrl) {
       setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
-    }
-    if (deal) {
-      supabase.auth.getUser().then(({ data: { user: authUser } }) => {
-        void supabase.from('audit_log').insert({
-          user_id: authUser?.id || null,
-          action: 'document.view',
-          entity_type: 'document',
-          entity_id: doc.id,
-          severity: 'info',
-          actor_email: authUser?.email || null,
-          metadata: { deal_id: deal.id, file_name: doc.file_name, access_type: 'download' },
-        })
-      })
     }
     window.open(signedUrl, '_blank')
   }
@@ -1021,7 +1008,7 @@ export default function DealDetailPage() {
       return
     }
     setViewLoading(doc.id)
-    const signedUrl = await getSignedUrl(doc.file_path)
+    const signedUrl = await getSignedUrl(doc)
     if (!signedUrl) {
       setStatusMessage({ type: 'error', text: 'Failed to load document' })
       setViewLoading(null)
@@ -1041,19 +1028,6 @@ export default function DealDetailPage() {
         type: isImage ? 'image' : 'pdf',
         ...(isPdf ? { pdfData: arrayBuffer } : {}),
       })
-      if (deal) {
-        supabase.auth.getUser().then(({ data: { user: authUser } }) => {
-          void supabase.from('audit_log').insert({
-            user_id: authUser?.id || null,
-            action: 'document.view',
-            entity_type: 'document',
-            entity_id: doc.id,
-            severity: 'info',
-            actor_email: authUser?.email || null,
-            metadata: { deal_id: deal.id, file_name: doc.file_name, access_type: 'view' },
-          })
-        })
-      }
     } catch (err) {
       console.error('Blob fetch failed:', err)
       window.open(signedUrl, '_blank')
@@ -1063,7 +1037,7 @@ export default function DealDetailPage() {
 
   const handleDocumentDelete = async (doc: DealDocument) => {
     if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
-    const result = await serverDeleteDocument({ documentId: doc.id, filePath: doc.file_path })
+    const result = await serverDeleteDocument({ documentId: doc.id })
     if (!result.success) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to delete document' }); return
     }
@@ -2161,8 +2135,8 @@ export default function DealDetailPage() {
                           <p className="text-muted-foreground mb-1">Uploaded Amendment:</p>
                           <button
                             onClick={async () => {
-                              const { data } = await supabase.storage.from('deal-documents').createSignedUrl(docLink.file_path, 3600)
-                              if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                              const signedUrl = await getSignedUrl(docLink)
+                              if (signedUrl) window.open(signedUrl, '_blank')
                             }}
                             className="text-primary hover:underline font-medium"
                           >
