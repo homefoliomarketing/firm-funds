@@ -185,6 +185,79 @@ function getLocalStatusBadgeClass(status: string): string {
 }
 
 // ============================================================================
+// BrokerageRowSection
+// ============================================================================
+// Shared chrome for the inline sub-sections that render inside an expanded
+// brokerage row (FINTRAC verification, Documents, Portal Access, Agent
+// Roster, etc). Each follows the same "icon + bold title + optional inline
+// extras + optional right-side action" pattern. Extracting it kept this
+// 3000+ line file from drifting further into copy-paste land.
+//
+// Spacing knobs match the variations already present in the file when this
+// component was introduced — `compact` for the py-3 portal-access strip,
+// `noBorder` for the trailing Agent Roster section, `headerSpacing` for the
+// occasional mb-4 vs default mb-3. No behavior change: this is pure markup
+// consolidation.
+//
+// Not exported — the brokerage row is the only consumer right now and the
+// layout assumptions (px-6 padding inside an existing card border, no
+// internal scroll) are baked in. Promote to components/admin/ if a second
+// consumer appears.
+// ============================================================================
+function BrokerageRowSection({
+  icon,
+  title,
+  titleExtras,
+  rightSlot,
+  compact = false,
+  noBorder = false,
+  headerSpacing = 'mb-3',
+  className,
+  children,
+}: {
+  /** Lucide icon element, sized to size={15} per the existing convention. */
+  icon: React.ReactNode
+  /** Plain text or ReactNode (e.g. with embedded count span). */
+  title: React.ReactNode
+  /** Rendered next to the title inside the left-aligned group. Use for
+   *  status badges, inline action buttons like "Show archived", etc. */
+  titleExtras?: React.ReactNode
+  /** Rendered on the right edge of the header. Triggers
+   *  justify-between on the header flex when set. */
+  rightSlot?: React.ReactNode
+  /** py-3 instead of py-4. Used by the Portal Access strip which has no
+   *  body and reads better tightened up. */
+  compact?: boolean
+  /** Skip the bottom border. Used by the last section in the row stack. */
+  noBorder?: boolean
+  /** Margin below the header strip. Defaults to mb-3 (most common). Pass
+   *  '' to drop the margin entirely (single-line sections with no body). */
+  headerSpacing?: string
+  className?: string
+  children?: React.ReactNode
+}) {
+  return (
+    <div
+      className={`px-6 ${compact ? 'py-3' : 'py-4'} ${
+        noBorder ? '' : 'border-b border-border/50'
+      } ${className ?? ''}`}
+    >
+      <div
+        className={`flex items-center ${rightSlot ? 'justify-between' : ''} gap-2 ${headerSpacing}`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {icon}
+          <h4 className="text-sm font-bold text-foreground">{title}</h4>
+          {titleExtras}
+        </div>
+        {rightSlot}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ============================================================================
 // Late Settlement Strikes Section
 // ============================================================================
 
@@ -1751,19 +1824,17 @@ export default function BrokeragesPage() {
                       )}
 
                       {/* FINTRAC KYC Verification */}
-                      <div className="px-6 py-4 border-b border-border/50">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Shield size={15} className={brokerage.kyc_verified ? 'text-primary' : 'text-primary'} />
-                          <h4 className="text-sm font-bold text-foreground">
-                            FINTRAC â€” RECO Verification
-                          </h4>
-                          {brokerage.kyc_verified && (
+                      <BrokerageRowSection
+                        icon={<Shield size={15} className="text-primary" />}
+                        title="FINTRAC â€” RECO Verification"
+                        titleExtras={
+                          brokerage.kyc_verified ? (
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getKycBadgeClass('verified')}`}>
                               <CheckCircle size={11} /> Verified
                             </span>
-                          )}
-                        </div>
-
+                          ) : undefined
+                        }
+                      >
                         {brokerage.kyc_verified ? (
                           /* Verified state â€” show verification details */
                           <div className="space-y-2">
@@ -1871,7 +1942,7 @@ export default function BrokeragesPage() {
                             </button>
                           </div>
                         )}
-                      </div>
+                      </BrokerageRowSection>
 
                       {/* Settlement Window + Late Strikes */}
                       <LateStrikeSection brokerage={brokerage} onChange={loadBrokerages} />
@@ -1880,17 +1951,17 @@ export default function BrokeragesPage() {
                       <BcaStatusSection brokerage={brokerage} />
 
                       {/* Brokerage Documents */}
-                      <div className="px-6 py-4 border-b border-border/50">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <FileText size={15} className="text-primary" />
-                            <h4 className="text-sm font-bold text-foreground">
-                              Documents
-                              <span className="font-normal ml-1.5 text-muted-foreground">
-                                ({(brokerageDocs[brokerage.id] || []).length})
-                              </span>
-                            </h4>
-                          </div>
+                      <BrokerageRowSection
+                        icon={<FileText size={15} className="text-primary" />}
+                        title={
+                          <>
+                            Documents
+                            <span className="font-normal ml-1.5 text-muted-foreground">
+                              ({(brokerageDocs[brokerage.id] || []).length})
+                            </span>
+                          </>
+                        }
+                        rightSlot={
                           <div className="flex items-center gap-2">
                             <select
                               id={`brokDocType-${brokerage.id}`}
@@ -1917,7 +1988,8 @@ export default function BrokeragesPage() {
                               />
                             </label>
                           </div>
-                        </div>
+                        }
+                      >
                         {(brokerageDocs[brokerage.id] || []).length > 0 ? (
                           <div className="space-y-1.5">
                             {(brokerageDocs[brokerage.id] || []).map(doc => (
@@ -1946,15 +2018,15 @@ export default function BrokeragesPage() {
                         ) : (
                           <p className="text-xs text-muted-foreground">No documents uploaded. Upload the signed Brokerage Cooperation Agreement and other onboarding docs here.</p>
                         )}
-                      </div>
+                      </BrokerageRowSection>
 
                       {/* Brokerage Portal Access */}
-                      <div className="px-6 py-3 border-b border-border/50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Mail size={15} className="text-primary" />
-                            <h4 className="text-sm font-bold text-foreground">Brokerage Portal Access</h4>
-                          </div>
+                      <BrokerageRowSection
+                        icon={<Mail size={15} className="text-primary" />}
+                        title="Brokerage Portal Access"
+                        compact
+                        headerSpacing=""
+                        rightSlot={
                           <button
                             onClick={() => handleSendBrokerageWelcome(brokerage)}
                             disabled={sendingBrokerageWelcome === brokerage.id}
@@ -1963,31 +2035,35 @@ export default function BrokeragesPage() {
                             <Mail size={13} />
                             {sendingBrokerageWelcome === brokerage.id ? 'Sending...' : `Send Welcome Email to ${brokerage.email}`}
                           </button>
-                        </div>
-                      </div>
+                        }
+                      />
 
                       {/* Agent Roster */}
-                      <div className="px-6 py-4">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <Users size={15} className="text-primary" />
-                            <h4 className="text-sm font-bold text-foreground">
-                              Agent Roster
-                              <span className="font-normal ml-1.5 text-muted-foreground">
-                                ({activeAgents} active{nonArchivedAgents.length !== activeAgents ? `, ${nonArchivedAgents.length} total` : ''}{archivedAgents.length > 0 ? `, ${archivedAgents.length} archived` : ''})
-                              </span>
-                            </h4>
-                            {archivedAgents.length > 0 && (
-                              <button
-                                onClick={() => setShowArchived(!showArchived)}
-                                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors text-muted-foreground border border-border hover:bg-muted"
-                              >
-                                {showArchived ? <EyeOff size={11} /> : <Eye size={11} />}
-                                {showArchived ? 'Hide Archived' : 'Show Archived'}
-                              </button>
-                            )}
-                          </div>
-                          {showAddAgentFor !== brokerage.id && (
+                      <BrokerageRowSection
+                        icon={<Users size={15} className="text-primary" />}
+                        noBorder
+                        headerSpacing="mb-4"
+                        title={
+                          <>
+                            Agent Roster
+                            <span className="font-normal ml-1.5 text-muted-foreground">
+                              ({activeAgents} active{nonArchivedAgents.length !== activeAgents ? `, ${nonArchivedAgents.length} total` : ''}{archivedAgents.length > 0 ? `, ${archivedAgents.length} archived` : ''})
+                            </span>
+                          </>
+                        }
+                        titleExtras={
+                          archivedAgents.length > 0 ? (
+                            <button
+                              onClick={() => setShowArchived(!showArchived)}
+                              className="flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors text-muted-foreground border border-border hover:bg-muted"
+                            >
+                              {showArchived ? <EyeOff size={11} /> : <Eye size={11} />}
+                              {showArchived ? 'Hide Archived' : 'Show Archived'}
+                            </button>
+                          ) : undefined
+                        }
+                        rightSlot={
+                          showAddAgentFor !== brokerage.id ? (
                             <div className="flex items-center gap-2 flex-wrap">
                               <button
                                 onClick={() => { setShowAddAgentFor(brokerage.id); setAgentForm(emptyAgentForm) }}
@@ -2065,8 +2141,9 @@ export default function BrokeragesPage() {
                                 <Trash2 size={13} /> Delete
                               </button>
                             </div>
-                          )}
-                        </div>
+                          ) : undefined
+                        }
+                      >
 
                         {/* Brokerage Admin Login Management Panel */}
                         {showUserManagement === brokerage.id && brokerageUserProfiles[brokerage.id] && (
@@ -2997,7 +3074,7 @@ export default function BrokeragesPage() {
                             </table>
                           </div>
                         )}
-                      </div>
+                      </BrokerageRowSection>
                     </div>
                   )}
                 </div>
