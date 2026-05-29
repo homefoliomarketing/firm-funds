@@ -352,7 +352,7 @@ export default function AgentMessagesPage() {
                         </div>
                         <p className={`text-xs mt-1.5 truncate ${hasUnread ? 'font-medium text-muted-foreground' : 'text-muted-foreground/70'}`}>
                           {item.total_message_count === 0 && item.pending_return_count === 0
-                            ? 'No messages yet — tap to start a conversation'
+                            ? 'No messages yet. Tap to start a conversation'
                             : <>
                                 {item.latest_sender_role === 'admin' ? 'Firm Funds: ' : item.latest_sender_role === 'agent' ? 'You: ' : ''}
                                 {item.latest_message || (item.pending_return_count > 0 ? 'Document returned for revision' : '')}
@@ -490,7 +490,7 @@ export default function AgentMessagesPage() {
                       messages={messages}
                       viewerRole="agent"
                       loading={messagesLoading}
-                      emptyMessage="No messages yet — send a message to the Firm Funds team below"
+                      emptyMessage="No messages yet. Send a message to the Firm Funds team below"
                     />
 
                     {/* Input */}

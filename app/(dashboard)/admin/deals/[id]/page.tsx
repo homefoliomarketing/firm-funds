@@ -803,7 +803,7 @@ export default function DealDetailPage() {
   const handleChecklistToggle = async (item: ChecklistItem) => {
     if (item.is_na) return
     if (item.checklist_item === 'Agent in good standing with Brokerage (Not flagged)' && agent?.flagged_by_brokerage) {
-      setStatusMessage({ type: 'error', text: 'Cannot check — agent is flagged by their brokerage' })
+      setStatusMessage({ type: 'error', text: 'Cannot check: agent is flagged by their brokerage' })
       return
     }
     const newChecked = !item.is_checked
@@ -838,7 +838,7 @@ export default function DealDetailPage() {
       setDocReturns(prev => [{ id: result.data.returnId, deal_id: deal.id, document_id: docId, returned_by: '', reason: returnReason, status: 'pending', created_at: new Date().toISOString() }, ...prev])
       setReturningDocId(null)
       setReturnReason('')
-      setStatusMessage({ type: 'success', text: 'Document returned to agent — email notification sent' })
+      setStatusMessage({ type: 'success', text: 'Document returned to agent. Email notification sent' })
     } else {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to return document' })
     }
@@ -1312,7 +1312,7 @@ export default function DealDetailPage() {
           <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-red-muted border-2 border-red-600 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-500" />
             <p className="font-bold text-sm text-red-500">
-              AGENT FLAGGED BY BROKERAGE — {agent.first_name} {agent.last_name}. Review carefully.
+              AGENT FLAGGED BY BROKERAGE: {agent.first_name} {agent.last_name}. Review carefully.
             </p>
           </div>
         </div>
@@ -1324,7 +1324,7 @@ export default function DealDetailPage() {
           <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-amber-muted border-2 border-amber-600 shadow-[0_0_15px_rgba(217,119,6,0.2)]">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-500" />
             <p className="font-bold text-sm text-amber-500">
-              OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })} — {agent.first_name} {agent.last_name}
+              OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })} ({agent.first_name} {agent.last_name})
             </p>
           </div>
         </div>
@@ -1395,7 +1395,7 @@ export default function DealDetailPage() {
                         {needsChecklist
                           ? (status === 'approved'
                             ? `Complete verification checklist first (${approvalCheckedCount}/${approvalItems.length})`
-                            : `Complete all checklist items first — signed contracts required (${checkedCount}/${totalChecklist})`)
+                            : `Complete all checklist items first. Signed contracts required (${checkedCount}/${totalChecklist})`)
                           : 'Brokerage payments must match expected amount first'}
                       </div>
                     )}
@@ -2005,7 +2005,7 @@ export default function DealDetailPage() {
                 </div>
               ) : (
                 <p className="mb-4 text-sm text-muted-foreground">
-                  Expected from brokerage: <strong className="text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</strong> — no payments recorded yet
+                  Expected from brokerage: <strong className="text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</strong>. No payments recorded yet
                 </p>
               )
             })()}
@@ -2176,7 +2176,7 @@ export default function DealDetailPage() {
                           </span>
                           {isFundedScenario && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 font-semibold uppercase">
-                              Funded — {scenario === 'funded_extended' ? 'Extended' : 'Earlier'}
+                              Funded ({scenario === 'funded_extended' ? 'Extended' : 'Earlier'})
                             </span>
                           )}
                         </div>
@@ -2314,7 +2314,7 @@ export default function DealDetailPage() {
                 <div className="flex justify-between py-1.5 text-xs border-b border-primary/20 bg-primary/[0.04] px-2 -mx-2 rounded">
                   <span className="text-primary font-semibold flex items-center gap-1">
                     White-Label Broker Share ({Number(deal.broker_share_pct_at_funding).toFixed(1)}%)
-                    {deal.broker_share_remitted && <span className="text-[10px] text-muted-foreground font-normal">— remitted</span>}
+                    {deal.broker_share_remitted && <span className="text-[10px] text-muted-foreground font-normal">(remitted)</span>}
                   </span>
                   <span className="tabular-nums font-semibold text-primary">
                     {deal.broker_share_amount != null
@@ -2818,7 +2818,7 @@ export default function DealDetailPage() {
                         )}
                         {docReturns.some(r => r.document_id === doc.id && r.status === 'pending') && (
                           <div className="mt-1 px-2 py-1 rounded text-xs bg-red-950/20 border border-red-800/30 text-destructive">
-                            Returned — {docReturns.find(r => r.document_id === doc.id && r.status === 'pending')?.reason}
+                            Returned: {docReturns.find(r => r.document_id === doc.id && r.status === 'pending')?.reason}
                           </div>
                         )}
                       </div>
@@ -3157,7 +3157,7 @@ export default function DealDetailPage() {
                 size="sm"
                 onClick={async () => {
                   if (!confirm('Are you SURE you want to permanently delete this deal? This cannot be undone.')) return
-                  if (!confirm('This will delete the deal, all uploaded documents, and all checklist data. Last chance — proceed?')) return
+                  if (!confirm('This will delete the deal, all uploaded documents, and all checklist data. Last chance, proceed?')) return
                   const result = await deleteDeal({ dealId: deal.id })
                   if (result.success) {
                     router.push('/admin')
@@ -3202,7 +3202,7 @@ export default function DealDetailPage() {
                   onChange={(e) => setFailedToCloseType(e.target.value as 'non_closing' | 'commission_deficiency')}
                   className="w-full px-3 py-2 rounded-lg border border-border/50 text-sm bg-muted text-foreground focus:outline-none focus:border-primary"
                 >
-                  <option value="non_closing">Deal did not close — full Purchase Price owed (CPA 5.1)</option>
+                  <option value="non_closing">Deal did not close (full Purchase Price owed, CPA 5.1)</option>
                   <option value="commission_deficiency">Closed with commission shortfall (CPA 5.2)</option>
                 </select>
               </div>

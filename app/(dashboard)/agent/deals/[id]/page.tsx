@@ -777,7 +777,7 @@ export default function AgentDealDetailPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-destructive/20">
                   <p className="text-xs text-muted-foreground flex-1 min-w-[180px]">
-                    You can submit a revised request — we&apos;ll pre-fill the form with this deal&apos;s details so
+                    You can submit a revised request. We&apos;ll pre-fill the form with this deal&apos;s details so
                     you only need to change what underwriting flagged.
                   </p>
                   <Button
@@ -793,7 +793,7 @@ export default function AgentDealDetailPage() {
             {deal.status === 'cancelled' && (
               <div className="mt-4 p-3 rounded-lg flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30">
                 <AlertTriangle size={16} className="text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-yellow-600 dark:text-yellow-400"><strong>Cancelled</strong> — This advance request was cancelled.</p>
+                <p className="text-sm text-yellow-600 dark:text-yellow-400"><strong>Cancelled.</strong> This advance request was cancelled.</p>
               </div>
             )}
             {['under_review', 'approved'].includes(deal.status) && (
@@ -1201,7 +1201,7 @@ export default function AgentDealDetailPage() {
             {docReturns.length > 0 && (
               <div id="returned-docs" className="rounded-xl p-4 bg-status-red-muted border border-status-red-border">
                 <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-destructive">
-                  Action Required — Returned Documents
+                  Action Required: Returned Documents
                 </h4>
                 <div className="space-y-2">
                   {docReturns.map(ret => {
@@ -1277,7 +1277,7 @@ export default function AgentDealDetailPage() {
             {(() => {
               const tips: Record<string, { title: string; message: string; color: string; bg: string; border: string }> = {
                 under_review: { title: 'Under Review', message: 'Our team is reviewing your deal. Upload all required documents to speed up the process.', color: 'var(--status-blue)', bg: 'var(--status-blue-muted)', border: 'var(--status-blue-border)' },
-                approved: { title: 'Approved!', message: 'Your advance has been approved. Funding will be processed shortly — typically within 24 hours.', color: 'var(--status-green)', bg: 'var(--status-green-muted)', border: 'var(--status-green-border)' },
+                approved: { title: 'Approved!', message: 'Your advance has been approved. Funding will be processed shortly, typically within 24 hours.', color: 'var(--status-green)', bg: 'var(--status-green-muted)', border: 'var(--status-green-border)' },
                 funded: { title: 'Funded', message: 'Your advance has been sent! The amount will be recovered from the proceeds at closing.', color: 'var(--status-purple)', bg: 'var(--status-purple-muted)', border: 'var(--status-purple-border)' },
                 completed: { title: 'Completed', message: 'This advance is complete. The amount has been recovered from the closing proceeds. No further action needed.', color: 'var(--status-teal)', bg: 'var(--status-teal-muted)', border: 'var(--status-teal-border)' },
               }

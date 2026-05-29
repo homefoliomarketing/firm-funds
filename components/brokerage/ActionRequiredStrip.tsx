@@ -64,7 +64,7 @@ export default function ActionRequiredStrip({
       Icon: AlertTriangle,
       tone: 'red',
       onClick: () => onNavigate('deals'),
-      ariaLabel: `${tradeRecordsMissing} trade record${tradeRecordsMissing === 1 ? '' : 's'} to upload — view deals`,
+      ariaLabel: `${tradeRecordsMissing} trade record${tradeRecordsMissing === 1 ? '' : 's'} to upload, view deals`,
     },
     {
       key: 'kyc',
@@ -73,7 +73,7 @@ export default function ActionRequiredStrip({
       Icon: Shield,
       tone: 'amber',
       onClick: () => onNavigate('agents'),
-      ariaLabel: `${kycPending} agent ID${kycPending === 1 ? '' : 's'} awaiting review — view agents`,
+      ariaLabel: `${kycPending} agent ID${kycPending === 1 ? '' : 's'} awaiting review, view agents`,
     },
     {
       key: 'messages',
@@ -82,7 +82,7 @@ export default function ActionRequiredStrip({
       Icon: MessageSquare,
       tone: 'blue',
       onClick: () => onNavigate('messages'),
-      ariaLabel: `${unreadMessages} unread message${unreadMessages === 1 ? '' : 's'} — view messages`,
+      ariaLabel: `${unreadMessages} unread message${unreadMessages === 1 ? '' : 's'}, view messages`,
     },
   ]
 

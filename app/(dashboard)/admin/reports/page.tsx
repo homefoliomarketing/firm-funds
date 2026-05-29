@@ -521,7 +521,7 @@ export default function ReportsPage() {
               className="gap-1"
             >
               <Calendar size={12} />
-              {dateRange === 'custom' ? `${customStart} — ${customEnd}` : 'Custom'}
+              {dateRange === 'custom' ? `${customStart} to ${customEnd}` : 'Custom'}
             </Button>
           </div>
         </section>
@@ -954,7 +954,7 @@ function buildPrintHTML(metrics: ReportMetrics, dateRange: DateRange, customStar
   </style>
 </head>
 <body>
-  <h1>Firm Funds Inc. — Report</h1>
+  <h1>Firm Funds Inc. Report</h1>
   <p class="subtitle">${rangeLabel} &bull; Generated ${date}</p>
 
   <h2>Financial Summary</h2>

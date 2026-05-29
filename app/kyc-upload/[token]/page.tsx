@@ -207,7 +207,7 @@ export default function KycMobileUploadPage() {
               Your government-issued photo ID has been submitted for review.
             </p>
             <p className="text-muted-foreground/70 text-sm">
-              You can close this page and go back to your desktop — your status will update automatically once we&apos;ve reviewed your ID.
+              You can close this page and go back to your desktop. Your status will update automatically once we&apos;ve reviewed your ID.
             </p>
           </div>
         </div>
@@ -253,7 +253,7 @@ export default function KycMobileUploadPage() {
             </div>
             <h2 className="text-white text-[22px] font-bold mb-2">Upload Your Photo ID</h2>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Hi {agentName} — take a clear photo of your government-issued ID below.
+              Hi {agentName}, take a clear photo of your government-issued ID below.
             </p>
           </div>
 

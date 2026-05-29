@@ -339,7 +339,7 @@ export default function FirmDealPipeWizardPage(props: PageProps) {
     if (refreshed.success && refreshed.data) {
       setExistingPipe(refreshed.data.pipe)
     }
-    setSubmitMessage('Pipe created — first poll within ~15 min will baseline the sheet without firing events.')
+    setSubmitMessage('Pipe created. First poll within ~15 min will baseline the sheet without firing events.')
   }
 
   async function handleCopyEmail() {
@@ -512,7 +512,7 @@ function ExistingPipeView({ pipe, brokerageId, brokerageName }: {
             <div>
               <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Brand</dt>
               <dd className="font-medium">
-                {pipe.brand_name ?? '—'}
+                {pipe.brand_name ?? '-'}
                 <span className="text-muted-foreground"> · {pipe.brand_tagline ?? 'Powered by Firm Funds'}</span>
               </dd>
             </div>
@@ -532,19 +532,19 @@ function ExistingPipeView({ pipe, brokerageId, brokerageName }: {
             </div>
             <div>
               <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Conditional tab</dt>
-              <dd className="font-medium">{pipe.conditional_tab ?? '—'}</dd>
+              <dd className="font-medium">{pipe.conditional_tab ?? '-'}</dd>
             </div>
             <div className="sm:col-span-2">
               <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Watched tabs ({pipe.tabs_to_watch.length})</dt>
               <dd className="font-medium">
-                {pipe.tabs_to_watch.length > 0 ? pipe.tabs_to_watch.join(', ') : '—'}
+                {pipe.tabs_to_watch.length > 0 ? pipe.tabs_to_watch.join(', ') : '-'}
               </dd>
             </div>
             <div className="sm:col-span-2">
               <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Column mapping</dt>
               <dd className="font-medium font-mono">
                 {Object.keys(pipe.column_mapping).length === 0
-                  ? '—'
+                  ? '-'
                   : Object.entries(pipe.column_mapping).map(([k, v]) => `${k}=${v}`).join(', ')}
               </dd>
             </div>
@@ -682,7 +682,7 @@ function AutoFireToggleCard({
             <DialogDescription>
               {enabling ? (
                 <>
-                  Offers will be sent automatically — no admin click between firm deal detection and the agent&apos;s inbox.
+                  Offers will be sent automatically. No admin click between firm deal detection and the agent&apos;s inbox.
                   {validatedEvents === null ? (
                     <> Stats are still loading…</>
                   ) : (
@@ -1036,7 +1036,7 @@ function PipeStatisticsCard({
             <dd className="font-medium">
               {stats.last_polled_at
                 ? new Date(stats.last_polled_at).toLocaleString('en-CA', { timeZone: 'America/Toronto' })
-                : '—'}
+                : '-'}
             </dd>
           </div>
           <div>
@@ -1056,7 +1056,7 @@ function PipeStatisticsCard({
         {stats.unresolved_shorthands.length > 0 && (
           <div className="pt-3 border-t border-border/40">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-              Top unresolved names (30d) — add mappings via the review queue
+              Top unresolved names (30d). Add mappings via the review queue
             </p>
             <ul className="space-y-1">
               {stats.unresolved_shorthands.map(s => (
@@ -1286,7 +1286,7 @@ function Wizard(props: WizardProps) {
       <StepShell
         step={2}
         title="Classify each tab"
-        description="Pick the Conditional tab (the holding tab — exactly one) and the month tabs to watch."
+        description="Pick the Conditional tab (the holding tab, exactly one) and the month tabs to watch."
         onBack={() => props.setStep(1)}
         onNext={() => props.setStep(3)}
         nextDisabled={!props.tabsStepValid}
@@ -1509,20 +1509,20 @@ function Wizard(props: WizardProps) {
         </div>
         <div>
           <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Brand</dt>
-          <dd className="font-medium">{props.brandName || '—'} · {props.brandTagline || '—'}</dd>
+          <dd className="font-medium">{props.brandName || '-'} · {props.brandTagline || '-'}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Conditional tab</dt>
-          <dd className="font-medium">{props.tabRoles && Object.entries(props.tabRoles).find(([, r]) => r === 'conditional')?.[0] || '—'}</dd>
+          <dd className="font-medium">{props.tabRoles && Object.entries(props.tabRoles).find(([, r]) => r === 'conditional')?.[0] || '-'}</dd>
         </div>
         <div className="sm:col-span-2">
           <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Watched tabs ({props.watchedTabs.length})</dt>
-          <dd className="font-medium">{props.watchedTabs.join(', ') || '—'}</dd>
+          <dd className="font-medium">{props.watchedTabs.join(', ') || '-'}</dd>
         </div>
         <div className="sm:col-span-2">
           <dt className="text-muted-foreground uppercase tracking-wider text-[10px]">Column mapping</dt>
           <dd className="font-medium font-mono">
-            {Object.entries(mapping).map(([k, v]) => `${k}=${v}`).join(', ') || '—'}
+            {Object.entries(mapping).map(([k, v]) => `${k}=${v}`).join(', ') || '-'}
           </dd>
         </div>
         {props.sheetUrl && (

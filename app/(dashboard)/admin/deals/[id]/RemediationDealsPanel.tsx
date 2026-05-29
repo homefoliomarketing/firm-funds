@@ -60,9 +60,9 @@ interface Props {
 }
 
 const STATUS_LABEL: Record<RemediationDealRow['status'], string> = {
-  pending: 'Draft — IDP not yet sent',
-  idp_sent: 'IDP sent — awaiting signature',
-  idp_signed: 'IDP signed — awaiting remittance',
+  pending: 'Draft, IDP not yet sent',
+  idp_sent: 'IDP sent, awaiting signature',
+  idp_signed: 'IDP signed, awaiting remittance',
   remitted: 'Remitted',
   cancelled: 'Cancelled',
 }
@@ -180,7 +180,7 @@ export default function RemediationDealsPanel({
       setTopLevelMessage({
         type: 'success',
         text: cured
-          ? `Remittance recorded. Failed deal balance fully cleared — status changed to Cured.`
+          ? `Remittance recorded. Failed deal balance fully cleared. Status changed to Cured.`
           : `Remittance recorded. ${formatCurrency(data?.creditApplied || 0)} applied to balance. ${formatCurrency(data?.newPrincipal || 0)} principal still owing plus any remaining interest.`,
       })
       await load()
@@ -453,7 +453,7 @@ export default function RemediationDealsPanel({
                 </DialogTitle>
                 <DialogDescription>
                   Cancel the remediation deal for <strong className="text-foreground">{activeCancelRow.property_address}</strong>.
-                  This does <strong>not</strong> clear the failed-deal balance — the agent still owes it. Use Cancel when this specific commission won&apos;t be the one used to remediate (e.g. deal fell through, agent reassigned).
+                  This does <strong>not</strong> clear the failed-deal balance. The agent still owes it. Use Cancel when this specific commission won&apos;t be the one used to remediate (e.g. deal fell through, agent reassigned).
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">

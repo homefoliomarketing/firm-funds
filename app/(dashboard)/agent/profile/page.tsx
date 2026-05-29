@@ -263,13 +263,13 @@ export default function AgentProfilePage() {
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Brokerage</Label>
                 <div className="rounded-lg px-3 py-2.5 text-sm bg-muted border border-border text-muted-foreground">
-                  {agent?.brokerages?.name || '—'}
+                  {agent?.brokerages?.name || '-'}
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">RECO Number</Label>
                 <div className="rounded-lg px-3 py-2.5 text-sm bg-muted border border-border text-muted-foreground">
-                  {agent?.reco_number || '—'}
+                  {agent?.reco_number || '-'}
                 </div>
               </div>
             </div>

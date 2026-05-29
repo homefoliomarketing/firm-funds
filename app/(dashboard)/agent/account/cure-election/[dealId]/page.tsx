@@ -178,7 +178,7 @@ export default function CureElectionPage({ params }: PageProps) {
 
   const isComplete = !!deal.cure_election
   const outstanding = Number(deal.outstanding_balance || 0)
-  const deadline = deal.cure_election_deadline ? formatDeadline(deal.cure_election_deadline) : '—'
+  const deadline = deal.cure_election_deadline ? formatDeadline(deal.cure_election_deadline) : '-'
   const remaining = deal.cure_election_deadline ? daysRemaining(deal.cure_election_deadline) : 0
 
   return (
@@ -244,7 +244,7 @@ export default function CureElectionPage({ params }: PageProps) {
                   ) : (
                     <div className="text-xs text-muted-foreground leading-relaxed space-y-2 mt-3">
                       <p><strong className="text-foreground">Next steps:</strong> When your next commission becomes firm, notify Firm Funds within 2 business days (CPA 5.7).</p>
-                      <p>We&apos;ll send you a Remediation Direction to Pay to sign via DocuSign. Your brokerage will remit the commission directly to Firm Funds to clear the balance. No discount fee or settlement fee applies — this is not a new advance.</p>
+                      <p>We&apos;ll send you a Remediation Direction to Pay to sign via DocuSign. Your brokerage will remit the commission directly to Firm Funds to clear the balance. No discount fee or settlement fee applies. This is not a new advance.</p>
                     </div>
                   )}
                 </div>
@@ -291,7 +291,7 @@ export default function CureElectionPage({ params }: PageProps) {
                   <DollarSign className={selected === 'cash_repayment' ? 'text-primary' : 'text-muted-foreground'} size={22} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-base font-bold text-foreground mb-1">Option A — Pay from Your Own Funds</p>
+                  <p className="text-base font-bold text-foreground mb-1">Option A: Pay from Your Own Funds</p>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Repay the full outstanding balance to Firm Funds by electronic funds transfer within 30 days of the failure notice.
                   </p>
@@ -323,12 +323,12 @@ export default function CureElectionPage({ params }: PageProps) {
                   <FileSignature className={selected === 'commission_assignment' ? 'text-primary' : 'text-muted-foreground'} size={22} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-base font-bold text-foreground mb-1">Option B — Assign Your Next Commission(s)</p>
+                  <p className="text-base font-bold text-foreground mb-1">Option B: Assign Your Next Commission(s)</p>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Direct your brokerage to remit your next eligible commission(s) to Firm Funds until the balance is cleared.
                   </p>
                   <ul className="text-xs text-muted-foreground/80 mt-2 space-y-1 list-disc list-inside">
-                    <li>No discount fee or settlement fee — this is not a new advance</li>
+                    <li>No discount fee or settlement fee (this is not a new advance)</li>
                     <li>You&apos;ll sign a Remediation Direction to Pay when your next deal goes firm</li>
                     <li>24% interest compounds daily on the unpaid balance until cleared</li>
                   </ul>

@@ -212,7 +212,7 @@ function LoginPageInner() {
             alt="Firm Funds"
             className="h-28 sm:h-36 md:h-44 w-auto mx-auto mb-4"
           />
-          <h1 className="sr-only">Firm Funds — Sign In</h1>
+          <h1 className="sr-only">Firm Funds Sign In</h1>
           <p className="text-xs font-medium tracking-[0.2em] uppercase text-primary">
             Commission Advance Portal
           </p>

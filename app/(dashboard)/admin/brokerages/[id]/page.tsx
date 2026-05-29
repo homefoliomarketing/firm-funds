@@ -13,7 +13,7 @@ import { BrokerageAdminsPanel } from '@/components/admin/BrokerageAdminsPanel'
 import { Card, CardContent } from '@/components/ui/card'
 
 export const metadata = {
-  title: 'Brokerage detail — Firm Funds Admin',
+  title: 'Brokerage detail | Firm Funds Admin',
   robots: { index: false, follow: false },
 }
 

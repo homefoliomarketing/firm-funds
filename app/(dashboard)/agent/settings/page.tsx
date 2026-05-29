@@ -138,7 +138,7 @@ export default function AgentSettingsPage() {
     setEmailSaving(true)
     const result = await updateEmail(email)
     if (result.success) {
-      showMsg('success', result.message || 'Email updated — check your inbox for confirmation')
+      showMsg('success', result.message || 'Email updated. Check your inbox for confirmation')
     } else {
       showMsg('error', result.error || 'Failed to update email')
     }

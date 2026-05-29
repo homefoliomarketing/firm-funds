@@ -261,7 +261,7 @@ export function MarkFundingFailedButton({
               ) : (
                 <>
                   <AlertTriangle size={14} aria-hidden="true" />
-                  Confirm — funding failed
+                  Confirm: funding failed
                 </>
               )}
             </Button>
@@ -364,7 +364,7 @@ export function FundingFailedBanner({
               {failedAt ? (
                 <span className="text-red-200/80">
                   {' '}
-                  — recorded {formatDate(failedAt)}
+                  (recorded {formatDate(failedAt)})
                 </span>
               ) : null}
             </p>

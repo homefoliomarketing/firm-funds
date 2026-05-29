@@ -274,7 +274,7 @@ export default function AgentHeader({
             <button
               onClick={() => router.push('/agent/messages')}
               className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden"
-              aria-label={totalNotifications > 0 ? `Messages — ${totalNotifications} unread` : 'Messages'}
+              aria-label={totalNotifications > 0 ? `Messages: ${totalNotifications} unread` : 'Messages'}
             >
               <Bell size={18} />
               {totalNotifications > 0 && (
@@ -289,7 +289,7 @@ export default function AgentHeader({
               <button
                 onClick={() => router.push('/agent/messages')}
                 className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white hidden sm:block"
-                aria-label={totalNotifications > 0 ? `Messages — ${totalNotifications} unread` : 'Messages'}
+                aria-label={totalNotifications > 0 ? `Messages: ${totalNotifications} unread` : 'Messages'}
               >
                 <Bell size={18} />
                 {totalNotifications > 0 && (

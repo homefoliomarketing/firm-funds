@@ -129,7 +129,7 @@ export default function BrokerageAgentsPage() {
     })
     if (result.success) {
       const welcomeSent = (result.data as { welcomeSent?: boolean } | undefined)?.welcomeSent
-      flashStatus({ type: 'success', text: welcomeSent ? 'Agent added and welcome email sent' : 'Agent added — no email on file, welcome email not sent' })
+      flashStatus({ type: 'success', text: welcomeSent ? 'Agent added and welcome email sent' : 'Agent added (no email on file, welcome email not sent)' })
       setAddFirstName(''); setAddLastName(''); setAddEmail(''); setAddPhone(''); setAddRecoNumber('')
       setShowAddForm(false)
       if (profile?.brokerage_id) await loadAgents(profile.brokerage_id)
@@ -200,7 +200,7 @@ export default function BrokerageAgentsPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
           <div className="w-px h-8 bg-white/15 hidden sm:block" />
-          <p className="text-sm font-medium text-white hidden sm:block">Agents{brokerage ? ` — ${brokerage.name}` : ''}</p>
+          <p className="text-sm font-medium text-white hidden sm:block">Agents{brokerage ? `: ${brokerage.name}` : ''}</p>
         </div>
       </header>
 
@@ -309,7 +309,7 @@ export default function BrokerageAgentsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">
-                            {a.welcome_email_sent_at ? new Date(a.welcome_email_sent_at).toLocaleDateString('en-CA') : '—'}
+                            {a.welcome_email_sent_at ? new Date(a.welcome_email_sent_at).toLocaleDateString('en-CA') : '-'}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-2">

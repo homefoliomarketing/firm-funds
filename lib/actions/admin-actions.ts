@@ -838,7 +838,7 @@ export async function bulkImportAgents(input: {
         })
 
       if (insertError) {
-        errors.push(`Row ${rowNum}: Failed to import ${row.firstName} ${row.lastName} — ${insertError.message}`)
+        errors.push(`Row ${rowNum}: Failed to import ${row.firstName} ${row.lastName}: ${insertError.message}`)
         skipped++
       } else {
         if (email) existingEmails.add(email) // prevent dupes within same batch
@@ -3588,7 +3588,7 @@ export async function recordEarlyClosing(input: {
       p_agent_id: deal.agent_id,
       p_delta: -refundTotal,
       p_type: 'credit',
-      p_description: `Early closing refund — ${daysSaved} day${daysSaved === 1 ? '' : 's'} saved (${deal.property_address}, actual closing ${actualStr})`,
+      p_description: `Early closing refund: ${daysSaved} day${daysSaved === 1 ? '' : 's'} saved (${deal.property_address}, actual closing ${actualStr})`,
       p_deal_id: deal.id,
       p_created_by: user.id,
       p_reference_id: `early_closing:${deal.id}`,

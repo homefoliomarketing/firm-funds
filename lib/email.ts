@@ -354,7 +354,7 @@ function brandHeader(branding?: BrokerageBranding | null): string {
       // content (mark + name + tagline) than a bare brokerage logo.
       return `
       <td style="padding:0 0 32px; text-align:center;">
-        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)} — Powered by Firm Funds" height="88" style="height:88px; width:auto; max-width:360px;" />
+        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}, Powered by Firm Funds" height="88" style="height:88px; width:auto; max-width:360px;" />
       </td>`
     }
     // Custom-uploaded logo — add separate "Powered by Firm Funds" below.
@@ -469,7 +469,7 @@ export async function sendNewDealNotification(params: {
   // mail) and an "account email" footer in the body.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`New Deal Submitted — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`New Deal Submitted: ${params.propertyAddress}`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Deal Submitted</h2>
@@ -525,7 +525,7 @@ export async function sendBrokerageAdminNewDealNotification(params: {
   const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.brokerageAdminEmail,
-    subject: sanitizeSubject(`New Advance Request — ${params.agentName} — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`New Advance Request: ${params.agentName}, ${params.propertyAddress}`),
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
     html: wrap(`
@@ -607,12 +607,12 @@ export async function sendStatusChangeNotification(params: {
     to: params.agentEmail,
     subject: sanitizeSubject(
       params.newStatus === 'approved'
-        ? `Good News — Your Advance for ${params.propertyAddress} is Approved!`
+        ? `Good News: Your Advance for ${params.propertyAddress} is Approved!`
         : params.newStatus === 'funded'
-        ? `Funds on the Way — ${params.propertyAddress}`
+        ? `Funds on the Way: ${params.propertyAddress}`
         : params.newStatus === 'denied'
-        ? `Advance Update — ${params.propertyAddress}`
-        : `Deal Update: ${params.propertyAddress} — ${label}`
+        ? `Advance Update: ${params.propertyAddress}`
+        : `Deal Update: ${params.propertyAddress} (${label})`
     ),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
@@ -672,7 +672,7 @@ export async function sendDocumentRequestNotification(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Document Requested — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Document Requested: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: wrap(`
@@ -733,14 +733,14 @@ export async function sendAgentInviteNotification(params: {
   // providers expect one) but bypass the preference check.
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Welcome to ${params.brokerageName} — Set Up Your Account`),
+    subject: sanitizeSubject(`Welcome to ${params.brokerageName}: Set Up Your Account`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to ${escapeHtml(params.brokerageName)}!</h2>
         <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf — powered by Firm Funds.
+          Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf, powered by Firm Funds.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
           <tr>
@@ -808,7 +808,7 @@ export async function sendDocumentUploadedNotification(params: {
   // Internal admin notification — transactional (admin cannot unsubscribe).
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`Document Uploaded — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Document Uploaded: ${params.propertyAddress}`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Uploaded</h2>
@@ -915,7 +915,7 @@ export async function sendClosingDateAlertDigest(params: {
   // Internal admin digest — transactional (admin cannot unsubscribe).
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`Closing Date Alert — ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`),
+    subject: sanitizeSubject(`Closing Date Alert: ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`),
     transactional: true,
     html: wrap(body),
   })
@@ -950,7 +950,7 @@ export async function sendKycMobileUploadLink(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject('Firm Funds — Upload Your ID From Your Phone'),
+    subject: sanitizeSubject('Firm Funds: Upload Your ID From Your Phone'),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
@@ -972,7 +972,7 @@ export async function sendKycApprovedNotification(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`You're Verified — Start Submitting Advances on Firm Funds!`),
+    subject: sanitizeSubject(`You're Verified: Start Submitting Advances on Firm Funds!`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
@@ -1017,7 +1017,7 @@ export async function sendDocumentReturnNotification(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Action Required — Document Returned for ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Action Required: Document Returned for ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: wrap(`
@@ -1072,7 +1072,7 @@ export async function sendDealMessageNotification(params: {
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     replyTo: 'support@firmfunds.ca',
-    subject: sanitizeSubject(`Message from Firm Funds — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Message from Firm Funds: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: wrap(`
@@ -1131,7 +1131,7 @@ export async function sendInvoiceNotification(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`),
+    subject: sanitizeSubject(`Invoice ${params.invoiceNumber}: ${formatMoney(params.amount)} Due`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
@@ -1308,7 +1308,7 @@ export async function sendBrokerageInviteNotification(params: {
   const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.adminEmail,
-    subject: sanitizeSubject(`Welcome to Firm Funds — Set Up Your Brokerage Portal`),
+    subject: sanitizeSubject(`Welcome to Firm Funds: Set Up Your Brokerage Portal`),
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
     transactional: true,
@@ -1370,7 +1370,7 @@ export async function sendPasswordResetNotification(params: {
   const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.recipientEmail,
-    subject: sanitizeSubject(`Firm Funds — Password Reset`),
+    subject: sanitizeSubject(`Firm Funds: Password Reset`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Password Reset</h2>
@@ -1410,7 +1410,7 @@ export async function sendEmailChangeNotification(params: {
   const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.oldEmail,
-    subject: sanitizeSubject(`Firm Funds — Your Login Email Has Been Changed`),
+    subject: sanitizeSubject(`Firm Funds: Your Login Email Has Been Changed`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Email Address Changed</h2>
@@ -1619,7 +1619,7 @@ export async function sendBankingSubmittedNotification(params: {
   // Internal admin notification — transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`Banking Info Submitted — ${params.agentName}`),
+    subject: sanitizeSubject(`Banking Info Submitted: ${params.agentName}`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
@@ -1655,7 +1655,7 @@ export async function sendBankingApprovalNotification(params: {
 }) {
   const subject = params.approved
     ? 'Banking Info Approved'
-    : 'Banking Info — Action Required'
+    : 'Banking Info: Action Required'
 
   const body = params.approved
     ? `
@@ -1722,7 +1722,7 @@ export async function sendAgentMessageNotification(params: {
   // Internal admin notification — transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`Message from ${params.agentName} — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Message from ${params.agentName}: ${params.propertyAddress}`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
@@ -1794,7 +1794,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
   const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   const agentBody = wrap(`
     <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-      Closing Day — Payment Reminder
+      Closing Day: Payment Reminder
     </h2>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
       Hi ${escapeHtml(params.agentFirstName ?? '')}, the expected closing date for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> has arrived.
@@ -1828,7 +1828,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
   // honoured. If the agent has unsubscribed they won't get the nag.
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Closing Day: Payment due by ${formatReminderDate(params.dueDate)} (${params.propertyAddress})`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: agentBody,
@@ -1838,12 +1838,12 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
   if (params.brokerageEmail) {
     await sendEmailWithUnsubscribe({
       to: params.brokerageEmail,
-      subject: sanitizeSubject(`Closing Day — Payment due by ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+      subject: sanitizeSubject(`Closing Day: Payment due by ${formatReminderDate(params.dueDate)} (${params.propertyAddress})`),
       entityType: params.brokerageId ? 'brokerage' : undefined,
       entityId: params.brokerageId ?? undefined,
       html: wrap(`
           <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-            Closing Day — Payment Reminder
+            Closing Day: Payment Reminder
           </h2>
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
             The expected closing date for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> (${escapeHtml(params.agentFirstName ?? '')}'s deal) has arrived.
@@ -1886,13 +1886,13 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
       We haven't yet received the <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> remittance from <strong style="color:#E5E5E5;">${escapeHtml(brokerageName)}</strong> for this advance. The settlement deadline was <strong style="color:#E5E5E5;">${escapeHtml(dueDateLabel)}</strong> (${daysAgoText}).
     </p>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      If the payment has already been sent, please disregard — there can be a 1-2 day delay in processing. If not, please follow up with your brokerage administrator.
+      If the payment has already been sent, please disregard (there can be a 1-2 day delay in processing). If not, please follow up with your brokerage administrator.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
       <tr>
         <td style="padding:16px;">
           <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-            Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing — there's still time to remit before that kicks in.
+            Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing. There's still time to remit before that kicks in.
           </p>
         </td>
       </tr>
@@ -1912,7 +1912,7 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
   // honoured. If the agent has unsubscribed they won't get the nag.
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Payment Check-In — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Payment Check-In: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: agentBody,
@@ -1923,7 +1923,7 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
   if (params.brokerageEmail) {
     await sendEmailWithUnsubscribe({
       to: params.brokerageEmail,
-      subject: sanitizeSubject(`Payment Check-In — ${params.propertyAddress}`),
+      subject: sanitizeSubject(`Payment Check-In: ${params.propertyAddress}`),
       entityType: params.brokerageId ? 'brokerage' : undefined,
       entityId: params.brokerageId ?? undefined,
       html: wrap(`
@@ -1943,7 +1943,7 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
             <tr>
               <td style="padding:16px;">
                 <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-                  Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing — there's still time to remit before that kicks in.
+                  Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing. There's still time to remit before that kicks in.
                 </p>
               </td>
             </tr>
@@ -1968,7 +1968,7 @@ export async function sendAmendmentRequestedNotification(params: {
   // Internal admin notification — transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`Closing Date Amendment Requested — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Closing Date Amendment Requested: ${params.propertyAddress}`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
@@ -2017,7 +2017,7 @@ export async function sendAmendmentApprovedNotification(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Amendment Approved — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Amendment Approved: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: wrap(`
@@ -2088,7 +2088,7 @@ export async function sendMonthlyBrokerStatement(params: {
       <tr>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.propertyAddress)}</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.agentName)}</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.fundingDate ?? '—')}</td>
+        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.fundingDate ?? '-')}</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${formatCurrency(r.discountFee)}</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${r.pct.toFixed(1)}%</td>
         <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:${r.remitted ? '#888' : '#5FA873'}; font-size:13px; text-align:right; font-weight:600;">
@@ -2098,7 +2098,7 @@ export async function sendMonthlyBrokerStatement(params: {
 
   const body = `
     <h2 style="margin:0 0 8px; color:#5FA873; font-size:22px; font-weight:700;">Monthly Profit-Share Statement</h2>
-    <p style="margin:0 0 24px; color:#E5E5E5;">${escapeHtml(params.brokerageName)} — ${escapeHtml(params.periodLabel)}</p>
+    <p style="margin:0 0 24px; color:#E5E5E5;">${escapeHtml(params.brokerageName)}, ${escapeHtml(params.periodLabel)}</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
       <tr>
@@ -2130,7 +2130,7 @@ export async function sendMonthlyBrokerStatement(params: {
     </table>
 
     <p style="margin:0 0 16px; color:#737373; font-size:12px; line-height:1.6;">
-      * Pending remittance: this share has not yet been formally reconciled with Firm Funds. Per your white-label agreement, you retain this share from the commission you control at closing — there is no separate payment.
+      * Pending remittance: this share has not yet been formally reconciled with Firm Funds. Per your white-label agreement, you retain this share from the commission you control at closing. There is no separate payment.
     </p>
     <a href="${APP_URL}/brokerage" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px;">
       View dashboard
@@ -2139,7 +2139,7 @@ export async function sendMonthlyBrokerStatement(params: {
 
   await sendEmailWithUnsubscribe({
     to: params.toEmail,
-    subject: sanitizeSubject(`${params.brokerageName} — Profit-Share Statement (${params.periodLabel})`),
+    subject: sanitizeSubject(`${params.brokerageName}: Profit-Share Statement (${params.periodLabel})`),
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
     html: wrap(body, branding),
@@ -2159,7 +2159,7 @@ export async function sendAmendmentRejectedNotification(params: {
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`Amendment Rejected — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Amendment Rejected: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: wrap(`
@@ -2221,7 +2221,7 @@ export async function sendPaymentClaimSubmittedNotification(params: {
   // Internal admin notification — transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`New payment claim — ${params.brokerageName} — ${formatReminderCurrency(params.amount)}`),
+    subject: sanitizeSubject(`New payment claim: ${params.brokerageName} (${formatReminderCurrency(params.amount)})`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
@@ -2310,7 +2310,7 @@ export async function sendFailedToCloseElectionEmail(params: {
     entityId: params.agentId ?? undefined,
     transactional: true,
     html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Action Required — Choose Your Repayment Method</h2>
+        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Action Required: Choose Your Repayment Method</h2>
         <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
           Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to let you know that your funded deal at <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> ${failureLabel}.
         </p>
@@ -2338,7 +2338,7 @@ export async function sendFailedToCloseElectionEmail(params: {
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px; background:#1A1A1A; border:1px solid #333; border-radius:10px;">
           <tr>
             <td style="padding:18px;">
-              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option A — Cash Repayment</p>
+              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option A: Cash Repayment</p>
               <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
                 Pay the full outstanding balance from your own funds by electronic funds transfer within 30 days.
               </p>
@@ -2350,9 +2350,9 @@ export async function sendFailedToCloseElectionEmail(params: {
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#1A1A1A; border:1px solid #333; border-radius:10px;">
           <tr>
             <td style="padding:18px;">
-              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option B — Assign Next Commission(s)</p>
+              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option B: Assign Next Commission(s)</p>
               <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-                Sign a Remediation Direction to Pay that directs your brokerage to remit your next eligible commission(s) to Firm Funds until the balance is satisfied. No discount fee or settlement fee applies — this is not a new advance.
+                Sign a Remediation Direction to Pay that directs your brokerage to remit your next eligible commission(s) to Firm Funds until the balance is satisfied. No discount fee or settlement fee applies. This is not a new advance.
               </p>
             </td>
           </tr>
@@ -2407,7 +2407,7 @@ export async function sendRemediationIdpSignedNotification(params: {
 
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
-    subject: sanitizeSubject(`Remediation IDP signed — ${params.agentName} — ${params.sourcePropertyAddress}`),
+    subject: sanitizeSubject(`Remediation IDP signed: ${params.agentName} (${params.sourcePropertyAddress})`),
     transactional: true,
     html: wrap(`
         <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Remediation IDP Signed</h2>

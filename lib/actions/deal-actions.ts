@@ -823,7 +823,7 @@ export async function updateDealStatus(input: {
         pendingFundingDeduction = {
           agentId: deal.agent_id,
           amount: deductAmount,
-          description: `Balance deduction from advance — ${deal.property_address}`,
+          description: `Balance deduction from advance: ${deal.property_address}`,
         }
       }
     }
@@ -2574,7 +2574,7 @@ export async function markFundingFailed(input: {
           p_agent_id: deal.agent_id,
           p_delta: priorBalanceDeducted,
           p_type: 'balance_deduction_reversed',
-          p_description: `Funding failed — reversal of balance deduction for ${deal.property_address} (${reason.slice(0, 100)})`,
+          p_description: `Funding failed: reversal of balance deduction for ${deal.property_address} (${reason.slice(0, 100)})`,
           p_deal_id: deal.id,
           p_created_by: user.id,
         })

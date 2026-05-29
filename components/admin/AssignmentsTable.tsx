@@ -51,7 +51,7 @@ const SECTION_CONFIG: Record<AssignmentSection, SectionConfig> = {
   unassigned: {
     title: 'Unassigned deals',
     description: 'Under-review deals nobody has claimed yet.',
-    emptyTitle: 'No unassigned deals — nice work',
+    emptyTitle: 'No unassigned deals. Nice work',
     emptyDescription:
       'Every under-review deal is currently picked up. Check back as new submissions land.',
     emptyIcon: Inbox,
@@ -104,7 +104,7 @@ async function callAssignDealToUnderwriter(payload: AssignPayload): Promise<Assi
       assignImpl = async () => ({
         success: false,
         error:
-          'Assignment service not deployed yet. The backend action `assignDealToUnderwriter` is still pending — try again shortly.',
+          'Assignment service not deployed yet. The backend action `assignDealToUnderwriter` is still pending. Try again shortly.',
       })
     }
   }
@@ -259,10 +259,10 @@ export function AssignmentsTable({
                     </Link>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {deal.agent_name || '—'}
+                    {deal.agent_name || '-'}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {deal.brokerage_name || '—'}
+                    {deal.brokerage_name || '-'}
                   </TableCell>
                   <TableCell>
                     <Badge

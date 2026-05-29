@@ -330,7 +330,7 @@ export default function CureElectionPage({ params }: PageProps) {
             <CardHeader className="border-b border-border bg-status-red-muted/30">
               <CardTitle className="text-base flex items-center gap-2">
                 <DollarSign size={16} className="text-status-red" aria-hidden="true" />
-                Outstanding balance — live
+                Outstanding balance (live)
               </CardTitle>
             </CardHeader>
             <CardContent className="p-5 space-y-3 text-sm">
@@ -340,7 +340,7 @@ export default function CureElectionPage({ params }: PageProps) {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
-                  Accrued interest{financials.inGrace ? ' (none — still in 30-day grace)' : ' (24% APR, compounded daily)'}
+                  Accrued interest{financials.inGrace ? ' (none, still in 30-day grace)' : ' (24% APR, compounded daily)'}
                 </span>
                 <span className="font-medium text-foreground tabular-nums">{formatCurrency(financials.interest)}</span>
               </div>
@@ -411,7 +411,7 @@ export default function CureElectionPage({ params }: PageProps) {
                 </div>
                 <p className="text-sm text-muted-foreground mb-3">
                   Assign a future commission to Firm Funds. We&apos;ll send a Remediation IDP for you to
-                  sign — when that next deal closes, your brokerage pays Firm Funds the outstanding
+                  sign. When that next deal closes, your brokerage pays Firm Funds the outstanding
                   amount directly out of your commission.
                 </p>
                 <div className="rounded-lg bg-status-blue-muted/50 border border-status-blue-border/60 p-3 text-xs text-status-blue">

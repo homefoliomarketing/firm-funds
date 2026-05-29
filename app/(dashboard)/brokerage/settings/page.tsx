@@ -169,7 +169,7 @@ export default function BrokerageSettingsPage() {
     if (!email.trim()) { showMsg('error', 'Email cannot be empty'); return }
     setEmailSaving(true)
     const result = await updateEmail(email)
-    if (result.success) showMsg('success', result.message || 'Email updated — check your inbox')
+    if (result.success) showMsg('success', result.message || 'Email updated. Check your inbox')
     else showMsg('error', result.error || 'Failed to update email')
     setEmailSaving(false)
   }
@@ -493,7 +493,7 @@ export default function BrokerageSettingsPage() {
               Contact <a href="mailto:bud@firmfunds.ca" className="underline underline-offset-2">bud@firmfunds.ca</a> to update.
               {!brokerage?.broker_of_record_email && (
                 <span className="block mt-1 text-status-amber">
-                  No Broker of Record email on file — please reach out so we can fix this for FINTRAC compliance.
+                  No Broker of Record email on file. Please reach out so we can fix this for FINTRAC compliance.
                 </span>
               )}
             </p>

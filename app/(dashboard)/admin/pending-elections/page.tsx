@@ -32,9 +32,9 @@ import {
 type ElectionFilter = 'all' | 'cash_repayment' | 'commission_assignment' | 'awaiting'
 
 const REMEDIATION_STATUS_LABEL: Record<RemediationSummary['status'], string> = {
-  pending: 'Draft — IDP not yet sent',
-  idp_sent: 'IDP sent — awaiting signature',
-  idp_signed: 'IDP signed — awaiting remittance',
+  pending: 'Draft, IDP not yet sent',
+  idp_sent: 'IDP sent, awaiting signature',
+  idp_signed: 'IDP signed, awaiting remittance',
   remitted: 'Remitted',
   cancelled: 'Cancelled',
 }
@@ -233,7 +233,7 @@ export default function PendingCureElectionsPage() {
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Failed-deal collections</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Every agent currently owing money on a failed deal. Balances grow daily at 24%&nbsp;p.a. compounded.
-            Sorted by election deadline by default — most urgent first.
+            Sorted by election deadline by default. Most urgent first.
           </p>
         </section>
 
@@ -346,7 +346,7 @@ export default function PendingCureElectionsPage() {
               <CheckCircle2 className="mx-auto mb-2 text-emerald-400" size={28} />
               <p className="text-sm font-semibold text-emerald-200">
                 {totalPending === 0
-                  ? "No agents currently in cure status — everything's clean."
+                  ? "No agents currently in cure status. Everything's clean."
                   : 'No deals match the current filters.'}
               </p>
               {totalPending > 0 && (
@@ -489,7 +489,7 @@ function PendingRow({
           />
           <Metric
             label="Election deadline"
-            value={deadlineYmd ? formatDate(deadlineYmd) : '—'}
+            value={deadlineYmd ? formatDate(deadlineYmd) : '-'}
             sublabel={
               daysToDeadline == null
                 ? row.cure_election ? 'Election made' : 'No deadline set'

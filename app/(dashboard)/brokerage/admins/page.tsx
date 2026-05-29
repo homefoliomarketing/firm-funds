@@ -46,13 +46,13 @@ const ROLE_DESCRIPTION: Record<BrokerageAdminRole, string> = {
 }
 
 function formatDateOrDash(iso: string | null | undefined): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   try {
     return new Date(iso).toLocaleDateString('en-CA', {
       year: 'numeric', month: 'short', day: 'numeric',
     })
   } catch {
-    return '—'
+    return '-'
   }
 }
 
@@ -223,7 +223,7 @@ export default function BrokerageAdminsPage() {
                 <ArrowLeft size={20} />
               </button>
               <p className="text-sm font-medium tracking-wide text-white">
-                Team Admins{brokerage ? ` — ${brokerage.name}` : ''}
+                Team Admins{brokerage ? `, ${brokerage.name}` : ''}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -429,9 +429,9 @@ export default function BrokerageAdminsPage() {
                 onChange={(e) => setInviteRole(e.target.value as BrokerageAdminRole)}
                 className="w-full px-3 py-2 rounded-lg text-base sm:text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
-                <option value="brokerage_admin">Brokerage Admin — submits deals, manages agents</option>
+                <option value="brokerage_admin">Brokerage Admin (submits deals, manages agents)</option>
                 {canPromoteToManager && (
-                  <option value="brokerage_manager">Brokerage Manager — also manages team admins</option>
+                  <option value="brokerage_manager">Brokerage Manager (also manages team admins)</option>
                 )}
               </select>
               <p className="text-[11px] text-muted-foreground/70 mt-1">

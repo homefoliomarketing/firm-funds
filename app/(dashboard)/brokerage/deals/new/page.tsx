@@ -246,7 +246,7 @@ function NewBrokerageDealPageInner() {
     setResendBusy(true); setResendMsg(null)
     const result = await resendAgentWelcomeEmail({ agentId: selectedAgent.id })
     if (result.success) {
-      setResendMsg('Welcome email sent — agent will receive setup link shortly.')
+      setResendMsg('Welcome email sent. Agent will receive setup link shortly.')
     } else {
       setResendMsg(result.error || 'Failed to send welcome email')
     }
@@ -401,7 +401,7 @@ function NewBrokerageDealPageInner() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
             <div className="w-px h-8 bg-white/15" />
-            <p className="text-sm font-medium text-white">Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}</p>
+            <p className="text-sm font-medium text-white">Brokerage Portal{brokerage ? `: ${brokerage.name}` : ''}</p>
           </div>
         </header>
         <main className="max-w-2xl mx-auto px-4 sm:px-6 py-12">
@@ -420,7 +420,7 @@ function NewBrokerageDealPageInner() {
                     Document uploads
                     {uploadQueue.some(i => i.status === 'failed') && (
                       <span className="ml-2 text-destructive normal-case font-normal">
-                        — {uploadQueue.filter(i => i.status === 'failed').length} failed, retry below
+                        ({uploadQueue.filter(i => i.status === 'failed').length} failed, retry below)
                       </span>
                     )}
                   </p>
@@ -453,7 +453,7 @@ function NewBrokerageDealPageInner() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
             <div className="w-px h-8 bg-white/15 hidden sm:block" />
-            <p className="text-sm font-medium text-white hidden sm:block">Submit Advance Request{brokerage ? ` — ${brokerage.name}` : ''}</p>
+            <p className="text-sm font-medium text-white hidden sm:block">Submit Advance Request{brokerage ? `: ${brokerage.name}` : ''}</p>
           </div>
         </div>
       </header>
@@ -498,7 +498,7 @@ function NewBrokerageDealPageInner() {
                 <option value="">Choose an agent…</option>
                 {agents.map(a => (
                   <option key={a.id} value={a.id}>
-                    {a.last_name}, {a.first_name}{a.account_activated_at ? '' : ' — not activated'}
+                    {a.last_name}, {a.first_name}{a.account_activated_at ? '' : ' (not activated)'}
                   </option>
                 ))}
               </select>

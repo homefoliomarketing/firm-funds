@@ -56,7 +56,7 @@ const defaultDraft: UnmatchedDraft = {
 }
 
 function formatShortDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   try {
     // Bare YYYY-MM-DD values get parsed by Date as UTC midnight, which
     // displays as the previous day in negative-offset timezones (ET).
@@ -522,7 +522,7 @@ function FirmDealReviewPageInner() {
                 className="flex items-center gap-3 rounded-md border bg-card/40 px-3 py-2 text-sm"
               >
                 <StatusDot status={row.status} />
-                <span className="font-medium truncate">{row.parsed?.address ?? '—'}</span>
+                <span className="font-medium truncate">{row.parsed?.address ?? '-'}</span>
                 <span className="text-muted-foreground text-xs truncate">{row.brokerage_name}</span>
                 <span className="text-muted-foreground text-xs ml-auto whitespace-nowrap">
                   {formatShortDate(row.processed_at)}
@@ -785,7 +785,7 @@ function SideResolver({
   if (!raw) {
     return (
       <div className="text-xs text-muted-foreground">
-        <span className="uppercase tracking-wider">{label}</span>: (blank — nothing to resolve)
+        <span className="uppercase tracking-wider">{label}</span>: (blank, nothing to resolve)
       </div>
     )
   }
@@ -821,7 +821,7 @@ function SideResolver({
             className="text-xs bg-background border border-border rounded px-2 py-1 flex-1 min-w-[140px]"
             aria-label={`${label} agent`}
           >
-            <option value="">— pick agent —</option>
+            <option value="">Pick agent</option>
             {enrolledAgents.map((a) => (
               <option key={a.id} value={a.id}>
                 {agentName(a) || a.id}
@@ -837,7 +837,7 @@ function SideResolver({
               className="text-xs bg-background border border-border rounded px-2 py-1 flex-1 min-w-[140px]"
               aria-label={`${label} first agent`}
             >
-              <option value="">— first agent —</option>
+              <option value="">First agent</option>
               {enrolledAgents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {agentName(a) || a.id}
@@ -850,7 +850,7 @@ function SideResolver({
               className="text-xs bg-background border border-border rounded px-2 py-1 flex-1 min-w-[140px]"
               aria-label={`${label} second agent`}
             >
-              <option value="">— second agent —</option>
+              <option value="">Second agent</option>
               {enrolledAgents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {agentName(a) || a.id}

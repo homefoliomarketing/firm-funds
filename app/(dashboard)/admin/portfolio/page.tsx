@@ -258,7 +258,7 @@ export default async function PortfolioPage() {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-foreground truncate">{deal.property_address}</p>
                           <p className="text-[11px] text-muted-foreground mt-0.5">
-                            Funded {deal.funding_date ? formatDate(deal.funding_date) : '—'}
+                            Funded {deal.funding_date ? formatDate(deal.funding_date) : '-'}
                           </p>
                         </div>
                         <span className={`inline-flex px-2.5 py-0.5 text-[11px] font-semibold rounded-md whitespace-nowrap ${getStatusBadgeClass(deal.status)}`}>

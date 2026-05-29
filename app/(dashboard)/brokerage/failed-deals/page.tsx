@@ -181,7 +181,7 @@ export default function BrokerageFailedDealsPage() {
               <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
               <div className="w-px h-8 hidden sm:block bg-white/15" />
               <p className="text-xs sm:text-sm font-medium tracking-wide text-white hidden sm:block">
-                Failed deals{brokerage ? ` — ${brokerage.name}` : ''}
+                Failed deals{brokerage ? `: ${brokerage.name}` : ''}
               </p>
             </div>
             <div className="flex items-center gap-3">

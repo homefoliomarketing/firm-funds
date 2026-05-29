@@ -351,7 +351,7 @@ function NewDealPageInner() {
               error: uploadResult.success ? undefined : (uploadResult.error || 'Upload failed'),
             } : i))
           } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : 'Upload failed — you can upload this from your dashboard'
+            const msg = err instanceof Error ? err.message : 'Upload failed. You can upload this from your dashboard'
             setUploadQueue(prev => prev.map(i => i.id === item.id ? {
               ...i,
               status: 'failed',
@@ -418,7 +418,7 @@ function NewDealPageInner() {
                 Document uploads
                 {uploadQueue.some(i => i.status === 'failed') && (
                   <span className="ml-2 normal-case font-normal text-destructive">
-                    — {uploadQueue.filter(i => i.status === 'failed').length} failed, retry below
+                    ({uploadQueue.filter(i => i.status === 'failed').length} failed, retry below)
                   </span>
                 )}
               </p>
@@ -788,7 +788,7 @@ function NewDealPageInner() {
                 { key: 'aps', label: 'Agreement of Purchase & Sale', required: true, hint: 'Including schedules and confirmation of co-op' },
                 { key: 'notice_of_fulfillment', label: 'Notice of Fulfillment / Waiver', required: false, hint: 'If applicable' },
                 { key: 'amendment', label: 'Amendments', required: false, hint: 'Any amendments to the APS' },
-                ...(isFirstAdvance ? [{ key: 'banking_info', label: 'Banking Information', required: true, hint: 'Void cheque or direct deposit form — required for your first advance' }] : []),
+                ...(isFirstAdvance ? [{ key: 'banking_info', label: 'Banking Information', required: true, hint: 'Void cheque or direct deposit form (required for your first advance)' }] : []),
               ].map(slot => (
                 <div key={slot.key} className="rounded-xl p-4 bg-secondary/30 border border-border/30">
                   <div className="flex items-center gap-2 mb-2">

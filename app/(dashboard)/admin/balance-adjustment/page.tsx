@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 
 export const metadata = {
-  title: 'Adjust Agent Balance — Firm Funds Admin',
+  title: 'Adjust Agent Balance | Firm Funds Admin',
   robots: { index: false, follow: false },
 }
 

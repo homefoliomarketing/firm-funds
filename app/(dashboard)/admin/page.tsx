@@ -454,7 +454,7 @@ export default function AdminDashboard() {
                   ? 'border-destructive/40 bg-destructive/5'
                   : 'border-border/40 bg-card/60'
               }`}
-              aria-label={`Open assignments view — ${stats.unassignedCount} unassigned, ${stats.overdueAssignedCount} overdue`}
+              aria-label={`Open assignments view: ${stats.unassignedCount} unassigned, ${stats.overdueAssignedCount} overdue`}
             >
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3">
@@ -672,7 +672,7 @@ export default function AdminDashboard() {
               <CardHeader className="py-3 px-4 bg-amber-500/5 border-b border-amber-500/20">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-400">
                   <TimerReset size={16} />
-                  {overdueSettlements.length} brokerage settlement{overdueSettlements.length === 1 ? '' : 's'} past due — review for strike
+                  {overdueSettlements.length} brokerage settlement{overdueSettlements.length === 1 ? '' : 's'} past due. Review for strike
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0 divide-y divide-border/50">
@@ -687,7 +687,7 @@ export default function AdminDashboard() {
                         {d.brokerage_name || 'Brokerage on file'}
                       </p>
                       <p className="text-[11px] text-amber-300/80 mt-1">
-                        Due {d.due_date ? formatDate(d.due_date) : '—'}
+                        Due {d.due_date ? formatDate(d.due_date) : '-'}
                         <span className="text-muted-foreground/70"> · {d.days_overdue} day{d.days_overdue === 1 ? '' : 's'} overdue</span>
                         <span className="text-muted-foreground/70"> · Outstanding {formatCurrency(d.outstanding)} of {formatCurrency(d.amount_due)}</span>
                       </p>
@@ -728,7 +728,7 @@ export default function AdminDashboard() {
                   <span className="flex items-center gap-2 min-w-0 flex-1">
                     <Clock size={11} className="text-red-400 shrink-0" />
                     <span className="text-xs text-red-300 truncate">
-                      <strong>Overdue:</strong> {deal.property_address} — closing was {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                      <strong>Overdue:</strong> {deal.property_address}, closing was {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
                     </span>
                   </span>
                   <ChevronRight size={12} className="text-red-400 shrink-0" />
@@ -743,7 +743,7 @@ export default function AdminDashboard() {
                   <span className="flex items-center gap-2 min-w-0 flex-1">
                     <Clock size={11} className="text-amber-400 shrink-0" />
                     <span className="text-xs text-amber-300 truncate">
-                      <strong>Stale review:</strong> {deal.property_address} — {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days
+                      <strong>Stale review:</strong> {deal.property_address}, {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days
                     </span>
                   </span>
                   <ChevronRight size={12} className="text-amber-400 shrink-0" />
@@ -758,7 +758,7 @@ export default function AdminDashboard() {
                   <span className="flex items-center gap-2 min-w-0 flex-1">
                     <Clock size={11} className="text-blue-400 shrink-0" />
                     <span className="text-xs text-blue-300 truncate">
-                      <strong>Pending funding:</strong> {deal.property_address} — approved {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
+                      <strong>Pending funding:</strong> {deal.property_address}, approved {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
                     </span>
                   </span>
                   <ChevronRight size={12} className="text-blue-400 shrink-0" />
@@ -887,7 +887,7 @@ export default function AdminDashboard() {
                         <TableCell className="text-sm text-muted-foreground">
                           {(() => {
                             const a = pickAgent(deal.agents)
-                            return a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : '—'
+                            return a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : '-'
                           })()}
                         </TableCell>
                         <TableCell>
@@ -944,7 +944,7 @@ export default function AdminDashboard() {
                         <p className="text-sm text-muted-foreground truncate">
                           {(() => {
                             const a = pickAgent(deal.agents)
-                            return a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : '—'
+                            return a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : '-'
                           })()}
                         </p>
                         <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md whitespace-nowrap ${getStatusBadgeClass(deal.status)}`}>

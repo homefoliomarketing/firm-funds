@@ -273,7 +273,7 @@ export default function AgentSetupPage() {
 
                 {bankingSubmitted && (
                   <div className="rounded-lg border border-status-amber/30 bg-status-amber/10 px-4 py-3">
-                    <p className="text-sm font-medium text-status-amber">Submitted — pending review</p>
+                    <p className="text-sm font-medium text-status-amber">Submitted, pending review</p>
                     <p className="text-xs text-status-amber/80 mt-0.5">Your brokerage admin or Firm Funds will approve this shortly. You&apos;ll get an email when it&apos;s done.</p>
                   </div>
                 )}

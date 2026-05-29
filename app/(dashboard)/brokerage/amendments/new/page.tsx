@@ -291,7 +291,7 @@ function AmendmentNewInner() {
                   className="w-full rounded-lg px-3 py-2 text-base sm:text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25"
                   disabled={submitting}
                 >
-                  <option value="">— Select a deal —</option>
+                  <option value="">Select a deal</option>
                   {eligibleDeals.map(d => (
                     <option key={d.id} value={d.id}>
                       {d.property_address} · {d.agent ? `${d.agent.first_name} ${d.agent.last_name}` : 'Agent'} · closes {formatDate(d.closing_date)} ({formatStatusLabel(d.status)})
@@ -324,7 +324,7 @@ function AmendmentNewInner() {
                     </div>
                     <div>
                       <p className="text-muted-foreground">Agent</p>
-                      <p className="font-medium text-foreground">{selectedDeal.agent ? `${selectedDeal.agent.first_name} ${selectedDeal.agent.last_name}` : '—'}</p>
+                      <p className="font-medium text-foreground">{selectedDeal.agent ? `${selectedDeal.agent.first_name} ${selectedDeal.agent.last_name}` : '-'}</p>
                     </div>
                   </div>
                 )}
@@ -379,9 +379,9 @@ function AmendmentNewInner() {
                         </div>
 
                         <div className="text-muted-foreground">Brokerage referral fee</div>
-                        <div className="text-right text-foreground tabular-nums">—</div>
+                        <div className="text-right text-foreground tabular-nums">-</div>
                         <div className="text-right text-primary font-semibold tabular-nums">
-                          {preview.isFunded ? '—' : formatCurrency(preview.newBrokerageReferralFee)}
+                          {preview.isFunded ? '-' : formatCurrency(preview.newBrokerageReferralFee)}
                           {preview.isFunded && <span className="ml-1 text-[10px] text-muted-foreground">(locked)</span>}
                         </div>
 

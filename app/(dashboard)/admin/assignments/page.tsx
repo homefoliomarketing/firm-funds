@@ -10,7 +10,7 @@ import {
 } from '@/components/admin/AssignmentsTable'
 
 export const metadata = {
-  title: 'Underwriter Assignments — Firm Funds Admin',
+  title: 'Underwriter Assignments | Firm Funds Admin',
   robots: { index: false, follow: false },
 }
 

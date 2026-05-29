@@ -435,7 +435,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
           <div
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${getKycBadgeClass('submitted')}`}
           >
-            <Clock size={14} /> Submitted — Awaiting Review
+            <Clock size={14} /> Submitted, Awaiting Review
           </div>
         </Card>
       </div>
@@ -594,7 +594,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
                 Drop your ID here or tap to browse files
               </p>
               <p className="text-muted-foreground/70 text-xs">
-                JPEG, PNG, or PDF — max 10MB per file. Upload front &amp; back if needed.
+                JPEG, PNG, or PDF. Max 10MB per file. Upload front &amp; back if needed.
               </p>
               <div
                 onClick={(e) => { e.stopPropagation(); document.getElementById('kyc-camera-input')?.click() }}

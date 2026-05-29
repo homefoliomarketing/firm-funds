@@ -227,7 +227,7 @@ export function BalanceAdjustmentForm({
         selectedAgent.account_balance + signedAmount
 
       toast.success('Balance adjusted', {
-        description: `${selectedAgent.first_name} ${selectedAgent.last_name} — new balance ${formatCurrency(newBalance)}`,
+        description: `${selectedAgent.first_name} ${selectedAgent.last_name}: new balance ${formatCurrency(newBalance)}`,
       })
 
       // Reset form, close modal, refresh agent list so balances repopulate
@@ -513,7 +513,7 @@ export function BalanceAdjustmentForm({
 
           <div>
             <Label htmlFor="adjust-notes" className="text-xs">
-              Notes (required — explains the adjustment in audit log)
+              Notes (required, explains the adjustment in audit log)
             </Label>
             <Textarea
               id="adjust-notes"

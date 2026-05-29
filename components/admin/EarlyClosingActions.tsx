@@ -204,7 +204,7 @@ export function EarlyClosingButton({
             <DialogDescription>
               When a deal closes sooner than the scheduled date, the agent is
               owed a refund on the discount fee for the days saved. Enter the
-              actual closing date below — we&apos;ll calculate the refund and
+              actual closing date below. We&apos;ll calculate the refund and
               credit their ledger.
             </DialogDescription>
           </DialogHeader>
@@ -266,7 +266,7 @@ export function EarlyClosingButton({
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Closing {refundPreview.daysSaved} day
-                  {refundPreview.daysSaved === 1 ? '' : 's'} early — agent will
+                  {refundPreview.daysSaved === 1 ? '' : 's'} early. Agent will
                   be credited approximately{' '}
                   <span className="font-semibold text-status-green tabular-nums">
                     {formatCurrency(refundPreview.refund)}

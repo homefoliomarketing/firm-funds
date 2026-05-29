@@ -124,7 +124,7 @@ export default function AdminSettingsPage() {
     if (!email.trim()) { showMsg('error', 'Email cannot be empty'); return }
     setEmailSaving(true)
     const result = await updateEmail(email)
-    if (result.success) showMsg('success', result.message || 'Email updated — check your inbox')
+    if (result.success) showMsg('success', result.message || 'Email updated. Check your inbox')
     else showMsg('error', result.error || 'Failed to update email')
     setEmailSaving(false)
   }

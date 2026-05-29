@@ -122,7 +122,7 @@ export default function AddressAutocomplete({
       .catch((e) => {
         if (cancelled) return
         console.error('[AddressAutocomplete] failed to load:', e)
-        setLoadError('Address suggestions unavailable — enter the address manually below.')
+        setLoadError('Address suggestions unavailable. Enter the address manually below.')
       })
     return () => { cancelled = true }
   }, [apiKey])

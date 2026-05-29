@@ -422,7 +422,7 @@ function AgentDashboardInner() {
                       <div className="min-w-0">
                         <p className={`text-sm font-semibold ${isOverdue ? 'text-destructive' : 'text-status-amber'}`}>
                           {isOverdue
-                            ? 'Cure election overdue — contact Firm Funds'
+                            ? 'Cure election overdue. Contact Firm Funds'
                             : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left to choose how to cure this deal`}
                         </p>
                         <p className="text-xs mt-1 text-foreground/80 truncate">
@@ -470,7 +470,7 @@ function AgentDashboardInner() {
                     {offerJustAccepted
                       ? `${agent?.brokerages?.name || 'Your brokerage'} has been notified`
                       : firmDealOffer.brand_name
-                        ? `${firmDealOffer.brand_name} — your deal just firmed up`
+                        ? `${firmDealOffer.brand_name}: your deal just firmed up`
                         : 'Your deal just firmed up'}
                   </p>
                   <p className="text-xs mt-1 text-muted-foreground">
