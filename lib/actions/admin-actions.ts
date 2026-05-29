@@ -2619,12 +2619,16 @@ export async function adminResetUserPassword(input: {
     // Determine role name for email
     const roleName = targetProfile.role === 'brokerage_admin' ? 'Brokerage Admin' : 'Agent'
 
-    // Send reset email
+    // Send reset email — pass brokerage/agent IDs so the brokerage's logo
+    // shows in the email header (migration 096). Falls back to FF default
+    // when neither ID is on the profile (e.g. FF admin password reset).
     await sendPasswordResetNotification({
       recipientName: targetProfile.full_name?.split(' ')[0] || 'User',
       recipientEmail: targetProfile.email ?? '',
       inviteToken,
       roleName,
+      brokerageId: targetProfile.brokerage_id,
+      agentId: targetProfile.agent_id,
     })
 
     await logAuditEvent({
@@ -2729,11 +2733,14 @@ export async function adminChangeUserEmail(input: {
         .eq('id', targetProfile.agent_id)
     }
 
-    // Send notification to old email
+    // Send notification to old email — include brokerage/agent IDs so the
+    // header shows the brokerage's generated logo (migration 096).
     await sendEmailChangeNotification({
       recipientName: targetProfile.full_name?.split(' ')[0] || 'User',
       oldEmail: oldEmail ?? '',
       newEmail,
+      brokerageId: targetProfile.brokerage_id,
+      agentId: targetProfile.agent_id,
     })
 
     await logAuditEvent({

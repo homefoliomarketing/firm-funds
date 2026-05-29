@@ -294,12 +294,15 @@ export async function updateBrokerageContactEmail(newEmail: string) {
   const confirmUrl = `${APP_URL}/api/brokerage/confirm-contact-email?token=${encodeURIComponent(rawToken)}`
 
   try {
+    // Pass brokerageId so the email header shows the brokerage's generated
+    // logo (migration 096).
     const { sendBrokerageContactEmailConfirm, sendBrokerageContactEmailChangeRequested } = await import('@/lib/email')
     await sendBrokerageContactEmailConfirm({
       brokerageName,
       newEmail: newEmailLc,
       confirmUrl,
       expiresAtIso: expiresAt.toISOString(),
+      brokerageId: profile.brokerage_id,
     })
     if (oldEmail) {
       await sendBrokerageContactEmailChangeRequested({
@@ -307,6 +310,7 @@ export async function updateBrokerageContactEmail(newEmail: string) {
         oldEmail,
         newEmail: newEmailLc,
         expiresAtIso: expiresAt.toISOString(),
+        brokerageId: profile.brokerage_id,
       })
     }
   } catch (emailErr: unknown) {

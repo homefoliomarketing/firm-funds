@@ -119,12 +119,15 @@ export async function updateAgentProfile(data: {
         : 'there'
 
       if (recipientEmail) {
+        // Pass agentId so the email header shows the brokerage's generated
+        // logo (migration 096).
         await sendAgentPhoneChangedNotification({
           recipientEmail,
           recipientName,
           oldPhoneLast4,
           newPhoneLast4,
           changedAtIso: changedAt,
+          agentId: data.agentId,
         })
       }
     } catch (notifyErr: unknown) {

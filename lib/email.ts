@@ -947,13 +947,14 @@ export async function sendKycMobileUploadLink(params: {
 
   // KYC/identity verification is a regulatory/legal email — transactional so
   // it bypasses the recipient's preference flag.
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject('Firm Funds — Upload Your ID From Your Phone'),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(body),
+    html: wrap(body, branding),
   })
 }
 
@@ -1248,6 +1249,7 @@ export async function sendBrokerageStatusNotification(params: {
   const label = statusLabels[params.newStatus] || params.newStatus
   const color = statusColors[params.newStatus] || '#D4A04A'
 
+  const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.brokerageEmail,
     subject: sanitizeSubject(`Deal ${label}: ${params.propertyAddress}`),
@@ -1283,7 +1285,7 @@ export async function sendBrokerageStatusNotification(params: {
             View in Brokerage Portal
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -1355,12 +1357,17 @@ export async function sendPasswordResetNotification(params: {
   recipientEmail: string
   inviteToken: string
   roleName: string // e.g. "Agent" or "Brokerage Admin"
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  brokerageId?: string | null
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  agentId?: string | null
 }): Promise<void> {
   const resetUrl = `${APP_URL}/invite/${params.inviteToken}`
 
   // Password resets are security-critical — transactional. We do not attach
   // an entity here because the same reset flow services both agents and
   // brokerage admins and the caller doesn't necessarily know which.
+  const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.recipientEmail,
     subject: sanitizeSubject(`Firm Funds — Password Reset`),
@@ -1381,7 +1388,7 @@ export async function sendPasswordResetNotification(params: {
         <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
           <a href="${resetUrl}" style="color:#5FA873; word-break:break-all;">${resetUrl}</a>
         </p>
-      `),
+      `, branding),
   })
 }
 
@@ -1393,9 +1400,14 @@ export async function sendEmailChangeNotification(params: {
   recipientName: string
   oldEmail: string
   newEmail: string
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  brokerageId?: string | null
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  agentId?: string | null
 }): Promise<void> {
   // Security notification to the OLD email — transactional, no preference
   // check (we never want to suppress a "your account changed" warning).
+  const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.oldEmail,
     subject: sanitizeSubject(`Firm Funds — Your Login Email Has Been Changed`),
@@ -1424,7 +1436,7 @@ export async function sendEmailChangeNotification(params: {
         <p style="margin:0 0 20px; color:#737373; font-size:13px;">
           Please use your new email address to log in going forward. If you did not expect this change, contact Firm Funds immediately.
         </p>
-      `),
+      `, branding),
   })
 }
 
@@ -1443,12 +1455,15 @@ export async function sendAgentPhoneChangedNotification(params: {
   oldPhoneLast4: string | null
   newPhoneLast4: string | null
   changedAtIso: string
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  agentId?: string | null
 }): Promise<void> {
   const oldDisplay = params.oldPhoneLast4 ? `*** *** ${params.oldPhoneLast4}` : 'not on file'
   const newDisplay = params.newPhoneLast4 ? `*** *** ${params.newPhoneLast4}` : 'cleared'
 
   // Security warning — transactional. Recipient must NOT be able to silence
   // these by unsubscribing.
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.recipientEmail,
     subject: sanitizeSubject('Your Firm Funds phone number was updated'),
@@ -1481,7 +1496,7 @@ export async function sendAgentPhoneChangedNotification(params: {
         <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
           If you didn't make this change, sign in, reset your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your session may be compromised.
         </p>
-      `),
+      `, branding),
   })
 }
 
@@ -1499,12 +1514,15 @@ export async function sendBrokerageContactEmailConfirm(params: {
   newEmail: string
   confirmUrl: string
   expiresAtIso: string
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  brokerageId?: string | null
 }): Promise<void> {
   const expiresLabel = new Date(params.expiresAtIso).toUTCString()
 
   // Email address change confirmation — transactional. Note we do NOT mint a
   // brokerage unsubscribe token here because the recipient may not yet be
   // the brokerage's confirmed contact.
+  const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.newEmail,
     subject: sanitizeSubject(`Confirm new contact email for ${params.brokerageName}`),
@@ -1527,7 +1545,7 @@ export async function sendBrokerageContactEmailConfirm(params: {
         <p style="margin:0 0 8px; color:#737373; font-size:13px;">
           If you didn't request this change, simply ignore this email. The brokerage's contact address will remain unchanged.
         </p>
-      `),
+      `, branding),
   })
 }
 
@@ -1544,10 +1562,13 @@ export async function sendBrokerageContactEmailChangeRequested(params: {
   oldEmail: string
   newEmail: string
   expiresAtIso: string
+  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  brokerageId?: string | null
 }): Promise<void> {
   const expiresLabel = new Date(params.expiresAtIso).toUTCString()
 
   // Security warning to the OLD email — transactional, no preference check.
+  const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.oldEmail,
     subject: sanitizeSubject(`Contact email change requested for ${params.brokerageName}`),
@@ -1583,7 +1604,7 @@ export async function sendBrokerageContactEmailChangeRequested(params: {
         <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
           If you didn't request this change, sign in immediately, change your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your administrator session may be compromised.
         </p>
-      `),
+      `, branding),
   })
 }
 
@@ -1677,13 +1698,14 @@ export async function sendBankingApprovalNotification(params: {
       `
 
   // Banking approval/rejection is an account-status notice — transactional.
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(subject),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(body),
+    html: wrap(body, branding),
   })
 }
 
@@ -1767,6 +1789,9 @@ function formatReminderCurrency(amount: number): string {
 
 /** Closing day reminder — "Deal closed! Brokerage has the settlement window to remit payment." */
 export async function sendSettlementReminderClosingDay(params: SettlementReminderParams) {
+  // Both the agent body and the brokerage body should show the brokerage's
+  // logo (same brokerage for both, so one lookup covers it).
+  const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   const agentBody = wrap(`
     <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
       Closing Day — Payment Reminder
@@ -1797,7 +1822,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
         </td>
       </tr>
     </table>
-  `)
+  `, branding)
 
   // Send to agent. Promotional-class reminder — entity preference is
   // honoured. If the agent has unsubscribed they won't get the nag.
@@ -1826,7 +1851,7 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
             Please remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds by <strong style="color:#5FA873;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
           </p>
-        `),
+        `, branding),
     })
   }
 }
@@ -1849,6 +1874,7 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
   const dueDateLabel = formatReminderDate(params.dueDate)
   const brokerageName = params.brokerageName ?? 'your brokerage'
 
+  const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   const agentBody = wrap(`
     <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
       Payment Check-In
@@ -1880,7 +1906,7 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
         </td>
       </tr>
     </table>
-  `)
+  `, branding)
 
   // Send to agent. Promotional-class reminder — entity preference is
   // honoured. If the agent has unsubscribed they won't get the nag.
@@ -1922,7 +1948,7 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
               </td>
             </tr>
           </table>
-        `),
+        `, branding),
     })
   }
 }
@@ -1988,6 +2014,7 @@ export async function sendAmendmentApprovedNotification(params: {
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }) {
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`Amendment Approved — ${params.propertyAddress}`),
@@ -2022,7 +2049,7 @@ export async function sendAmendmentApprovedNotification(params: {
             </td>
           </tr>
         </table>
-      `),
+      `, branding),
   })
 }
 
@@ -2129,6 +2156,7 @@ export async function sendAmendmentRejectedNotification(params: {
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }) {
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`Amendment Rejected — ${params.propertyAddress}`),
@@ -2161,7 +2189,7 @@ export async function sendAmendmentRejectedNotification(params: {
             </td>
           </tr>
         </table>
-      `),
+      `, branding),
   })
 }
 
