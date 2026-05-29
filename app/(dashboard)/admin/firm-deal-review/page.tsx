@@ -865,7 +865,14 @@ function SideResolver({
           Both slots are the same agent. Pick a different second agent for a co-agent split, or use &ldquo;Assign to agent&rdquo; instead.
         </p>
       )}
-      {(draftAction === 'assign' || draftAction === 'assign_team' || draftAction === 'outside') && (
+      {/* "Remember" only applies to single-agent / outside resolutions, where
+          the shorthand is a stable identifier (a nickname like "Bud" for a
+          single agent, or an outside-brokerage label like "Exit"). Co-agent
+          splits are deliberately one-off: two agents happened to share this
+          deal's commission, and we don't infer they'll keep doing so. The
+          matcher's auto-split-detection handles any future delimited cell
+          like "Kyle/Tricia" without a persisted mapping. */}
+      {(draftAction === 'assign' || draftAction === 'outside') && (
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <input
             type="checkbox"
@@ -875,6 +882,12 @@ function SideResolver({
           />
           Remember &ldquo;{raw}&rdquo; next time
         </label>
+      )}
+      {draftAction === 'assign_team' && (
+        <p className="text-[11px] text-muted-foreground">
+          One-off split for this deal only. Future cells with two enrolled agents
+          auto-detect; no mapping is saved.
+        </p>
       )}
     </div>
   )

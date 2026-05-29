@@ -412,16 +412,15 @@ export async function resolveUnmatchedFirmDealEvent(
           created_by: auth.user?.id ?? null,
         })
       } else if (action.kind === 'assign_team') {
-        if (action.agent_ids.length >= 2) {
-          mappingRows.push({
-            brokerage_id: event.brokerage_id,
-            shorthand,
-            resolution: 'team',
-            agent_id: null,
-            team_agent_ids: action.agent_ids,
-            created_by: auth.user?.id ?? null,
-          })
-        }
+        // Intentionally NOT persisted. A "Kyle/Tricia" cell is co-agents on
+        // one deal, not a stable team — they happened to share this deal's
+        // commission and we don't infer they'll keep doing so. The matcher's
+        // delimiter-split detection (match-agents.ts trySplit) handles any
+        // future cell with two enrolled agents without a mapping, so saving
+        // one would only pollute the table with false positives. If a real
+        // team identifier (e.g. "JTeam") ever needs persisting, add a
+        // separate UI affordance — don't piggyback on this path.
+        return
       } else if (action.kind === 'mark_outside') {
         mappingRows.push({
           brokerage_id: event.brokerage_id,
