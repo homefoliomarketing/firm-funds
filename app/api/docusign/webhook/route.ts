@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getValidAccessToken } from '@/lib/docusign'
+import { logAuditEventServiceRole } from '@/lib/audit'
+import { sendRemediationIdpSignedNotification } from '@/lib/email'
 
 // DocuSign Connect webhook — receives envelope status updates
 // Configure in DocuSign: Settings → Connect → Add Configuration
@@ -229,8 +231,13 @@ export async function POST(request: Request) {
     // SIGNED — Download docs, store them, link to checklist, check off
     // ================================================================
     if (mappedStatus === 'signed') {
-      // Determine if this is a BCA (brokerage-level) or deal-level envelope
-      const isBca = envelopes[0].document_type === 'bca'
+      // Three envelope kinds — BCA (brokerage-level), Remediation IDP
+      // (curing a failed deal), or a regular deal envelope (CPA + IDP).
+      // Each lives on a different parent row so the dispatch is on
+      // document_type, not deal_id presence.
+      const firstDocType = envelopes[0].document_type as string
+      const isBca = firstDocType === 'bca'
+      const isRemediationIdp = firstDocType === 'remediation_idp'
 
       if (isBca) {
         // ============================================================
@@ -294,6 +301,147 @@ export async function POST(request: Request) {
         }
 
         console.log(`DocuSign webhook: completed BCA processing for brokerage ${brokerageId}`)
+
+      } else if (isRemediationIdp) {
+        // ============================================================
+        // REMEDIATION IDP ENVELOPE — failed-deal cure assignment
+        // ============================================================
+        // The envelope ties back to a remediation_deals row, NOT a deal
+        // and NOT a brokerage. Flow: download the single signed PDF,
+        // store it under remediation_idp/{remediationDealId}/, flip the
+        // remediation row to idp_signed with signed_at, audit-log, and
+        // notify the Firm Funds admin so the brokerage remittance step
+        // is on the radar.
+        const remediationDealId = envelopes[0].remediation_deal_id as string | null
+
+        if (!remediationDealId) {
+          console.error(`DocuSign webhook: remediation_idp envelope has no remediation_deal_id — envelope ${redactEnvelopeId(envelopeId)}`)
+        } else {
+          console.log(`DocuSign webhook: Remediation IDP signed — downloading doc for remediation_deal ${remediationDealId}`)
+
+          const auth = await getValidAccessToken()
+          let storagePath: string | null = null
+          let pdfStored = false
+
+          if (auth) {
+            try {
+              // 1. Download signed Remediation IDP PDF (documentId '1' — only one doc)
+              const docRes = await fetch(
+                `${auth.baseUri}/restapi/v2.1/accounts/${auth.accountId}/envelopes/${envelopeId}/documents/1`,
+                { headers: { 'Authorization': `Bearer ${auth.accessToken}` } }
+              )
+
+              if (docRes.ok) {
+                const pdfBuffer = await docRes.arrayBuffer()
+                const pdfBytes = new Uint8Array(pdfBuffer)
+
+                // 2. Upload to Supabase storage under a remediation-specific
+                // prefix so admin tooling can find it without joining through
+                // failed_deal_id.
+                const timestamp = Date.now()
+                const randomId = crypto.randomUUID()
+                storagePath = `remediation_idp/${remediationDealId}/${timestamp}_${randomId}.pdf`
+
+                const { error: uploadErr } = await supabase.storage
+                  .from('deal-documents')
+                  .upload(storagePath, pdfBytes, {
+                    contentType: 'application/pdf',
+                    upsert: false,
+                  })
+
+                if (uploadErr) {
+                  console.error('DocuSign webhook: failed to upload Remediation IDP to storage:', uploadErr.message)
+                  storagePath = null
+                } else {
+                  console.log(`DocuSign webhook: stored signed Remediation IDP at ${storagePath}`)
+                  pdfStored = true
+                }
+              } else {
+                console.error(`DocuSign webhook: failed to download Remediation IDP doc: ${docRes.status}`)
+              }
+            } catch (docErr: unknown) {
+              const message = docErr instanceof Error ? docErr.message : 'unknown'
+              console.error('DocuSign webhook: error processing Remediation IDP document:', message)
+            }
+          } else {
+            console.error(`DocuSign webhook: no valid auth token — cannot download signed Remediation IDP for remediation_deal ${remediationDealId}. Admin must re-authorize DocuSign and re-trigger.`)
+          }
+
+          // 3. Flip the remediation_deals row to idp_signed regardless of
+          // whether the PDF download succeeded — the signature event itself
+          // is authoritative. CAS-guarded on status='idp_sent' so a re-arrival
+          // (recipient-completed followed by envelope-completed) won't bump
+          // signed_at twice or accidentally flip remitted/cancelled rows back.
+          const signedAtIso = new Date().toISOString()
+          const { data: claimed, error: remUpdateErr } = await supabase
+            .from('remediation_deals')
+            .update({ status: 'idp_signed', signed_at: signedAtIso })
+            .eq('id', remediationDealId)
+            .eq('status', 'idp_sent')
+            .select('id, failed_deal_id, agent_id, brokerage_legal_name, property_address, directed_amount')
+            .maybeSingle()
+
+          if (remUpdateErr) {
+            console.error('DocuSign webhook: failed to flip remediation_deals to idp_signed:', remUpdateErr.message)
+          } else if (!claimed) {
+            console.log(`DocuSign webhook: remediation_deal ${remediationDealId} was not in idp_sent status — leaving row unchanged (likely a duplicate webhook delivery)`)
+          } else {
+            console.log(`DocuSign webhook: remediation_deal ${remediationDealId} flipped to idp_signed`)
+
+            // 4. Audit-log the signing event so the deal timeline reflects it.
+            await logAuditEventServiceRole({
+              action: 'remediation_deal.signed',
+              entityType: 'deal',
+              entityId: claimed.failed_deal_id as string,
+              metadata: {
+                remediation_deal_id: remediationDealId,
+                envelope_id: envelopeId,
+                signed_at: signedAtIso,
+                storage_path: storagePath,
+                pdf_stored: pdfStored,
+                source_property_address: claimed.property_address,
+                directed_amount: Number(claimed.directed_amount),
+              },
+            })
+
+            // 5. Fetch the context we need for the admin email (agent name +
+            // failed-deal property address). Service-role select bypasses RLS.
+            try {
+              const { data: agent } = await supabase
+                .from('agents')
+                .select('first_name, last_name, email')
+                .eq('id', claimed.agent_id as string)
+                .maybeSingle()
+              const { data: failedDeal } = await supabase
+                .from('deals')
+                .select('property_address')
+                .eq('id', claimed.failed_deal_id as string)
+                .maybeSingle()
+
+              const agentName = agent
+                ? `${agent.first_name ?? ''} ${agent.last_name ?? ''}`.trim() || 'Agent'
+                : 'Agent'
+
+              await sendRemediationIdpSignedNotification({
+                remediationDealId,
+                envelopeId,
+                agentName,
+                agentEmail: agent?.email || 'unknown',
+                brokerageName: claimed.brokerage_legal_name as string,
+                failedDealPropertyAddress: failedDeal?.property_address || 'unknown',
+                sourcePropertyAddress: claimed.property_address as string,
+                directedAmount: Number(claimed.directed_amount),
+                signedAt: signedAtIso,
+              })
+            } catch (emailErr: unknown) {
+              const message = emailErr instanceof Error ? emailErr.message : 'unknown'
+              console.error('DocuSign webhook: failed to send Remediation IDP signed notification:', message)
+              // Email failure does not roll back the status flip.
+            }
+          }
+
+          console.log(`DocuSign webhook: completed Remediation IDP processing for remediation_deal ${remediationDealId}`)
+        }
 
       } else {
         // ============================================================

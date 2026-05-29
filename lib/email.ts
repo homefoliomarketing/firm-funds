@@ -2378,3 +2378,84 @@ export async function sendFailedToCloseElectionEmail(params: {
       `, branding),
   })
 }
+
+// ============================================================================
+// Email: Remediation IDP signed → Admin (Bud)
+// Triggered by the DocuSign Connect webhook when a remediation_idp envelope
+// reports status "completed". Mirrors sendPaymentClaimSubmittedNotification —
+// internal-ops mail, transactional, no recipient preference check.
+// ============================================================================
+
+export async function sendRemediationIdpSignedNotification(params: {
+  remediationDealId: string
+  envelopeId: string
+  agentName: string
+  agentEmail: string
+  brokerageName: string
+  failedDealPropertyAddress: string
+  sourcePropertyAddress: string
+  directedAmount: number
+  signedAt: string  // ISO timestamp
+}): Promise<void> {
+  const signedAtFmt = new Date(params.signedAt).toLocaleString('en-CA', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    subject: sanitizeSubject(`Remediation IDP signed — ${params.agentName} — ${params.sourcePropertyAddress}`),
+    transactional: true,
+    html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Remediation IDP Signed</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          <strong style="color:#E5E5E5;">${escapeHtml(params.agentName ?? '')}</strong> has signed the Remediation Direction to Pay. The signed PDF is in storage and the remediation deal is now waiting on the brokerage to remit.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Source Property</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.sourcePropertyAddress ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Curing Failed Deal</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.failedDealPropertyAddress ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Brokerage</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Agent</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentName ?? '')} &lt;${escapeHtml(params.agentEmail ?? '')}&gt;</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Directed Amount</td>
+                  <td style="padding:6px 0; color:#5FA873; font-size:16px; font-weight:700;">${formatCurrency(params.directedAmount)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Signed At</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(signedAtFmt)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Envelope</td>
+                  <td style="padding:8px 0; color:#737373; font-size:12px; font-family:monospace;">${escapeHtml(params.envelopeId ?? '')}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
+          When the brokerage remits the directed amount, mark the remediation deal remitted from the admin dashboard to apply the credit to the agent's failed deal.
+        </p>
+        <a href="${APP_URL}/admin/deals/${params.remediationDealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
+          Open Remediation Deal
+        </a>
+      `),
+  })
+}
