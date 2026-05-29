@@ -2794,6 +2794,13 @@ export async function inviteBrokerageAdmin(input: {
   brokerageId: string
   fullName: string
   email: string
+  /**
+   * Optional free-form title persisted on user_profiles.staff_title.
+   * Drives Referral Fees tab visibility via canViewBrokerageReferralFees()
+   * in lib/access.ts: 'Broker of Record' and 'Brokerage Manager' see the
+   * tab; anything else (including null) does not.
+   */
+  staffTitle?: string | null
 }): Promise<ActionResult> {
   const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -2882,7 +2889,10 @@ export async function inviteBrokerageAdmin(input: {
       return { success: false, error: `Failed to create login: ${signUpError?.message || 'Unknown error'}` }
     }
 
-    // Create user_profile
+    // Create user_profile.
+    // staff_title is the gating field for the Referral Fees tab — see
+    // canViewBrokerageReferralFees() in lib/access.ts.
+    const normalizedStaffTitle = input.staffTitle?.trim() || null
     const { error: profileError } = await serviceClient
       .from('user_profiles')
       .insert({
@@ -2891,6 +2901,7 @@ export async function inviteBrokerageAdmin(input: {
         role: 'brokerage_admin',
         full_name: input.fullName,
         brokerage_id: input.brokerageId,
+        staff_title: normalizedStaffTitle,
         is_active: true,
         must_reset_password: true,
       })
@@ -2962,6 +2973,7 @@ export async function inviteBrokerageAdmin(input: {
         brokerage_name: brokerage.name,
         admin_name: input.fullName,
         admin_email: input.email,
+        admin_staff_title: normalizedStaffTitle,
         invited_by: user.id,
         invite_method: 'magic_link',
         seeded_as_primary: seededAsPrimary,
@@ -3008,6 +3020,83 @@ export async function inviteBrokerageAdmin(input: {
     console.error('Invite brokerage admin error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
+}
+
+// ============================================================================
+// Invite Brokerage Onboarding Contacts (bulk)
+// ============================================================================
+// Used by the FF admin "New Brokerage" flow after a brokerage is created to
+// fan out invites to the five canonical contacts:
+//   - Broker of Record       -> staff_title: 'Broker of Record'
+//   - Brokerage Manager      -> staff_title: 'Brokerage Manager'
+//   - Admin 1 / 2 / 3        -> staff_title: null
+//
+// The first two titles match canViewBrokerageReferralFees() in lib/access.ts
+// (case-insensitive). Admin 1/2/3 deliberately store NULL so they don't
+// see the Referral Fees tab.
+//
+// Each non-blank email triggers an inviteBrokerageAdmin() call. Individual
+// failures are collected and returned in `errors[]` so the create flow can
+// surface a partial-success message rather than rolling back the brokerage
+// itself.
+// ============================================================================
+
+export interface OnboardingContactInput {
+  /** Free-form full name. Falls back to the role label if blank. */
+  fullName?: string | null
+  /** Login email. Blank entries are skipped silently. */
+  email?: string | null
+  /**
+   * Value written to user_profiles.staff_title. Pass 'Broker of Record' or
+   * 'Brokerage Manager' to grant the Referral Fees tab; pass null for
+   * generic admins.
+   */
+  staffTitle: string | null
+  /**
+   * Human-readable label used in error messages and as the fallback
+   * fullName ('Broker of Record', 'Admin 1', etc).
+   */
+  roleLabel: string
+}
+
+export async function inviteBrokerageOnboardingContacts(input: {
+  brokerageId: string
+  contacts: OnboardingContactInput[]
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  let sent = 0
+  let failed = 0
+  let skipped = 0
+  const errors: Array<{ roleLabel: string; email: string; error: string }> = []
+
+  for (const contact of input.contacts) {
+    const email = (contact.email || '').trim()
+    if (!email) {
+      skipped += 1
+      continue
+    }
+    const fullName = (contact.fullName || '').trim() || contact.roleLabel
+    const result = await inviteBrokerageAdmin({
+      brokerageId: input.brokerageId,
+      fullName,
+      email,
+      staffTitle: contact.staffTitle,
+    })
+    if (result.success) {
+      sent += 1
+    } else {
+      failed += 1
+      errors.push({
+        roleLabel: contact.roleLabel,
+        email,
+        error: result.error || 'Failed to invite',
+      })
+    }
+  }
+
+  return { success: true, data: { sent, failed, skipped, errors } }
 }
 
 // ============================================================================

@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox } from 'lucide-react'
 import { formatCurrency } from '@/lib/formatting'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsCsv, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsCsv, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
@@ -141,6 +141,39 @@ interface BrokerageFormData {
   isWhiteLabelPartner: boolean
   profitSharePct: string
   status?: 'active' | 'suspended' | 'inactive' | 'archived'
+}
+
+// ============================================================================
+// Onboarding contacts (FF admin "New Brokerage" only)
+// ============================================================================
+// Five canonical contacts seeded at brokerage creation. Each non-blank email
+// gets a brokerage_admin login + magic-link invite via
+// inviteBrokerageOnboardingContacts(). Broker of Record + Brokerage Manager
+// are persisted with the matching staff_title so they see the Referral Fees
+// tab (gate in lib/access.ts → canViewBrokerageReferralFees). Admin 1/2/3
+// store NULL so they don't.
+//
+// The Broker of Record fields live on BrokerageFormData (broker_of_record_*)
+// because the brokerages table itself needs them for the BCA flow. The four
+// remaining contacts only need an invite + user_profile, so they live in
+// this lightweight sibling state.
+// ============================================================================
+interface OnboardingContactsForm {
+  brokerageManagerName: string
+  brokerageManagerEmail: string
+  admin1Name: string
+  admin1Email: string
+  admin2Name: string
+  admin2Email: string
+  admin3Name: string
+  admin3Email: string
+}
+
+const emptyOnboardingContactsForm: OnboardingContactsForm = {
+  brokerageManagerName: '', brokerageManagerEmail: '',
+  admin1Name: '', admin1Email: '',
+  admin2Name: '', admin2Email: '',
+  admin3Name: '', admin3Email: '',
 }
 
 interface AgentFormData {
@@ -596,6 +629,9 @@ export default function BrokeragesPage() {
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
     name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '',
   })
+  // Onboarding contacts (Brokerage Manager + Admin 1/2/3). BOR lives on
+  // createFormData because it also writes to the brokerages table.
+  const [onboardingContacts, setOnboardingContacts] = useState<OnboardingContactsForm>(emptyOnboardingContactsForm)
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' | 'archived' }>({
     name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '', status: 'active',
   })
@@ -846,8 +882,37 @@ export default function BrokeragesPage() {
         }
       }
 
-      setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}` })
+      // Fan out invites to the five canonical onboarding contacts. Each
+      // non-blank email becomes a brokerage_admin login with the matching
+      // staff_title. BOR + Brokerage Manager get the Referral Fees tab via
+      // canViewBrokerageReferralFees(); Admin 1/2/3 store NULL.
+      let contactsMsg = ''
+      if (newBrokerageId) {
+        const contactsRes = await inviteBrokerageOnboardingContacts({
+          brokerageId: newBrokerageId,
+          contacts: [
+            { roleLabel: 'Broker of Record', staffTitle: 'Broker of Record', fullName: createFormData.brokerOfRecordName, email: createFormData.brokerOfRecordEmail },
+            { roleLabel: 'Brokerage Manager', staffTitle: 'Brokerage Manager', fullName: onboardingContacts.brokerageManagerName, email: onboardingContacts.brokerageManagerEmail },
+            { roleLabel: 'Admin 1', staffTitle: null, fullName: onboardingContacts.admin1Name, email: onboardingContacts.admin1Email },
+            { roleLabel: 'Admin 2', staffTitle: null, fullName: onboardingContacts.admin2Name, email: onboardingContacts.admin2Email },
+            { roleLabel: 'Admin 3', staffTitle: null, fullName: onboardingContacts.admin3Name, email: onboardingContacts.admin3Email },
+          ],
+        })
+        if (contactsRes.success && contactsRes.data) {
+          const { sent, failed, errors } = contactsRes.data as { sent: number; failed: number; errors: Array<{ roleLabel: string; email: string; error: string }> }
+          if (sent > 0) contactsMsg += ` - ${sent} invite${sent !== 1 ? 's' : ''} sent`
+          if (failed > 0) {
+            const detail = errors.map(e => `${e.roleLabel} (${e.email}): ${e.error}`).join('; ')
+            contactsMsg += ` - ${failed} invite${failed !== 1 ? 's' : ''} failed: ${detail}`
+          }
+        } else if (contactsRes.error) {
+          contactsMsg += ` - onboarding invites failed: ${contactsRes.error}`
+        }
+      }
+
+      setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}${contactsMsg}` })
       setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '' })
+      setOnboardingContacts(emptyOnboardingContactsForm)
       setCreateRosterFile(null)
       setShowCreateForm(false)
       await loadBrokerages()
@@ -1526,8 +1591,6 @@ export default function BrokeragesPage() {
                 {renderInput('Postal Code', createFormData.postalCode, (v) => setCreateFormData({ ...createFormData, postalCode: v }), { placeholder: 'M5V 1A1' })}
                 {renderInput('Phone', createFormData.phone, (v) => setCreateFormData({ ...createFormData, phone: v }), { placeholder: '(416) 555-0123', type: 'tel' })}
                 {renderInput('Transaction System', createFormData.transactionSystem, (v) => setCreateFormData({ ...createFormData, transactionSystem: v }), { placeholder: 'e.g., Nexone' })}
-                {renderInput('Broker of Record', createFormData.brokerOfRecordName, (v) => setCreateFormData({ ...createFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
-                {renderInput('Broker of Record Email', createFormData.brokerOfRecordEmail, (v) => setCreateFormData({ ...createFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
                 <div>
                   <label className="block text-sm font-medium mb-2 text-muted-foreground">Brokerage Logo</label>
                   <div className="flex items-center gap-3">
@@ -1545,6 +1608,42 @@ export default function BrokeragesPage() {
                   <p className="text-[10px] mt-1 text-muted-foreground/60">JPEG, PNG, SVG, or WebP. Max 2MB.</p>
                 </div>
               </div>
+
+              {/* Onboarding Contacts (five logins) */}
+              <div className="p-4 rounded-lg bg-background border border-dashed border-border">
+                <div className="flex items-center gap-2 mb-1">
+                  <UserPlus size={16} className="text-primary" />
+                  <label className="text-sm font-medium text-foreground">Onboarding Contacts (optional)</label>
+                </div>
+                <p className="text-xs mb-4 text-muted-foreground">
+                  Each non-blank email gets a brokerage admin login and a magic-link setup email.
+                  Broker of Record and Brokerage Manager see the Referral Fees tab; Admin 1/2/3 do not.
+                  Full name is optional and falls back to the role label.
+                </p>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {renderInput('Broker of Record', createFormData.brokerOfRecordName, (v) => setCreateFormData({ ...createFormData, brokerOfRecordName: v }), { placeholder: 'Full legal name' })}
+                    {renderInput('Broker of Record Email', createFormData.brokerOfRecordEmail, (v) => setCreateFormData({ ...createFormData, brokerOfRecordEmail: v }), { placeholder: 'bor@brokerage.com', type: 'email' })}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {renderInput('Brokerage Manager', onboardingContacts.brokerageManagerName, (v) => setOnboardingContacts({ ...onboardingContacts, brokerageManagerName: v }), { placeholder: 'Full legal name' })}
+                    {renderInput('Brokerage Manager Email', onboardingContacts.brokerageManagerEmail, (v) => setOnboardingContacts({ ...onboardingContacts, brokerageManagerEmail: v }), { placeholder: 'manager@brokerage.com', type: 'email' })}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {renderInput('Admin 1 Name', onboardingContacts.admin1Name, (v) => setOnboardingContacts({ ...onboardingContacts, admin1Name: v }), { placeholder: 'Full legal name' })}
+                    {renderInput('Admin 1 Email', onboardingContacts.admin1Email, (v) => setOnboardingContacts({ ...onboardingContacts, admin1Email: v }), { placeholder: 'admin1@brokerage.com', type: 'email' })}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {renderInput('Admin 2 Name', onboardingContacts.admin2Name, (v) => setOnboardingContacts({ ...onboardingContacts, admin2Name: v }), { placeholder: 'Full legal name' })}
+                    {renderInput('Admin 2 Email', onboardingContacts.admin2Email, (v) => setOnboardingContacts({ ...onboardingContacts, admin2Email: v }), { placeholder: 'admin2@brokerage.com', type: 'email' })}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {renderInput('Admin 3 Name', onboardingContacts.admin3Name, (v) => setOnboardingContacts({ ...onboardingContacts, admin3Name: v }), { placeholder: 'Full legal name' })}
+                    {renderInput('Admin 3 Email', onboardingContacts.admin3Email, (v) => setOnboardingContacts({ ...onboardingContacts, admin3Email: v }), { placeholder: 'admin3@brokerage.com', type: 'email' })}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-2 text-muted-foreground">Notes</label>
                 <textarea
@@ -1596,7 +1695,7 @@ export default function BrokeragesPage() {
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowCreateForm(false); setCreateRosterFile(null) }}>
+                <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowCreateForm(false); setCreateRosterFile(null); setOnboardingContacts(emptyOnboardingContactsForm) }}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={submitting} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
