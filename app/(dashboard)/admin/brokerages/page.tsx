@@ -258,6 +258,37 @@ function BrokerageRowSection({
 }
 
 // ============================================================================
+// FieldValue
+// ============================================================================
+// Read-only "uppercase label + value" pair used in the brokerage details
+// grid, the FINTRAC verified state, and a handful of other admin readouts.
+// All three of those grids drop em-dashes in for blank values; the consumer
+// keeps owning that so we don't accidentally convert empty strings to '—'
+// where the original code would render a blank.
+//
+// `detail` slot mirrors the broker_of_record pattern (small muted line
+// beneath the value). Pass children freely for cases that need extra
+// inline markup (e.g. broken-out date components).
+// ============================================================================
+function FieldValue({
+  label,
+  children,
+  detail,
+}: {
+  label: string
+  children: React.ReactNode
+  detail?: React.ReactNode
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">{label}</p>
+      <p className="text-foreground">{children}</p>
+      {detail && <p className="text-xs mt-0.5 text-muted-foreground">{detail}</p>}
+    </div>
+  )
+}
+
+// ============================================================================
 // Late Settlement Strikes Section
 // ============================================================================
 
@@ -1795,31 +1826,18 @@ export default function BrokeragesPage() {
                         </form>
                       ) : (
                         <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm border-b border-border/50">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Address</p>
-                            <p className="text-foreground">
-                              {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'â€”'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Phone</p>
-                            <p className="text-foreground">{brokerage.phone || 'â€”'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Transaction System</p>
-                            <p className="text-foreground">{brokerage.transaction_system || 'â€”'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Notes</p>
-                            <p className="text-foreground">{brokerage.notes || 'â€”'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Broker of Record</p>
-                            <p className="text-foreground">{brokerage.broker_of_record_name || 'â€”'}</p>
-                            {brokerage.broker_of_record_email && (
-                              <p className="text-xs mt-0.5 text-muted-foreground">{brokerage.broker_of_record_email}</p>
-                            )}
-                          </div>
+                          <FieldValue label="Address">
+                            {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'â€”'}
+                          </FieldValue>
+                          <FieldValue label="Phone">{brokerage.phone || 'â€”'}</FieldValue>
+                          <FieldValue label="Transaction System">{brokerage.transaction_system || 'â€”'}</FieldValue>
+                          <FieldValue label="Notes">{brokerage.notes || 'â€”'}</FieldValue>
+                          <FieldValue
+                            label="Broker of Record"
+                            detail={brokerage.broker_of_record_email || undefined}
+                          >
+                            {brokerage.broker_of_record_name || 'â€”'}
+                          </FieldValue>
                         </div>
                       )}
 
@@ -1839,26 +1857,14 @@ export default function BrokeragesPage() {
                           /* Verified state â€” show verification details */
                           <div className="space-y-2">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">RECO Reg #</p>
-                                <p className="text-foreground">{brokerage.reco_registration_number || 'â€”'}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Verified On</p>
-                                <p className="text-foreground">
-                                  {brokerage.reco_verification_date
-                                    ? new Date(brokerage.reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-                                    : 'â€”'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Verified By</p>
-                                <p className="text-foreground">{brokerage.kyc_verified_by || 'â€”'}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Notes</p>
-                                <p className="text-foreground">{brokerage.reco_verification_notes || 'â€”'}</p>
-                              </div>
+                              <FieldValue label="RECO Reg #">{brokerage.reco_registration_number || 'â€”'}</FieldValue>
+                              <FieldValue label="Verified On">
+                                {brokerage.reco_verification_date
+                                  ? new Date(brokerage.reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+                                  : 'â€”'}
+                              </FieldValue>
+                              <FieldValue label="Verified By">{brokerage.kyc_verified_by || 'â€”'}</FieldValue>
+                              <FieldValue label="Notes">{brokerage.reco_verification_notes || 'â€”'}</FieldValue>
                             </div>
                             <button
                               onClick={async () => {
