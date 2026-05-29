@@ -578,6 +578,33 @@
   .screenshot-placeholder.compact::before { height: 14px; }
   .screenshot-placeholder.compact::after { top: 12px; width: 18px; height: 4px; box-shadow: 9px 0 0 rgba(255,255,255,0.06), 18px 0 0 rgba(255,255,255,0.06); }
 
+  /* Real screenshot container, mirrors the placeholder aspect ratio so layouts stay locked. */
+  .screenshot-shot {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border: 1px solid var(--ff-border-strong);
+    border-radius: 12px;
+    background: var(--ff-bg-deepest);
+    overflow: hidden;
+    display: block;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+  .screenshot-shot.compact { aspect-ratio: 16 / 8; }
+  .screenshot-shot img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+    display: block;
+  }
+  /* Email shots are vertical, contain them so nothing is clipped. */
+  .screenshot-shot.email { background: #1a1a1f; }
+  .screenshot-shot.email img { object-fit: contain; object-position: top center; }
+
+  /* Wide-thin region clips (profit strip, deal strip) need contain on their own background. */
+  .screenshot-shot.strip { background: #0B0B0F; padding: 1cqh 1.2cqw; }
+  .screenshot-shot.strip img { object-fit: contain; object-position: center; }
+
   /* =============================================================
      Problem slide styling
      ============================================================= */
@@ -1412,23 +1439,15 @@
 
   <div class="brand-preview-grid">
     <div>
-      <div class="screenshot-placeholder" data-surface="brokerage-branded-portal">
-        <div class="ph-inner">
-          <div class="ph-label">Screenshot placeholder</div>
-          <div class="ph-name">[Brokerage] Advances<br>Portal Login</div>
-          <div class="ph-note">Brokerage-branded login screen, replace with real screenshot</div>
-        </div>
+      <div class="screenshot-shot" data-surface="brokerage-branded-portal">
+        <img src="assets/screenshots/brokerage-branded-portal.png" alt="Choice Advances brokerage portal home, branded with the partner brokerage wordmark, profit-share KPIs, and deals strip.">
       </div>
       <p class="small" style="margin-top: 1.6cqh;">Custom subdomain, brokerage logo, brand colours pulled at signup.</p>
     </div>
 
     <div>
-      <div class="screenshot-placeholder" data-surface="brokerage-branded-email">
-        <div class="ph-inner">
-          <div class="ph-label">Screenshot placeholder</div>
-          <div class="ph-name">[Brokerage] Advances<br>Branded Email</div>
-          <div class="ph-note">All agent and brokerage emails branded, replace with real screenshot</div>
-        </div>
+      <div class="screenshot-shot email" data-surface="brokerage-branded-email">
+        <img src="assets/screenshots/brokerage-branded-email.png" alt="Brokerage monthly statement email, branded as Choice Advances, showing 18 funded advances and $842.40 profit share pending remittance.">
       </div>
       <p class="small" style="margin-top: 1.6cqh;">Approval notices, payout confirmations, monthly statements. All from your brand.</p>
     </div>
@@ -1465,7 +1484,7 @@
         <canvas id="revenueChart"></canvas>
       </div>
       <p class="chart-footnote">
-        <strong>Assumptions, illustrative only:</strong> Average advance size $20,000 [CONFIRM WITH BUD]. Average days outstanding 21. Discount rate $0.80 per $1,000 per day per the standard Firm Funds rate card. Brokerage profit share percentage [CONFIRM WITH BUD]. Actual results vary by agent count, advance size, days outstanding, and split. Not a guarantee of earnings.
+        <strong>Assumptions, illustrative only:</strong> Average advance size $15,000. Average days outstanding 21. Discount rate $0.80 per $1,000 per day per the standard Firm Funds rate card. Brokerage profit share 20%. Actual results vary by agent count, advance size, days outstanding, and split. Not a guarantee of earnings.
       </p>
     </div>
 
@@ -1478,9 +1497,9 @@
           <div class="lbl">No capital, no staff, no software bill.</div>
         </div>
         <div class="stat">
-          <div class="k">Time to revenue</div>
-          <div class="v">~1 wk</div>
-          <div class="lbl">First advance can fund in your first week live. [CONFIRM WITH BUD: typical 1 week?]</div>
+          <div class="k">Funding speed</div>
+          <div class="v">24 hrs</div>
+          <div class="lbl">Within 24 hours from submission to funded. Agents feel the difference on day one.</div>
         </div>
         <div class="stat">
           <div class="k">Compounding effect</div>
@@ -1515,66 +1534,48 @@
   <div class="surface-grid">
 
     <div class="surface-card">
-      <div class="screenshot-placeholder compact" data-surface="brokerage-dashboard">
-        <div class="ph-inner">
-          <div class="ph-label">Surface 1</div>
-          <div class="ph-name">Brokerage Dashboard</div>
-        </div>
+      <div class="screenshot-shot compact" data-surface="brokerage-dashboard">
+        <img src="assets/screenshots/brokerage-dashboard.png" alt="Brokerage Dashboard home: branded header, profit-share KPIs, action buttons, and deal pipeline.">
       </div>
       <div class="meta"><span class="name">Brokerage Dashboard</span><span class="tag">Home</span></div>
       <p class="desc">Live deal pipeline, active advances, agents under approval, this month's profit share.</p>
     </div>
 
     <div class="surface-card">
-      <div class="screenshot-placeholder compact" data-surface="profit-revenue">
-        <div class="ph-inner">
-          <div class="ph-label">Surface 2</div>
-          <div class="ph-name">Profit &amp; Revenue</div>
-        </div>
+      <div class="screenshot-shot compact strip" data-surface="profit-revenue">
+        <img src="assets/screenshots/profit-revenue.png" alt="Profit-share revenue tracker: white-label partner share, month-to-date earned, all-time, and pending remittance.">
       </div>
       <div class="meta"><span class="name">Profit &amp; Revenue</span><span class="tag">Reporting</span></div>
       <p class="desc">Brokerage share, per-deal breakdown, monthly statements, downloadable to PDF.</p>
     </div>
 
     <div class="surface-card">
-      <div class="screenshot-placeholder compact" data-surface="agent-management">
-        <div class="ph-inner">
-          <div class="ph-label">Surface 3</div>
-          <div class="ph-name">Agent Management</div>
-        </div>
+      <div class="screenshot-shot compact" data-surface="agent-management">
+        <img src="assets/screenshots/agent-management.png" alt="Agent Management roster: 46 agents with activation status, invite controls, and per-agent actions.">
       </div>
       <div class="meta"><span class="name">Agent Management</span><span class="tag">Roster</span></div>
       <p class="desc">Onboard agents, set splits, approve KYC, manage status changes when agents move firms.</p>
     </div>
 
     <div class="surface-card">
-      <div class="screenshot-placeholder compact" data-surface="deal-pipeline">
-        <div class="ph-inner">
-          <div class="ph-label">Surface 4</div>
-          <div class="ph-name">Deal Pipeline</div>
-        </div>
+      <div class="screenshot-shot compact strip" data-surface="deal-pipeline">
+        <img src="assets/screenshots/deal-pipeline.png" alt="Deal pipeline strip: each advance with property, agent, status badge, and amount.">
       </div>
       <div class="meta"><span class="name">Deal Pipeline</span><span class="tag">Operations</span></div>
       <p class="desc">Under review, approved, funded, completed. Every status with a paper trail.</p>
     </div>
 
     <div class="surface-card">
-      <div class="screenshot-placeholder compact" data-surface="agent-ledger">
-        <div class="ph-inner">
-          <div class="ph-label">Surface 5</div>
-          <div class="ph-name">Agent Ledger</div>
-        </div>
+      <div class="screenshot-shot compact" data-surface="agent-ledger">
+        <img src="assets/screenshots/agent-ledger.png" alt="Agent Account and Ledger: current balance, failed-deal alerts, and full transaction history.">
       </div>
       <div class="meta"><span class="name">Agent Ledger</span><span class="tag">Finance</span></div>
       <p class="desc">Per-agent balance, advances outstanding, repayments, late accrual. Always reconciled.</p>
     </div>
 
     <div class="surface-card">
-      <div class="screenshot-placeholder compact" data-surface="branded-notifications">
-        <div class="ph-inner">
-          <div class="ph-label">Surface 6</div>
-          <div class="ph-name">Branded Notifications</div>
-        </div>
+      <div class="screenshot-shot compact email" data-surface="branded-notifications">
+        <img src="assets/screenshots/branded-notifications.png" alt="Branded approval notification: agent receives a Choice Advances email confirming funding within 24 hours of submission.">
       </div>
       <div class="meta"><span class="name">Branded Notifications</span><span class="tag">Comms</span></div>
       <p class="desc">Email, in-app, and SMS for every milestone. Sent under your brokerage's name.</p>
@@ -1599,7 +1600,7 @@
     <div>
       <span class="eyebrow">Going live</span>
       <h2 class="slide-title" style="margin-top: 2cqh;">Branded portal live in <span class="accent">about a week.</span></h2>
-      <p class="lede" style="margin-top: 1.6cqh;">From signed partnership agreement to your first funded advance. We do the heavy lifting, you stay focused on agents.<span style="display: block; margin-top: 0.8cqh; font-family: var(--font-mono); font-size: clamp(9px, 1.1cqh, 11px); color: var(--ff-text-faint); letter-spacing: 0.06em;">[CONFIRM WITH BUD: typical 1 week?]</span></p>
+      <p class="lede" style="margin-top: 1.6cqh;">From signed partnership agreement to a branded portal your admins are trained on. We do the heavy lifting, you stay focused on agents.</p>
     </div>
   </div>
 
@@ -1631,8 +1632,8 @@
     <div class="step">
       <div class="dot">5</div>
       <div class="day">Day 7+</div>
-      <div class="what">Agents onboard, first advance funds</div>
-      <div class="desc">We provide a launch kit and email templates. Your first advance can fund the same week.</div>
+      <div class="what">Agents onboard, requests start flowing</div>
+      <div class="desc">We provide a launch kit and email templates. Once a request comes in, funding lands within 24 hours of submission.</div>
     </div>
   </div>
 
@@ -1749,8 +1750,8 @@
     </div>
 
     <div class="cta-contact">
-      <div class="who">[CONFIRM WITH BUD: primary contact name &amp; title]</div>
-      <div class="where">firmfunds.ca  |  [CONFIRM WITH BUD: contact email]</div>
+      <div class="who">[NEEDS BUD: contact name], [NEEDS BUD: contact title]</div>
+      <div class="where">firmfunds.ca  |  [NEEDS BUD: contact email]</div>
     </div>
   </div>
 </section>
@@ -1821,17 +1822,14 @@
   /* =============================================================
      Revenue chart, ILLUSTRATIVE numbers only
      ============================================================= */
-  const advanceSize = 20000;             // CAD, placeholder average
+  const advanceSize = 15000;             // CAD, average per Firm Funds book
   const avgDaysOutstanding = 21;          // illustrative
   const discountPerKPerDay = 0.80;        // standard Firm Funds rate
-  // Profit per advance from the total fee pool, brokerage share assumed 25% as illustrative
-  // Total fee per advance = (advanceSize/1000) * discountPerKPerDay * days = 20 * 0.80 * 21 = $336
+  // Total fee per advance = (advanceSize/1000) * discountPerKPerDay * days = 15 * 0.80 * 21 = $252
   const totalFeePerAdvance = (advanceSize / 1000) * discountPerKPerDay * avgDaysOutstanding;
 
-  // Illustrative brokerage shares to show a range
-  const shareConservative = 0.20; // 20%
-  const shareTypical = 0.30;      // 30%
-  const shareUpside = 0.40;       // 40%
+  // Single brokerage profit share, per partnership rate
+  const brokerageShare = 0.20; // 20%
 
   const dealVolumes = [5, 10, 20, 50];
 
@@ -1847,34 +1845,14 @@
         labels: dealVolumes.map(v => v + ' / mo'),
         datasets: [
           {
-            label: 'Conservative share (~20%)',
-            data: profitAt(shareConservative),
-            backgroundColor: 'rgba(95, 168, 115, 0.32)',
-            borderColor: 'rgba(95, 168, 115, 0.55)',
-            borderWidth: 1.5,
-            borderRadius: 6,
-            categoryPercentage: 0.72,
-            barPercentage: 0.85
-          },
-          {
-            label: 'Typical share (~30%)',
-            data: profitAt(shareTypical),
-            backgroundColor: 'rgba(95, 168, 115, 0.6)',
-            borderColor: 'rgba(95, 168, 115, 0.85)',
-            borderWidth: 1.5,
-            borderRadius: 6,
-            categoryPercentage: 0.72,
-            barPercentage: 0.85
-          },
-          {
-            label: 'Upside share (~40%)',
-            data: profitAt(shareUpside),
-            backgroundColor: 'rgba(123, 196, 141, 0.88)',
+            label: 'Brokerage profit share (20%)',
+            data: profitAt(brokerageShare),
+            backgroundColor: 'rgba(95, 168, 115, 0.65)',
             borderColor: 'rgba(123, 196, 141, 1)',
             borderWidth: 1.5,
             borderRadius: 6,
             categoryPercentage: 0.72,
-            barPercentage: 0.85
+            barPercentage: 0.6
           }
         ]
       },
