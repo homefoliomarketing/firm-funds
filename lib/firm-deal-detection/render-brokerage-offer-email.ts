@@ -25,6 +25,18 @@
 
 export type BrokerageOfferVariant = 'initial' | 'nudge_2h'
 
+/**
+ * Tier of info we have about the deal at notification time. Mirrors the
+ * agent-side tiers in dispatch-notification.ts so the brokerage and the
+ * agent see consistent framing:
+ *   A: property only (no closing date, no commission)
+ *   B: property + closing date, no commission
+ *   C: property + closing date + commission amount
+ * Default is 'B' when omitted because most accepted offers carry a closing
+ * date by the time the brokerage gets pinged.
+ */
+export type BrokerageOfferTier = 'A' | 'B' | 'C'
+
 export interface BrokerageOfferEmailInput {
   brokerage_name: string
   agent_full_name: string
@@ -36,6 +48,15 @@ export interface BrokerageOfferEmailInput {
   brand_tagline: string          // e.g. "Powered by Firm Funds"
   brokerage_portal_url: string   // deep link straight into the pre-filled form
   variant: BrokerageOfferVariant
+  /** Info tier the agent was offered on. Drives subject + intro copy so
+   *  the brokerage sees the same framing the agent saw. */
+  tier?: BrokerageOfferTier
+  /** Gross commission for the agent's side, pre-split. Only quoted when
+   *  tier === 'C'. */
+  commission_amount?: number | null
+  /** Estimated pre-split advance against that commission. Quoted alongside
+   *  the gross when tier === 'C'. */
+  advance_estimate?: number | null
 }
 
 export interface RenderedEmail {
@@ -61,6 +82,15 @@ function formatClosingDate(iso: string | null): string | null {
   return `${months[parseInt(m[2], 10) - 1]} ${parseInt(m[3], 10)}, ${m[1]}`
 }
 
+function formatMoney(amount: number | null | undefined): string {
+  if (amount == null || !Number.isFinite(amount)) return ''
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    maximumFractionDigits: 0,
+  }).format(Math.round(amount))
+}
+
 export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): RenderedEmail {
   const brokerage = escapeHtml(input.brokerage_name)
   const agent = escapeHtml(input.agent_full_name || 'an agent')
@@ -71,19 +101,47 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
   const closingHuman = formatClosingDate(input.closing_date_iso)
 
   const isNudge = input.variant === 'nudge_2h'
+  const tier: BrokerageOfferTier = input.tier ?? 'B'
+  const commissionAmount = tier === 'C' ? input.commission_amount ?? null : null
+  const advanceEstimate = tier === 'C' ? input.advance_estimate ?? null : null
+  const commissionStr = commissionAmount && commissionAmount > 0 ? formatMoney(commissionAmount) : null
+  const advanceStr = advanceEstimate && advanceEstimate > 0 ? formatMoney(advanceEstimate) : null
 
-  // Subject lines differ: nudge has a clear timestamp marker so the
-  // brokerage admin sees it's a follow-up, not a duplicate.
-  const subject = isNudge
-    ? `Reminder: ${input.agent_full_name} is waiting on an advance for ${input.property_address}`
-    : `${input.agent_full_name} requested a commission advance on ${input.property_address}`
+  // Subject lines differ by tier so the brokerage admin sees the most
+  // useful info up front. Nudge always wins because it's a follow-up
+  // marker the admin needs to see in their inbox.
+  let subject: string
+  if (isNudge) {
+    subject = `Reminder: ${input.agent_full_name} is waiting on an advance for ${input.property_address}`
+  } else if (tier === 'C' && advanceStr && closingHuman) {
+    subject = `${advanceStr} ready for ${input.property_address}, closing ${closingHuman} (${input.agent_full_name})`
+  } else if (tier === 'B' && closingHuman) {
+    subject = `${input.agent_full_name}'s deal at ${input.property_address} closes ${closingHuman}. Ready to advance`
+  } else if (tier === 'A') {
+    subject = `Possible upcoming deal at ${input.property_address} for ${input.agent_full_name}`
+  } else {
+    subject = `${input.agent_full_name} requested a commission advance on ${input.property_address}`
+  }
 
   const headerBg = isNudge ? '#c75c3a' : '#5FA873'
   const headerLabel = isNudge ? 'Reminder' : brand
 
-  const intro = isNudge
-    ? `It's been 2 hours since ${agent} accepted a commission advance offer and we still need the deal package from ${brokerage} to fund.`
-    : `${agent} accepted a commission advance offer on a recently firmed deal. To get them funded, ${brokerage} needs to submit the deal package through the portal.`
+  // Intro copy tracks the tier. Tier A frames this as a lead the brokerage
+  // can still walk away from. Tier B confirms the timing and asks the
+  // brokerage to fill in commission. Tier C confirms everything is in and
+  // we just need the package.
+  let intro: string
+  if (isNudge) {
+    intro = `It's been 2 hours since ${agent} accepted a commission advance offer and we still need the deal package from ${brokerage} to fund.`
+  } else if (tier === 'A') {
+    intro = `We spotted a firm-deal lead for ${agent}. If this is theirs and the brokerage is ready to advance, submit the package below. If not, check in with the agent first.`
+  } else if (tier === 'B') {
+    intro = `${agent} accepted a commission advance offer on a recently firmed deal. We'll fund as soon as the commission is in: ${brokerage} can submit the package below or wait for the agent to send the trade record.`
+  } else if (tier === 'C' && commissionStr) {
+    intro = `${agent} accepted a commission advance offer and we already have a gross commission of <span style="font-weight:600; color:#1a2e1d;">${escapeHtml(commissionStr)}</span> on file. Submit the package below and we'll wire as soon as it's approved.`
+  } else {
+    intro = `${agent} accepted a commission advance offer on a recently firmed deal. To get them funded, ${brokerage} needs to submit the deal package through the portal.`
+  }
 
   const contactBits: string[] = []
   if (input.agent_email) contactBits.push(`<a href="mailto:${escapeHtml(input.agent_email)}" style="color:#3d8055; text-decoration:none;">${escapeHtml(input.agent_email)}</a>`)
@@ -95,6 +153,19 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
   const closingRow = closingHuman
     ? `<tr><td style="padding:6px 0; color:#6a7a6e; font-size:13px; width:130px;">Closing date:</td><td style="padding:6px 0; color:#1a2e1d; font-size:13px; font-weight:600;">${escapeHtml(closingHuman)}</td></tr>`
     : ''
+
+  // Optional commission row, only when tier === 'C'. Surfaces the same
+  // number the agent saw in their offer so the brokerage knows what we'll
+  // try to advance against.
+  const commissionRow = commissionStr
+    ? `<tr><td style="padding:6px 0; color:#6a7a6e; font-size:13px; width:130px;">Gross commission:</td><td style="padding:6px 0; color:#1a2e1d; font-size:13px; font-weight:600;">${escapeHtml(commissionStr)}${advanceStr ? ` <span style="color:#6a7a6e; font-weight:400;">(est. advance ${escapeHtml(advanceStr)}, less brokerage splits)</span>` : ''}</td></tr>`
+    : ''
+
+  // CTA copy tracks the tier. Tier A and B both prompt "Submit on behalf"
+  // because the agent's already given the green light but the brokerage
+  // controls the actual submission. Tier C drops "on behalf" since the
+  // commission is locked in.
+  const ctaLabel = tier === 'C' ? 'Submit advance' : 'Submit advance on behalf'
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -123,10 +194,11 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
               ${contactRow}
               <tr><td style="padding:6px 0; color:#6a7a6e; font-size:13px; width:130px;">Property:</td><td style="padding:6px 0; color:#1a2e1d; font-size:14px; font-weight:600;">${address}</td></tr>
               ${closingRow}
+              ${commissionRow}
             </table>
             <p style="font-size:14px; color:#444; margin:0 0 20px 0;">Open the request in the portal to fill in the commission split and upload the trade record. The pre-filled form already has the property and agent info.</p>
             <div style="text-align:center; margin:20px 0 8px 0;">
-              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 38px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">Open the advance request &rarr;</a>
+              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 38px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
             </div>
             <p style="font-size:12px; color:#888; margin:24px 0 0 0; text-align:center;">If this deal does not qualify (agent owes you money, unusual structure, etc.), you can decline the offer from the same screen.</p>
           </td>

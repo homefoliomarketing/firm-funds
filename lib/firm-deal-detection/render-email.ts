@@ -1,17 +1,22 @@
 /**
  * lib/firm-deal-detection/render-email.ts
  *
- * White-label HTML email for the firm-deal trigger. Matches the
- * `email-mockup.html` design Bud signed off on. Three variants supported:
+ * White-label HTML email for the firm-deal trigger. Tiered by what we know
+ * about the deal at the moment we ping the agent (added 2026-05-29):
  *
- *   sparse        - default for the spreadsheet pipe; no sale price, no
- *                   commission percentages
- *   dual_agency   - same agent held both sides of the deal
- *   detailed      - we know this agent's side gross commission, so we
- *                   include a callout with the commission + estimated
- *                   advance. Forced off for co-agent splits because we
- *                   don't know each agent's share (see render-sms.ts for
- *                   the same rule).
+ *   sparse            - Tier A. Property address only, no closing date,
+ *                       no commission. Tone: "we spotted a possible deal,
+ *                       confirm details and we'll have an advance ready".
+ *   sparse_with_date  - Tier B. Property + closing date, no commission.
+ *                       Tone: "your deal at X is closing Y, want an advance?"
+ *   dual_agency       - Same agent held both sides of the deal. Generic
+ *                       "both sides, both commissions" framing; quoting a
+ *                       single-sided number would mislead.
+ *   detailed          - Tier C. We have the gross commission for this
+ *                       agent's side AND a closing date. Includes a
+ *                       commission + estimated-advance callout. Forced
+ *                       off for co-agent splits since we don't know each
+ *                       agent's share.
  *
  * Voice constraints (from CLAUDE.md):
  *   - "went firm" never "closed firm"
@@ -29,7 +34,7 @@ export interface EmailRenderInput {
   brand_name: string             // e.g. "Choice Advances"
   brand_tagline: string          // e.g. "Powered by Firm Funds"
   cta_url: string                // deep link to the agent dashboard
-  variant: 'sparse' | 'dual_agency' | 'detailed'
+  variant: 'sparse' | 'sparse_with_date' | 'dual_agency' | 'detailed'
   /** Gross commission for this agent's side, BEFORE the brokerage split.
    *  Only consumed by variant='detailed'. Other variants ignore. */
   commission_amount?: number | null
@@ -86,9 +91,15 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
   const closingHuman = formatClosingDate(input.closing_date_iso)
 
   // Intro line varies by variant; the rest of the layout is shared.
+  // Tier A (sparse, no closing date) is the most cautious framing because
+  // we may have only loosely matched the row to this agent: lead with
+  // "looks like one of yours" and ask them to confirm rather than
+  // congratulate them.
   let intro: string
   if (input.variant === 'dual_agency') {
     intro = `We see that your recent deal at <span style="font-weight:600; color:#1a2e1d;">${address}</span> went firm. Looks like you held both sides too. Nice work.`
+  } else if (input.variant === 'sparse') {
+    intro = `We spotted what looks like one of yours: <span style="font-weight:600; color:#1a2e1d;">${address}</span>. If that's right, confirm the details and we'll have an advance ready for you.`
   } else {
     intro = `We see that your recent deal at <span style="font-weight:600; color:#1a2e1d;">${address}</span> went firm. Congrats!`
   }
@@ -126,9 +137,29 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
       ? 'Instead of waiting weeks'
       : 'Instead of waiting weeks'
 
-  const subject = input.variant === 'dual_agency'
-    ? `Your deal at ${input.property_address} went firm`
-    : `Your deal at ${input.property_address} went firm`
+  // CTA copy tracks the tier. Tier A asks the agent to confirm (we may
+  // have only loosely matched), Tier B and beyond push toward submitting
+  // an actual advance request.
+  let ctaLabel: string
+  if (input.variant === 'sparse') ctaLabel = 'Confirm deal'
+  else if (input.variant === 'sparse_with_date') ctaLabel = 'Request advance'
+  else if (input.variant === 'detailed') ctaLabel = 'Accept advance'
+  else ctaLabel = 'Get Paid Today'
+
+  // Subjects are tier-aware. Tier A leads with "possible deal" because
+  // the agent may not have closed it yet (or it may not even be theirs).
+  // Tier B name-drops the closing date so the agent sees timing up front.
+  // Tier C quotes the dollar amount.
+  let subject: string
+  if (input.variant === 'sparse') {
+    subject = `We spotted a possible deal at ${input.property_address}`
+  } else if (input.variant === 'sparse_with_date' && closingHuman) {
+    subject = `Your deal at ${input.property_address} is closing ${closingHuman}. Want an advance?`
+  } else if (input.variant === 'detailed' && input.commission_amount && input.advance_estimate && closingHuman) {
+    subject = `${formatMoney(input.advance_estimate)} ready for ${input.property_address}, closing ${closingHuman}`
+  } else {
+    subject = `Your deal at ${input.property_address} went firm`
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -161,7 +192,7 @@ ${commissionCallout}
             </div>
             <p style="font-size:14px; color:#555; margin:0 0 26px 0; text-align:center;">You're already onboarded, so it's only a few steps from getting paid.</p>
             <div style="text-align:center; margin:20px 0 8px 0;">
-              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 40px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">Get Paid Today &rarr;</a>
+              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 40px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
             </div>
           </td>
         </tr>
@@ -177,12 +208,16 @@ ${commissionCallout}
 </body>
 </html>`
 
+  const textIntro = input.variant === 'dual_agency'
+    ? `We see that your recent deal at ${input.property_address} went firm. Looks like you held both sides too. Nice work.`
+    : input.variant === 'sparse'
+      ? `We spotted what looks like one of yours: ${input.property_address}. If that's right, confirm the details and we'll have an advance ready for you.`
+      : `We see that your recent deal at ${input.property_address} went firm. Congrats!`
+
   const textLines = [
     `Hi ${input.agent_first_name || 'there'},`,
     '',
-    input.variant === 'dual_agency'
-      ? `We see that your recent deal at ${input.property_address} went firm. Looks like you held both sides too. Nice work.`
-      : `We see that your recent deal at ${input.property_address} went firm. Congrats!`,
+    textIntro,
   ]
   if (input.variant === 'detailed' && input.commission_amount && input.commission_amount > 0) {
     textLines.push('')
@@ -199,7 +234,7 @@ ${commissionCallout}
     '',
     `You're already onboarded, so it's only a few steps from getting paid.`,
     '',
-    `Get paid today: ${cta}`,
+    `${ctaLabel}: ${cta}`,
     '',
     `${input.brand_name} - ${input.brand_tagline}`,
   )

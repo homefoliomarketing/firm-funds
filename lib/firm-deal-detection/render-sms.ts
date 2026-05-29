@@ -22,7 +22,10 @@ export interface SmsRenderInput {
   property_address: string
   brand_name: string
   cta_url: string
-  variant: 'sparse' | 'dual_agency' | 'detailed'
+  /** Optional human-readable closing date (e.g. "June 30, 2026"). Only used
+   *  by variant='sparse_with_date'. */
+  closing_date_human?: string | null
+  variant: 'sparse' | 'sparse_with_date' | 'dual_agency' | 'detailed'
   /** Gross commission for this agent's side, pre-split. Only used by
    *  variant='detailed'. */
   commission_amount?: number | null
@@ -99,14 +102,22 @@ export function renderTriggerSms(input: SmsRenderInput): RenderedSms {
     input.advance_estimate &&
     input.advance_estimate > 0
   ) {
-    // Quote the advance estimate. We drop the commission line to keep
-    // under 160 chars — the email shows both numbers, the SMS focuses
+    // Tier C: quote the advance estimate. We drop the commission line to
+    // keep under 160 chars; the email shows both numbers, the SMS focuses
     // on the actionable advance figure.
     //
     // "About" instead of "~" because the tilde isn't in basic GSM-7 and
     // forces the message into UCS-2 (70-char segments instead of 160).
     const advance = formatMoneyShort(input.advance_estimate)
     intro = `Hi ${first}, your ${address} deal went firm. About ${advance} could be yours today (before splits):`
+  } else if (input.variant === 'sparse_with_date' && input.closing_date_human) {
+    // Tier B: timing is confirmed, push the agent to request an advance.
+    intro = `Hi ${first}, your deal at ${address} closes ${input.closing_date_human}. Request an advance:`
+  } else if (input.variant === 'sparse') {
+    // Tier A: we may have only loosely matched. Ask the agent to confirm.
+    // Kept short so the brand prefix + CTA URL still leave room for the
+    // body to land in a single 160-char SMS segment.
+    intro = `Hi ${first}, possible deal at ${address}. Confirm:`
   } else {
     intro = `Hi ${first}, your deal at ${address} went firm. Get paid today instead of waiting:`
   }

@@ -103,6 +103,19 @@ export function estimateAdvanceFromGross(
   return Math.max(0, Math.round(grossCommission - discountFee - settlementFee))
 }
 
+// "2026-06-30" -> "June 30, 2026". Returns null for invalid/null input so
+// the SMS renderer can detect "no date" and fall through to Tier A copy.
+function formatClosingDateHuman(iso: string | null): string | null {
+  if (!iso) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return null
+  const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December']
+  const month = months[parseInt(m[2], 10) - 1]
+  const day = parseInt(m[3], 10)
+  return `${month} ${day}, ${m[1]}`
+}
+
 function daysFromTodayToISO(iso: string | null): number {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 0
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
@@ -226,45 +239,45 @@ export async function dispatchFirmDealNotification(
 }
 
 // ============================================================================
-// Per-agent variant selection
+// Per-agent variant selection (tiered by info available)
 // ============================================================================
 // Returns the variant + commission amount the renderer should use for one
 // agent on one event.
 //
-// Decision order:
-//   1. Co-agent split event              -> sparse (generic, no numbers)
-//      We don't know each co-agent's share so quoting a commission would
-//      misinform.
+// Tier mapping (Bud's sensible defaults, 2026-05-29):
+//   Tier A: property only (no closing date, no commission) — sparse, lowest
+//           confidence. Copy: "we spotted a possible deal, confirm details".
+//   Tier B: property + closing date, no commission         — sparse_with_date,
+//           timing confirmed, ask the agent (or brokerage) to submit so we
+//           can fund as soon as the commission number is in.
+//   Tier C: property + closing date + commission           — detailed,
+//           fully ready, quote the gross + estimated advance.
+//
+// Decision order (special-case picks beat tier picks):
+//   1. Co-agent split event              -> sparse (generic, no numbers).
+//      We don't know each co-agent's share so any quote would misinform.
+//      Tier letter is still informative for the audit log — use date
+//      presence (B if a date is known, A otherwise).
 //   2. Same agent on both sides          -> dual_agency
 //      Existing behavior. Detailed-with-numbers across dual-agency is a
 //      future iteration once we have UI for showing both sides' commission.
-//   3. Agent's matching side has a known commission_amount -> detailed
-//      The parser pulled a dollar value from the spreadsheet column. The
-//      email + SMS show the gross + a pre-split advance estimate.
-//   4. Default                            -> sparse
+//   3. Tier C (commission + closing date) -> detailed
+//   4. Tier B (closing date only)         -> sparse_with_date
+//   5. Tier A (property only)             -> sparse
 // ============================================================================
-function pickAgentVariant(
+export type NotifyTier = 'A' | 'B' | 'C'
+
+export function pickAgentVariant(
   agentId: string,
   event: DispatchContext['event']
 ): {
-  variant: 'sparse' | 'dual_agency' | 'detailed'
+  variant: 'sparse' | 'sparse_with_date' | 'dual_agency' | 'detailed'
+  tier: NotifyTier
   commission_amount: number | null
   advance_estimate: number | null
 } {
   const parsed = event.parsed
-
-  if (event.co_agent_split) {
-    return { variant: 'sparse', commission_amount: null, advance_estimate: null }
-  }
-
-  // Existing dual-agency: same agent matched on both sides.
-  if (
-    event.second_matched_agent_id &&
-    event.second_matched_agent_id === event.matched_agent_id &&
-    agentId === event.matched_agent_id
-  ) {
-    return { variant: 'dual_agency', commission_amount: null, advance_estimate: null }
-  }
+  const hasClosingDate = !!parsed?.closing_date_iso
 
   // Per-side commission lookup. We use listing_matched_agent_id /
   // selling_matched_agent_id (written by processFirmDealEvent) to decide
@@ -277,21 +290,50 @@ function pickAgentVariant(
     commission = parsed.selling_agent_commission_amount
   }
 
-  if (commission && commission > 0 && parsed?.closing_date_iso) {
-    const days = daysFromTodayToISO(parsed.closing_date_iso)
-    const advance = estimateAdvanceFromGross(commission, days)
-    if (advance > 0) {
-      return { variant: 'detailed', commission_amount: commission, advance_estimate: advance }
-    }
+  // Compute the tier letter independent of the visual variant pick so the
+  // audit log always reflects what data was available, even when a special
+  // case (split, dual agency) forced a generic visual variant.
+  let tier: NotifyTier = 'A'
+  if (commission && commission > 0 && hasClosingDate) tier = 'C'
+  else if (hasClosingDate) tier = 'B'
+
+  if (event.co_agent_split) {
+    return { variant: 'sparse', tier, commission_amount: null, advance_estimate: null }
   }
 
-  return { variant: 'sparse', commission_amount: null, advance_estimate: null }
+  // Existing dual-agency: same agent matched on both sides.
+  if (
+    event.second_matched_agent_id &&
+    event.second_matched_agent_id === event.matched_agent_id &&
+    agentId === event.matched_agent_id
+  ) {
+    return { variant: 'dual_agency', tier, commission_amount: null, advance_estimate: null }
+  }
+
+  if (tier === 'C' && commission) {
+    const days = daysFromTodayToISO(parsed!.closing_date_iso!)
+    const advance = estimateAdvanceFromGross(commission, days)
+    if (advance > 0) {
+      return { variant: 'detailed', tier: 'C', commission_amount: commission, advance_estimate: advance }
+    }
+    // Advance came out non-positive (closing already past, etc.). Fall back
+    // to the next tier down so the agent still gets something useful.
+    return { variant: 'sparse_with_date', tier: 'B', commission_amount: null, advance_estimate: null }
+  }
+
+  if (tier === 'B') {
+    return { variant: 'sparse_with_date', tier: 'B', commission_amount: null, advance_estimate: null }
+  }
+
+  return { variant: 'sparse', tier: 'A', commission_amount: null, advance_estimate: null }
 }
 
 interface PerAgentSend {
   agent_id: string
   email: ChannelResult
   sms: ChannelResult
+  tier: NotifyTier
+  variant: 'sparse' | 'sparse_with_date' | 'dual_agency' | 'detailed'
 }
 
 async function sendForOneAgent(
@@ -302,7 +344,7 @@ async function sendForOneAgent(
   const parsed = ctx.event.parsed
   const propertyAddress = parsed?.address || 'your recent deal'
 
-  const { variant, commission_amount, advance_estimate } = pickAgentVariant(agent.id, ctx.event)
+  const { variant, tier, commission_amount, advance_estimate } = pickAgentVariant(agent.id, ctx.event)
 
   // Mint a per-agent magic-link token so each co-agent or dual-agency
   // recipient lands on /agent/firm-deal/<token> bound to THEIR agent id.
@@ -358,6 +400,7 @@ async function sendForOneAgent(
     property_address: propertyAddress,
     brand_name: ctx.pipe.brand_name,
     cta_url,
+    closing_date_human: formatClosingDateHuman(parsed?.closing_date_iso ?? null),
     variant,
     commission_amount,
     advance_estimate,
@@ -370,7 +413,33 @@ async function sendForOneAgent(
       : Promise.resolve({ status: 'skipped_no_phone' as const, message_sid: undefined, error: undefined }),
   ])
 
-  return { agent_id: agent.id, email: emailResult, sms: smsResult }
+  // Audit log: capture which tier (A/B/C) we picked and how each channel
+  // resolved. Best-effort; failures here don't block the actual send result.
+  try {
+    await logAuditEventServiceRole({
+      action: 'firm_deal.notify_dispatched',
+      entityType: 'firm_deal_event',
+      entityId: ctx.event.id,
+      severity: 'info',
+      metadata: {
+        event_id: ctx.event.id,
+        agent_id: agent.id,
+        notify_tier: tier,
+        variant,
+        email_status: emailResult.status,
+        sms_status: smsResult.status,
+        commission_amount,
+        advance_estimate,
+      },
+    })
+  } catch (auditErr) {
+    console.warn(
+      '[dispatch] notify audit log failed (non-fatal):',
+      auditErr instanceof Error ? auditErr.message : auditErr
+    )
+  }
+
+  return { agent_id: agent.id, email: emailResult, sms: smsResult, tier, variant }
 }
 
 async function dispatchWithContext(

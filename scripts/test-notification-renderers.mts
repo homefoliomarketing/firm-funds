@@ -55,7 +55,10 @@ const sparseEmail = renderTriggerEmail({
 })
 assert('subject mentions the address', sparseEmail.subject.includes('374 Bush Street'))
 assert('html contains agent first name', sparseEmail.html.includes('Hi Carlo,'))
-assert('html uses "went firm" not "closed"', sparseEmail.html.includes('went firm') && !sparseEmail.html.includes('closed firm'))
+// Tier A copy is intentionally cautious ("we spotted a possible deal") and
+// avoids "went firm" because we may not have confirmed it firmed yet.
+assert('html never says "closed firm"', !sparseEmail.html.includes('closed firm'))
+assert('Tier A uses "spotted" framing', sparseEmail.html.includes('spotted') || sparseEmail.subject.includes('spotted'))
 assert('html has brand name in header', sparseEmail.html.includes('Choice Advances'))
 assert('html has tagline', sparseEmail.html.includes('Powered by Firm Funds'))
 assert('html has CTA URL', sparseEmail.html.includes('firm_deal=abc-123'))
@@ -121,7 +124,8 @@ const sparseSms = renderTriggerSms({
 console.log(`  body: ${JSON.stringify(sparseSms.body)}`)
 console.log(`  length: ${sparseSms.body.length} chars, estimated segments: ${sparseSms.estimated_segments}, unicode: ${sparseSms.has_unicode}`)
 assert('SMS body starts with brand prefix', sparseSms.body.startsWith('Choice Advances:'))
-assert('SMS includes "went firm"', sparseSms.body.includes('went firm'))
+// Tier A SMS uses "possible deal ... Confirm" framing, not "went firm".
+assert('SMS uses Tier A "possible deal" framing', sparseSms.body.includes('possible deal'))
 assert('SMS includes CTA URL', sparseSms.body.includes('https://firmfunds.ca/a/abc'))
 assert('SMS includes opt-out per CASL', sparseSms.body.includes('Reply STOP to opt out'))
 assert('SMS contains agent first name', sparseSms.body.includes('Hi Carlo'))

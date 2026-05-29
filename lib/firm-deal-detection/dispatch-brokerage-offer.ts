@@ -30,9 +30,12 @@ import { Resend } from 'resend'
 import {
   renderBrokerageOfferEmail,
   renderInternalEscalationEmail,
+  type BrokerageOfferTier,
   type BrokerageOfferVariant,
 } from './render-brokerage-offer-email'
 import { renderAgentDeclineEmail } from './render-agent-decline-email'
+import { estimateAdvanceFromGross } from './dispatch-notification'
+import { logAuditEventServiceRole } from '@/lib/audit'
 
 const APP_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca').replace(/\/$/, '')
 const FROM_ADDRESS = process.env.FIRM_DEAL_FROM_ADDRESS || 'Firm Funds <notifications@firmfunds.ca>'
@@ -90,7 +93,7 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
     supabase.from('agents').select('id, first_name, last_name, email, phone').eq('id', deal.agent_id).maybeSingle(),
     supabase.from('brokerages').select('id, name, email, phone, broker_of_record_email').eq('id', deal.brokerage_id).maybeSingle(),
     deal.offered_event_id
-      ? supabase.from('firm_deal_events').select('brokerage_pipe_id, parsed').eq('id', deal.offered_event_id).maybeSingle()
+      ? supabase.from('firm_deal_events').select('brokerage_pipe_id, parsed, listing_matched_agent_id, selling_matched_agent_id, matched_agent_id, second_matched_agent_id, co_agent_split').eq('id', deal.offered_event_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ])
   if (agentRes.error || !agentRes.data) return { error: `Agent load failed: ${agentRes.error?.message ?? 'not found'}` as const }
@@ -99,6 +102,9 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
   let brand_name = 'Firm Funds'
   let brand_tagline = 'Powered by Firm Funds'
   let closing_date_iso: string | null = (deal.closing_date as string | null) ?? null
+  // Side-of-deal commission for the accepting agent. Populated below from
+  // the firm_deal_events.parsed payload when the event row exists.
+  let commission_amount: number | null = null
   // Recipient config from migration 082. Defaults are safe-empty so a pipe
   // that pre-dates the migration still gets the always-included recipients.
   // ff_inbox_override added later (no migration — JSONB shape) lets each
@@ -113,7 +119,14 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
     ff_inbox_override: null,
   }
   if (eventRes.data) {
-    const ev = eventRes.data as { brokerage_pipe_id: string; parsed: Record<string, unknown> | null }
+    const ev = eventRes.data as {
+      brokerage_pipe_id: string
+      parsed: Record<string, unknown> | null
+      listing_matched_agent_id: string | null
+      selling_matched_agent_id: string | null
+      matched_agent_id: string | null
+      co_agent_split: boolean | null
+    }
     const { data: pipe } = await supabase
       .from('brokerage_pipes')
       .select('brand_name, brand_tagline, notification_recipients')
@@ -135,6 +148,21 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
     }
     const parsedClose = (ev.parsed as { closing_date_iso?: string | null } | null)?.closing_date_iso
     if (parsedClose) closing_date_iso = parsedClose
+    // Pull side-of-deal commission for the accepting agent. If we don't know
+    // which side they were on (no listing/selling match resolved), leave the
+    // commission null so the brokerage email lands on Tier B (no number) rather
+    // than misquoting a co-agent's number.
+    const parsed = ev.parsed as {
+      listing_agent_commission_amount?: number | null
+      selling_agent_commission_amount?: number | null
+    } | null
+    if (parsed && !ev.co_agent_split) {
+      if (ev.listing_matched_agent_id && ev.listing_matched_agent_id === deal.agent_id && typeof parsed.listing_agent_commission_amount === 'number') {
+        commission_amount = parsed.listing_agent_commission_amount
+      } else if (ev.selling_matched_agent_id && ev.selling_matched_agent_id === deal.agent_id && typeof parsed.selling_agent_commission_amount === 'number') {
+        commission_amount = parsed.selling_agent_commission_amount
+      }
+    }
   }
 
   const agent = agentRes.data as { id: string; first_name: string | null; last_name: string | null; email: string | null; phone: string | null }
@@ -151,8 +179,35 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
     brand_name,
     brand_tagline,
     closing_date_iso,
+    commission_amount,
     pipe_recipients,
   }
+}
+
+// Days from today (Toronto local) to a given closing ISO date. Mirrors the
+// agent-side helper in dispatch-notification.ts; duplicated here to keep
+// this file standalone for the brokerage advance estimate.
+function daysFromTodayToISO(iso: string | null): number {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 0
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  const today = new Date(todayStr + 'T00:00:00Z').getTime()
+  const closing = new Date(iso + 'T00:00:00Z').getTime()
+  return Math.max(0, Math.ceil((closing - today) / (1000 * 60 * 60 * 24)))
+}
+
+function resolveTier(
+  closingDateIso: string | null,
+  commissionAmount: number | null
+): { tier: BrokerageOfferTier; advance: number | null } {
+  if (closingDateIso && commissionAmount && commissionAmount > 0) {
+    const days = daysFromTodayToISO(closingDateIso)
+    const advance = estimateAdvanceFromGross(commissionAmount, days)
+    if (advance > 0) return { tier: 'C', advance }
+    // Closing already past or non-positive advance: fall back to Tier B
+    return { tier: 'B', advance: null }
+  }
+  if (closingDateIso) return { tier: 'B', advance: null }
+  return { tier: 'A', advance: null }
 }
 
 function buildBrokeragePortalUrl(dealId: string): string {
@@ -311,6 +366,7 @@ async function dispatchBrokerageVariant(
     return { deal_id: dealId, outcome: 'skipped', recipients: [], error: 'No recipients on brokerage record.' }
   }
 
+  const { tier, advance } = resolveTier(ctx.closing_date_iso, ctx.commission_amount)
   const rendered = renderBrokerageOfferEmail({
     brokerage_name: ctx.brokerage.name,
     agent_full_name: `${ctx.agent.first_name ?? ''} ${ctx.agent.last_name ?? ''}`.trim() || 'an agent',
@@ -322,6 +378,9 @@ async function dispatchBrokerageVariant(
     brand_tagline: ctx.brand_tagline,
     brokerage_portal_url: buildBrokeragePortalUrl(dealId),
     variant,
+    tier,
+    commission_amount: ctx.commission_amount,
+    advance_estimate: advance,
   })
 
   const send = await sendOne({
@@ -343,6 +402,31 @@ async function dispatchBrokerageVariant(
   if (variant === 'nudge_2h') updates.brokerage_nudge_2h_at = new Date().toISOString()
   if (Object.keys(updates).length > 0) {
     await supabase.from('deals').update(updates).eq('id', dealId)
+  }
+
+  // Audit log the brokerage-side notification with the tier so we can
+  // measure how often each tier fires and tune the copy.
+  try {
+    await logAuditEventServiceRole({
+      action: 'firm_deal.notify_brokerage_dispatched',
+      entityType: 'deal',
+      entityId: dealId,
+      severity: 'info',
+      metadata: {
+        deal_id: dealId,
+        brokerage_id: ctx.brokerage.id,
+        variant,
+        notify_tier: tier,
+        recipients,
+        commission_amount: ctx.commission_amount,
+        advance_estimate: advance,
+      },
+    })
+  } catch (auditErr) {
+    console.warn(
+      '[brokerage-dispatch] notify audit log failed (non-fatal):',
+      auditErr instanceof Error ? auditErr.message : auditErr
+    )
   }
 
   return { deal_id: dealId, outcome: 'sent', recipients, provider_id: send.provider_id }
