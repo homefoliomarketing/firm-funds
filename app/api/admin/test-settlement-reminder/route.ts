@@ -14,8 +14,8 @@
  * where Bud wants to fire it at a personal inbox to test deliverability.
  *
  * Scenario param controls which renderer to test:
- *   ?scenario=closing_day   (default) — closing-day payment reminder
- *   ?scenario=three_day     — 3-day urgent reminder
+ *   ?scenario=closing_day        (default) — closing-day payment reminder
+ *   ?scenario=payment_check_in   — post-deadline payment check-in
  *
  * Not registered in PUBLIC_PATHS — middleware will bounce non-authenticated
  * callers to /login like any other admin route.
@@ -25,7 +25,7 @@
  */
 import { NextResponse } from 'next/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
-import { sendSettlementReminderClosingDay, sendSettlementReminder3Day } from '@/lib/email'
+import { sendSettlementReminderClosingDay, sendSettlementReminderPaymentCheckIn } from '@/lib/email'
 
 export async function GET(request: Request) {
   const auth = await getAuthenticatedAdmin()
@@ -56,8 +56,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    if (scenario === 'three_day') {
-      await sendSettlementReminder3Day({ ...params, daysRemaining: 3 })
+    if (scenario === 'payment_check_in') {
+      // Post-deadline check-in fixture. dueDate moves to 5 days ago to mirror
+      // the day-12 trigger on a 7-day brokerage (the most common case).
+      const checkInParams = {
+        ...params,
+        dueDate: new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10),
+        daysRemaining: 0,
+        daysSinceDue: 5,
+      }
+      await sendSettlementReminderPaymentCheckIn(checkInParams)
     } else {
       await sendSettlementReminderClosingDay(params)
     }

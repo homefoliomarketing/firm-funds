@@ -1,8 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminder3Day } from '@/lib/email'
+import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminderPaymentCheckIn } from '@/lib/email'
 import { autoChargeMonthlyLatePaymentInterest, autoChargeMonthlyFailedDealInterest } from '@/lib/actions/account-actions'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
+import { logAuditEventServiceRole } from '@/lib/audit'
 
 const JOB_NAME = 'closing_date_alerts'
 
@@ -11,7 +12,8 @@ const JOB_NAME = 'closing_date_alerts'
 //
 // Daily cron job that handles:
 // 1. Closing date alerts — approaching and overdue deals → admin digest email
-// 2. Settlement period reminders — closing day + 3-days-remaining → agent + brokerage
+// 2. Settlement period reminders — closing day + post-deadline payment check-in
+//    → agent + brokerage
 // 3. Mark payment_status='overdue' once deals pass the 30-day late-interest grace
 // 4. Post monthly late-payment interest (24% p.a. compounded daily, starting
 //    day 31 after closing)
@@ -213,26 +215,77 @@ export async function GET(request: Request) {
           daysRemaining: 0,
         }
 
+        // Post-deadline check-in fires once the settlement window has lapsed.
+        // For 7-day brokerages this triggers on day 12 (5 days past due); for
+        // 14-day brokerages on day 15 (1 day past due). The
+        // Math.max(12, ...) floor keeps fast windows from firing too eagerly
+        // before the 30-day late-interest grace becomes a near-term concern.
+        const checkInTriggerDay = Math.max(12, dealSettlementDays + 1)
+
         // Closing day (daysSinceClosing === 0): brokerage's settlement window starts today
         if (daysSinceClosing === 0) {
           reminderParams.daysRemaining = dealSettlementDays
           try {
             await sendSettlementReminderClosingDay(reminderParams)
             remindersSent++
+            await logAuditEventServiceRole({
+              action: 'deal.settlement_reminder_closing_day_sent',
+              entityType: 'deal',
+              entityId: deal.id,
+              actorRole: 'system',
+              metadata: {
+                deal_id: deal.id,
+                agent_id: deal.agent_id,
+                brokerage_id: deal.brokerage_id,
+                days_since_closing: daysSinceClosing,
+                days_remaining: dealSettlementDays,
+                settlement_days_at_funding: dealSettlementDays,
+                due_date: deal.due_date,
+                recipient_agent_email: agent.email,
+                recipient_brokerage_email: reminderParams.brokerageEmail,
+                cron_job: JOB_NAME,
+              },
+            })
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'send failed'
             failures.push({ stage: 'reminder_closing_day', dealId: deal.id, error: message })
           }
         }
-        // Mid-window reminder: 3 days remaining in the deal's settlement window
-        else if (daysSinceClosing === dealSettlementDays - 3) {
-          reminderParams.daysRemaining = 3
+        // Post-deadline payment check-in: deadline has lapsed but no payment
+        // received yet. Toned-down "just checking in" wording (not urgent /
+        // accusatory) — the brokerage is at most a few days past due here.
+        else if (daysSinceClosing === checkInTriggerDay) {
+          // dueDate is YYYY-MM-DD. Compute days elapsed since the deadline
+          // (always positive on the trigger day by construction).
+          const dueDateObj = new Date(deal.due_date! + 'T00:00:00')
+          const daysSinceDue = Math.max(
+            0,
+            Math.floor((todayDate.getTime() - dueDateObj.getTime()) / (1000 * 60 * 60 * 24))
+          )
           try {
-            await sendSettlementReminder3Day(reminderParams)
+            await sendSettlementReminderPaymentCheckIn({ ...reminderParams, daysSinceDue })
             remindersSent++
+            await logAuditEventServiceRole({
+              action: 'deal.settlement_reminder_payment_check_in_sent',
+              entityType: 'deal',
+              entityId: deal.id,
+              actorRole: 'system',
+              metadata: {
+                deal_id: deal.id,
+                agent_id: deal.agent_id,
+                brokerage_id: deal.brokerage_id,
+                days_since_closing: daysSinceClosing,
+                days_since_due: daysSinceDue,
+                settlement_days_at_funding: dealSettlementDays,
+                due_date: deal.due_date,
+                recipient_agent_email: agent.email,
+                recipient_brokerage_email: reminderParams.brokerageEmail,
+                cron_job: JOB_NAME,
+              },
+            })
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'send failed'
-            failures.push({ stage: 'reminder_3_day', dealId: deal.id, error: message })
+            failures.push({ stage: 'reminder_payment_check_in', dealId: deal.id, error: message })
           }
         }
       }

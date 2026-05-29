@@ -1672,7 +1672,13 @@ interface SettlementReminderParams {
   advanceAmount: number
   dueDate: string // YYYY-MM-DD
   amountDueFromBrokerage: number
-  daysRemaining: number // 14, 7, or 3
+  daysRemaining: number // 14, 7, or 0 (closing day)
+  /**
+   * Days elapsed since the settlement due date. Only used by the
+   * payment check-in variant (always positive — by definition the check-in
+   * fires after the due date has passed). Closing-day variant ignores it.
+   */
+  daysSinceDue?: number
   /** Pass-through for per-entity unsubscribe handling (migration 092). */
   agentId?: string | null
   brokerageId?: string | null
@@ -1754,28 +1760,46 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
   }
 }
 
-/** 3-day reminder — "3 days remaining! Payment due soon." */
-export async function sendSettlementReminder3Day(params: SettlementReminderParams) {
+/**
+ * Payment check-in — fires after the brokerage's settlement window has
+ * passed and the payment has not yet been received. Toned-down, informational
+ * ("we're checking in") rather than accusatory or urgent. Sent both to the
+ * agent and (when on file) the brokerage's primary contact.
+ *
+ * Triggered by the daily closing-date-alerts cron when
+ *   daysSinceClosing === Math.max(12, settlement_days + 1)
+ * so 7-day brokerages get it on day 12 (5 days past due) and 14-day
+ * brokerages get it on day 15 (1 day past due). Caller computes
+ * `daysSinceDue` and passes it through for the body copy.
+ */
+export async function sendSettlementReminderPaymentCheckIn(params: SettlementReminderParams) {
+  const daysSinceDue = params.daysSinceDue ?? 0
+  const daysAgoText = daysSinceDue === 1 ? '1 day ago' : `${daysSinceDue} days ago`
+  const dueDateLabel = formatReminderDate(params.dueDate)
+  const brokerageName = params.brokerageName ?? 'your brokerage'
+
   const agentBody = wrap(`
     <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-      3 Days Remaining — Urgent Payment Reminder
+      Payment Check-In
     </h2>
     <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${escapeHtml(params.agentFirstName ?? '')}, there are only <strong style="color:#E54B4B;">3 days remaining</strong> for your brokerage to remit payment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>.
+      Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to follow up on the payment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>.
     </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:8px;">
+    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+      We haven't yet received the <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> remittance from <strong style="color:#E5E5E5;">${escapeHtml(brokerageName)}</strong> for this advance. The settlement deadline was <strong style="color:#E5E5E5;">${escapeHtml(dueDateLabel)}</strong> (${daysAgoText}).
+    </p>
+    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+      If the payment has already been sent, please disregard — there can be a 1-2 day delay in processing. If not, please follow up with your brokerage administrator.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
       <tr>
         <td style="padding:16px;">
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount Due</p>
-          <p style="margin:0 0 12px; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amountDueFromBrokerage)}</p>
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Due Date</p>
-          <p style="margin:0; color:#E54B4B; font-size:18px; font-weight:600;">${escapeHtml(formatReminderDate(params.dueDate))}</p>
+          <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
+            Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing — there's still time to remit before that kicks in.
+          </p>
         </td>
       </tr>
     </table>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-      If payment is still outstanding 30 days after closing, late payment interest at 24% per annum (compounded daily) will begin accruing on your Firm Funds account. We will be in touch with your brokerage if payment is delayed.
-    </p>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center" style="padding:12px 0;">
@@ -1787,30 +1811,46 @@ export async function sendSettlementReminder3Day(params: SettlementReminderParam
     </table>
   `)
 
+  // Send to agent. Promotional-class reminder — entity preference is
+  // honoured. If the agent has unsubscribed they won't get the nag.
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
-    subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+    subject: sanitizeSubject(`Payment Check-In — ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     html: agentBody,
   })
 
+  // Send to brokerage (when a primary contact email is on file). Same
+  // toned-down wording, addressed to the brokerage.
   if (params.brokerageEmail) {
     await sendEmailWithUnsubscribe({
       to: params.brokerageEmail,
-      subject: sanitizeSubject(`URGENT: 3 Days Remaining — Payment due ${formatReminderDate(params.dueDate)} — ${params.propertyAddress}`),
+      subject: sanitizeSubject(`Payment Check-In — ${params.propertyAddress}`),
       entityType: params.brokerageId ? 'brokerage' : undefined,
       entityId: params.brokerageId ?? undefined,
       html: wrap(`
           <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-            3 Days Remaining — Urgent Payment Reminder
+            Payment Check-In
           </h2>
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            There are only <strong style="color:#E54B4B;">3 days remaining</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> for ${escapeHtml(params.agentFirstName ?? '')}'s deal at <strong>${escapeHtml(params.propertyAddress ?? '')}</strong>.
+            Hi ${escapeHtml(brokerageName)}, following up on the advance payment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> (agent: ${escapeHtml(params.agentFirstName ?? '')}).
           </p>
           <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            Due date: <strong style="color:#E54B4B;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
+            We haven't yet received your remittance of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong>. The settlement deadline was <strong style="color:#E5E5E5;">${escapeHtml(dueDateLabel)}</strong> (${daysAgoText}).
           </p>
+          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
+            If you've already sent it, please disregard. If not, please remit at your earliest convenience.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
+            <tr>
+              <td style="padding:16px;">
+                <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
+                  Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing — there's still time to remit before that kicks in.
+                </p>
+              </td>
+            </tr>
+          </table>
         `),
     })
   }

@@ -1,7 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import {
   sendSettlementReminderClosingDay,
-  sendSettlementReminder3Day,
+  sendSettlementReminderPaymentCheckIn,
 } from '@/lib/email'
 import { sendAgentDeclineNotification } from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
 
@@ -21,7 +21,8 @@ const MAX_ATTEMPTS = 5
 //
 // For each row, dispatches to the matching retry handler based on email_type.
 // Currently supported types:
-//   - 'settlement_reminder' — settlement reminders, both closing-day and 3-day variants
+//   - 'settlement_reminder' — settlement reminders, both closing-day and
+//                              payment-check-in variants
 //   - 'offer_decline'       — brokerage decline notification to the agent
 //
 // Any other email_type is logged and skipped (the cron does NOT consume the
@@ -192,8 +193,12 @@ async function attemptRetry(row: FailureRow): Promise<void> {
   const payload = row.payload ?? {}
   switch (row.email_type) {
     case 'settlement_reminder': {
-      // Distinguish closing-day vs 3-day by daysRemaining in the payload.
-      // Both senders use the same SettlementReminderParams shape.
+      // Distinguish closing-day vs payment-check-in by the explicit `variant`
+      // tag in the payload (preferred — set by the producer when enqueuing).
+      // For legacy payloads without `variant`, fall back to a heuristic:
+      // payment-check-in payloads carry `daysSinceDue`; closing-day payloads
+      // carry `daysRemaining > 0`. Both senders accept the same
+      // SettlementReminderParams shape.
       const params = payload as {
         dealId: string
         propertyAddress: string
@@ -205,12 +210,16 @@ async function attemptRetry(row: FailureRow): Promise<void> {
         dueDate: string
         amountDueFromBrokerage: number
         daysRemaining: number
+        daysSinceDue?: number
       }
       const variant = (payload as { variant?: string }).variant
-      if (variant === 'closing_day' || params.daysRemaining > 3) {
-        await sendSettlementReminderClosingDay(params)
+      const isCheckIn =
+        variant === 'payment_check_in' ||
+        (variant === undefined && typeof params.daysSinceDue === 'number')
+      if (isCheckIn) {
+        await sendSettlementReminderPaymentCheckIn(params)
       } else {
-        await sendSettlementReminder3Day(params)
+        await sendSettlementReminderClosingDay(params)
       }
       return
     }
