@@ -289,6 +289,52 @@ function sanitizeSubject(value: string | null | undefined): string {
 // Branded HTML wrapper
 // ============================================================================
 
+/**
+ * Fetch brokerage branding (logo + tagline flag) for a given agent. Used by
+ * agent-facing email functions to render the agent's brokerage logo in the
+ * email header. Returns null on miss or any error — emails fall back to the
+ * default Firm Funds wordmark in that case (never throws, never blocks the
+ * email).
+ */
+async function getBrandingForAgent(agentId?: string | null): Promise<BrokerageBranding | null> {
+  if (!agentId) return null
+  try {
+    const svc = createServiceRoleClient()
+    const { data } = await svc
+      .from('agents')
+      .select('brokerages(name, logo_url, logo_includes_tagline)')
+      .eq('id', agentId)
+      .maybeSingle()
+    const b = (data as { brokerages?: { name: string | null; logo_url: string | null; logo_includes_tagline: boolean | null } | null } | null)?.brokerages
+    if (!b?.logo_url) return null
+    return { logoUrl: b.logo_url, name: b.name || '', logoIncludesTagline: !!b.logo_includes_tagline }
+  } catch (e) {
+    console.error('[email] getBrandingForAgent failed:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+/**
+ * Fetch brokerage branding for a given brokerage. Used by brokerage-facing
+ * email functions. Same fail-safe behavior as getBrandingForAgent.
+ */
+async function getBrandingForBrokerage(brokerageId?: string | null): Promise<BrokerageBranding | null> {
+  if (!brokerageId) return null
+  try {
+    const svc = createServiceRoleClient()
+    const { data } = await svc
+      .from('brokerages')
+      .select('name, logo_url, logo_includes_tagline')
+      .eq('id', brokerageId)
+      .maybeSingle()
+    if (!data?.logo_url) return null
+    return { logoUrl: data.logo_url, name: data.name || '', logoIncludesTagline: !!data.logo_includes_tagline }
+  } catch (e) {
+    console.error('[email] getBrandingForBrokerage failed:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
 interface BrokerageBranding {
   logoUrl: string | null
   name: string
@@ -476,6 +522,7 @@ export async function sendBrokerageAdminNewDealNotification(params: {
   /** Pass-through to enable per-brokerage unsubscribe handling (migration 092). */
   brokerageId?: string | null
 }): Promise<void> {
+  const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.brokerageAdminEmail,
     subject: sanitizeSubject(`New Advance Request — ${params.agentName} — ${params.propertyAddress}`),
@@ -512,7 +559,7 @@ export async function sendBrokerageAdminNewDealNotification(params: {
         <a href="${APP_URL}/brokerage" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
           View Brokerage Dashboard
         </a>
-      `),
+      `, branding),
   })
 }
 
@@ -555,6 +602,7 @@ export async function sendStatusChangeNotification(params: {
       </div>`
   }
 
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(
@@ -597,7 +645,7 @@ export async function sendStatusChangeNotification(params: {
             View Deal
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -621,6 +669,7 @@ export async function sendDocumentRequestNotification(params: {
        </div>`
     : ''
 
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`Document Requested — ${params.propertyAddress}`),
@@ -653,7 +702,7 @@ export async function sendDocumentRequestNotification(params: {
             Upload Document
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -919,6 +968,7 @@ export async function sendKycApprovedNotification(params: {
   agentId?: string | null
 }): Promise<void> {
   // KYC approval is a regulatory/legal notice — transactional.
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`You're Verified — Start Submitting Advances on Firm Funds!`),
@@ -944,7 +994,7 @@ export async function sendKycApprovedNotification(params: {
             Go to My Dashboard
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -963,6 +1013,7 @@ export async function sendDocumentReturnNotification(params: {
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }): Promise<void> {
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`Action Required — Document Returned for ${params.propertyAddress}`),
@@ -998,7 +1049,7 @@ export async function sendDocumentReturnNotification(params: {
             View & Fix Document
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -1016,6 +1067,7 @@ export async function sendDealMessageNotification(params: {
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }): Promise<void> {
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     replyTo: 'support@firmfunds.ca',
@@ -1045,7 +1097,7 @@ export async function sendDealMessageNotification(params: {
             Reply
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -1075,6 +1127,7 @@ export async function sendInvoiceNotification(params: {
 
   // Invoices are billing/legal documents — transactional, must bypass the
   // recipient's promotional opt-out.
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`Invoice ${params.invoiceNumber} — ${formatMoney(params.amount)} Due`),
@@ -1127,7 +1180,7 @@ export async function sendInvoiceNotification(params: {
             View My Account
           </a>
         </div>
-      `),
+      `, branding),
   })
 }
 
@@ -1250,6 +1303,7 @@ export async function sendBrokerageInviteNotification(params: {
 
   // Account-setup email — transactional, recipient cannot opt out of getting
   // invited.
+  const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.adminEmail,
     subject: sanitizeSubject(`Welcome to Firm Funds — Set Up Your Brokerage Portal`),
@@ -1288,7 +1342,7 @@ export async function sendBrokerageInviteNotification(params: {
         <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
           <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
         </p>
-      `),
+      `, branding),
   })
 }
 
@@ -2220,6 +2274,7 @@ export async function sendFailedToCloseElectionEmail(params: {
 
   // Cure election is a contractual/legal notice — transactional, bypasses
   // the recipient's promotional opt-out.
+  const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`Action required: Your funded deal at ${params.propertyAddress} ${failureLabel}`),
@@ -2292,6 +2347,6 @@ export async function sendFailedToCloseElectionEmail(params: {
         <p style="margin:24px 0 0; color:#737373; font-size:12px; line-height:1.5;">
           Questions? Reply to this email and we'll help you through it.
         </p>
-      `),
+      `, branding),
   })
 }
