@@ -38,6 +38,12 @@ export const ParsedFirmDealSchema = z.object({
   sale_price: z.number().nullable(),
   commission_pct_listing: z.number().nullable(),
   commission_pct_selling: z.number().nullable(),
+  /** Gross commission dollars on the listing side, BEFORE the brokerage's
+   *  cut. Only set when the pipe's column_mapping includes a
+   *  listing_agent_commission column AND the cell parses cleanly. */
+  listing_agent_commission_amount: z.number().nullable(),
+  /** Gross commission dollars on the selling side, before brokerage split. */
+  selling_agent_commission_amount: z.number().nullable(),
   confidence: z.enum(['high', 'medium', 'low']),
   parser_notes: z.string().nullable(),
 })
@@ -131,6 +137,13 @@ For the spreadsheet pipe, this is almost always null — Choice Realty's sheet h
 ## commission_pct_listing and commission_pct_selling
 Almost always null for the spreadsheet pipe. We never assume a brokerage's standard commission rate (would be unethical and arguably illegal price-fixing). Only fill if explicitly written in the row.
 
+## listing_agent_commission_amount and selling_agent_commission_amount
+Dollar amounts representing the GROSS commission for that side of the deal, BEFORE the brokerage takes its split. Some brokerages now track this on the sheet ("Listing Agent Commission (Before HST)" / "Selling Agent Commission (Before HST)"). Output rules:
+- Strip any currency symbol, thousands separators, and trailing HST notes. Examples: "$76,500.00" -> 76500, "76,500" -> 76500, "76500" -> 76500.
+- If the cell is blank, missing from the row, or contains a placeholder like "TBD" / "?" / "-", return null.
+- If the value is clearly not a dollar amount (e.g. a percentage like "5%" or a sentence), return null and add a parser_note.
+- Do not invent or estimate. If only one side has a number on a two-sided deal, the other side stays null.
+
 ## confidence
 - "high": every required field present, MLS valid, closing date unambiguous, agent cells contain clean values you recognize as either first-name shorthand or a known outside-brokerage shorthand.
 - "medium": one minor issue (missing MLS but rest clean; cell month disagrees with tab; team shorthand you don't recognize).
@@ -169,6 +182,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": null
 }
@@ -199,6 +214,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": null
 }
@@ -229,6 +246,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": null
 }
@@ -259,6 +278,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": null
 }
@@ -289,6 +310,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": "Exclusive listing; no MLS number."
 }
@@ -319,6 +342,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "low",
   "parser_notes": "Row appears to be a month section divider, not a deal."
 }
@@ -349,6 +374,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "medium",
   "parser_notes": "Closing date in row (28-May) is in May but the row lives in the June 2026 tab; preferred the cell value over the tab."
 }
@@ -379,6 +406,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": null
 }
@@ -409,6 +438,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": null
 }
@@ -439,6 +470,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "high",
   "parser_notes": "Notes indicate conditional was extended once before firming."
 }
@@ -469,6 +502,8 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
   "confidence": "medium",
   "parser_notes": "Closing date cell is blank."
 }
@@ -499,6 +534,70 @@ Expected output:
   "sale_price": null,
   "commission_pct_listing": null,
   "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": null,
+  "confidence": "high",
+  "parser_notes": null
+}
+
+## Example 13: commission columns mapped — currency-formatted dollars
+User message:
+  Today is 2026-05-26.
+  Source tab: July 2026.
+  Trigger: moved_from_conditional.
+  Row data:
+    A (address): 150 Pittsburgh Ave
+    B (mls): SM260765
+    F (listing_agent): Exit
+    G (selling_agent): Ken
+    K (closing_date): 2-Jul
+    N (notes):
+    O (listing_agent_commission):
+    P (selling_agent_commission): $12,750.00
+
+Expected output:
+{
+  "address": "150 Pittsburgh Ave",
+  "mls_number": "SM260765",
+  "listing_agent_raw": "Exit",
+  "selling_agent_raw": "Ken",
+  "closing_date_iso": "2026-07-02",
+  "sale_price": null,
+  "commission_pct_listing": null,
+  "commission_pct_selling": null,
+  "listing_agent_commission_amount": null,
+  "selling_agent_commission_amount": 12750,
+  "confidence": "high",
+  "parser_notes": null
+}
+
+## Example 14: commission columns mapped — both sides present, comma-thousands, no dollar sign
+User message:
+  Today is 2026-05-26.
+  Source tab: June 2026.
+  Trigger: moved_from_conditional.
+  Row data:
+    A (address): 374 Bush Street
+    B (mls): SM260781
+    F (listing_agent): Sarah
+    G (selling_agent): Carlo
+    K (closing_date): 1-Jun
+    N (notes):
+    O (listing_agent_commission): 18,500
+    P (selling_agent_commission): 15,750.50
+
+Expected output:
+{
+  "address": "374 Bush Street",
+  "mls_number": "SM260781",
+  "listing_agent_raw": "Sarah",
+  "selling_agent_raw": "Carlo",
+  "closing_date_iso": "2026-06-01",
+  "sale_price": null,
+  "commission_pct_listing": null,
+  "commission_pct_selling": null,
+  "listing_agent_commission_amount": 18500,
+  "selling_agent_commission_amount": 15750.50,
   "confidence": "high",
   "parser_notes": null
 }
@@ -534,7 +633,9 @@ function formatRowForParsing(payload: RawSpreadsheetPayload, today: string): str
   lines.push(`Source tab: ${payload.source_tab}.`)
   if (payload.trigger) lines.push(`Trigger: ${payload.trigger}.`)
   lines.push('Row data:')
-  const fields: [string, string | undefined, string][] = [
+  // Core fields always rendered (matches the canonical Choice Realty layout
+  // the examples in the system prompt teach against).
+  const coreFields: [string, string | undefined, string][] = [
     ['address', cols.address, 'A'],
     ['mls', cols.mls, 'B'],
     ['deposit_amount', cols.deposit_amount, 'C'],
@@ -545,10 +646,22 @@ function formatRowForParsing(payload: RawSpreadsheetPayload, today: string): str
     ['closing_date', cols.closing_date, 'K'],
     ['notes', cols.notes, 'N'],
   ]
-  for (const [label, col, fallback] of fields) {
+  for (const [label, col, fallback] of coreFields) {
     const letter = col ?? fallback
     const value = cellAt(payload.row, letter)
     lines.push(`  ${letter} (${label}): ${value}`)
+  }
+  // Optional commission fields. Only rendered when actually mapped so the
+  // model isn't asked to extract dollars from a column that has none, and
+  // brokerages that haven't enabled the columns get the same byte-identical
+  // user-message format they did before this feature shipped.
+  if (cols.listing_agent_commission) {
+    const v = cellAt(payload.row, cols.listing_agent_commission)
+    lines.push(`  ${cols.listing_agent_commission} (listing_agent_commission): ${v}`)
+  }
+  if (cols.selling_agent_commission) {
+    const v = cellAt(payload.row, cols.selling_agent_commission)
+    lines.push(`  ${cols.selling_agent_commission} (selling_agent_commission): ${v}`)
   }
   return lines.join('\n')
 }
