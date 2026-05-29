@@ -65,10 +65,21 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
       .eq('agent_id', agentId)
 
     if (!deals || deals.length === 0) {
-      return { success: true, data: { unreadMessages: 0, pendingReturns: 0 } }
+      return { success: true, data: { unreadMessages: 0, pendingReturns: 0, failedDeals: 0, total: 0 } }
     }
 
     const dealIds = deals.map(d => d.id)
+
+    // Count failed-to-close deals this agent owns. Drives the "Failed deals"
+    // nav badge in AgentHeader. We use a dedicated head/count call here
+    // rather than reuse the deals list above because deals above selects
+    // only `id` (kept that way for the IN() filter), and adding `status`
+    // here keeps the existing filter cheap on agents with hundreds of deals.
+    const { count: failedDealsCount } = await serviceClient
+      .from('deals')
+      .select('id', { count: 'exact', head: true })
+      .eq('agent_id', agentId)
+      .eq('status', 'failed_to_close')
 
     // Get read status for all deals
     const { data: readStatuses } = await serviceClient
@@ -112,6 +123,11 @@ export async function getAgentNotificationCounts(agentId: string): Promise<Actio
       data: {
         unreadMessages,
         pendingReturns: pendingReturns || 0,
+        failedDeals: failedDealsCount || 0,
+        // `total` stays as messages + returns (the bell icon). The
+        // failed-deals count drives its own nav badge in AgentHeader and is
+        // intentionally NOT added to `total` so the bell stays focused on
+        // unread items rather than long-running state.
         total: unreadMessages + (pendingReturns || 0),
       },
     }

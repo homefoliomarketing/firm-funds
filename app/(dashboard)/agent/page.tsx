@@ -343,6 +343,46 @@ function AgentDashboardInner() {
       />
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Failed-deals summary strip: single entry-point card whenever the
+            agent has ANY failed_to_close deal on file. Lives above the cure
+            election prompts because it's the long-lived destination (the
+            election prompt below is per-deal and goes away once a choice
+            is made). Visual treatment matches the brokerage-side
+            ActionRequiredStrip amber tone for "action required, ongoing"
+            (red is reserved for the per-deal election deadline). */}
+        {(() => {
+          const failedDeals = deals.filter(d => d.status === 'failed_to_close')
+          if (failedDeals.length === 0) return null
+          return (
+            <section aria-label="Failed deals on your account" className="mb-6">
+              <button
+                type="button"
+                onClick={() => router.push('/agent/failed-deals')}
+                aria-label={`${failedDeals.length} failed deal${failedDeals.length === 1 ? '' : 's'} on your account, click to manage`}
+                className="group w-full text-left rounded-xl px-5 py-3.5 transition-all border flex items-center gap-4 bg-amber-950/30 border-amber-800/50 hover:border-amber-600 hover:bg-amber-950/45 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-amber-500/15" aria-hidden="true">
+                  <AlertTriangle size={17} className="text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
+                  <span className="text-xl font-bold tabular-nums leading-none text-amber-300">{failedDeals.length}</span>
+                  <span className="text-sm text-foreground/85">
+                    {failedDeals.length === 1 ? 'Failed deal on your account' : 'Failed deals on your account'}
+                  </span>
+                  <span className="text-xs text-muted-foreground basis-full sm:basis-auto sm:ml-2">
+                    Manage your remediation deals and clear the balance.
+                  </span>
+                </div>
+                <ChevronRight
+                  size={16}
+                  className="opacity-50 group-hover:opacity-100 transition flex-shrink-0 text-amber-400"
+                  aria-hidden="true"
+                />
+              </button>
+            </section>
+          )
+        })()}
+
         {/* Cure-election prompt — any failed_to_close deal without an
             election yet needs the agent's attention. We surface this above
             everything else because the 15-day clock keeps ticking even

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
-import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet } from 'lucide-react'
+import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
@@ -51,6 +51,7 @@ export default function AgentHeader({
 }: AgentHeaderProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [pendingReturns, setPendingReturns] = useState(0)
+  const [failedDealsCount, setFailedDealsCount] = useState(0)
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
@@ -105,6 +106,7 @@ export default function AgentHeader({
       if (result.success && result.data) {
         setUnreadCount(result.data.unreadMessages)
         setPendingReturns(result.data.pendingReturns)
+        setFailedDealsCount(result.data.failedDeals ?? 0)
         requestNotificationPermission()
       }
     } catch {
@@ -132,6 +134,7 @@ export default function AgentHeader({
   const isAccountPage = pathname === '/agent/account'
   const isProfilePage = pathname === '/agent/profile'
   const isSettingsPage = pathname === '/agent/settings'
+  const isFailedDealsPage = pathname === '/agent/failed-deals'
 
   const navBtnClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -227,6 +230,25 @@ export default function AgentHeader({
                       </span>
                     )}
                   </button>
+                  {/* Failed deals: only rendered when the agent has at
+                      least one failed-to-close deal. Keeps the nav clean
+                      for the 99% of agents who never see one. The amber
+                      badge differentiates this from the red message badge
+                      (Messages is "new info", Failed deals is "action
+                      required, ongoing"). */}
+                  {failedDealsCount > 0 && (
+                    <button
+                      onClick={() => router.push('/agent/failed-deals')}
+                      className={`${navBtnClass(isFailedDealsPage)} relative`}
+                      aria-label={`Failed deals, ${failedDealsCount} needing attention`}
+                    >
+                      <AlertTriangle size={14} />
+                      Failed deals
+                      <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-amber-950">
+                        {failedDealsCount > 99 ? '99+' : failedDealsCount}
+                      </span>
+                    </button>
+                  )}
                   <button onClick={() => router.push('/agent/account')} className={navBtnClass(isAccountPage)}>
                     <Wallet size={14} />
                     Account Balance

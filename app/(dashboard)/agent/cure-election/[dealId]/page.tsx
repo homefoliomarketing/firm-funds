@@ -185,13 +185,21 @@ export default function CureElectionPage({ params }: PageProps) {
     setSubmitError(null)
     const result = await submitCureElection({ dealId: deal.id, election: choice })
     if (result.success) {
+      // Commission assignment: bounce to the failed-deals page so the
+      // agent can add their next remediation deal without an extra click.
+      // Cash repayment: stay on this page (the confirmation copy below
+      // explains EFT next steps).
+      if (choice === 'commission_assignment') {
+        router.push(`/agent/failed-deals?dealId=${deal.id}`)
+        return
+      }
       setSubmittedChoice(choice)
       setDeal({ ...deal, cure_election: choice, cure_election_at: new Date().toISOString() })
     } else {
       setSubmitError(result.error || 'Failed to record your election. Please try again.')
     }
     setSubmitting(false)
-  }, [deal, choice, acknowledged])
+  }, [deal, choice, acknowledged, router])
 
   if (loading) {
     return (

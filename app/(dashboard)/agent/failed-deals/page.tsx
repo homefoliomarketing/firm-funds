@@ -5,8 +5,8 @@
 // Lets the agent add remediation deals (commission assignments) on their own
 // account to clear the failed-deal balance.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertTriangle, FileSignature, Plus, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/formatting'
@@ -63,8 +63,20 @@ function electionTone(c: string | null): string {
   return 'bg-red-950/40 text-red-300 border-red-800/50'
 }
 
+// useSearchParams() requires a Suspense boundary in Next.js 16 so static
+// pre-render doesn't suspend the entire page tree.
 export default function AgentFailedDealsPage() {
+  return (
+    <Suspense>
+      <AgentFailedDealsPageInner />
+    </Suspense>
+  )
+}
+
+function AgentFailedDealsPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const expandDealIdParam = searchParams.get('dealId')
   const supabase = useMemo(() => createClient(), [])
 
   const [profile, setProfile] = useState<UserProfile | null>(null)
@@ -122,6 +134,25 @@ export default function AgentFailedDealsPage() {
       setRemediationsByDeal(prev => ({ ...prev, [dealId]: (result.data || []) as RemediationRow[] }))
     }
   }, [])
+
+  // When we arrive from the cure-election redirect (?dealId=<id>), pre-expand
+  // that row and lazily load its remediation rows so the agent lands on the
+  // "Add remediation deal" button. The effect runs once per (param, rows)
+  // change because rows starts empty.
+  useEffect(() => {
+    if (!expandDealIdParam) return
+    if (rows.length === 0) return
+    const match = rows.find(r => r.id === expandDealIdParam)
+    if (!match) return
+    setExpandedDealId(expandDealIdParam)
+    if (!remediationsByDeal[expandDealIdParam]) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fire-and-forget side effect, state lives inside loadRemediationsFor
+      void loadRemediationsFor(expandDealIdParam)
+    }
+    // remediationsByDeal omitted on purpose: we only want to react to the
+    // arrival of rows + the URL param, not every cache mutation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandDealIdParam, rows, loadRemediationsFor])
 
   const handleToggleExpand = async (dealId: string) => {
     if (expandedDealId === dealId) {

@@ -115,6 +115,13 @@ export default function CureElectionPage({ params }: PageProps) {
     setError(null)
     const result = await submitCureElection({ dealId: deal.id, election: selected })
     if (result.success) {
+      // Commission assignment: hop straight to the failed-deals page so the
+      // agent can add the upcoming remediation deal in one continuous flow.
+      // Cash repayment: stay here so they can read the confirmation copy.
+      if (selected === 'commission_assignment') {
+        router.push(`/agent/failed-deals?dealId=${deal.id}`)
+        return
+      }
       // Refresh the deal
       const { data: refreshed } = await supabase
         .from('deals')
