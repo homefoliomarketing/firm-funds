@@ -57,7 +57,7 @@ export default function BrokerageBrandLogo({
         <img
           src={logoUrl}
           alt={logoIncludesTagline
-            ? `${brokerageName || 'Brokerage'} — Powered by Firm Funds`
+            ? `${brokerageName || 'Brokerage'}, Powered by Firm Funds`
             : `${brokerageName || 'Brokerage'} logo`}
           className={brokerageLogoClass}
         />
