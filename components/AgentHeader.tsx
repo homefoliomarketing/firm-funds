@@ -157,13 +157,13 @@ export default function AgentHeader({
                   <Image
                     src={brokerageLogo}
                     alt={brokerageLogoIncludesTagline
-                      ? `${brokerageName || 'Brokerage'} — Powered by Firm Funds`
+                      ? `${brokerageName || 'Brokerage'}, Powered by Firm Funds`
                       : `${brokerageName || 'Brokerage'} logo`}
                     width={160}
                     height={80}
                     unoptimized
                     className={brokerageLogoIncludesTagline
-                      ? 'h-14 sm:h-20 md:h-24 w-auto object-contain'
+                      ? 'h-20 sm:h-28 md:h-32 w-auto object-contain'
                       : 'h-12 sm:h-16 md:h-20 w-auto object-contain'}
                   />
                   {/* Skip the separate FF wordmark when the logo already

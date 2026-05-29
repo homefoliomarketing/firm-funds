@@ -71,7 +71,7 @@ function approxLineWidth(text: string, fontSize: number): number {
 //
 // Returns the lines and the chosen font-size that fits maxWidth.
 
-function fitName(name: string, maxWidth: number, maxFontSize = 64, minFontSize = 32): {
+function fitName(name: string, maxWidth: number, maxFontSize = 84, minFontSize = 48): {
   lines: string[]
   fontSize: number
 } {
@@ -142,30 +142,40 @@ export function generateBrokerageLogoSvg(
   const taglineColor = background === 'light' ? FF_GREY_DARK : FF_GREY_LIGHT
   const nameColor = FF_GREEN
 
-  // Fit the name
-  const padding = 40 // outer padding each side reserved
+  // Fit the name. Padding shrunk from 40 to 24 each side so longer wordmarks
+  // (e.g. "CHOICE ADVANCES", "ROYAL LEPAGE COMMUNITY") have room to stay on a
+  // single line at a larger font, which scales to a more legible size when
+  // the SVG is rendered into the portal header at h-20/h-24.
+  const padding = 24
   const nameMaxWidth = maxWidth - padding * 2
   const { lines, fontSize } = fitName(brokerageName, nameMaxWidth)
 
-  // Layout coordinates (top-down)
+  // Layout coordinates (top-down). The aim is a tight vertical stack so that
+  // when the SVG is `object-contain`-scaled to the portal header height, the
+  // wordmark and tagline render at readable sizes. Earlier values inflated
+  // padding to ~265px total, which scaled the 13px tagline down to ~4px in
+  // an 80px-tall header. Tighter padding + larger source font sizes give the
+  // wordmark and tagline three to four times the rendered size.
   const totalWidth = maxWidth
   const centerX = totalWidth / 2
 
-  const fMarkW = 72
-  const fMarkH = 80
-  const fMarkY = 32
+  // F-mark sits proportionally to the wordmark. We size it relative to font
+  // size so it doesn't visually dominate small names or get lost behind big
+  // ones.
+  const fMarkH = Math.round(fontSize * 1.05)
+  const fMarkW = Math.round(fMarkH * 0.9)
+  const fMarkY = 16
 
   const nameLineHeight = fontSize * 0.95
-  const nameBlockTopY = fMarkY + fMarkH + 28
+  const nameBlockTopY = fMarkY + fMarkH + 18
   const nameBlockHeight = lines.length * nameLineHeight
 
-  const dividerY = nameBlockTopY + nameBlockHeight + 22
-  // No actual divider line — just spacing — but kept for symmetry
+  // Tagline ~24% of the wordmark size keeps "POWERED BY FIRM FUNDS" readable
+  // at every rendered scale instead of disappearing.
+  const taglineFontSize = Math.max(16, Math.round(fontSize * 0.24))
+  const taglineY = nameBlockTopY + nameBlockHeight + Math.round(fontSize * 0.30)
 
-  const taglineFontSize = 13
-  const taglineY = dividerY + 8
-
-  const totalHeight = taglineY + taglineFontSize + 32
+  const totalHeight = taglineY + taglineFontSize + 18
 
   // Escape any reserved XML chars in the name
   const escapeXml = (s: string) =>

@@ -32,13 +32,15 @@ export default function BrokerageBrandLogo({
   className,
   size = 'md',
 }: BrokerageBrandLogoProps) {
-  // Generated logos contain the F-mark + brokerage name + tagline stacked,
-  // so they need ~1.6× more vertical space than a bare wordmark to stay
-  // readable. Uploaded logos use the smaller bare-wordmark heights.
+  // Generated logos contain the F-mark + brokerage name + tagline stacked.
+  // The whole composition has to render at a height where the smallest piece
+  // (the "POWERED BY FIRM FUNDS" tagline) stays legible, so generated logos
+  // get roughly twice the vertical space of a plain wordmark. Uploaded logos
+  // (which are usually a single horizontal wordmark) use the smaller heights.
   const brokerageLogoClass = logoIncludesTagline
-    ? (size === 'lg' ? 'h-16 sm:h-20 md:h-24 w-auto object-contain'
-       : size === 'sm' ? 'h-12 sm:h-14 w-auto object-contain'
-       : 'h-14 sm:h-16 md:h-20 w-auto object-contain')
+    ? (size === 'lg' ? 'h-24 sm:h-28 md:h-32 w-auto object-contain'
+       : size === 'sm' ? 'h-16 sm:h-20 w-auto object-contain'
+       : 'h-20 sm:h-24 md:h-28 w-auto object-contain')
     : (size === 'lg' ? 'h-12 sm:h-16 w-auto object-contain'
        : size === 'sm' ? 'h-8 sm:h-10 w-auto object-contain'
        : 'h-10 sm:h-12 w-auto object-contain')

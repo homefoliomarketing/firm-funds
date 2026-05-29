@@ -1,21 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250.15" width="480" height="250.15" role="img" aria-label="Leading Edge Advances — Powered by Firm Funds">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 299.9" width="480" height="299.9" role="img" aria-label="Leading Edge Advances — Powered by Firm Funds">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@900&amp;family=Inter:wght@500;800&amp;display=swap');
     .ff-name { font-family: 'Big Shoulders Display', Impact, 'Arial Black', sans-serif; font-weight: 900; }
     .ff-tagline { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-weight: 500; letter-spacing: 0.32em; }
     .ff-tagline-bold { font-weight: 800; letter-spacing: 0.22em; }
   </style>
-  <g transform="translate(204 32) scale(0.48)" fill="#d4d4d4">
+  <g transform="translate(206 16) scale(0.4533333333333333)" fill="#d4d4d4">
     <g transform="translate(-210 -175)">
       <polygon points="213.6,291.7 254.3,269.3 254.3,232.2" />
       <polygon points="262,325.8 286.9,294.2 286.9,277 316.3,262.5 321.7,232.2 262,264.8" />
       <polygon points="262,256.6 262,220.9 321.7,190.6 311.8,179.7 356.1,183.3 337.1,224.5 331.2,211.4 286.4,232.2 286.4,243.5" />
     </g>
   </g>
-  <text x="240" y="166.3625" text-anchor="middle" font-size="37" fill="#5FA873" class="ff-name" style="letter-spacing:-0.01em">
-    <tspan x="240" y="166.3625">LEADING EDGE ADVANCES</tspan>
+  <text x="240" y="159.5875" text-anchor="middle" font-size="71" fill="#5FA873" class="ff-name" style="letter-spacing:-0.01em">
+    <tspan x="240" y="159.5875">LEADING EDGE</tspan>
+    <tspan x="240" dy="67.45">ADVANCES</tspan>
   </text>
-  <text x="240" y="205.15" text-anchor="middle" font-size="13" fill="#d4d4d4" class="ff-tagline" dominant-baseline="hanging">
+  <text x="240" y="264.9" text-anchor="middle" font-size="17" fill="#d4d4d4" class="ff-tagline" dominant-baseline="hanging">
     POWERED BY <tspan class="ff-tagline-bold">FIRM FUNDS</tspan>
   </text>
 </svg>
