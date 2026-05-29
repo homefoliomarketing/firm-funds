@@ -77,7 +77,11 @@ export default function AddRemediationDealModal({
   const [error, setError] = useState<string | null>(null)
 
   // Reset the form whenever the modal opens. This keeps prior typed values
-  // from leaking back when the user reopens after a cancel.
+  // from leaking back when the user reopens after a cancel. The setState
+  // calls here are intentional (single reset on open transition, not a
+  // cascading render loop), so the react-hooks/set-state-in-effect rule
+  // is disabled for this block.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!open) return
     setError(null)
@@ -90,6 +94,7 @@ export default function AddRemediationDealModal({
       directedAmount: liveBalanceOwed > 0 ? liveBalanceOwed.toFixed(2) : '',
     })
   }, [open, brokerageDefaults, liveBalanceOwed])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async () => {
     setError(null)
