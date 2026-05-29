@@ -19,6 +19,7 @@ import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
 import OfferedDealsBanner from '@/components/brokerage/OfferedDealsBanner'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import { canViewBrokerageReferralFees } from '@/lib/access'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
@@ -480,6 +481,25 @@ export default function BrokerageDashboard() {
 
   const avgFeePerDeal = earnedDeals.length > 0 ? totalReferralFees / earnedDeals.length : 0
 
+  // Referral fees are sensitive commercial info — only the Broker of Record
+  // and the Brokerage Manager should see the tab. Other brokerage_admin
+  // staff (office managers, billing contacts, junior admins) are blocked.
+  // See lib/access.ts for the matching rules and the server-side guard in
+  // app/api/reports/referral-fees/route.ts. NOTE: profile may be null on
+  // first paint — default to false so the tab is hidden during the brief
+  // load window rather than flashing on then off.
+  const canViewReferrals = canViewBrokerageReferralFees(profile?.staff_title)
+
+  // If the URL or stale state lands on 'referrals' but the current user
+  // isn't allowed, snap back to the deals tab. (Tabs are local state so
+  // this only matters when the user's staff_title was downgraded mid-
+  // session, but the safety net is cheap.)
+  useEffect(() => {
+    if (!canViewReferrals && activeTab === 'referrals') {
+      setActiveTab('deals')
+    }
+  }, [canViewReferrals, activeTab])
+
   const formatMonthLabel = (ym: string) => {
     const [year, month] = ym.split('-').map(Number)
     return new Date(year, month - 1, 1).toLocaleDateString('en-CA', { month: 'long', year: 'numeric' })
@@ -715,7 +735,9 @@ export default function BrokerageDashboard() {
         {/* Tabbed Content */}
         <Card className="overflow-hidden border-border/40 shadow-lg shadow-black/20">
           <div className="flex overflow-x-auto border-b border-border/50" role="tablist" aria-label="Brokerage dashboard tabs">
-            {(['deals', 'payments', 'messages', 'agents', 'referrals'] as const).map((tab) => {
+            {(['deals', 'payments', 'messages', 'agents', 'referrals'] as const)
+              .filter((tab) => tab !== 'referrals' || canViewReferrals)
+              .map((tab) => {
               const tabLabels: Record<string, string> = { deals: `Deals (${deals.length})`, agents: `Agents (${agents.length})`, referrals: 'Referral Fees', payments: 'Payment Status', messages: 'Messages' }
               return (
                 <button
@@ -1253,7 +1275,7 @@ export default function BrokerageDashboard() {
           {/* ================================================================ */}
           {/* REFERRAL FEES TAB                                                */}
           {/* ================================================================ */}
-          {activeTab === 'referrals' && (
+          {activeTab === 'referrals' && canViewReferrals && (
             <section role="tabpanel" id="tabpanel-referrals" aria-labelledby="tab-referrals" className="p-4">
               {/* Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" aria-label="Referral fee summary">

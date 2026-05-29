@@ -40,3 +40,30 @@ export function getBrokerageStatusError(status: BrokerageStatus | null | undefin
     ? 'Your brokerage account is not active. Please contact Firm Funds support.'
     : 'Your brokerage is not active. Please contact Firm Funds support.'
 }
+
+// ============================================================================
+// Referral-fee visibility
+// ============================================================================
+// Referral fees are commercially sensitive — brokerages don't want every
+// office assistant or junior admin seeing what the brokerage earns back from
+// Firm Funds. The convention is to limit visibility to the senior contacts
+// on file: the Broker of Record (regulatory contact, signs the BCA) and the
+// Brokerage Manager (day-to-day owner of the relationship). Those titles are
+// captured in user_profiles.staff_title as free-form text — matched case-
+// insensitively here so "broker of record", "Broker Of Record" and the like
+// all qualify. Anyone else with role='brokerage_admin' (including the
+// default-titled admin who was seeded before staff_title existed) is
+// blocked. Firm Funds super_admin / firm_funds_admin never go through this
+// path — they hit the admin reports page instead.
+// ============================================================================
+const REFERRAL_FEE_VISIBLE_TITLES = new Set([
+  'broker of record',
+  'brokerage manager',
+])
+
+export function canViewBrokerageReferralFees(
+  staffTitle: string | null | undefined,
+): boolean {
+  if (!staffTitle) return false
+  return REFERRAL_FEE_VISIBLE_TITLES.has(staffTitle.trim().toLowerCase())
+}

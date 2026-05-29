@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { DEFAULT_BROKERAGE_REFERRAL_PCT } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/formatting'
+import { canViewBrokerageReferralFees } from '@/lib/access'
 
 // =============================================================================
 // GET /api/reports/referral-fees?month=YYYY-MM (optional)
@@ -36,11 +37,19 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, brokerage_id')
+    .select('role, brokerage_id, staff_title')
     .eq('id', user.id)
     .single()
 
   if (!profile || profile.role !== 'brokerage_admin' || !profile.brokerage_id) {
+    return new Response('Forbidden', { status: 403 })
+  }
+
+  // Referral fees are restricted to senior brokerage contacts (Broker of
+  // Record + Brokerage Manager). Hiding the tab on the client is half the
+  // job — the PDF endpoint must enforce the same rule or any admin could
+  // hit /api/reports/referral-fees directly and download the data.
+  if (!canViewBrokerageReferralFees(profile.staff_title)) {
     return new Response('Forbidden', { status: 403 })
   }
 

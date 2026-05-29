@@ -289,6 +289,12 @@ export interface UserProfile {
   must_reset_password: boolean
   last_login: string | null
   created_at: string
+  // Free-form job title for brokerage staff (e.g. "Broker of Record",
+  // "Brokerage Manager", "Office Manager"). Used to gate the Referral Fees
+  // tab in the brokerage portal — see canViewBrokerageReferralFees() in
+  // lib/access.ts.
+  staff_title?: string | null
+  last_active_at?: string | null
 }
 
 export type EsignatureStatus = 'sent' | 'delivered' | 'signed' | 'declined' | 'voided'
