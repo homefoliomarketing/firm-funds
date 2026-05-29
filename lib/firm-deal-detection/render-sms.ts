@@ -22,7 +22,13 @@ export interface SmsRenderInput {
   property_address: string
   brand_name: string
   cta_url: string
-  variant: 'sparse' | 'dual_agency'
+  variant: 'sparse' | 'dual_agency' | 'detailed'
+  /** Gross commission for this agent's side, pre-split. Only used by
+   *  variant='detailed'. */
+  commission_amount?: number | null
+  /** Estimated pre-split advance. Same calculation as the email so both
+   *  channels quote the same number. Only used by variant='detailed'. */
+  advance_estimate?: number | null
 }
 
 export interface RenderedSms {
@@ -68,6 +74,14 @@ function estimateSegments(body: string): { segments: number; has_unicode: boolea
   return { has_unicode: false, segments: Math.max(1, Math.ceil(body.length / 160)) }
 }
 
+function formatMoneyShort(amount: number | null | undefined): string {
+  if (amount == null || !Number.isFinite(amount)) return ''
+  // SMS-friendly money formatter: no decimals, $-prefixed, comma-grouped.
+  // Plain ASCII so we stay in GSM-7 (single segment).
+  const rounded = Math.round(amount)
+  return '$' + rounded.toLocaleString('en-CA')
+}
+
 export function renderTriggerSms(input: SmsRenderInput): RenderedSms {
   const first = input.agent_first_name || 'there'
   const address = input.property_address || 'your recent deal'
@@ -75,9 +89,27 @@ export function renderTriggerSms(input: SmsRenderInput): RenderedSms {
   // Keep it under 160 chars; the CTA URL eats ~30 chars on its own.
   // Brand prefix is brokerage-specific; some brands are longer than others
   // so we don't pad excessively here.
-  const intro = input.variant === 'dual_agency'
-    ? `Hi ${first}, your deal at ${address} went firm (both sides). Get paid today instead of waiting:`
-    : `Hi ${first}, your deal at ${address} went firm. Get paid today instead of waiting:`
+  let intro: string
+  if (input.variant === 'dual_agency') {
+    intro = `Hi ${first}, your deal at ${address} went firm (both sides). Get paid today instead of waiting:`
+  } else if (
+    input.variant === 'detailed' &&
+    input.commission_amount &&
+    input.commission_amount > 0 &&
+    input.advance_estimate &&
+    input.advance_estimate > 0
+  ) {
+    // Quote the advance estimate. We drop the commission line to keep
+    // under 160 chars — the email shows both numbers, the SMS focuses
+    // on the actionable advance figure.
+    //
+    // "About" instead of "~" because the tilde isn't in basic GSM-7 and
+    // forces the message into UCS-2 (70-char segments instead of 160).
+    const advance = formatMoneyShort(input.advance_estimate)
+    intro = `Hi ${first}, your ${address} deal went firm. About ${advance} could be yours today (before splits):`
+  } else {
+    intro = `Hi ${first}, your deal at ${address} went firm. Get paid today instead of waiting:`
+  }
 
   const body = `${input.brand_name}: ${intro} ${input.cta_url}\nReply STOP to opt out.`
   const { segments, has_unicode } = estimateSegments(body)

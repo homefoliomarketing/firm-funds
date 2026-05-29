@@ -33,9 +33,25 @@ import type { ParsedFirmDeal } from './parse-event'
 export interface DispatchResult {
   event_id: string
   outcome: 'offer_sent' | 'already_sent' | 'skipped' | 'errored'
+  /** Top-level email outcome reflects the primary agent's send. Per-agent
+   *  detail is in agent_results when the event fans out to multiple agents. */
   email: { status: string; provider_id?: string; error?: string }
   sms: { status: string; provider_id?: string; error?: string }
+  /** Per-agent outcomes when the event reached multiple agents (co-agent
+   *  split or dual-agency with distinct agents). The primary appears first. */
+  agent_results?: Array<{
+    agent_id: string
+    email: { status: string; provider_id?: string; error?: string }
+    sms: { status: string; provider_id?: string; error?: string }
+  }>
   message?: string
+}
+
+interface AgentRecord {
+  id: string
+  first_name: string | null
+  email: string | null
+  phone: string | null
 }
 
 interface DispatchContext {
@@ -46,6 +62,9 @@ interface DispatchContext {
     parsed: ParsedFirmDeal | null
     matched_agent_id: string | null
     second_matched_agent_id: string | null
+    listing_matched_agent_id: string | null
+    selling_matched_agent_id: string | null
+    co_agent_split: boolean
     status: string
     email_sent_at: string | null
     sms_sent_at: string | null
@@ -54,12 +73,42 @@ interface DispatchContext {
     brand_name: string
     brand_tagline: string
   }
-  primary_agent: {
-    id: string
-    first_name: string | null
-    email: string | null
-    phone: string | null
-  }
+  /** Recipients to fan out to. Always at least one (the primary). For
+   *  co-agent splits and dual-agency-with-distinct-agents, two entries. */
+  recipients: AgentRecord[]
+}
+
+// ============================================================================
+// Advance estimator — shared by email + SMS so both quote the same number
+// ============================================================================
+const RATE_PER_1000_PER_DAY = 0.80
+const DEFAULT_SETTLEMENT_DAYS = 7
+
+/**
+ * Estimate the pre-split advance against a gross commission, given days
+ * until closing. Mirrors lib/calculations.ts but treats the gross as the
+ * net (brokerageSplitPct = 0) because at offer time we don't know the
+ * agent's office split. The email + SMS both label the figure as
+ * "before brokerage splits" so the inflation vs the real advance is
+ * disclosed.
+ */
+export function estimateAdvanceFromGross(
+  grossCommission: number,
+  daysUntilClosing: number
+): number {
+  if (!Number.isFinite(grossCommission) || grossCommission <= 0) return 0
+  const effectiveDays = Math.max(1, Math.floor(daysUntilClosing) - 1)
+  const discountFee = grossCommission * (RATE_PER_1000_PER_DAY / 1000) * effectiveDays
+  const settlementFee = grossCommission * (RATE_PER_1000_PER_DAY / 1000) * DEFAULT_SETTLEMENT_DAYS
+  return Math.max(0, Math.round(grossCommission - discountFee - settlementFee))
+}
+
+function daysFromTodayToISO(iso: string | null): number {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 0
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+  const today = new Date(todayStr + 'T00:00:00Z').getTime()
+  const closing = new Date(iso + 'T00:00:00Z').getTime()
+  return Math.max(0, Math.ceil((closing - today) / (1000 * 60 * 60 * 24)))
 }
 
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
@@ -84,10 +133,16 @@ export async function dispatchFirmDealNotification(
   eventId: string,
   supabase: SupabaseClient
 ): Promise<DispatchResult> {
-  // Load full event with joined pipe + agent
+  // Load full event with side-aware match fields and the co_agent_split flag
+  // (added migration 097) so the variant picker can force generic for splits.
   const { data: event, error: eventErr } = await supabase
     .from('firm_deal_events')
-    .select('id, brokerage_id, brokerage_pipe_id, parsed, matched_agent_id, second_matched_agent_id, status, email_sent_at, sms_sent_at')
+    .select(`
+      id, brokerage_id, brokerage_pipe_id, parsed,
+      matched_agent_id, second_matched_agent_id,
+      listing_matched_agent_id, selling_matched_agent_id,
+      co_agent_split, status, email_sent_at, sms_sent_at
+    `)
     .eq('id', eventId)
     .single()
 
@@ -119,7 +174,18 @@ export async function dispatchFirmDealNotification(
     return errorResult(eventId, 'No matched_agent_id on event; cannot dispatch.', supabase)
   }
 
-  const [{ data: pipe, error: pipeErr }, { data: agent, error: agentErr }] = await Promise.all([
+  // Load primary + (optional) secondary agent. We fetch the secondary when
+  // it's set AND distinct from the primary; same-agent-both-sides (existing
+  // dual-agency case where matched == second_matched) only emails once.
+  const agentIds: string[] = [event.matched_agent_id]
+  if (
+    event.second_matched_agent_id &&
+    event.second_matched_agent_id !== event.matched_agent_id
+  ) {
+    agentIds.push(event.second_matched_agent_id)
+  }
+
+  const [{ data: pipe, error: pipeErr }, { data: agentRows, error: agentErr }] = await Promise.all([
     supabase
       .from('brokerage_pipes')
       .select('brand_name, brand_tagline')
@@ -128,12 +194,24 @@ export async function dispatchFirmDealNotification(
     supabase
       .from('agents')
       .select('id, first_name, email, phone')
-      .eq('id', event.matched_agent_id)
-      .single(),
+      .in('id', agentIds),
   ])
 
   if (pipeErr || !pipe) return errorResult(eventId, `Pipe load failed: ${pipeErr?.message}`, supabase)
-  if (agentErr || !agent) return errorResult(eventId, `Agent load failed: ${agentErr?.message}`, supabase)
+  if (agentErr || !agentRows || agentRows.length === 0) {
+    return errorResult(eventId, `Agent load failed: ${agentErr?.message ?? 'no rows'}`, supabase)
+  }
+
+  // Preserve order: primary first, then secondary. The supabase `.in()` call
+  // doesn't guarantee result order, so we sort by the agentIds order.
+  const agentById = new Map((agentRows as AgentRecord[]).map(a => [a.id, a]))
+  const recipients: AgentRecord[] = agentIds
+    .map(id => agentById.get(id))
+    .filter((a): a is AgentRecord => !!a)
+
+  if (recipients.length === 0) {
+    return errorResult(eventId, 'No recipients resolved from matched_agent_id(s).', supabase)
+  }
 
   const ctx: DispatchContext = {
     event: event as DispatchContext['event'],
@@ -141,56 +219,109 @@ export async function dispatchFirmDealNotification(
       brand_name: pipe.brand_name ?? 'Firm Funds',
       brand_tagline: pipe.brand_tagline ?? 'Powered by Firm Funds',
     },
-    primary_agent: agent,
+    recipients,
   }
 
   return await dispatchWithContext(ctx, supabase)
 }
 
-async function dispatchWithContext(
+// ============================================================================
+// Per-agent variant selection
+// ============================================================================
+// Returns the variant + commission amount the renderer should use for one
+// agent on one event.
+//
+// Decision order:
+//   1. Co-agent split event              -> sparse (generic, no numbers)
+//      We don't know each co-agent's share so quoting a commission would
+//      misinform.
+//   2. Same agent on both sides          -> dual_agency
+//      Existing behavior. Detailed-with-numbers across dual-agency is a
+//      future iteration once we have UI for showing both sides' commission.
+//   3. Agent's matching side has a known commission_amount -> detailed
+//      The parser pulled a dollar value from the spreadsheet column. The
+//      email + SMS show the gross + a pre-split advance estimate.
+//   4. Default                            -> sparse
+// ============================================================================
+function pickAgentVariant(
+  agentId: string,
+  event: DispatchContext['event']
+): {
+  variant: 'sparse' | 'dual_agency' | 'detailed'
+  commission_amount: number | null
+  advance_estimate: number | null
+} {
+  const parsed = event.parsed
+
+  if (event.co_agent_split) {
+    return { variant: 'sparse', commission_amount: null, advance_estimate: null }
+  }
+
+  // Existing dual-agency: same agent matched on both sides.
+  if (
+    event.second_matched_agent_id &&
+    event.second_matched_agent_id === event.matched_agent_id &&
+    agentId === event.matched_agent_id
+  ) {
+    return { variant: 'dual_agency', commission_amount: null, advance_estimate: null }
+  }
+
+  // Per-side commission lookup. We use listing_matched_agent_id /
+  // selling_matched_agent_id (written by processFirmDealEvent) to decide
+  // which side this agent is on; that wins over matched_agent_id which is
+  // a flattened "first agent to dispatch to" slot.
+  let commission: number | null = null
+  if (parsed?.listing_agent_commission_amount && event.listing_matched_agent_id === agentId) {
+    commission = parsed.listing_agent_commission_amount
+  } else if (parsed?.selling_agent_commission_amount && event.selling_matched_agent_id === agentId) {
+    commission = parsed.selling_agent_commission_amount
+  }
+
+  if (commission && commission > 0 && parsed?.closing_date_iso) {
+    const days = daysFromTodayToISO(parsed.closing_date_iso)
+    const advance = estimateAdvanceFromGross(commission, days)
+    if (advance > 0) {
+      return { variant: 'detailed', commission_amount: commission, advance_estimate: advance }
+    }
+  }
+
+  return { variant: 'sparse', commission_amount: null, advance_estimate: null }
+}
+
+interface PerAgentSend {
+  agent_id: string
+  email: ChannelResult
+  sms: ChannelResult
+}
+
+async function sendForOneAgent(
+  agent: AgentRecord,
   ctx: DispatchContext,
   supabase: SupabaseClient
-): Promise<DispatchResult> {
+): Promise<PerAgentSend> {
   const parsed = ctx.event.parsed
-  const variant: 'sparse' | 'dual_agency' =
-    ctx.event.second_matched_agent_id && ctx.event.second_matched_agent_id === ctx.event.matched_agent_id
-      ? 'dual_agency'
-      : 'sparse'
-
   const propertyAddress = parsed?.address || 'your recent deal'
 
-  // Mint a one-shot magic-link token so the agent does not hit the login
-  // wall on a phone they haven't logged in to in months. The token carries
-  // the firm_deal_event_id forward and expires in 7 days. If minting fails
-  // (DB hiccup), we fall back to a plain deep link so dispatch still sends.
-  // The agent will just hit /login if their session is gone.
-  //
-  // Observability: a single mint failure is benign (the deep-link fallback
-  // works for already-signed-in agents on desktop). A FLOOD of mint
-  // failures means firm_deal_magic_links is broken — RLS misconfigured
-  // (migration 091 hardens this), unique-index conflict, the magic_link
-  // module throwing on Supabase admin API errors, etc. We log to console
-  // AND write an audit_log row with severity='warning' so the admin audit
-  // feed flags repeated failures during ops review. A future metrics
-  // integration (Sentry, Datadog) should also bump a counter here so a
-  // dashboard alert can fire before the audit log fills up.
+  const { variant, commission_amount, advance_estimate } = pickAgentVariant(agent.id, ctx.event)
+
+  // Mint a per-agent magic-link token so each co-agent or dual-agency
+  // recipient lands on /agent/firm-deal/<token> bound to THEIR agent id.
+  // If minting fails for any one recipient we degrade to a plain deep
+  // link for that recipient only (they'll just hit /login if their
+  // session is gone).
   let cta_url = `${APP_URL.replace(/\/$/, '')}/agent?firm_deal=${encodeURIComponent(ctx.event.id)}`
   try {
     const { token } = await mintFirmDealMagicLink(supabase, {
       firm_deal_event_id: ctx.event.id,
-      agent_id: ctx.primary_agent.id,
+      agent_id: agent.id,
     })
     cta_url = `${APP_URL.replace(/\/$/, '')}/agent/firm-deal/${token}`
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err)
     console.warn(
-      '[dispatch] mintFirmDealMagicLink failed, falling back to deep link:',
+      `[dispatch] mintFirmDealMagicLink failed for agent ${agent.id}, falling back to deep link:`,
       errMessage
     )
-    // Best-effort audit log. logAuditEventServiceRole already swallows its
-    // own errors so it can't disrupt the dispatch path. We still wrap in
-    // try/catch to be defensive — a flood of failures here mustn't poison
-    // every dispatch.
     try {
       await logAuditEventServiceRole({
         action: 'firm_deal.magic_link_mint_failed',
@@ -199,7 +330,7 @@ async function dispatchWithContext(
         severity: 'warning',
         metadata: {
           event_id: ctx.event.id,
-          agent_id: ctx.primary_agent.id,
+          agent_id: agent.id,
           error: errMessage,
         },
       })
@@ -209,51 +340,66 @@ async function dispatchWithContext(
         auditErr instanceof Error ? auditErr.message : auditErr
       )
     }
-    // TODO(metrics): bump a counter like
-    //   metrics.increment('firm_deal.magic_link_mint_failures', 1, { error: errMessage })
-    // once Sentry / Datadog / OTel is wired up. A spike here should page.
   }
 
-  // Render both
   const email = renderTriggerEmail({
-    agent_first_name: ctx.primary_agent.first_name ?? '',
+    agent_first_name: agent.first_name ?? '',
     property_address: propertyAddress,
     closing_date_iso: parsed?.closing_date_iso ?? null,
     brand_name: ctx.pipe.brand_name,
     brand_tagline: ctx.pipe.brand_tagline,
     cta_url,
     variant,
+    commission_amount,
+    advance_estimate,
   })
   const sms = renderTriggerSms({
-    agent_first_name: ctx.primary_agent.first_name ?? '',
+    agent_first_name: agent.first_name ?? '',
     property_address: propertyAddress,
     brand_name: ctx.pipe.brand_name,
     cta_url,
     variant,
+    commission_amount,
+    advance_estimate,
   })
 
-  // Dispatch in parallel
   const [emailResult, smsResult] = await Promise.all([
-    sendEmail(ctx.primary_agent.email, email),
-    ctx.primary_agent.phone
-      ? sendSms({ to: ctx.primary_agent.phone, body: sms.body })
+    sendEmail(agent.email, email),
+    agent.phone
+      ? sendSms({ to: agent.phone, body: sms.body })
       : Promise.resolve({ status: 'skipped_no_phone' as const, message_sid: undefined, error: undefined }),
   ])
 
-  const emailSent = emailResult.status === 'sent'
-  const smsSent = smsResult.status === 'sent'
-  const anySent = emailSent || smsSent
+  return { agent_id: agent.id, email: emailResult, sms: smsResult }
+}
 
-  // Persist outcome
+async function dispatchWithContext(
+  ctx: DispatchContext,
+  supabase: SupabaseClient
+): Promise<DispatchResult> {
+  // Fan out: each recipient gets their own variant pick, magic link,
+  // rendered content, and parallel email + SMS send.
+  const perAgent = await Promise.all(
+    ctx.recipients.map(agent => sendForOneAgent(agent, ctx, supabase))
+  )
+
+  // Aggregate across agents. If ANY agent's email or SMS sent, we mark
+  // the event as offer_sent. The per-agent breakdown is returned in
+  // agent_results so the caller can see who failed if anyone did.
+  const anyEmailSent = perAgent.some(r => r.email.status === 'sent')
+  const anySmsSent = perAgent.some(r => r.sms.status === 'sent')
+  const anySent = anyEmailSent || anySmsSent
+
   const updateFields: Record<string, unknown> = {}
-  if (emailSent) updateFields.email_sent_at = new Date().toISOString()
-  if (smsSent) updateFields.sms_sent_at = new Date().toISOString()
+  if (anyEmailSent) updateFields.email_sent_at = new Date().toISOString()
+  if (anySmsSent) updateFields.sms_sent_at = new Date().toISOString()
   const newStatus = anySent ? 'offer_sent' : 'errored'
   updateFields.status = newStatus
   if (!anySent) {
-    updateFields.error_message =
-      `Both channels failed. email=${emailResult.status} ${emailResult.error ?? ''}; ` +
-      `sms=${smsResult.status} ${smsResult.error ?? ''}`
+    const summary = perAgent
+      .map(r => `agent ${r.agent_id.slice(0, 8)}: email=${r.email.status} ${r.email.error ?? ''}; sms=${r.sms.status} ${r.sms.error ?? ''}`)
+      .join(' | ')
+    updateFields.error_message = `All channels failed across ${perAgent.length} recipient(s). ${summary}`
   }
   // Soft transition guard — see process-event.ts FIRM_DEAL_EVENT_TRANSITIONS.
   if (!isValidFirmDealEventTransition(ctx.event.status, newStatus)) {
@@ -264,19 +410,31 @@ async function dispatchWithContext(
   }
   await supabase.from('firm_deal_events').update(updateFields).eq('id', ctx.event.id)
 
+  // Top-level email/sms mirror the PRIMARY recipient so callers that
+  // pre-date multi-agent dispatch still see the existing shape. The
+  // per-agent breakdown is in agent_results.
+  const primary = perAgent[0]
+
   return {
     event_id: ctx.event.id,
     outcome: anySent ? 'offer_sent' : 'errored',
     email: {
-      status: emailResult.status,
-      provider_id: emailResult.message_sid,
-      error: emailResult.error,
+      status: primary.email.status,
+      provider_id: primary.email.message_sid,
+      error: primary.email.error,
     },
     sms: {
-      status: smsResult.status,
-      provider_id: smsResult.message_sid,
-      error: smsResult.error,
+      status: primary.sms.status,
+      provider_id: primary.sms.message_sid,
+      error: primary.sms.error,
     },
+    agent_results: perAgent.length > 1
+      ? perAgent.map(r => ({
+          agent_id: r.agent_id,
+          email: { status: r.email.status, provider_id: r.email.message_sid, error: r.email.error },
+          sms: { status: r.sms.status, provider_id: r.sms.message_sid, error: r.sms.error },
+        }))
+      : undefined,
   }
 }
 

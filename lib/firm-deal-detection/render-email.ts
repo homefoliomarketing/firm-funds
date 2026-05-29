@@ -2,11 +2,16 @@
  * lib/firm-deal-detection/render-email.ts
  *
  * White-label HTML email for the firm-deal trigger. Matches the
- * `email-mockup.html` design Bud signed off on. Two variants supported:
+ * `email-mockup.html` design Bud signed off on. Three variants supported:
  *
- *   A1 (sparse)  - default for the spreadsheet pipe; no sale price, no
- *                  commission percentages
- *   A3 (dual)    - same agent held both sides of the deal
+ *   sparse        - default for the spreadsheet pipe; no sale price, no
+ *                   commission percentages
+ *   dual_agency   - same agent held both sides of the deal
+ *   detailed      - we know this agent's side gross commission, so we
+ *                   include a callout with the commission + estimated
+ *                   advance. Forced off for co-agent splits because we
+ *                   don't know each agent's share (see render-sms.ts for
+ *                   the same rule).
  *
  * Voice constraints (from CLAUDE.md):
  *   - "went firm" never "closed firm"
@@ -24,7 +29,14 @@ export interface EmailRenderInput {
   brand_name: string             // e.g. "Choice Advances"
   brand_tagline: string          // e.g. "Powered by Firm Funds"
   cta_url: string                // deep link to the agent dashboard
-  variant: 'sparse' | 'dual_agency'
+  variant: 'sparse' | 'dual_agency' | 'detailed'
+  /** Gross commission for this agent's side, BEFORE the brokerage split.
+   *  Only consumed by variant='detailed'. Other variants ignore. */
+  commission_amount?: number | null
+  /** Estimated advance against the gross commission (pre-split). Computed
+   *  by the dispatcher with estimateAdvanceFromGross() so the email and
+   *  SMS quote the same number. Only consumed by variant='detailed'. */
+  advance_estimate?: number | null
 }
 
 export interface RenderedEmail {
@@ -53,6 +65,18 @@ function formatClosingDate(iso: string | null): string | null {
   return `${month} ${day}, ${year}`
 }
 
+function formatMoney(amount: number | null | undefined): string {
+  if (amount == null || !Number.isFinite(amount)) return ''
+  // No-cents thousands-grouped CAD (we only ever quote whole-dollar estimates
+  // in the email). en-CA gives us "$76,500" which reads cleanly across the
+  // brokerages we serve.
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    maximumFractionDigits: 0,
+  }).format(Math.round(amount))
+}
+
 export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
   const firstName = escapeHtml(input.agent_first_name || 'there')
   const address = escapeHtml(input.property_address || 'your recent deal')
@@ -69,13 +93,38 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
     intro = `We see that your recent deal at <span style="font-weight:600; color:#1a2e1d;">${address}</span> went firm. Congrats!`
   }
 
+  // 'detailed' variant inserts a callout above the "Get paid TODAY" hero
+  // showing the gross commission and a pre-split advance estimate. We
+  // always tag the estimate as "before brokerage split" — actual advance
+  // depends on the agent's office split which we don't know at offer
+  // time. Empty string when not applicable.
+  const commissionCallout = (() => {
+    if (input.variant !== 'detailed') return ''
+    if (input.commission_amount == null || input.commission_amount <= 0) return ''
+    const commissionStr = formatMoney(input.commission_amount)
+    const advanceStr = input.advance_estimate != null && input.advance_estimate > 0
+      ? formatMoney(input.advance_estimate)
+      : null
+    const advanceLine = advanceStr
+      ? `<p style="font-size:14px; color:#222; margin:8px 0 0 0; text-align:center;">Estimated advance today: <span style="font-weight:700; color:#3d8055;">${escapeHtml(advanceStr)}</span> <span style="color:#888; font-weight:400; font-size:12px;">(less brokerage splits)</span></p>`
+      : ''
+    return `
+            <div style="background:#fafbfa; border:1px solid #d9e4dd; border-radius:8px; padding:14px 18px; margin:0 0 22px 0; text-align:center;">
+              <p style="font-size:13px; color:#666; margin:0 0 4px 0; text-transform:uppercase; letter-spacing:0.08em;">Gross commission</p>
+              <p style="font-size:26px; font-weight:700; color:#1a2e1d; margin:0; line-height:1.1;">${escapeHtml(commissionStr)}</p>
+              ${advanceLine}
+            </div>`
+  })()
+
   const altOption = closingHuman
     ? `Would you like to wait until <span style="font-weight:600; color:#222;">${escapeHtml(closingHuman)}</span> to receive your commission&hellip;`
     : `Would you like to wait weeks for your commission&hellip;`
 
   const todayLabel = input.variant === 'dual_agency'
     ? 'Both sides, both commissions'
-    : 'Instead of waiting weeks'
+    : input.variant === 'detailed'
+      ? 'Instead of waiting weeks'
+      : 'Instead of waiting weeks'
 
   const subject = input.variant === 'dual_agency'
     ? `Your deal at ${input.property_address} went firm`
@@ -103,6 +152,7 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
           <td style="padding:32px 36px 28px 36px; line-height:1.55;">
             <p style="font-size:16px; margin:0 0 16px 0; color:#1a2e1d;">Hi ${firstName},</p>
             <p style="font-size:16px; margin:0 0 28px 0; color:#222;">${intro}</p>
+${commissionCallout}
             <p style="font-size:15px; color:#4a4a4a; margin:0 0 12px 0; text-align:center;">${altOption}</p>
             <div style="text-align:center; color:#aaa; font-size:11px; margin:14px 0 12px 0; text-transform:uppercase; letter-spacing:0.18em;">or</div>
             <div style="background:linear-gradient(180deg,#f0f8f2 0%,#e6f3ea 100%); border:2px solid #5FA873; border-radius:10px; padding:26px 20px; text-align:center; margin:4px 0 28px 0;">
@@ -127,12 +177,21 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
 </body>
 </html>`
 
-  const text = [
+  const textLines = [
     `Hi ${input.agent_first_name || 'there'},`,
     '',
     input.variant === 'dual_agency'
       ? `We see that your recent deal at ${input.property_address} went firm. Looks like you held both sides too. Nice work.`
       : `We see that your recent deal at ${input.property_address} went firm. Congrats!`,
+  ]
+  if (input.variant === 'detailed' && input.commission_amount && input.commission_amount > 0) {
+    textLines.push('')
+    textLines.push(`Gross commission: ${formatMoney(input.commission_amount)}`)
+    if (input.advance_estimate && input.advance_estimate > 0) {
+      textLines.push(`Estimated advance today: ${formatMoney(input.advance_estimate)} (less brokerage splits)`)
+    }
+  }
+  textLines.push(
     '',
     closingHuman
       ? `Would you like to wait until ${closingHuman} to receive your commission, or get paid TODAY?`
@@ -143,7 +202,8 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
     `Get paid today: ${cta}`,
     '',
     `${input.brand_name} - ${input.brand_tagline}`,
-  ].join('\n')
+  )
+  const text = textLines.join('\n')
 
   return { subject, html, text }
 }

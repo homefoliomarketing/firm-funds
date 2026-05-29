@@ -235,6 +235,12 @@ export async function processFirmDealEvent(
   // for the dispatch primary. matched_agent_id is the dispatch recipient,
   // derived as listing-first-then-selling so the existing dispatcher
   // (which only emails matched_agent_id) keeps working.
+  //
+  // Co-agent split case (Phase 1, 2026-05-28): one side returns kind='split'
+  // with 2 enrolled agents. We populate matched_agent_id and
+  // second_matched_agent_id with the two co-agents and stamp
+  // co_agent_split=true so the dispatcher sends both agents the generic
+  // variant (we don't know how the commission divides between them).
   const listingAgentId =
     match.listing.kind === 'agent' && match.listing.agent_id
       ? match.listing.agent_id
@@ -260,6 +266,7 @@ export async function processFirmDealEvent(
     selling_matched_agent_id: sellingAgentId,
     matched_agent_id: primaryAgentId,
     second_matched_agent_id: secondaryAgentId,
+    co_agent_split: match.co_agent_split,
   }
 
   const { error: updErr } = await supabase
