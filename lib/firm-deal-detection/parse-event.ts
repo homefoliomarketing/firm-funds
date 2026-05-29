@@ -56,6 +56,9 @@ export interface RawSpreadsheetPayload {
     payment_method?: string
     listing_agent?: string
     selling_agent?: string
+    /** Optional gross-commission columns (added 2026-05-28). */
+    listing_agent_commission?: string
+    selling_agent_commission?: string
     notes?: string
   }
   trigger?: string

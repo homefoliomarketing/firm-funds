@@ -261,7 +261,8 @@ export interface CreatePipeInput {
   sheetUrl: string
   conditionalTab: string
   tabsToWatch: string[]
-  /** Whitelist enforced server-side: only address/mls/closing_date/listing_agent/selling_agent are accepted as keys. */
+  /** Whitelist enforced server-side. Allowed keys: address, mls, closing_date,
+   *  listing_agent, selling_agent, listing_agent_commission, selling_agent_commission. */
   columnMapping: Record<string, string>
   brandName: string
   brandTagline: string
@@ -273,6 +274,12 @@ const ALLOWED_COLUMN_KEYS = new Set([
   'closing_date',
   'listing_agent',
   'selling_agent',
+  // Optional gross-commission columns added 2026-05-28. When mapped, the
+  // parser extracts the dollar amount per side and the email/SMS render
+  // shifts to the "detailed" variant with a calculated advance estimate.
+  // Both columns are independent — a sheet may map just one side or both.
+  'listing_agent_commission',
+  'selling_agent_commission',
 ])
 
 function isValidColumnLetter(letter: string): boolean {

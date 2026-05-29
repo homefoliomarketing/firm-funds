@@ -40,6 +40,11 @@ export interface SpreadsheetPipeConfig {
     payment_method?: string
     listing_agent?: string
     selling_agent?: string
+    /** Optional gross-commission columns (added 2026-05-28). When set, the
+     *  parser extracts a dollar amount and the email/SMS shifts to the
+     *  detailed variant with a calculated advance estimate. */
+    listing_agent_commission?: string
+    selling_agent_commission?: string
     notes?: string
   }
 }

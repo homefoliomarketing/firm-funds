@@ -52,7 +52,15 @@ import {
 // ============================================================================
 
 type TabRole = 'conditional' | 'watch' | 'ignore'
-type ColumnRole = 'address' | 'mls' | 'closing_date' | 'listing_agent' | 'selling_agent' | 'ignore'
+type ColumnRole =
+  | 'address'
+  | 'mls'
+  | 'closing_date'
+  | 'listing_agent'
+  | 'selling_agent'
+  | 'listing_agent_commission'
+  | 'selling_agent_commission'
+  | 'ignore'
 
 const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
   address: 'Address',
@@ -60,6 +68,8 @@ const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
   closing_date: 'Closing date',
   listing_agent: 'Listing agent',
   selling_agent: 'Selling agent',
+  listing_agent_commission: 'Listing agent commission ($)',
+  selling_agent_commission: 'Selling agent commission ($)',
   ignore: '(ignore)',
 }
 
