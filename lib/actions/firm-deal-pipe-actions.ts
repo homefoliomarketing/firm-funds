@@ -160,6 +160,21 @@ export interface ExistingPipeSummary {
 export interface NotificationRecipientsConfig {
   include_broker_of_record: boolean
   extra_emails: string[]
+  /**
+   * Per-pipe override for the Firm Funds inbox copy. When null, the
+   * dispatcher falls back to FIRM_FUNDS_OFFER_INBOX env var (default
+   * bud@firmfunds.ca). When set, replaces the FF inbox in BOTH the
+   * brokerage-facing offer emails AND the 4h internal escalation for
+   * this pipe.
+   */
+  ff_inbox_override: string | null
+  /**
+   * Hint surfaced to the UI: what the dispatcher would use right now if
+   * no override is set. The settings card renders this as the placeholder
+   * + the "Always included" Firm Funds inbox value. Computed server-side
+   * so the client doesn't have to read env vars.
+   */
+  ff_inbox_default: string
 }
 
 export async function getBrokerageForPipeWizard(input: {
@@ -201,11 +216,16 @@ export async function getBrokerageForPipeWizard(input: {
     // every row has values, but a manual SQL nudge could leave a weird
     // shape. Coerce to known fields and drop everything else.
     const rawRecipients = (pipeRow.notification_recipients ?? {}) as Record<string, unknown>
+    const overrideRaw = typeof rawRecipients.ff_inbox_override === 'string'
+      ? rawRecipients.ff_inbox_override.trim().toLowerCase()
+      : ''
     const notification_recipients: NotificationRecipientsConfig = {
       include_broker_of_record: rawRecipients.include_broker_of_record === true,
       extra_emails: Array.isArray(rawRecipients.extra_emails)
         ? (rawRecipients.extra_emails as unknown[]).filter((v): v is string => typeof v === 'string')
         : [],
+      ff_inbox_override: overrideRaw || null,
+      ff_inbox_default: (process.env.FIRM_FUNDS_OFFER_INBOX || 'bud@firmfunds.ca').toLowerCase(),
     }
     pipe = {
       pipe_id: pipeRow.id,
@@ -418,6 +438,12 @@ export async function setPipeNotificationRecipients(input: {
   pipeId: string
   includeBrokerOfRecord: boolean
   extraEmails: string[]
+  /**
+   * Override for the Firm Funds inbox copy. Empty string or null clears
+   * the override (dispatcher falls back to FIRM_FUNDS_OFFER_INBOX env).
+   * Any non-empty value must be a valid email.
+   */
+  ffInboxOverride?: string | null
 }): Promise<ActionResult<NotificationRecipientsConfig>> {
   const auth = await getAuthenticatedAdmin()
   if (auth.error) return { success: false, error: auth.error }
@@ -442,9 +468,39 @@ export async function setPipeNotificationRecipients(input: {
     }
   }
 
+  // Normalize + validate the FF inbox override. Empty / whitespace-only
+  // means "use the env default" and is stored as null so the JSONB stays
+  // clean. Any non-empty value must pass the same email regex.
+  const overrideRaw = typeof input.ffInboxOverride === 'string'
+    ? input.ffInboxOverride.trim().toLowerCase()
+    : ''
+  let ffInboxOverride: string | null = null
+  if (overrideRaw) {
+    if (!EMAIL_RE.test(overrideRaw)) {
+      return {
+        success: false,
+        error: `"${input.ffInboxOverride}" doesn't look like an email address. Leave blank to use the default.`,
+      }
+    }
+    ffInboxOverride = overrideRaw
+  }
+
+  const ffInboxDefault = (process.env.FIRM_FUNDS_OFFER_INBOX || 'bud@firmfunds.ca').toLowerCase()
+
   const recipients: NotificationRecipientsConfig = {
     include_broker_of_record: !!input.includeBrokerOfRecord,
     extra_emails: cleaned,
+    ff_inbox_override: ffInboxOverride,
+    ff_inbox_default: ffInboxDefault,
+  }
+
+  // ff_inbox_default is a UI hint only — don't persist it in the JSONB
+  // (it's recomputed each time we read). Build the on-disk shape
+  // separately to keep storage tidy.
+  const persisted = {
+    include_broker_of_record: recipients.include_broker_of_record,
+    extra_emails: recipients.extra_emails,
+    ff_inbox_override: recipients.ff_inbox_override,
   }
 
   const supabase = createServiceRoleClient()
@@ -460,7 +516,7 @@ export async function setPipeNotificationRecipients(input: {
 
   const { error } = await supabase
     .from('brokerage_pipes')
-    .update({ notification_recipients: recipients })
+    .update({ notification_recipients: persisted })
     .eq('id', input.pipeId)
   if (error) {
     return { success: false, error: `Failed to save recipients: ${error.message}` }
@@ -473,13 +529,14 @@ export async function setPipeNotificationRecipients(input: {
     oldValue: priorPipe?.notification_recipients
       ? { notification_recipients: priorPipe.notification_recipients }
       : undefined,
-    newValue: { notification_recipients: recipients },
+    newValue: { notification_recipients: persisted },
     metadata: {
       pipe_id: input.pipeId,
       brokerage_id: priorPipe?.brokerage_id ?? null,
       include_broker_of_record: recipients.include_broker_of_record,
       extra_emails_count: recipients.extra_emails.length,
       extra_emails: recipients.extra_emails,
+      ff_inbox_override: recipients.ff_inbox_override,
       updated_by_user_id: auth.user?.id ?? null,
     },
   })

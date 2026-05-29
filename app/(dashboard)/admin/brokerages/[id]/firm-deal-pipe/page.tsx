@@ -722,9 +722,11 @@ function AutoFireToggleCard({
 // NotificationRecipientsCard
 //
 // Configures who gets the brokerage-facing email when an agent accepts a
-// firm-deal offer. brokerages.email + FIRM_FUNDS_OFFER_INBOX are always
-// included (shown read-only here for context). Two toggles the admin can
-// turn:
+// firm-deal offer. brokerages.email + the resolved Firm Funds inbox are
+// always included (shown read-only here for context). Settings the admin
+// can change:
+//   - Override the Firm Funds inbox for this pipe (replaces the env-var
+//     default, e.g. for a white-label routing copies elsewhere)
 //   - Include the Broker of Record (uses brokerages.broker_of_record_email)
 //   - Free-form list of extra emails (one per line, max 10)
 //
@@ -747,6 +749,9 @@ function NotificationRecipientsCard({
   const [includeBoR, setIncludeBoR] = useState(initial.include_broker_of_record)
   // Stored as a single string for the textarea; we split + clean on save.
   const [extraEmailsText, setExtraEmailsText] = useState(initial.extra_emails.join('\n'))
+  // Empty input = use default. Stored as raw text so the field stays in
+  // sync with what the admin actually typed; we clean on save.
+  const [ffInboxOverrideText, setFfInboxOverrideText] = useState(initial.ff_inbox_override ?? '')
   const [savedConfig, setSavedConfig] = useState(initial)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -767,10 +772,17 @@ function NotificationRecipientsCard({
     return out
   }, [extraEmailsText])
 
+  // Resolved FF inbox — what the dispatcher will use right now. Empty
+  // override falls back to the server-supplied default. Same precedence as
+  // resolveFFInbox() on the dispatcher side.
+  const cleanedFfOverride = ffInboxOverrideText.trim().toLowerCase()
+  const resolvedFfInbox = cleanedFfOverride || initial.ff_inbox_default
+
   const dirty =
     includeBoR !== savedConfig.include_broker_of_record ||
     cleanedExtraEmails.length !== savedConfig.extra_emails.length ||
-    cleanedExtraEmails.some((e, i) => e !== savedConfig.extra_emails[i])
+    cleanedExtraEmails.some((e, i) => e !== savedConfig.extra_emails[i]) ||
+    (cleanedFfOverride || null) !== (savedConfig.ff_inbox_override ?? null)
 
   // Live preview of the full recipient list the dispatcher will use. Helps
   // Bud sanity-check before saving without having to look up the brokerage
@@ -778,11 +790,11 @@ function NotificationRecipientsCard({
   const previewList = useMemo(() => {
     const list = new Set<string>()
     if (brokerageEmail) list.add(brokerageEmail.toLowerCase())
-    list.add('bud@firmfunds.ca')  // FF inbox default; matches dispatcher
+    list.add(resolvedFfInbox)
     if (includeBoR && brokerOfRecordEmail) list.add(brokerOfRecordEmail.toLowerCase())
     for (const e of cleanedExtraEmails) list.add(e)
     return Array.from(list)
-  }, [brokerageEmail, brokerOfRecordEmail, includeBoR, cleanedExtraEmails])
+  }, [brokerageEmail, brokerOfRecordEmail, includeBoR, cleanedExtraEmails, resolvedFfInbox])
 
   async function handleSave() {
     setSaving(true)
@@ -791,6 +803,7 @@ function NotificationRecipientsCard({
       pipeId,
       includeBrokerOfRecord: includeBoR,
       extraEmails: cleanedExtraEmails,
+      ffInboxOverride: cleanedFfOverride || null,
     })
     setSaving(false)
     if (!res.success || !res.data) {
@@ -799,6 +812,7 @@ function NotificationRecipientsCard({
     }
     setSavedConfig(res.data)
     setExtraEmailsText(res.data.extra_emails.join('\n'))
+    setFfInboxOverrideText(res.data.ff_inbox_override ?? '')
     setStatus({ type: 'success', text: 'Saved. New offers will use this list.' })
   }
 
@@ -825,9 +839,31 @@ function NotificationRecipientsCard({
             </li>
             <li>
               <span className="text-muted-foreground">Firm Funds inbox:</span>{' '}
-              <span className="font-mono">bud@firmfunds.ca</span>
+              <span className="font-mono">{resolvedFfInbox}</span>
+              {cleanedFfOverride && (
+                <span className="ml-1.5 text-[10px] uppercase tracking-wider text-primary/80">(override)</span>
+              )}
             </li>
           </ul>
+        </div>
+
+        {/* Firm Funds inbox override */}
+        <div className="space-y-1.5">
+          <Label htmlFor="ff-inbox-override" className="text-xs font-semibold text-foreground">
+            Firm Funds inbox override
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            Replaces the default <span className="font-mono">{initial.ff_inbox_default}</span> for this brokerage&apos;s offer emails and the 4-hour internal escalation. Leave blank to use the default.
+          </p>
+          <input
+            id="ff-inbox-override"
+            type="email"
+            value={ffInboxOverrideText}
+            onChange={(e) => setFfInboxOverrideText(e.target.value)}
+            placeholder={initial.ff_inbox_default}
+            autoComplete="off"
+            className="w-full px-3 py-2 rounded-lg text-xs font-mono bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+          />
         </div>
 
         {/* Broker of Record toggle */}

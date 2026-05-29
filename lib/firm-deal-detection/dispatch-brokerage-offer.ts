@@ -17,11 +17,13 @@
  *     CC'd on every brokerage email so we have full visibility into the
  *     flow without needing to log in.
  *   - The internal escalation (3) ships only to the Firm Funds inbox.
- *   - FIRM_FUNDS_OFFER_INBOX env var overrides the default
- *     (bud@firmfunds.ca) once we have a dedicated address. A future
- *     settings UI will let each brokerage configure broker-of-record +
- *     extra admin recipients; for now the column-driven defaults are
- *     intentional, see HANDOFF-firm-deal-followups.md.
+ *   - The "Firm Funds inbox" address resolves in this order:
+ *       1. notification_recipients.ff_inbox_override on the pipe (per
+ *          brokerage, configured from the admin UI)
+ *       2. FIRM_FUNDS_OFFER_INBOX env var
+ *       3. Hard fallback to bud@firmfunds.ca
+ *     This lets a white-label brokerage route copies to a dedicated
+ *     mailbox without redeploying.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
@@ -34,7 +36,19 @@ import { renderAgentDeclineEmail } from './render-agent-decline-email'
 
 const APP_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca').replace(/\/$/, '')
 const FROM_ADDRESS = process.env.FIRM_DEAL_FROM_ADDRESS || 'Firm Funds <notifications@firmfunds.ca>'
-const FF_OFFER_INBOX = process.env.FIRM_FUNDS_OFFER_INBOX || 'bud@firmfunds.ca'
+const FF_OFFER_INBOX_DEFAULT = process.env.FIRM_FUNDS_OFFER_INBOX || 'bud@firmfunds.ca'
+
+/**
+ * Resolve the Firm Funds inbox for a specific pipe. Per-pipe override wins;
+ * otherwise we fall back to the env var (or the hard default if even that
+ * is unset). Pulled into a function so the dispatcher, the gate-check, and
+ * the 4h escalation all agree on the same precedence rules.
+ */
+export function resolveFFInbox(ffInboxOverride: string | null | undefined): string {
+  const cleaned = (ffInboxOverride ?? '').trim().toLowerCase()
+  if (cleaned) return cleaned
+  return FF_OFFER_INBOX_DEFAULT.toLowerCase()
+}
 
 let _resend: Resend | null = null
 function getResend(): Resend | null {
@@ -87,9 +101,16 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
   let closing_date_iso: string | null = (deal.closing_date as string | null) ?? null
   // Recipient config from migration 082. Defaults are safe-empty so a pipe
   // that pre-dates the migration still gets the always-included recipients.
-  let pipe_recipients: { include_broker_of_record: boolean; extra_emails: string[] } = {
+  // ff_inbox_override added later (no migration — JSONB shape) lets each
+  // pipe route the FF inbox copy elsewhere; null means "use the env var".
+  let pipe_recipients: {
+    include_broker_of_record: boolean
+    extra_emails: string[]
+    ff_inbox_override: string | null
+  } = {
     include_broker_of_record: false,
     extra_emails: [],
+    ff_inbox_override: null,
   }
   if (eventRes.data) {
     const ev = eventRes.data as { brokerage_pipe_id: string; parsed: Record<string, unknown> | null }
@@ -107,6 +128,9 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
         extra_emails: Array.isArray(r.extra_emails)
           ? (r.extra_emails as unknown[]).filter((v): v is string => typeof v === 'string')
           : [],
+        ff_inbox_override: typeof r.ff_inbox_override === 'string' && r.ff_inbox_override.trim()
+          ? r.ff_inbox_override.trim().toLowerCase()
+          : null,
       }
     }
     const parsedClose = (ev.parsed as { closing_date_iso?: string | null } | null)?.closing_date_iso
@@ -175,6 +199,8 @@ async function sendOne(opts: {
  *   - Broker of Record (if the toggle is on AND the brokerage has a
  *     broker_of_record_email on file)
  *   - Each free-form extra email the admin added on the settings page
+ *   - ff_inbox_override on the pipe, if set, replaces the default FF inbox
+ *     for this brokerage's emails (per-pipe override of the env var)
  *
  * Set semantics ensure no double-sends even if a recipient appears in
  * multiple sources (e.g. the brokerage's main email happens to be the
@@ -187,11 +213,16 @@ async function sendOne(opts: {
  */
 export function recipientsForBrokerage(
   brokerage: { email: string | null; broker_of_record_email: string | null },
-  pipeRecipients: { include_broker_of_record: boolean; extra_emails: string[] }
+  pipeRecipients: {
+    include_broker_of_record: boolean
+    extra_emails: string[]
+    ff_inbox_override?: string | null
+  }
 ): string[] {
   const list = new Set<string>()
   if (brokerage.email) list.add(brokerage.email.toLowerCase())
-  if (FF_OFFER_INBOX) list.add(FF_OFFER_INBOX.toLowerCase())
+  const ffInbox = resolveFFInbox(pipeRecipients.ff_inbox_override)
+  if (ffInbox) list.add(ffInbox)
   if (pipeRecipients.include_broker_of_record && brokerage.broker_of_record_email) {
     list.add(brokerage.broker_of_record_email.toLowerCase())
   }
@@ -227,9 +258,14 @@ export async function loadBrokerageOfferRecipients(
     return { recipients: [], brokerage_loaded: false }
   }
 
-  let pipeRecipients: { include_broker_of_record: boolean; extra_emails: string[] } = {
+  let pipeRecipients: {
+    include_broker_of_record: boolean
+    extra_emails: string[]
+    ff_inbox_override: string | null
+  } = {
     include_broker_of_record: false,
     extra_emails: [],
+    ff_inbox_override: null,
   }
   if (pipeId) {
     const { data: pipe } = await supabase
@@ -244,6 +280,9 @@ export async function loadBrokerageOfferRecipients(
         extra_emails: Array.isArray(r.extra_emails)
           ? (r.extra_emails as unknown[]).filter((v): v is string => typeof v === 'string')
           : [],
+        ff_inbox_override: typeof r.ff_inbox_override === 'string' && r.ff_inbox_override.trim()
+          ? r.ff_inbox_override.trim().toLowerCase()
+          : null,
       }
     }
   }
@@ -392,15 +431,20 @@ export async function sendInternalEscalation4h(
     agent_dashboard_url: buildAgentDashboardUrl(dealId),
   })
 
+  // 4h escalation routes to the per-pipe FF inbox (override wins, env var
+  // is the fallback). Same precedence as the brokerage-facing emails so a
+  // white-label brokerage with a dedicated mailbox gets consistent routing.
+  const ffInbox = resolveFFInbox(ctx.pipe_recipients.ff_inbox_override)
+
   const send = await sendOne({
-    to: [FF_OFFER_INBOX],
+    to: [ffInbox],
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
   })
 
   if (!send.ok) {
-    return { deal_id: dealId, outcome: 'errored', recipients: [FF_OFFER_INBOX], error: send.error }
+    return { deal_id: dealId, outcome: 'errored', recipients: [ffInbox], error: send.error }
   }
 
   await supabase
@@ -408,5 +452,5 @@ export async function sendInternalEscalation4h(
     .update({ internal_alert_4h_at: new Date().toISOString() })
     .eq('id', dealId)
 
-  return { deal_id: dealId, outcome: 'sent', recipients: [FF_OFFER_INBOX], provider_id: send.provider_id }
+  return { deal_id: dealId, outcome: 'sent', recipients: [ffInbox], provider_id: send.provider_id }
 }
