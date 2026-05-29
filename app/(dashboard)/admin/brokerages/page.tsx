@@ -3572,7 +3572,11 @@ export default function BrokeragesPage() {
                   <div className="px-3 py-1.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">On dark (portal &amp; emails)</div>
                   <div className="bg-[#0C0C0C] p-6 flex items-center justify-center min-h-[180px]">
                     {logoGenPreviewDark ? (
-                      <div className="max-w-full" dangerouslySetInnerHTML={{ __html: logoGenPreviewDark }} />
+                      // The generated SVG has explicit width/height attrs (480 × ~265)
+                      // intentionally — those are the intrinsic dimensions for downloads
+                      // and email sizing. But the preview box is narrower, so force the
+                      // SVG to scale down via Tailwind arbitrary descendant selectors.
+                      <div className="w-full [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-w-[360px]" dangerouslySetInnerHTML={{ __html: logoGenPreviewDark }} />
                     ) : (
                       <span className="text-xs text-muted-foreground">Enter a name to preview</span>
                     )}
@@ -3582,7 +3586,7 @@ export default function BrokeragesPage() {
                   <div className="px-3 py-1.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">On white (downloads &amp; print)</div>
                   <div className="bg-white p-6 flex items-center justify-center min-h-[180px]">
                     {logoGenPreviewLight ? (
-                      <div className="max-w-full" dangerouslySetInnerHTML={{ __html: logoGenPreviewLight }} />
+                      <div className="w-full [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-w-[360px]" dangerouslySetInnerHTML={{ __html: logoGenPreviewLight }} />
                     ) : (
                       <span className="text-xs text-muted-foreground">Enter a name to preview</span>
                     )}
