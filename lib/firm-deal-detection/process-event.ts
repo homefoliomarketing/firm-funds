@@ -38,6 +38,14 @@ export interface ProcessEventOptions {
   match_context?: BrokerageMatchContext
   /** Pre-loaded auto_fire_enabled for the event's pipe, to skip an extra query. */
   auto_fire_enabled?: boolean
+  /**
+   * Opt-in: re-process an event that's already in 'unmatched'. The cron
+   * pipeline never sets this (otherwise it would re-process the same
+   * unresolved rows forever); the admin-triggered "Re-run match" button
+   * sets it after the matcher gains new capability or new agents land
+   * in the brokerage roster.
+   */
+  allow_rematch?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -147,8 +155,14 @@ export async function processFirmDealEvent(
   }
   const e = event as FirmDealEventRow
 
-  // Idempotency: only process 'new' or retry 'errored'
-  if (e.status !== 'new' && e.status !== 'errored') {
+  // Idempotency: only process 'new' or retry 'errored' by default. The
+  // admin-triggered re-run match path opts in to 'unmatched' too (the
+  // unmatched -> awaiting_approval transition is allowed by the state
+  // machine; the gate is just to keep the cron pipeline from looping on
+  // the same unresolved rows).
+  const allowedStatuses: string[] = ['new', 'errored']
+  if (options.allow_rematch) allowedStatuses.push('unmatched')
+  if (!allowedStatuses.includes(e.status)) {
     return { event_id: eventId, outcome: 'skipped', message: `Status ${e.status} is terminal or in-flight; not reprocessing.` }
   }
 

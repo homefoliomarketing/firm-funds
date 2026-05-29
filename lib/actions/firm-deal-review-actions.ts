@@ -3,6 +3,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
 import { dispatchFirmDealNotification } from '@/lib/firm-deal-detection/dispatch-notification'
+import { processFirmDealEvent } from '@/lib/firm-deal-detection/process-event'
 import type { ParsedFirmDeal } from '@/lib/firm-deal-detection/parse-event'
 import { logAuditEvent } from '@/lib/audit'
 
@@ -30,6 +31,10 @@ export type ReviewQueueRow = {
   second_matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
   listing_matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
   selling_matched_agent: { id: string; first_name: string | null; last_name: string | null } | null
+  // True when matched_agent + second_matched_agent are co-agents on the
+  // SAME side (Kyle/Tricia case). Drives the SideChip rendering to show
+  // both names on the split side.
+  co_agent_split: boolean
   // Brokerage's enrolled agents — passed once per brokerage so the UI can
   // build picker dropdowns without a second round-trip
   enrolled_agents: { id: string; first_name: string | null; last_name: string | null }[]
@@ -60,6 +65,7 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
       parsed, raw_payload, received_at, processed_at, error_message,
       matched_agent_id, second_matched_agent_id,
       listing_matched_agent_id, selling_matched_agent_id,
+      co_agent_split,
       matched_agent:agents!firm_deal_events_matched_agent_id_fkey(id, first_name, last_name),
       second_matched_agent:agents!firm_deal_events_second_matched_agent_id_fkey(id, first_name, last_name),
       listing_matched_agent:agents!firm_deal_events_listing_matched_agent_id_fkey(id, first_name, last_name),
@@ -80,6 +86,7 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
       parsed, raw_payload, received_at, processed_at, error_message,
       matched_agent_id, second_matched_agent_id,
       listing_matched_agent_id, selling_matched_agent_id,
+      co_agent_split,
       matched_agent:agents!firm_deal_events_matched_agent_id_fkey(id, first_name, last_name),
       second_matched_agent:agents!firm_deal_events_second_matched_agent_id_fkey(id, first_name, last_name),
       listing_matched_agent:agents!firm_deal_events_listing_matched_agent_id_fkey(id, first_name, last_name),
@@ -156,6 +163,7 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
       selling_matched_agent: Array.isArray(r.selling_matched_agent)
         ? (r.selling_matched_agent[0] as ReviewQueueRow['selling_matched_agent']) ?? null
         : (r.selling_matched_agent as ReviewQueueRow['selling_matched_agent']),
+      co_agent_split: Boolean((r as { co_agent_split?: boolean }).co_agent_split),
       enrolled_agents: agentsByBrokerage.get(r.brokerage_id) ?? [],
     }
   }
@@ -323,13 +331,16 @@ export async function resolveUnmatchedFirmDealEvent(
 
   type Side = ResolveUnmatchedInput['listing_action']
 
-  // Side-aware resolution. Each action maps to exactly one side's column.
-  // 'assign_agent' -> set side column to the picked agent.
-  // 'assign_team'  -> use the first agent (schema only has one side column);
-  //                   the existing target_agent_ids carries the full team for
-  //                   dispatch (a Phase-2 enhancement).
-  // 'mark_outside' / unresolved -> side column stays null.
-  // 'leave_as_parsed' -> reuse whatever was already on that side.
+  // Side-aware resolution. Build the list of distinct enrolled agents per
+  // side, then collapse into the two-slot schema (matched + second_matched).
+  //
+  // - 'assign_agent' -> [picked_agent]
+  // - 'assign_team'  -> [picked_agent_a, picked_agent_b, ...] (co-agents
+  //                     on the same side; the side column gets the first
+  //                     and the rest land in second_matched_agent_id when
+  //                     there's room)
+  // - 'mark_outside' -> []
+  // - 'leave_as_parsed' -> [prev] if prev is set, else []
   const fullEvent = await supabase
     .from('firm_deal_events')
     .select('listing_matched_agent_id, selling_matched_agent_id')
@@ -338,40 +349,45 @@ export async function resolveUnmatchedFirmDealEvent(
   const prevListing = (fullEvent.data?.listing_matched_agent_id as string | null) ?? null
   const prevSelling = (fullEvent.data?.selling_matched_agent_id as string | null) ?? null
 
-  function resolveSide(action: Side, prev: string | null): string | null {
-    if (action.kind === 'assign_agent') return action.agent_id
-    if (action.kind === 'assign_team') return action.agent_ids[0] ?? null
-    if (action.kind === 'mark_outside') return null
-    return prev // leave_as_parsed
-  }
-
-  const listingAgentId = resolveSide(input.listing_action, prevListing)
-  const sellingAgentId = resolveSide(input.selling_action, prevSelling)
-
-  // Dispatch primary: listing wins if present, else selling.
-  const primaryAgentId = listingAgentId ?? sellingAgentId ?? null
-  const secondaryAgentId =
-    primaryAgentId === null
-      ? null
-      : primaryAgentId === listingAgentId
-        ? sellingAgentId
-        : listingAgentId
-
-  const targetList: string[] = []
-  if (primaryAgentId) targetList.push(primaryAgentId)
-  if (secondaryAgentId && secondaryAgentId !== primaryAgentId) {
-    targetList.push(secondaryAgentId)
-  }
-  // Teams may contribute extra IDs beyond the two side columns. Preserve
-  // them in target_agent_ids semantics by appending uniques (used by
-  // future multi-recipient dispatcher work).
-  for (const action of [input.listing_action, input.selling_action]) {
+  function collectAgents(action: Side, prev: string | null): string[] {
+    if (action.kind === 'assign_agent') return [action.agent_id]
     if (action.kind === 'assign_team') {
+      // Drop empty entries and dedupe to be tolerant of UI passing the same
+      // agent twice.
+      const seen = new Set<string>()
+      const out: string[] = []
       for (const id of action.agent_ids) {
-        if (!targetList.includes(id)) targetList.push(id)
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        out.push(id)
       }
+      return out
     }
+    if (action.kind === 'mark_outside') return []
+    return prev ? [prev] : [] // leave_as_parsed
   }
+
+  const listingAgents = collectAgents(input.listing_action, prevListing)
+  const sellingAgents = collectAgents(input.selling_action, prevSelling)
+
+  // Side columns hold only the first agent per side (schema constraint).
+  const listingAgentId = listingAgents[0] ?? null
+  const sellingAgentId = sellingAgents[0] ?? null
+
+  // Build the dispatch order: listing-first, then selling, de-duped. The
+  // first two distinct agents fill the matched_agent_id / second_matched_agent_id
+  // slots that the dispatcher uses for fan-out.
+  const targetList: string[] = []
+  for (const id of [...listingAgents, ...sellingAgents]) {
+    if (!targetList.includes(id)) targetList.push(id)
+  }
+  const primaryAgentId = targetList[0] ?? null
+  const secondaryAgentId = targetList[1] ?? null
+
+  // Co-agent split = a single side contributes 2+ distinct enrolled agents.
+  // This mirrors the matcher's auto-detection (Kyle/Tricia) and is what the
+  // dispatcher reads to pick the generic email/SMS variant for both agents.
+  const isCoAgentSplit = listingAgents.length >= 2 || sellingAgents.length >= 2
 
   // Insert any "remember" mappings
   const mappingRows: Array<{
@@ -449,6 +465,7 @@ export async function resolveUnmatchedFirmDealEvent(
     selling_matched_agent_id: sellingAgentId,
     matched_agent_id: primaryAgentId,
     second_matched_agent_id: secondaryAgentId,
+    co_agent_split: isCoAgentSplit,
     reviewed_by: auth.user?.id ?? null,
     reviewed_at: new Date().toISOString(),
     error_message: null,
@@ -476,6 +493,7 @@ export async function resolveUnmatchedFirmDealEvent(
       selling_matched_agent_id: sellingAgentId,
       matched_agent_id: primaryAgentId,
       second_matched_agent_id: secondaryAgentId,
+      co_agent_split: isCoAgentSplit,
     },
     metadata: {
       event_id: input.event_id,
@@ -484,6 +502,7 @@ export async function resolveUnmatchedFirmDealEvent(
       selling_action_kind: input.selling_action.kind,
       ready_to_approve: input.ready_to_approve,
       target_agent_ids: targetList,
+      co_agent_split: isCoAgentSplit,
       mappings_remembered: mappingRows.length,
       mapping_shorthands: mappingRows.map(m => m.shorthand),
       reviewed_by_user_id: auth.user?.id ?? null,
@@ -491,4 +510,62 @@ export async function resolveUnmatchedFirmDealEvent(
   })
 
   return { success: true }
+}
+
+// ============================================================================
+// Re-run the matcher on an unmatched (or errored) event — useful after a new
+// agent is enrolled, a brokerage-name mapping is added, or the matcher gains
+// new capability (e.g. co-agent split detection landing 2026-05-28). Lets the
+// admin retry without having to manually assign every queued row.
+// ============================================================================
+export async function rerunFirmDealMatch(
+  eventId: string
+): Promise<ActionResult<{ outcome: string; message?: string }>> {
+  const auth = await getAuthenticatedAdmin()
+  if (auth.error) return { success: false, error: auth.error }
+  const supabase = createServiceRoleClient()
+
+  // Load the event first so the audit log captures the prior state.
+  const { data: prior, error: priorErr } = await supabase
+    .from('firm_deal_events')
+    .select('id, status, matched_agent_id, second_matched_agent_id, co_agent_split')
+    .eq('id', eventId)
+    .maybeSingle()
+  if (priorErr) return { success: false, error: priorErr.message }
+  if (!prior) return { success: false, error: 'Event not found' }
+  if (prior.status !== 'unmatched' && prior.status !== 'errored') {
+    return {
+      success: false,
+      error: `Status is ${prior.status}; re-run match only applies to unmatched or errored events.`,
+    }
+  }
+
+  const result = await processFirmDealEvent(eventId, supabase, { allow_rematch: true })
+
+  await logAuditEvent({
+    action: 'firm_deal_review.match_rerun',
+    entityType: 'firm_deal_event',
+    entityId: eventId,
+    oldValue: {
+      status: prior.status,
+      matched_agent_id: prior.matched_agent_id,
+      second_matched_agent_id: prior.second_matched_agent_id,
+      co_agent_split: prior.co_agent_split,
+    },
+    newValue: {
+      outcome: result.outcome,
+    },
+    metadata: {
+      event_id: eventId,
+      outcome: result.outcome,
+      message: result.message ?? null,
+      reviewed_by_user_id: auth.user?.id ?? null,
+    },
+  })
+
+  return {
+    success: result.outcome !== 'errored',
+    error: result.outcome === 'errored' ? result.message ?? 'Re-run failed' : undefined,
+    data: { outcome: result.outcome, message: result.message },
+  }
 }
