@@ -7,6 +7,12 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "deck-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "http-server", "marketing/decks/commission-advance-pitch", "-p", "8765", "-c-1", "--silent"],
+      "port": 8765
     }
   ]
 }

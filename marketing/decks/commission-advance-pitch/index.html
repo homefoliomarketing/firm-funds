@@ -1,0 +1,1953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Firm Funds, Commission Advance Partnership Pitch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  /* =============================================================
+     Firm Funds brand tokens, mirrored from app/globals.css
+     ============================================================= */
+  :root {
+    --ff-bg:            #0B0B0F;
+    --ff-bg-elev:       #141418;
+    --ff-bg-elev-2:     #1E1E24;
+    --ff-bg-deepest:    #07070A;
+    --ff-border:        rgba(255, 255, 255, 0.08);
+    --ff-border-strong: rgba(255, 255, 255, 0.14);
+    --ff-divider:       rgba(255, 255, 255, 0.06);
+
+    --ff-text:          #EAEAEF;
+    --ff-text-muted:    #A0A0AB;
+    --ff-text-faint:    #6B6B78;
+    --ff-text-dim:      #3A3A44;
+
+    --ff-green:         #5FA873;
+    --ff-green-light:   #7BC48D;
+    --ff-green-dark:    #3D7A4F;
+    --ff-green-glow:    rgba(95, 168, 115, 0.18);
+    --ff-green-bg:      #0E2016;
+
+    --ff-purple:        #A385D0;
+    --ff-blue:          #7B9FE0;
+    --ff-amber:         #D4A04A;
+    --ff-red:           #E07B7B;
+
+    --ff-gradient-green: linear-gradient(135deg, #7BC48D 0%, #5FA873 55%, #3D7A4F 100%);
+    --ff-gradient-silver: linear-gradient(135deg, #EAEAEF 0%, #A0A0AB 100%);
+    --ff-gradient-card: linear-gradient(160deg, #141418 0%, #18181E 100%);
+    --ff-gradient-deep: radial-gradient(ellipse at top, #141418 0%, #0B0B0F 60%);
+
+    --font-heading: 'Big Shoulders Display', 'Inter', sans-serif;
+    --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    background: var(--ff-bg);
+    color: var(--ff-text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  ::selection { background: var(--ff-green-glow); color: var(--ff-text); }
+
+  /* =============================================================
+     Deck frame: 16:9 letterbox
+     ============================================================= */
+  .deck {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #000;
+    overflow: hidden;
+  }
+
+  .stage {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    width: min(100vw, calc(100vh * 16 / 9));
+    height: min(100vh, calc(100vw * 9 / 16));
+    background: var(--ff-bg);
+    overflow: hidden;
+    container-type: size;
+    container-name: stage;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    padding: 4.5cqh 5cqw;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.45s ease;
+    background: var(--ff-bg);
+    font-size: clamp(10px, 1.6cqh, 18px);
+  }
+  .slide.active { opacity: 1; visibility: visible; }
+
+  /* Subtle deep gradient backdrop on most slides */
+  .slide::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(95, 168, 115, 0.06) 0%, transparent 40%),
+      radial-gradient(circle at 90% 100%, rgba(95, 168, 115, 0.04) 0%, transparent 35%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .slide > * { position: relative; z-index: 1; }
+
+  /* =============================================================
+     Reusable type
+     ============================================================= */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: clamp(9px, 1.25cqh, 12px);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ff-green);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7cqw;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 1.6cqw;
+    height: 1px;
+    background: var(--ff-green);
+  }
+  .eyebrow.plain::before { display: none; }
+
+  h1.deck-title {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(40px, 8.2cqh, 92px);
+    line-height: 1;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+  }
+
+  h2.slide-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: clamp(28px, 6.2cqh, 56px);
+    line-height: 1.04;
+    letter-spacing: -0.005em;
+    text-transform: uppercase;
+    color: var(--ff-text);
+  }
+  h2.slide-title .accent { color: var(--ff-green); }
+
+  h3.section-h {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: clamp(14px, 2.2cqh, 20px);
+    letter-spacing: 0.01em;
+    color: var(--ff-text);
+  }
+
+  .lede {
+    font-size: clamp(13px, 2.1cqh, 20px);
+    line-height: 1.5;
+    color: var(--ff-text-muted);
+    font-weight: 400;
+    max-width: 60ch;
+  }
+
+  .small {
+    font-size: clamp(10px, 1.5cqh, 14px);
+    color: var(--ff-text-faint);
+    line-height: 1.5;
+  }
+
+  .mono { font-family: var(--font-mono); }
+
+  /* Slide header (used on most non-title slides) */
+  .slide-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2cqw;
+    margin-bottom: 2.6cqh;
+  }
+  .slide-header .num {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.1cqh, 11px);
+    color: var(--ff-text-faint);
+    letter-spacing: 0.2em;
+  }
+
+  /* =============================================================
+     Top bar with logo + slide number
+     ============================================================= */
+  .top-bar {
+    position: absolute;
+    top: 2.4cqh;
+    left: 5cqw;
+    right: 5cqw;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .top-bar .logo-mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7cqw;
+  }
+  .top-bar .logo-mini svg {
+    width: clamp(16px, 2.2cqh, 26px);
+    height: clamp(16px, 2.2cqh, 26px);
+    fill: var(--ff-text-muted);
+  }
+  .top-bar .logo-mini .wordmark {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(10px, 1.4cqh, 14px);
+    letter-spacing: 0.05em;
+    color: var(--ff-text-muted);
+    text-transform: uppercase;
+  }
+  .top-bar .deck-label {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.22em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+  }
+
+  /* =============================================================
+     Title slide
+     ============================================================= */
+  .slide-title-page {
+    justify-content: center;
+    align-items: stretch;
+    padding: 6cqh 6cqw;
+  }
+  .slide-title-page::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 80% 30%, rgba(95, 168, 115, 0.16) 0%, transparent 45%),
+      radial-gradient(circle at 10% 80%, rgba(95, 168, 115, 0.08) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .title-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 4cqw;
+    width: 100%;
+    align-items: center;
+  }
+  .title-left h1 {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(36px, 7.5cqh, 76px);
+    line-height: 1;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin-top: 2cqh;
+    margin-bottom: 2cqh;
+  }
+  .title-left h1 .ff {
+    background: var(--ff-gradient-green);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .title-tag {
+    font-size: clamp(12px, 1.8cqh, 20px);
+    color: var(--ff-text-muted);
+    line-height: 1.5;
+    max-width: 36ch;
+    margin-top: 1.8cqh;
+  }
+  .title-meta {
+    display: flex;
+    gap: 3cqw;
+    margin-top: 3.5cqh;
+    padding-top: 2.4cqh;
+    border-top: 1px solid var(--ff-border);
+  }
+  .title-meta div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5cqh;
+  }
+  .title-meta .k {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1cqh, 10px);
+    letter-spacing: 0.2em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+  }
+  .title-meta .v {
+    font-size: clamp(11px, 1.55cqh, 14px);
+    color: var(--ff-text);
+    font-weight: 500;
+  }
+
+  /* The endorsement card on the right */
+  .endorsement-card {
+    background: linear-gradient(180deg, #16161B 0%, #101015 100%);
+    border: 1px solid var(--ff-border);
+    border-radius: 18px;
+    padding: 3cqh 2.4cqw;
+    position: relative;
+    overflow: hidden;
+  }
+  .endorsement-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--ff-gradient-green);
+    opacity: 0.7;
+  }
+  .endorsement-label {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.2em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+    margin-bottom: 1.8cqh;
+  }
+  .brokerage-slot {
+    border: 1.5px dashed var(--ff-border-strong);
+    border-radius: 11px;
+    padding: 3.6cqh 1.8cqw;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.02);
+    transition: border-color 0.2s;
+    margin-bottom: 1.6cqh;
+  }
+  .brokerage-slot .placeholder-title {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: clamp(18px, 3.2cqh, 28px);
+    color: var(--ff-text);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+  .brokerage-slot .placeholder-hint {
+    font-size: clamp(9px, 1.15cqh, 11px);
+    color: var(--ff-text-faint);
+    margin-top: 0.8cqh;
+    font-family: var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .endorsement-divider {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.32em;
+    color: var(--ff-text-faint);
+    margin: 1.5cqh 0 1.3cqh;
+    text-transform: uppercase;
+  }
+  .ff-mark {
+    text-align: center;
+    padding: 1.4cqh 0 0.4cqh;
+  }
+  .ff-mark .name {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(16px, 2.8cqh, 24px);
+    background: var(--ff-gradient-green);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .ff-mark .sub {
+    font-family: var(--font-mono);
+    font-size: clamp(7px, 0.95cqh, 9px);
+    letter-spacing: 0.28em;
+    color: var(--ff-text-muted);
+    margin-top: 0.6cqh;
+    text-transform: uppercase;
+  }
+
+  /* =============================================================
+     Two-column generic
+     ============================================================= */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3cqw;
+    flex: 1;
+    align-items: start;
+    min-height: 0;
+  }
+  .two-col.tight { gap: 2cqw; }
+  .two-col.fav-left { grid-template-columns: 1.2fr 1fr; }
+  .two-col.fav-right { grid-template-columns: 1fr 1.4fr; }
+
+  /* =============================================================
+     Cards
+     ============================================================= */
+  .card {
+    background: var(--ff-gradient-card);
+    border: 1px solid var(--ff-border);
+    border-radius: 12px;
+    padding: 1.8cqw;
+    position: relative;
+    overflow: hidden;
+  }
+  .card.accent-left {
+    border-left: 2px solid var(--ff-green);
+  }
+  .card.glow {
+    box-shadow: 0 0 0 1px rgba(95, 168, 115, 0.08), 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .card h4 {
+    font-size: clamp(12px, 1.7cqh, 16px);
+    font-weight: 600;
+    color: var(--ff-text);
+    margin-bottom: 0.8cqh;
+  }
+  .card p {
+    color: var(--ff-text-muted);
+    font-size: clamp(11px, 1.55cqh, 14px);
+    line-height: 1.5;
+  }
+
+  /* Bullet list */
+  .bullets {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5cqh;
+  }
+  .bullets li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9cqw;
+    color: var(--ff-text-muted);
+    font-size: clamp(11px, 1.7cqh, 16px);
+    line-height: 1.5;
+    padding-left: 0;
+  }
+  .bullets li::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    margin-top: 0.55em;
+    border-radius: 2px;
+    background: var(--ff-green);
+    transform: rotate(45deg);
+    flex-shrink: 0;
+  }
+  .bullets li strong {
+    color: var(--ff-text);
+    font-weight: 600;
+  }
+
+  /* Check bullets */
+  .checks {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .checks li {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 14px;
+    align-items: start;
+    color: var(--ff-text);
+    font-size: 16px;
+    line-height: 1.45;
+  }
+  .checks li .ck {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: rgba(95, 168, 115, 0.16);
+    border: 1px solid rgba(95, 168, 115, 0.3);
+    color: var(--ff-green);
+    display: grid;
+    place-items: center;
+    margin-top: 1px;
+  }
+  .checks li .ck svg { width: 12px; height: 12px; }
+  .checks li .label { color: var(--ff-text); }
+  .checks li .sub { color: var(--ff-text-muted); font-size: 13px; margin-top: 2px; line-height: 1.5; }
+
+  /* =============================================================
+     Screenshot placeholder boxes
+     ============================================================= */
+  .screenshot-placeholder {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.01) 100%),
+      repeating-linear-gradient(
+        45deg,
+        rgba(255,255,255,0.018) 0px,
+        rgba(255,255,255,0.018) 2px,
+        transparent 2px,
+        transparent 14px
+      );
+    border: 1.5px dashed var(--ff-border-strong);
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .screenshot-placeholder::before {
+    content: '';
+    position: absolute;
+    top: 12px; left: 12px; right: 12px;
+    height: 26px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.025);
+    border-bottom: 1px solid var(--ff-border);
+  }
+  .screenshot-placeholder::after {
+    content: '';
+    position: absolute;
+    top: 22px; left: 22px;
+    width: 28px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    box-shadow:
+      14px 0 0 rgba(255,255,255,0.06),
+      28px 0 0 rgba(255,255,255,0.06);
+  }
+  .screenshot-placeholder .ph-inner {
+    position: relative;
+    z-index: 1;
+    padding: 2cqh 2cqw;
+    margin-top: 2.4cqh;
+  }
+  .screenshot-placeholder .ph-label {
+    font-family: var(--font-mono);
+    font-size: clamp(9px, 1.2cqh, 11px);
+    letter-spacing: 0.22em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .screenshot-placeholder .ph-name {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: clamp(13px, 2.2cqh, 22px);
+    color: var(--ff-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+  }
+  .screenshot-placeholder .ph-note {
+    font-size: clamp(9px, 1.15cqh, 11px);
+    color: var(--ff-text-faint);
+    margin-top: 1cqh;
+    line-height: 1.4;
+  }
+
+  /* Compact placeholder (for smaller grid cells) */
+  .screenshot-placeholder.compact { aspect-ratio: 16 / 8; }
+  .screenshot-placeholder.compact .ph-inner { padding: 0.6cqh 1cqw; margin-top: 1cqh; }
+  .screenshot-placeholder.compact .ph-name { font-size: clamp(10px, 1.45cqh, 13px); }
+  .screenshot-placeholder.compact .ph-label { font-size: clamp(8px, 1cqh, 10px); margin-bottom: 2px; }
+  .screenshot-placeholder.compact::before { height: 14px; }
+  .screenshot-placeholder.compact::after { top: 12px; width: 18px; height: 4px; box-shadow: 9px 0 0 rgba(255,255,255,0.06), 18px 0 0 rgba(255,255,255,0.06); }
+
+  /* =============================================================
+     Problem slide styling
+     ============================================================= */
+  .pain-card {
+    background: linear-gradient(180deg, rgba(224, 123, 123, 0.05) 0%, rgba(224, 123, 123, 0.02) 100%);
+    border: 1px solid rgba(224, 123, 123, 0.18);
+    border-radius: 12px;
+    padding: 1.8cqw;
+  }
+  .pain-card h4 {
+    color: var(--ff-text);
+    font-weight: 700;
+    font-size: clamp(13px, 1.9cqh, 17px);
+    margin-bottom: 1cqh;
+    display: flex;
+    align-items: center;
+    gap: 0.6cqw;
+  }
+  .pain-card .x-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ff-red);
+    flex-shrink: 0;
+  }
+  .pain-card p {
+    color: var(--ff-text-muted);
+    font-size: clamp(11px, 1.55cqh, 14px);
+    line-height: 1.55;
+  }
+
+  /* =============================================================
+     Opportunity slide
+     ============================================================= */
+  .opportunity-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 3.5cqw;
+    flex: 1;
+    align-items: center;
+    min-height: 0;
+  }
+  .brand-stack {
+    background: linear-gradient(180deg, #16161B 0%, #101015 100%);
+    border: 1px solid var(--ff-border);
+    border-radius: 16px;
+    padding: 2.4cqw 2cqw;
+    position: relative;
+  }
+  .brand-stack .layer {
+    border: 1px solid var(--ff-border);
+    border-radius: 9px;
+    padding: 1.2cqh 1.1cqw;
+    margin-bottom: 1cqh;
+    background: var(--ff-bg-elev-2);
+    font-size: clamp(11px, 1.5cqh, 13px);
+    color: var(--ff-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.7cqw;
+  }
+  .brand-stack .layer.brokerage {
+    border-color: rgba(95, 168, 115, 0.4);
+    background: var(--ff-green-bg);
+    color: var(--ff-text);
+    font-weight: 600;
+    padding: 1.6cqh 1.1cqw;
+    font-size: clamp(12px, 1.6cqh, 14px);
+  }
+  .brand-stack .layer .mini-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--ff-text-faint); flex-shrink: 0;
+  }
+  .brand-stack .layer.brokerage .mini-dot { background: var(--ff-green); }
+  .brand-stack .stack-label {
+    font-family: var(--font-mono);
+    font-size: clamp(9px, 1.15cqh, 10px);
+    letter-spacing: 0.2em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+    margin-bottom: 1.4cqh;
+  }
+
+  /* =============================================================
+     Deal slide: zero investment splash
+     ============================================================= */
+  .big-zero {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(80px, 22cqh, 200px);
+    line-height: 0.9;
+    background: var(--ff-gradient-green);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .who-does-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8cqw;
+    margin-top: 1.5cqh;
+  }
+  .who-does-grid .col-h {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.2em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+    padding-bottom: 0.7cqh;
+    border-bottom: 1px solid var(--ff-divider);
+  }
+  .who-does-grid .item {
+    font-size: clamp(11px, 1.55cqh, 14px);
+    color: var(--ff-text);
+    padding: 1cqh 0;
+    border-bottom: 1px solid var(--ff-divider);
+    display: flex;
+    align-items: center;
+    gap: 0.6cqw;
+  }
+  .who-does-grid .item .tag {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .who-does-grid .item.ff .tag {
+    background: rgba(95, 168, 115, 0.18);
+    color: var(--ff-green);
+    border: 1px solid rgba(95, 168, 115, 0.3);
+  }
+  .who-does-grid .item.bk .tag {
+    background: rgba(123, 196, 141, 0.08);
+    color: var(--ff-text-muted);
+    border: 1px solid var(--ff-border);
+  }
+
+  /* =============================================================
+     What the brokerage gets (own-branded portal)
+     ============================================================= */
+  .brand-preview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2cqw;
+    flex: 1;
+    align-items: start;
+    min-height: 0;
+  }
+
+  /* =============================================================
+     Chart slide
+     ============================================================= */
+  .chart-wrap {
+    background: var(--ff-gradient-card);
+    border: 1px solid var(--ff-border);
+    border-radius: 14px;
+    padding: 1.8cqh 1.8cqw;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .chart-wrap .chart-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1cqw;
+    margin-bottom: 0.8cqh;
+    flex-shrink: 0;
+  }
+  .chart-wrap .chart-title {
+    font-size: clamp(11px, 1.65cqh, 16px);
+    font-weight: 600;
+    color: var(--ff-text);
+  }
+  .chart-wrap .chart-sub {
+    font-size: clamp(9px, 1.2cqh, 12px);
+    color: var(--ff-text-faint);
+    font-family: var(--font-mono);
+    letter-spacing: 0.05em;
+  }
+  .chart-canvas-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+  .chart-footnote {
+    margin-top: 1.4cqh;
+    padding-top: 1.2cqh;
+    border-top: 1px solid var(--ff-divider);
+    font-size: clamp(9px, 1.2cqh, 12px);
+    color: var(--ff-text-faint);
+    line-height: 1.5;
+    flex-shrink: 0;
+  }
+  .chart-footnote strong { color: var(--ff-text-muted); }
+  .illustrative-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.5cqh 1cqw;
+    background: rgba(212, 160, 74, 0.12);
+    color: var(--ff-amber);
+    border: 1px solid rgba(212, 160, 74, 0.3);
+    border-radius: 999px;
+    font-size: clamp(8px, 1cqh, 10px);
+    font-family: var(--font-mono);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 500;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .chart-side-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2cqh;
+    margin-top: 1.4cqh;
+  }
+  .chart-side-stats .stat {
+    padding: 1.1cqh 1.2cqw;
+    border: 1px solid var(--ff-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .chart-side-stats .stat .k {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.2em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+  }
+  .chart-side-stats .stat .v {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: clamp(18px, 3.2cqh, 28px);
+    color: var(--ff-green);
+    margin-top: 0.4cqh;
+    line-height: 1;
+  }
+  .chart-side-stats .stat .lbl {
+    font-size: clamp(10px, 1.35cqh, 12px);
+    color: var(--ff-text-muted);
+    margin-top: 0.4cqh;
+    line-height: 1.4;
+  }
+
+  /* =============================================================
+     Software walkthrough grid
+     ============================================================= */
+  .surface-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1cqh 1.4cqw;
+    flex: 1;
+    align-content: start;
+    min-height: 0;
+  }
+  .surface-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6cqh;
+    min-width: 0;
+  }
+  .surface-card .meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6cqw;
+  }
+  .surface-card .meta .name {
+    font-size: clamp(11px, 1.6cqh, 14px);
+    font-weight: 600;
+    color: var(--ff-text);
+  }
+  .surface-card .meta .tag {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1cqh, 9px);
+    color: var(--ff-text-faint);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .surface-card .desc {
+    font-size: clamp(10px, 1.35cqh, 12px);
+    color: var(--ff-text-muted);
+    line-height: 1.5;
+  }
+
+  /* =============================================================
+     Timeline (onboarding)
+     ============================================================= */
+  .timeline {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    position: relative;
+    margin-top: 3cqh;
+    margin-bottom: 2cqh;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    top: 2cqh;
+    left: 8%;
+    right: 8%;
+    height: 1px;
+    background: var(--ff-border);
+    z-index: 0;
+  }
+  .step {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 0 1cqw;
+  }
+  .step .dot {
+    width: clamp(28px, 4cqh, 38px);
+    height: clamp(28px, 4cqh, 38px);
+    border-radius: 50%;
+    background: var(--ff-bg-elev);
+    border: 1.5px solid var(--ff-green);
+    color: var(--ff-green);
+    display: grid;
+    place-items: center;
+    margin: 0 auto 1.6cqh;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: clamp(11px, 1.5cqh, 13px);
+  }
+  .step .day {
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.2em;
+    color: var(--ff-text-faint);
+    text-transform: uppercase;
+    margin-bottom: 0.6cqh;
+  }
+  .step .what {
+    font-size: clamp(11px, 1.5cqh, 13px);
+    color: var(--ff-text);
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 0.4cqh;
+  }
+  .step .desc {
+    font-size: clamp(9px, 1.2cqh, 11px);
+    color: var(--ff-text-muted);
+    line-height: 1.45;
+  }
+
+  /* =============================================================
+     Compliance slide grid
+     ============================================================= */
+  .compliance-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.6cqw 1.6cqh;
+    flex: 1;
+    min-height: 0;
+  }
+  .compliance-card {
+    background: var(--ff-gradient-card);
+    border: 1px solid var(--ff-border);
+    border-radius: 12px;
+    padding: 1.8cqh 1.6cqw;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .compliance-card .badge {
+    width: clamp(28px, 4.2cqh, 40px);
+    height: clamp(28px, 4.2cqh, 40px);
+    border-radius: 9px;
+    background: rgba(95, 168, 115, 0.12);
+    border: 1px solid rgba(95, 168, 115, 0.25);
+    color: var(--ff-green);
+    display: grid;
+    place-items: center;
+    margin-bottom: 1.4cqh;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: clamp(9px, 1.2cqh, 11px);
+    letter-spacing: 0.06em;
+  }
+  .compliance-card h4 {
+    font-size: clamp(12px, 1.7cqh, 15px);
+    color: var(--ff-text);
+    font-weight: 600;
+    margin-bottom: 0.6cqh;
+  }
+  .compliance-card p {
+    font-size: clamp(10px, 1.45cqh, 13px);
+    color: var(--ff-text-muted);
+    line-height: 1.5;
+    flex: 1;
+  }
+  .compliance-card .who {
+    margin-top: 1.2cqh;
+    padding-top: 1cqh;
+    border-top: 1px solid var(--ff-divider);
+    font-family: var(--font-mono);
+    font-size: clamp(8px, 1.05cqh, 10px);
+    letter-spacing: 0.18em;
+    color: var(--ff-green);
+    text-transform: uppercase;
+  }
+
+  /* =============================================================
+     CTA slide
+     ============================================================= */
+  .cta-page {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .cta-page::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at center, rgba(95, 168, 115, 0.16) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .cta-headline {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    font-size: clamp(36px, 7.5cqh, 80px);
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    margin-bottom: 2cqh;
+    max-width: 18ch;
+  }
+  .cta-headline .accent {
+    background: var(--ff-gradient-green);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .cta-sub {
+    font-size: clamp(13px, 2cqh, 20px);
+    color: var(--ff-text-muted);
+    max-width: 52ch;
+    margin: 0 auto 4cqh;
+    line-height: 1.5;
+  }
+  .cta-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.6cqw;
+    max-width: 84cqw;
+    width: 100%;
+    margin: 0 auto 3cqh;
+  }
+  .cta-step {
+    background: var(--ff-gradient-card);
+    border: 1px solid var(--ff-border);
+    border-radius: 12px;
+    padding: 2cqh 1.6cqw;
+    text-align: left;
+    position: relative;
+  }
+  .cta-step .stepnum {
+    font-family: var(--font-mono);
+    font-size: clamp(9px, 1.2cqh, 11px);
+    color: var(--ff-green);
+    letter-spacing: 0.2em;
+    margin-bottom: 1.2cqh;
+  }
+  .cta-step .name {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: clamp(15px, 2.4cqh, 22px);
+    color: var(--ff-text);
+    text-transform: uppercase;
+    margin-bottom: 0.8cqh;
+    letter-spacing: 0.01em;
+  }
+  .cta-step .desc {
+    font-size: clamp(10px, 1.45cqh, 13px);
+    color: var(--ff-text-muted);
+    line-height: 1.5;
+  }
+  .cta-contact {
+    margin-top: 1.4cqh;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5cqh;
+    align-items: center;
+  }
+  .cta-contact .who {
+    font-size: clamp(12px, 1.7cqh, 15px);
+    color: var(--ff-text);
+    font-weight: 600;
+  }
+  .cta-contact .where {
+    font-family: var(--font-mono);
+    font-size: clamp(11px, 1.45cqh, 13px);
+    color: var(--ff-green);
+    letter-spacing: 0.04em;
+  }
+
+  /* =============================================================
+     Navigation
+     ============================================================= */
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: var(--ff-green);
+    transition: width 0.4s ease;
+    z-index: 100;
+    box-shadow: 0 0 12px rgba(95, 168, 115, 0.6);
+  }
+  .nav {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 100;
+    background: rgba(11, 11, 15, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--ff-border);
+    padding: 6px 10px;
+    border-radius: 999px;
+  }
+  .nav-btn {
+    background: transparent;
+    border: none;
+    color: var(--ff-text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    display: grid;
+    place-items: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .nav-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--ff-text); }
+  .nav-counter {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ff-text-muted);
+    letter-spacing: 0.08em;
+    padding: 0 8px;
+    min-width: 60px;
+    text-align: center;
+  }
+  .nav-counter .cur { color: var(--ff-text); font-weight: 600; }
+
+  /* =============================================================
+     Print / PDF export support
+     ============================================================= */
+  @media print {
+    html, body {
+      overflow: visible;
+      width: auto;
+      height: auto;
+      background: #000;
+    }
+    .deck {
+      position: relative;
+      display: block;
+    }
+    .stage {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      page-break-after: always;
+    }
+    .slide {
+      position: relative;
+      opacity: 1 !important;
+      visibility: visible !important;
+      page-break-after: always;
+      page-break-inside: avoid;
+      min-height: 100vh;
+    }
+    .slide:not(:last-child) { page-break-after: always; }
+    .nav, .progress-bar { display: none !important; }
+
+    /* Force each slide to be its own page at 16:9 landscape */
+    @page {
+      size: 16in 9in;
+      margin: 0;
+    }
+  }
+
+  /* Tiny screens (sanity) */
+  @media (max-width: 760px) {
+    .slide { padding: 32px 24px; }
+    .top-bar { left: 24px; right: 24px; }
+    .title-grid { grid-template-columns: 1fr; }
+    .two-col, .opportunity-grid, .brand-preview-grid,
+    .surface-grid, .compliance-grid, .cta-steps { grid-template-columns: 1fr; }
+    .timeline { grid-template-columns: 1fr; gap: 16px; }
+    .timeline::before { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+
+<div class="deck">
+<div class="stage">
+
+<!-- ============================================================
+     SLIDE 1: TITLE
+     ============================================================ -->
+<section class="slide slide-title-page active" data-title="Title">
+  <div class="title-grid">
+    <div class="title-left">
+      <span class="eyebrow plain mono" style="color: var(--ff-text-faint);">A partnership proposal from <span style="color: var(--ff-green); font-weight: 600;">Firm Funds</span></span>
+      <h1>Commission Advance,<br><span class="ff">built for your brokerage.</span></h1>
+      <p class="title-tag">A white-labelled commission advance service line. Branded as yours. Run by us. Zero capital, zero risk, recurring profit share.</p>
+      <div class="title-meta">
+        <div>
+          <span class="k">Prepared for</span>
+          <span class="v">[BROKERAGE NAME]</span>
+        </div>
+        <div>
+          <span class="k">Prepared by</span>
+          <span class="v">Firm Funds</span>
+        </div>
+        <div>
+          <span class="k">Date</span>
+          <span class="v">[MONTH YEAR]</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="endorsement-card">
+      <div class="endorsement-label">Your future endorsement mark</div>
+
+      <div class="brokerage-slot">
+        <div class="placeholder-title">[BROKERAGE]<br>ADVANCES</div>
+        <div class="placeholder-hint">Logo + name slot</div>
+      </div>
+
+      <div class="endorsement-divider">Powered by</div>
+
+      <div class="ff-mark">
+        <div class="name">Firm Funds</div>
+        <div class="sub">Commission Advance Infrastructure</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 2: THE PROBLEM
+     ============================================================ -->
+<section class="slide" data-title="The problem">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">02 / 10  ·  Problem</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">The problem</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">Your agents need money now. <span class="accent">You have no safe way to give it to them.</span></h2>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top: 1.8cqh;">
+    <div style="display: flex; flex-direction: column; gap: 1.8cqh;">
+      <div class="pain-card">
+        <h4><span class="x-dot"></span> Agents float closing costs out of pocket</h4>
+        <p>Marketing, staging, listing fees, and personal bills pile up between firm and close. Top producers carry thousands in receivables every month with nothing coming in.</p>
+      </div>
+      <div class="pain-card">
+        <h4><span class="x-dot"></span> They ask you for a loan, or quietly leave</h4>
+        <p>Agents go to high-interest factoring companies, max out cards, or move to a brokerage that offers an advance program. Either way, you lose.</p>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 1.8cqh;">
+      <div class="pain-card">
+        <h4><span class="x-dot"></span> Lending it yourself means real risk</h4>
+        <p>To run an advance program in-house: tie up capital, build software, train staff, manage FINTRAC registration, file PPSA security, run a trust account, handle remediation when deals fall through. That is a whole second business.</p>
+      </div>
+      <div class="pain-card">
+        <h4><span class="x-dot"></span> Doing nothing is the silent cost</h4>
+        <p>Recruiting suffers, retention suffers, and the brokerages that solve this win the next conversation. Agents talk to each other.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 3: THE OPPORTUNITY
+     ============================================================ -->
+<section class="slide" data-title="The opportunity">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">03 / 10  ·  Opportunity</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">The opportunity</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">Run a commission advance service line, <span class="accent">under your brand.</span></h2>
+    </div>
+  </div>
+
+  <div class="opportunity-grid">
+    <div>
+      <p class="lede" style="margin-bottom: 3cqh;">
+        Your agents already trust your brand. Layer a commission advance product on top of it. They get capital in 24 to 48 hours, you get a new service line and a cut of every advance, and Firm Funds quietly runs the entire stack behind the scenes.
+      </p>
+
+      <ul class="bullets">
+        <li><strong>Branded as yours.</strong> The portal, the emails, the contracts, the logo. Agents see your brokerage.</li>
+        <li><strong>Operated by us.</strong> Underwriting, funding, compliance, support. We answer the phone.</li>
+        <li><strong>Profit shared with you.</strong> Every funded advance pays your brokerage a portion of the discount fee.</li>
+      </ul>
+    </div>
+
+    <div class="brand-stack">
+      <div class="stack-label">How the brand stack works</div>
+
+      <div class="layer brokerage">
+        <span class="mini-dot"></span>
+        <span>[BROKERAGE] Advances <span style="color: var(--ff-text-muted); font-weight: 400; font-size: 12px; margin-left: 6px;">, what your agents see</span></span>
+      </div>
+      <div class="layer">
+        <span class="mini-dot"></span>
+        <span>Branded portal, emails, contracts, support</span>
+      </div>
+      <div class="layer">
+        <span class="mini-dot"></span>
+        <span>Underwriting, capital, compliance engine</span>
+      </div>
+      <div class="layer" style="margin-bottom: 0;">
+        <span class="mini-dot"></span>
+        <span>Firm Funds infrastructure <span style="color: var(--ff-text-faint); font-size: 11px; margin-left: 6px;">, invisible to agents</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 4: THE DEAL (Zero investment)
+     ============================================================ -->
+<section class="slide" data-title="The deal">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">04 / 10  ·  The deal</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">The deal</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">Your investment is <span class="accent">zero.</span></h2>
+    </div>
+  </div>
+
+  <div class="two-col fav-right" style="align-items: center;">
+    <div>
+      <div class="big-zero">$0</div>
+      <p class="lede" style="margin-top: 2.4cqh; max-width: 28ch;">
+        No capital. No staff hires. No software build. No compliance overhead. You bring the agents and the brand. We bring everything else.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="section-h" style="margin-bottom: 1.6cqh;">Who does what</h3>
+      <div class="who-does-grid">
+        <div class="col-h">Item</div>
+        <div class="col-h">Owner</div>
+
+        <div class="item bk"><span class="tag">Brokerage</span> Promote service to agents</div>
+        <div class="item ff"><span class="tag">Firm Funds</span> Software platform</div>
+
+        <div class="item bk"><span class="tag">Brokerage</span> Approve trade record splits</div>
+        <div class="item ff"><span class="tag">Firm Funds</span> Agent and broker training</div>
+
+        <div class="item ff"><span class="tag">Firm Funds</span> Capital for every advance</div>
+        <div class="item ff"><span class="tag">Firm Funds</span> Underwriting and approvals</div>
+
+        <div class="item ff"><span class="tag">Firm Funds</span> FINTRAC and AML compliance</div>
+        <div class="item ff"><span class="tag">Firm Funds</span> PPSA filings and security</div>
+
+        <div class="item ff"><span class="tag">Firm Funds</span> Trust accounting and payouts</div>
+        <div class="item ff"><span class="tag">Firm Funds</span> Agent support, all channels</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 5: WHAT THE BROKERAGE GETS (Branded portal)
+     ============================================================ -->
+<section class="slide" data-title="What the brokerage gets">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">05 / 10  ·  Your branded service</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">What you get</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">A complete service, <span class="accent">in your colours.</span></h2>
+      <p class="lede" style="margin-top: 1.6cqh;">Your name on the portal. Your logo on every email. Your brand on every contract. Agents never see "Firm Funds" unless they go looking for it.</p>
+    </div>
+  </div>
+
+  <div class="brand-preview-grid">
+    <div>
+      <div class="screenshot-placeholder" data-surface="brokerage-branded-portal">
+        <div class="ph-inner">
+          <div class="ph-label">Screenshot placeholder</div>
+          <div class="ph-name">[Brokerage] Advances<br>Portal Login</div>
+          <div class="ph-note">Brokerage-branded login screen, replace with real screenshot</div>
+        </div>
+      </div>
+      <p class="small" style="margin-top: 1.6cqh;">Custom subdomain, brokerage logo, brand colours pulled at signup.</p>
+    </div>
+
+    <div>
+      <div class="screenshot-placeholder" data-surface="brokerage-branded-email">
+        <div class="ph-inner">
+          <div class="ph-label">Screenshot placeholder</div>
+          <div class="ph-name">[Brokerage] Advances<br>Branded Email</div>
+          <div class="ph-note">All agent and brokerage emails branded, replace with real screenshot</div>
+        </div>
+      </div>
+      <p class="small" style="margin-top: 1.6cqh;">Approval notices, payout confirmations, monthly statements. All from your brand.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 6: THE REVENUE (Chart)
+     ============================================================ -->
+<section class="slide" data-title="Revenue">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">06 / 10  ·  Revenue</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">The revenue</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">A new line item on your P&amp;L, <span class="accent">with no costs underneath it.</span></h2>
+    </div>
+    <span class="illustrative-badge">Illustrative</span>
+  </div>
+
+  <div class="two-col fav-left" style="flex: 1; min-height: 0; gap: 2.5cqw;">
+    <div class="chart-wrap">
+      <div class="chart-head">
+        <span class="chart-title">Estimated monthly brokerage profit share by deal volume</span>
+        <span class="chart-sub">Per month, CAD</span>
+      </div>
+      <div class="chart-canvas-wrap">
+        <canvas id="revenueChart"></canvas>
+      </div>
+      <p class="chart-footnote">
+        <strong>Assumptions, illustrative only:</strong> Average advance size $20,000 [CONFIRM WITH BUD]. Average days outstanding 21. Discount rate $0.80 per $1,000 per day per the standard Firm Funds rate card. Brokerage profit share percentage [CONFIRM WITH BUD]. Actual results vary by agent count, advance size, days outstanding, and split. Not a guarantee of earnings.
+      </p>
+    </div>
+
+    <div>
+      <h3 class="section-h">Three things to notice</h3>
+      <div class="chart-side-stats">
+        <div class="stat">
+          <div class="k">Cost to brokerage</div>
+          <div class="v">$0</div>
+          <div class="lbl">No capital, no staff, no software bill.</div>
+        </div>
+        <div class="stat">
+          <div class="k">Time to revenue</div>
+          <div class="v">~1 wk</div>
+          <div class="lbl">First advance can fund in your first week live. [CONFIRM WITH BUD: typical 1 week?]</div>
+        </div>
+        <div class="stat">
+          <div class="k">Compounding effect</div>
+          <div class="v">↑</div>
+          <div class="lbl">Every approved agent funds repeat advances. Revenue grows with adoption.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 7: SOFTWARE WALKTHROUGH
+     ============================================================ -->
+<section class="slide" data-title="Software walkthrough">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">07 / 10  ·  Software</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">Software walkthrough</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">Every screen your team needs, <span class="accent">already built.</span></h2>
+      <p class="lede" style="margin-top: 1.6cqh; max-width: 80ch;">Six core surfaces, all branded, all in one dashboard. Live visibility into every deal, agent, and payout.</p>
+    </div>
+  </div>
+
+  <div class="surface-grid">
+
+    <div class="surface-card">
+      <div class="screenshot-placeholder compact" data-surface="brokerage-dashboard">
+        <div class="ph-inner">
+          <div class="ph-label">Surface 1</div>
+          <div class="ph-name">Brokerage Dashboard</div>
+        </div>
+      </div>
+      <div class="meta"><span class="name">Brokerage Dashboard</span><span class="tag">Home</span></div>
+      <p class="desc">Live deal pipeline, active advances, agents under approval, this month's profit share.</p>
+    </div>
+
+    <div class="surface-card">
+      <div class="screenshot-placeholder compact" data-surface="profit-revenue">
+        <div class="ph-inner">
+          <div class="ph-label">Surface 2</div>
+          <div class="ph-name">Profit &amp; Revenue</div>
+        </div>
+      </div>
+      <div class="meta"><span class="name">Profit &amp; Revenue</span><span class="tag">Reporting</span></div>
+      <p class="desc">Brokerage share, per-deal breakdown, monthly statements, downloadable to PDF.</p>
+    </div>
+
+    <div class="surface-card">
+      <div class="screenshot-placeholder compact" data-surface="agent-management">
+        <div class="ph-inner">
+          <div class="ph-label">Surface 3</div>
+          <div class="ph-name">Agent Management</div>
+        </div>
+      </div>
+      <div class="meta"><span class="name">Agent Management</span><span class="tag">Roster</span></div>
+      <p class="desc">Onboard agents, set splits, approve KYC, manage status changes when agents move firms.</p>
+    </div>
+
+    <div class="surface-card">
+      <div class="screenshot-placeholder compact" data-surface="deal-pipeline">
+        <div class="ph-inner">
+          <div class="ph-label">Surface 4</div>
+          <div class="ph-name">Deal Pipeline</div>
+        </div>
+      </div>
+      <div class="meta"><span class="name">Deal Pipeline</span><span class="tag">Operations</span></div>
+      <p class="desc">Under review, approved, funded, completed. Every status with a paper trail.</p>
+    </div>
+
+    <div class="surface-card">
+      <div class="screenshot-placeholder compact" data-surface="agent-ledger">
+        <div class="ph-inner">
+          <div class="ph-label">Surface 5</div>
+          <div class="ph-name">Agent Ledger</div>
+        </div>
+      </div>
+      <div class="meta"><span class="name">Agent Ledger</span><span class="tag">Finance</span></div>
+      <p class="desc">Per-agent balance, advances outstanding, repayments, late accrual. Always reconciled.</p>
+    </div>
+
+    <div class="surface-card">
+      <div class="screenshot-placeholder compact" data-surface="branded-notifications">
+        <div class="ph-inner">
+          <div class="ph-label">Surface 6</div>
+          <div class="ph-name">Branded Notifications</div>
+        </div>
+      </div>
+      <div class="meta"><span class="name">Branded Notifications</span><span class="tag">Comms</span></div>
+      <p class="desc">Email, in-app, and SMS for every milestone. Sent under your brokerage's name.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 8: ONBOARDING
+     ============================================================ -->
+<section class="slide" data-title="Onboarding">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">08 / 10  ·  Onboarding</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">Going live</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">Branded portal live in <span class="accent">about a week.</span></h2>
+      <p class="lede" style="margin-top: 1.6cqh;">From signed partnership agreement to your first funded advance. We do the heavy lifting, you stay focused on agents.<span style="display: block; margin-top: 0.8cqh; font-family: var(--font-mono); font-size: clamp(9px, 1.1cqh, 11px); color: var(--ff-text-faint); letter-spacing: 0.06em;">[CONFIRM WITH BUD: typical 1 week?]</span></p>
+    </div>
+  </div>
+
+  <div class="timeline">
+    <div class="step">
+      <div class="dot">1</div>
+      <div class="day">Day 0</div>
+      <div class="what">Partnership signed</div>
+      <div class="desc">Short agreement covering branding, splits, and operating responsibilities.</div>
+    </div>
+    <div class="step">
+      <div class="dot">2</div>
+      <div class="day">Day 1 to 2</div>
+      <div class="what">Brand intake</div>
+      <div class="desc">Logo, colours, custom subdomain, contact details. One short call.</div>
+    </div>
+    <div class="step">
+      <div class="dot">3</div>
+      <div class="day">Day 3 to 4</div>
+      <div class="what">Portal provisioned</div>
+      <div class="desc">Branded portal, emails, contracts, and admin accounts created and reviewed.</div>
+    </div>
+    <div class="step">
+      <div class="dot">4</div>
+      <div class="day">Day 5 to 6</div>
+      <div class="what">Admin training</div>
+      <div class="desc">90-minute session for your admins. Approving splits, managing agents, reading the dashboard.</div>
+    </div>
+    <div class="step">
+      <div class="dot">5</div>
+      <div class="day">Day 7+</div>
+      <div class="what">Agents onboard, first advance funds</div>
+      <div class="desc">We provide a launch kit and email templates. Your first advance can fund the same week.</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top: 2.6cqh;">
+    <div class="card accent-left">
+      <h4>What we ask from you</h4>
+      <p>Signed partnership agreement, brand assets, a list of agents to invite, and one admin who can approve trade splits.</p>
+    </div>
+    <div class="card accent-left">
+      <h4>What we provide</h4>
+      <p>The portal, the emails, the contracts, the training, the launch kit, the support line, and a dedicated account contact.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 9: COMPLIANCE & TRUST
+     ============================================================ -->
+<section class="slide" data-title="Compliance">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">09 / 10  ·  Compliance</span>
+  </div>
+
+  <div class="slide-header" style="margin-top: 5.5cqh;">
+    <div>
+      <span class="eyebrow">Compliance and trust</span>
+      <h2 class="slide-title" style="margin-top: 2cqh;">The regulated parts? <span class="accent">Off your plate.</span></h2>
+      <p class="lede" style="margin-top: 1.6cqh;">Lending to agents touches finance regulations the average brokerage is not set up for. Firm Funds carries every registration, filing, and account in-house, as part of the partnership.</p>
+    </div>
+  </div>
+
+  <div class="compliance-grid">
+    <div class="compliance-card">
+      <div class="badge">AML</div>
+      <h4>FINTRAC registration</h4>
+      <p>Firm Funds is registered and reports as required. We run agent KYC, sanctions screening, and source-of-funds checks on every advance.</p>
+      <div class="who">Owned by Firm Funds</div>
+    </div>
+
+    <div class="compliance-card">
+      <div class="badge">PPSA</div>
+      <h4>Security filings</h4>
+      <p>Every advance is secured against the agent's pending commission through a PPSA registration. Filed, maintained, and discharged by us.</p>
+      <div class="who">Owned by Firm Funds</div>
+    </div>
+
+    <div class="compliance-card">
+      <div class="badge">TRUST</div>
+      <h4>Trust accounting</h4>
+      <p>All funds flow through a regulated trust account with full reconciliation. Audit-ready statements on demand. Brokerage payouts are clean.</p>
+      <div class="who">Owned by Firm Funds</div>
+    </div>
+
+    <div class="compliance-card">
+      <div class="badge">DOC</div>
+      <h4>Contracts and disclosure</h4>
+      <p>DocuSign-driven commission purchase agreements and consumer disclosures. Generated, signed, and stored automatically with each advance.</p>
+      <div class="who">Owned by Firm Funds</div>
+    </div>
+
+    <div class="compliance-card">
+      <div class="badge">CAP</div>
+      <h4>Capital and credit risk</h4>
+      <p>Firm Funds funds every advance from its own capital pool. If a deal fails to close, the loss sits with us, not with your brokerage.</p>
+      <div class="who">Owned by Firm Funds</div>
+    </div>
+
+    <div class="compliance-card">
+      <div class="badge">OPS</div>
+      <h4>Support and remediation</h4>
+      <p>Agent questions, payment plans, failed-to-close cures, late accrual. Handled by our team under your brand.</p>
+      <div class="who">Owned by Firm Funds</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SLIDE 10: CALL TO ACTION
+     ============================================================ -->
+<section class="slide cta-page" data-title="Call to action">
+  <div class="top-bar">
+    <div class="logo-mini">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><path d="M30 65 L50 32 L70 65 Z" fill="currentColor"/></svg>
+      <span class="wordmark">Firm Funds</span>
+    </div>
+    <span class="deck-label">10 / 10  ·  Next step</span>
+  </div>
+
+  <div style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding-top: 32px;">
+    <span class="eyebrow">Next step</span>
+    <h2 class="cta-headline" style="margin-top: 2cqh;">Let's launch <span class="accent">[BROKERAGE]<br>Advances.</span></h2>
+    <p class="cta-sub">Three short steps. The first one is a 30-minute call. By the end, you will know if this fits.</p>
+
+    <div class="cta-steps">
+      <div class="cta-step">
+        <div class="stepnum">Step 01</div>
+        <div class="name">Intro Call</div>
+        <div class="desc">30 minutes. We answer your questions on splits, branding, and how revenue flows. No commitment.</div>
+      </div>
+      <div class="cta-step">
+        <div class="stepnum">Step 02</div>
+        <div class="name">Live Demo</div>
+        <div class="desc">We walk your admin team through a sample branded portal end-to-end, using your brokerage's name.</div>
+      </div>
+      <div class="cta-step">
+        <div class="stepnum">Step 03</div>
+        <div class="name">Sign &amp; Launch</div>
+        <div class="desc">Short partnership agreement, brand intake, then portal live in about a week.</div>
+      </div>
+    </div>
+
+    <div class="cta-contact">
+      <div class="who">[CONFIRM WITH BUD: primary contact name &amp; title]</div>
+      <div class="where">firmfunds.ca  |  [CONFIRM WITH BUD: contact email]</div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /.stage -->
+</div><!-- /.deck -->
+
+<!-- Navigation -->
+<div class="nav" role="group" aria-label="Slide navigation">
+  <button class="nav-btn" id="prevBtn" aria-label="Previous slide">&#x2190;</button>
+  <span class="nav-counter"><span class="cur" id="currentNum">1</span> / <span id="totalNum">10</span></span>
+  <button class="nav-btn" id="nextBtn" aria-label="Next slide">&#x2192;</button>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  let current = 1;
+
+  const progressBar = document.getElementById('progressBar');
+  const currentNumEl = document.getElementById('currentNum');
+  const totalNumEl = document.getElementById('totalNum');
+  totalNumEl.textContent = total;
+
+  function showSlide(n) {
+    if (n < 1) n = 1;
+    if (n > total) n = total;
+    current = n;
+    slides.forEach((s, i) => s.classList.toggle('active', i === n - 1));
+    currentNumEl.textContent = n;
+    progressBar.style.width = (n / total * 100) + '%';
+    if (location.hash !== '#' + n) {
+      history.replaceState(null, '', '#' + n);
+    }
+  }
+  function nextSlide() { showSlide(current + 1); }
+  function prevSlide() { showSlide(current - 1); }
+
+  document.getElementById('nextBtn').addEventListener('click', nextSlide);
+  document.getElementById('prevBtn').addEventListener('click', prevSlide);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+      e.preventDefault(); nextSlide();
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault(); prevSlide();
+    }
+    if (e.key === 'Home') { e.preventDefault(); showSlide(1); }
+    if (e.key === 'End') { e.preventDefault(); showSlide(total); }
+  });
+
+  // Click-to-advance (but not on interactive elements or the nav)
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.nav') || e.target.closest('button') || e.target.closest('a')) return;
+    nextSlide();
+  });
+
+  // Deep link via hash
+  const initial = parseInt(location.hash.replace('#', ''), 10);
+  if (!Number.isNaN(initial) && initial >= 1 && initial <= total) {
+    showSlide(initial);
+  } else {
+    showSlide(1);
+    progressBar.style.width = (1 / total * 100) + '%';
+  }
+
+  /* =============================================================
+     Revenue chart, ILLUSTRATIVE numbers only
+     ============================================================= */
+  const advanceSize = 20000;             // CAD, placeholder average
+  const avgDaysOutstanding = 21;          // illustrative
+  const discountPerKPerDay = 0.80;        // standard Firm Funds rate
+  // Profit per advance from the total fee pool, brokerage share assumed 25% as illustrative
+  // Total fee per advance = (advanceSize/1000) * discountPerKPerDay * days = 20 * 0.80 * 21 = $336
+  const totalFeePerAdvance = (advanceSize / 1000) * discountPerKPerDay * avgDaysOutstanding;
+
+  // Illustrative brokerage shares to show a range
+  const shareConservative = 0.20; // 20%
+  const shareTypical = 0.30;      // 30%
+  const shareUpside = 0.40;       // 40%
+
+  const dealVolumes = [5, 10, 20, 50];
+
+  function profitAt(share) {
+    return dealVolumes.map(v => Math.round(v * totalFeePerAdvance * share));
+  }
+
+  const ctx = document.getElementById('revenueChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: dealVolumes.map(v => v + ' / mo'),
+        datasets: [
+          {
+            label: 'Conservative share (~20%)',
+            data: profitAt(shareConservative),
+            backgroundColor: 'rgba(95, 168, 115, 0.32)',
+            borderColor: 'rgba(95, 168, 115, 0.55)',
+            borderWidth: 1.5,
+            borderRadius: 6,
+            categoryPercentage: 0.72,
+            barPercentage: 0.85
+          },
+          {
+            label: 'Typical share (~30%)',
+            data: profitAt(shareTypical),
+            backgroundColor: 'rgba(95, 168, 115, 0.6)',
+            borderColor: 'rgba(95, 168, 115, 0.85)',
+            borderWidth: 1.5,
+            borderRadius: 6,
+            categoryPercentage: 0.72,
+            barPercentage: 0.85
+          },
+          {
+            label: 'Upside share (~40%)',
+            data: profitAt(shareUpside),
+            backgroundColor: 'rgba(123, 196, 141, 0.88)',
+            borderColor: 'rgba(123, 196, 141, 1)',
+            borderWidth: 1.5,
+            borderRadius: 6,
+            categoryPercentage: 0.72,
+            barPercentage: 0.85
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 800, easing: 'easeOutQuart' },
+        plugins: {
+          legend: {
+            position: 'top',
+            align: 'end',
+            labels: {
+              color: '#A0A0AB',
+              font: { family: "'Inter', sans-serif", size: 11, weight: '500' },
+              boxWidth: 12,
+              boxHeight: 12,
+              padding: 14,
+              usePointStyle: true,
+              pointStyle: 'rectRounded'
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(20, 20, 24, 0.96)',
+            titleColor: '#EAEAEF',
+            bodyColor: '#EAEAEF',
+            borderColor: 'rgba(95, 168, 115, 0.3)',
+            borderWidth: 1,
+            padding: 12,
+            titleFont: { family: "'Inter', sans-serif", size: 12, weight: '600' },
+            bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+            callbacks: {
+              label: function(ctx) {
+                return '  ' + ctx.dataset.label + ': $' + ctx.parsed.y.toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: '#A0A0AB',
+              font: { family: "'JetBrains Mono', monospace", size: 11 }
+            },
+            title: {
+              display: true,
+              text: 'Advances per month',
+              color: '#6B6B78',
+              font: { family: "'Inter', sans-serif", size: 11, weight: '500' },
+              padding: { top: 10 }
+            }
+          },
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.04)' },
+            ticks: {
+              color: '#A0A0AB',
+              font: { family: "'JetBrains Mono', monospace", size: 11 },
+              callback: function(value) {
+                return '$' + value.toLocaleString();
+              }
+            },
+            title: {
+              display: true,
+              text: 'Estimated monthly brokerage profit share (CAD)',
+              color: '#6B6B78',
+              font: { family: "'Inter', sans-serif", size: 11, weight: '500' }
+            }
+          }
+        }
+      }
+    });
+  }
+</script>
+
+</body>
+</html>
