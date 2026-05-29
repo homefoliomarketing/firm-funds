@@ -22,6 +22,8 @@ import {
   updateBrokerageContactEmail,
 } from '@/lib/actions/settings-actions'
 import { getBrokerageStaff, inviteBrokerageStaff, updateStaffTitle } from '@/lib/actions/profile-actions'
+import { getMyBrokerageAdminRole } from '@/lib/actions/brokerage-admin-actions'
+import { canManageBrokerageTeam, BROKERAGE_ADMIN_ROLE_LABEL, type BrokerageAdminRole } from '@/lib/brokerage-admin-roles'
 import type { Brokerage, UserProfile } from '@/types/database'
 
 type BrokeragePublic = Pick<Brokerage,
@@ -40,6 +42,7 @@ interface StaffMember {
 export default function BrokerageSettingsPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
+  const [myBrokerageRole, setMyBrokerageRole] = useState<BrokerageAdminRole | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [currentPassword, setCurrentPassword] = useState('')
@@ -116,6 +119,13 @@ export default function BrokerageSettingsPage() {
       const staffResult = await getBrokerageStaff()
       if (staffResult.success && staffResult.data) {
         setStaff(staffResult.data)
+      }
+
+      // Resolve the caller's brokerage sub-role so we can show/hide the
+      // Team Admins card. Plain Brokerage Admins should not see it.
+      const roleResult = await getMyBrokerageAdminRole()
+      if (roleResult.success && roleResult.data) {
+        setMyBrokerageRole(roleResult.data.role)
       }
 
       setLoading(false)
@@ -490,32 +500,38 @@ export default function BrokerageSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* PORTAL ADMINS — link to dedicated page that manages the
-            brokerage_admins pool. Kept here as a quick entry point since
-            most brokerages will want to invite a second admin once they
-            start using the portal regularly. */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
-              <Shield size={18} />
-              Portal Admins
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">
-              Add more people from your brokerage who should be able to sign in to the Firm Funds portal,
-              manage agents, and submit deals.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push('/brokerage/admins')}
-            >
-              <Users size={14} className="mr-1.5" aria-hidden="true" />
-              Manage portal admins
-            </Button>
-          </CardContent>
-        </Card>
+        {/* TEAM ADMINS — only visible to Broker of Record and Brokerage
+            Manager. Plain Brokerage Admins shouldn't see the link because
+            they can't manage other admins anyway. */}
+        {canManageBrokerageTeam(myBrokerageRole) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                <Shield size={18} />
+                Team Admins
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground mb-1">
+                Add or remove other people from your brokerage who should be able to sign in to the Firm Funds portal,
+                manage agents, and submit deals.
+              </p>
+              {myBrokerageRole && (
+                <p className="text-[11px] text-muted-foreground/70 mb-3">
+                  You are signed in as <span className="font-semibold text-foreground">{BROKERAGE_ADMIN_ROLE_LABEL[myBrokerageRole]}</span>.
+                </p>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push('/brokerage/admins')}
+              >
+                <Users size={14} className="mr-1.5" aria-hidden="true" />
+                Manage team admins
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* STAFF / TEAM */}
         <Card>

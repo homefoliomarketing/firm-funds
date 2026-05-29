@@ -29,6 +29,10 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatDate } from '@/lib/formatting'
 import { cn } from '@/lib/utils'
+import {
+  BROKERAGE_ADMIN_ROLE_LABEL,
+  type BrokerageAdminRole,
+} from '@/lib/brokerage-admin-roles'
 
 // ============================================================================
 // Server-action call wrappers — lazily resolved
@@ -42,7 +46,7 @@ interface ActionResult<T = unknown> {
 
 interface LegacyBrokerageUser {
   id: string
-  role?: 'admin' | 'primary_admin'
+  role?: BrokerageAdminRole
   full_name: string | null
   email: string | null
   created_at?: string | null
@@ -82,11 +86,12 @@ async function callListBrokerageAdmins(
       id: u.id,
       user_id: u.id,
       brokerage_id: brokerageId,
-      role: u.role ?? 'admin',
+      role: u.role ?? 'brokerage_admin',
       full_name: u.full_name,
       email: u.email,
       invited_at: u.created_at ?? null,
       accepted_at: u.last_login ?? null,
+      last_login: u.last_login ?? null,
     })),
   }
 }
@@ -96,7 +101,7 @@ interface InvitePayload {
   firstName: string
   lastName: string
   email: string
-  role: 'admin' | 'primary_admin'
+  role: BrokerageAdminRole
 }
 
 async function callInviteBrokerageAdmin(payload: InvitePayload): Promise<ActionResult> {
@@ -125,8 +130,7 @@ async function callInviteBrokerageAdmin(payload: InvitePayload): Promise<ActionR
 }
 
 async function callRemoveBrokerageAdmin(payload: {
-  brokerageId: string
-  userId: string
+  brokerageAdminId: string
 }): Promise<ActionResult> {
   try {
     const mod = (await import(
@@ -152,11 +156,12 @@ export interface BrokerageAdminRow {
   id: string
   user_id: string
   brokerage_id: string
-  role: 'admin' | 'primary_admin'
+  role: BrokerageAdminRole
   full_name: string | null
   email: string | null
   invited_at: string | null
   accepted_at: string | null
+  last_login?: string | null
 }
 
 // ============================================================================
@@ -184,7 +189,7 @@ export function BrokerageAdminsPanel({
   const [inviteFirst, setInviteFirst] = useState('')
   const [inviteLast, setInviteLast] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<'admin' | 'primary_admin'>('admin')
+  const [inviteRole, setInviteRole] = useState<BrokerageAdminRole>('brokerage_admin')
   const [inviteError, setInviteError] = useState<string | null>(null)
 
   // Remove confirmation state
@@ -214,7 +219,7 @@ export function BrokerageAdminsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brokerageId])
 
-  const primaryCount = admins.filter(a => a.role === 'primary_admin').length
+  const borCount = admins.filter(a => a.role === 'broker_of_record').length
 
   const submitInvite = async () => {
     if (!inviteFirst.trim() || !inviteLast.trim() || !inviteEmail.trim()) {
@@ -248,7 +253,7 @@ export function BrokerageAdminsPanel({
       setInviteFirst('')
       setInviteLast('')
       setInviteEmail('')
-      setInviteRole('admin')
+      setInviteRole('brokerage_admin')
       startTransition(() => loadAdmins())
       router.refresh()
     } catch (err: unknown) {
@@ -264,8 +269,7 @@ export function BrokerageAdminsPanel({
     setRemovingUserId(removeTarget.user_id)
     try {
       const result = await callRemoveBrokerageAdmin({
-        brokerageId,
-        userId: removeTarget.user_id,
+        brokerageAdminId: removeTarget.id,
       })
       if (!result?.success) {
         toast.error(result?.error || 'Could not remove admin')
@@ -281,10 +285,11 @@ export function BrokerageAdminsPanel({
     }
   }
 
-  // Warning when removing the LAST primary admin — surfaced in the confirm
-  // dialog so the operator has a chance to bail or promote someone else first.
+  // Warning when removing the LAST Broker of Record — surfaced in the
+  // confirm dialog so the operator has a chance to bail or promote someone
+  // else first.
   const isRemovingLastPrimary =
-    removeTarget?.role === 'primary_admin' && primaryCount <= 1
+    removeTarget?.role === 'broker_of_record' && borCount <= 1
 
   return (
     <Card className="border-border/40 bg-card">
@@ -346,18 +351,20 @@ export function BrokerageAdminsPanel({
                       variant="outline"
                       className={cn(
                         'text-[10px] uppercase tracking-wider',
-                        admin.role === 'primary_admin'
-                          ? 'border-primary/40 text-primary bg-primary/5'
-                          : 'border-border/40 text-muted-foreground',
+                        admin.role === 'broker_of_record'
+                          ? 'border-status-green/40 text-status-green bg-status-green-muted'
+                          : admin.role === 'brokerage_manager'
+                            ? 'border-primary/40 text-primary bg-primary/5'
+                            : 'border-border/40 text-muted-foreground',
                       )}
                     >
-                      {admin.role === 'primary_admin' ? (
+                      {admin.role === 'broker_of_record' ? (
                         <span className="inline-flex items-center gap-1">
                           <ShieldCheck size={10} aria-hidden="true" />
-                          Primary
+                          {BROKERAGE_ADMIN_ROLE_LABEL[admin.role]}
                         </span>
                       ) : (
-                        'Admin'
+                        BROKERAGE_ADMIN_ROLE_LABEL[admin.role]
                       )}
                     </Badge>
                     {!admin.accepted_at ? (
@@ -489,13 +496,15 @@ export function BrokerageAdminsPanel({
                   <SelectValue placeholder="Pick a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="primary_admin">Primary admin</SelectItem>
+                  <SelectItem value="brokerage_admin">Brokerage Admin</SelectItem>
+                  <SelectItem value="brokerage_manager">Brokerage Manager</SelectItem>
+                  <SelectItem value="broker_of_record">Broker of Record</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Primary admins are the brokerage&apos;s designated point of
-                contact and can manage the rest of the pool.
+                Broker of Record is the regulatory signatory. Brokerage Manager
+                runs day-to-day operations and can manage other admins.
+                Brokerage Admin submits deals but cannot manage the team.
               </p>
             </div>
 
@@ -566,10 +575,10 @@ export function BrokerageAdminsPanel({
               <X size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
               <div>
                 <p className="font-semibold">
-                  This is the only primary admin.
+                  This is the only Broker of Record.
                 </p>
                 <p className="mt-0.5">
-                  Removing them leaves the brokerage with no primary contact. Promote another admin to primary first.
+                  Removing them leaves the brokerage without a regulatory contact. Seat a replacement Broker of Record first.
                 </p>
               </div>
             </div>

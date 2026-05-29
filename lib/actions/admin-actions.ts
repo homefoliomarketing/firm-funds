@@ -2927,11 +2927,11 @@ export async function inviteBrokerageAdmin(input: {
       return { success: false, error: `Login created but profile failed: ${profileError.message}` }
     }
 
-    // Migration 087: seed brokerage_admins junction row so the multi-admin pool
-    // tracks every admin invited via this legacy path. If this is the FIRST
-    // admin for the brokerage, mark them primary_admin so they can manage the
-    // pool themselves. Junction-table failures are non-fatal — the legacy
-    // user_profile.brokerage_id link is still the source of truth for now.
+    // Migration 087/098: seed brokerage_admins junction row so the multi-admin
+    // pool tracks every admin invited via this legacy path. If this is the
+    // FIRST admin for the brokerage, mark them broker_of_record so they can
+    // manage the pool themselves. Junction-table failures are non-fatal — the
+    // legacy user_profile.brokerage_id link is still the source of truth for now.
     let seededAsPrimary = false
     try {
       const { count: existingPoolCount } = await serviceClient
@@ -2939,8 +2939,8 @@ export async function inviteBrokerageAdmin(input: {
         .select('*', { count: 'exact', head: true })
         .eq('brokerage_id', input.brokerageId)
 
-      const role = existingPoolCount && existingPoolCount > 0 ? 'admin' : 'primary_admin'
-      seededAsPrimary = role === 'primary_admin'
+      const role = existingPoolCount && existingPoolCount > 0 ? 'brokerage_admin' : 'broker_of_record'
+      seededAsPrimary = role === 'broker_of_record'
 
       const { error: junctionErr } = await serviceClient
         .from('brokerage_admins')

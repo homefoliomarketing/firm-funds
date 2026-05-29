@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   ArrowLeft, Users, UserPlus, Trash2, ShieldCheck, Mail, CheckCircle2,
-  AlertTriangle, Loader2, Clock,
+  AlertTriangle, Loader2, Clock, Lock,
 } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
@@ -23,13 +23,38 @@ import {
   inviteBrokerageAdmin,
   listBrokerageAdmins,
   removeBrokerageAdmin,
+  getMyBrokerageAdminRole,
+} from '@/lib/actions/brokerage-admin-actions'
+import {
+  canManageBrokerageTeam,
+  BROKERAGE_ADMIN_ROLE_LABEL,
   type BrokerageAdmin,
   type BrokerageAdminRole,
-} from '@/lib/actions/brokerage-admin-actions'
+} from '@/lib/brokerage-admin-roles'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import type { Brokerage, UserProfile } from '@/types/database'
 
 type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'logo_includes_tagline' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
+
+const ROLE_DESCRIPTION: Record<BrokerageAdminRole, string> = {
+  broker_of_record:
+    'Regulatory signatory. Can be changed only by Firm Funds.',
+  brokerage_manager:
+    'Day-to-day owner of the portal. Can invite and remove other admins.',
+  brokerage_admin:
+    'Submits deals and manages agents. No team-management rights.',
+}
+
+function formatDateOrDash(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleDateString('en-CA', {
+      year: 'numeric', month: 'short', day: 'numeric',
+    })
+  } catch {
+    return '—'
+  }
+}
 
 export default function BrokerageAdminsPage() {
   const router = useRouter()
@@ -38,6 +63,7 @@ export default function BrokerageAdminsPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [admins, setAdmins] = useState<BrokerageAdmin[]>([])
+  const [myRole, setMyRole] = useState<BrokerageAdminRole | null>(null)
   const [loading, setLoading] = useState(true)
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
@@ -46,7 +72,7 @@ export default function BrokerageAdminsPage() {
   const [inviteFirstName, setInviteFirstName] = useState('')
   const [inviteLastName, setInviteLastName] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<BrokerageAdminRole>('admin')
+  const [inviteRole, setInviteRole] = useState<BrokerageAdminRole>('brokerage_admin')
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
 
@@ -81,6 +107,17 @@ export default function BrokerageAdminsPage() {
         router.push('/login'); return
       }
       setProfile(profileData)
+
+      // Fetch the caller's sub-role inside this brokerage. Plain
+      // brokerage_admins are bounced to the dashboard — only BoR and
+      // Brokerage Manager can manage the team.
+      const roleResult = await getMyBrokerageAdminRole()
+      const subRole = roleResult.success && roleResult.data ? roleResult.data.role : null
+      setMyRole(subRole)
+      if (!canManageBrokerageTeam(subRole)) {
+        router.push('/brokerage/settings')
+        return
+      }
 
       const { data: brokerageData } = await supabase
         .from('brokerages')
@@ -121,7 +158,7 @@ export default function BrokerageAdminsPage() {
     if (result.success) {
       flash('ok', `Invite sent to ${inviteEmail.trim()}`)
       setInviteFirstName(''); setInviteLastName(''); setInviteEmail('')
-      setInviteRole('admin')
+      setInviteRole('brokerage_admin')
       setShowInvite(false)
       await refreshAdmins(profile.brokerage_id)
     } else {
@@ -149,9 +186,9 @@ export default function BrokerageAdminsPage() {
     router.push('/login')
   }
 
-  // Primary admins counted so the UI can preview whether removing a primary
-  // is safe (server enforces the same rule but local hint is friendlier).
-  const primaryAdminCount = admins.filter(a => a.role === 'primary_admin').length
+  // Only the Broker of Record can promote to Brokerage Manager. Plain
+  // managers and admins get only the brokerage_admin option in the dropdown.
+  const canPromoteToManager = myRole === 'broker_of_record'
 
   if (loading) {
     return (
@@ -176,18 +213,17 @@ export default function BrokerageAdminsPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
               <div className="w-px h-8 bg-white/15" />
               <button
-                onClick={() => router.push('/brokerage')}
+                onClick={() => router.push('/brokerage/settings')}
                 className="text-white/60 hover:text-primary transition-colors"
-                aria-label="Back to brokerage dashboard"
+                aria-label="Back to brokerage settings"
               >
                 <ArrowLeft size={20} />
               </button>
               <p className="text-sm font-medium tracking-wide text-white">
-                Brokerage Admins{brokerage ? ` — ${brokerage.name}` : ''}
+                Team Admins{brokerage ? ` — ${brokerage.name}` : ''}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -197,8 +233,8 @@ export default function BrokerageAdminsPage() {
         </div>
       </header>
 
-      <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
-        <h1 className="sr-only">Manage brokerage admins</h1>
+      <main id="main-content" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+        <h1 className="sr-only">Manage team admins</h1>
 
         {okMsg && (
           <Alert role="status">
@@ -217,7 +253,7 @@ export default function BrokerageAdminsPage() {
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
               <Users size={18} />
-              Admins ({admins.length})
+              Team Admins ({admins.length})
             </CardTitle>
             <Button size="sm" onClick={() => setShowInvite(true)}>
               <UserPlus size={14} className="mr-1.5" aria-hidden="true" />
@@ -233,78 +269,111 @@ export default function BrokerageAdminsPage() {
                 compact
               />
             ) : (
-              <ul role="list" className="divide-y divide-border/50">
-                {admins.map((a) => {
-                  const isYou = profile?.id === a.user_id
-                  const isPending = !a.accepted_at
-                  const removeBlocked = a.role === 'primary_admin' && primaryAdminCount <= 1
-                  return (
-                    <li key={a.id} className="py-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {a.full_name || a.email || 'Unknown admin'}
-                          </p>
-                          {isYou && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">
-                              You
+              <div className="overflow-x-auto -mx-2">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border/40">
+                      <th className="px-3 py-2 font-semibold">Name</th>
+                      <th className="px-3 py-2 font-semibold">Email</th>
+                      <th className="px-3 py-2 font-semibold">Role</th>
+                      <th className="px-3 py-2 font-semibold whitespace-nowrap">Date added</th>
+                      <th className="px-3 py-2 font-semibold whitespace-nowrap">Last sign-in</th>
+                      <th className="px-3 py-2 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/30">
+                    {admins.map((a) => {
+                      const isYou = profile?.id === a.user_id
+                      const isPending = !a.accepted_at
+                      const isBor = a.role === 'broker_of_record'
+                      // BoR can only be removed by Firm Funds. The button stays
+                      // visible but disabled with a tooltip explaining why.
+                      const removeBlocked = isYou || isBor
+                      const removeReason = isYou
+                        ? 'You cannot remove yourself.'
+                        : isBor
+                          ? 'The Broker of Record can only be changed by Firm Funds. Email bud@firmfunds.ca.'
+                          : `Remove ${a.full_name || a.email || 'admin'}`
+                      return (
+                        <tr key={a.id} className="align-top">
+                          <td className="px-3 py-3">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-foreground">
+                                {a.full_name || 'Unknown'}
+                              </span>
+                              {isYou && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">
+                                  You
+                                </span>
+                              )}
+                              {isPending && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-amber-muted text-status-amber font-semibold inline-flex items-center gap-0.5">
+                                  <Clock size={10} aria-hidden="true" />
+                                  Invite pending
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-muted-foreground">
+                            <span className="inline-flex items-center gap-1">
+                              <Mail size={11} aria-hidden="true" className="text-muted-foreground/70" />
+                              {a.email || 'No email on file'}
                             </span>
-                          )}
-                          {a.role === 'primary_admin' && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-green-muted text-status-green font-semibold inline-flex items-center gap-0.5">
-                              <ShieldCheck size={10} aria-hidden="true" />
-                              Primary
+                          </td>
+                          <td className="px-3 py-3">
+                            <span
+                              className={`text-[11px] px-2 py-1 rounded font-semibold inline-flex items-center gap-1 ${
+                                isBor
+                                  ? 'bg-status-green-muted text-status-green'
+                                  : a.role === 'brokerage_manager'
+                                    ? 'bg-primary/10 text-primary'
+                                    : 'bg-muted text-muted-foreground'
+                              }`}
+                              title={ROLE_DESCRIPTION[a.role]}
+                            >
+                              {isBor && <ShieldCheck size={11} aria-hidden="true" />}
+                              {BROKERAGE_ADMIN_ROLE_LABEL[a.role]}
                             </span>
-                          )}
-                          {isPending && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-amber-muted text-status-amber font-semibold inline-flex items-center gap-0.5">
-                              <Clock size={10} aria-hidden="true" />
-                              Invite pending
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5 flex items-center gap-1">
-                          <Mail size={11} aria-hidden="true" />
-                          {a.email || 'No email on file'}
-                        </p>
-                        {a.invited_at && (
-                          <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                            Invited {new Date(a.invited_at).toLocaleDateString('en-CA')}
-                            {a.accepted_at && ` · Accepted ${new Date(a.accepted_at).toLocaleDateString('en-CA')}`}
-                          </p>
-                        )}
-                      </div>
-                      <div className="shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                          onClick={() => setRemoveTarget(a)}
-                          disabled={isYou || removeBlocked}
-                          title={
-                            isYou
-                              ? 'You cannot remove yourself'
-                              : removeBlocked
-                                ? 'At least one primary admin must remain. Promote another admin first.'
-                                : 'Remove this admin'
-                          }
-                          aria-label={`Remove ${a.full_name || a.email || 'admin'}`}
-                        >
-                          <Trash2 size={13} className="mr-1" aria-hidden="true" />
-                          Remove
-                        </Button>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
+                          </td>
+                          <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                            {formatDateOrDash(a.invited_at)}
+                          </td>
+                          <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                            {a.last_login
+                              ? formatDateOrDash(a.last_login)
+                              : <span className="text-muted-foreground/60">Never</span>}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive border-destructive/30 hover:bg-destructive/10 disabled:opacity-50"
+                              onClick={() => setRemoveTarget(a)}
+                              disabled={removeBlocked}
+                              title={removeReason}
+                              aria-label={removeReason}
+                            >
+                              {isBor ? (
+                                <Lock size={13} className="mr-1" aria-hidden="true" />
+                              ) : (
+                                <Trash2 size={13} className="mr-1" aria-hidden="true" />
+                              )}
+                              Remove
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </CardContent>
         </Card>
 
         <p className="text-xs text-muted-foreground/70">
-          At least one primary admin must remain at all times. Need to change the
-          Broker of Record? Contact <a className="underline underline-offset-2" href="mailto:bud@firmfunds.ca">bud@firmfunds.ca</a>.
+          The Broker of Record is the brokerage&apos;s regulatory contact and can only be changed by Firm Funds.
+          Email <a className="underline underline-offset-2" href="mailto:bud@firmfunds.ca">bud@firmfunds.ca</a> if you need to swap who holds that role.
         </p>
       </main>
 
@@ -360,9 +429,16 @@ export default function BrokerageAdminsPage() {
                 onChange={(e) => setInviteRole(e.target.value as BrokerageAdminRole)}
                 className="w-full px-3 py-2 rounded-lg text-base sm:text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
-                <option value="admin">Admin — manages deals & agents</option>
-                <option value="primary_admin">Primary admin — also manages other admins</option>
+                <option value="brokerage_admin">Brokerage Admin — submits deals, manages agents</option>
+                {canPromoteToManager && (
+                  <option value="brokerage_manager">Brokerage Manager — also manages team admins</option>
+                )}
               </select>
+              <p className="text-[11px] text-muted-foreground/70 mt-1">
+                {canPromoteToManager
+                  ? 'Only you, the Broker of Record, can seat another Brokerage Manager.'
+                  : 'Only the Broker of Record can promote to Brokerage Manager. Email bud@firmfunds.ca for BoR changes.'}
+              </p>
             </div>
             {inviteError && (
               <Alert variant="destructive">
@@ -377,7 +453,7 @@ export default function BrokerageAdminsPage() {
             </Button>
             <Button onClick={handleInvite} disabled={inviting}>
               {inviting && <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />}
-              {inviting ? 'Sending invite…' : 'Send invite'}
+              {inviting ? 'Sending invite...' : 'Send invite'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -406,7 +482,7 @@ export default function BrokerageAdminsPage() {
               disabled={removing}
             >
               {removing && <Loader2 size={14} className="mr-1.5 animate-spin" aria-hidden="true" />}
-              {removing ? 'Removing…' : 'Remove'}
+              {removing ? 'Removing...' : 'Remove'}
             </Button>
           </DialogFooter>
         </DialogContent>

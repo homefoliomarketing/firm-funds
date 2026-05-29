@@ -4,19 +4,25 @@
 // Brokerage Admin pool (multi-admin support)
 // ============================================================================
 // Server actions for managing the brokerage_admins junction table introduced
-// in migration 087. The junction table lets a single brokerage have multiple
-// admin user accounts, each with a role of 'admin' or 'primary_admin'. Only
-// primary_admins (and Firm Funds super_admin/firm_funds_admin) can invite or
-// remove other admins.
+// in migration 087 and expanded to three sub-roles in migration 098.
 //
+// Sub-roles:
+//   broker_of_record   Regulatory signatory. Removable only by Firm Funds.
+//                      Only the BoR can promote another admin to
+//                      brokerage_manager.
+//   brokerage_manager  Day-to-day owner of the brokerage portal. Can invite
+//                      and remove brokerage_admins, can also remove other
+//                      brokerage_managers, cannot remove or replace the BoR.
+//   brokerage_admin    Plain portal admin. No team-management privileges.
+//
+// FF admins (super_admin, firm_funds_admin) always retain full control.
+// ============================================================================
 // NAMING NOTE:
-//   `inviteBrokerageAdmin` here is the NEW multi-admin path. The legacy
+//   `inviteBrokerageAdmin` here is the multi-admin path. The legacy
 //   `inviteBrokerageAdmin` in lib/actions/admin-actions.ts predates the
-//   junction table — it also creates an auth user + user_profile and seeds
-//   the brokerage_admins row. The two functions share the same name across
-//   different modules so callers should be explicit about which one they
-//   import. New UI should prefer this file's export; legacy import sites in
-//   the admin console are unchanged.
+//   junction table and is still used by the FF admin console's quick-add
+//   flow. The two share a name across modules; callers should be explicit
+//   about which one they import.
 // ============================================================================
 
 import crypto from 'crypto'
@@ -35,38 +41,40 @@ interface ActionResult<T = unknown> {
   data?: T
 }
 
-export type BrokerageAdminRole = 'admin' | 'primary_admin'
-
-export interface BrokerageAdmin {
-  id: string
-  brokerage_id: string
-  user_id: string
-  role: BrokerageAdminRole
-  invited_at: string | null
-  accepted_at: string | null
-  created_by: string | null
-  // Joined from user_profiles
-  full_name?: string | null
-  email?: string | null
-}
+import {
+  ALL_BROKERAGE_ADMIN_ROLES,
+  canManageBrokerageTeam,
+  type BrokerageAdmin,
+  type BrokerageAdminRole,
+} from '@/lib/brokerage-admin-roles'
 
 // ============================================================================
 // Internal: validate caller can manage admins for a brokerage. Firm Funds
 // super_admin/firm_funds_admin can always manage; brokerage_admin can manage
-// only if they are a primary_admin of the target brokerage in the pool.
-// Returns { ok, callerUserId, viaFirmFunds } or { ok:false, error }.
+// only if they are a broker_of_record or brokerage_manager of the target
+// brokerage in the pool.
+// Returns { ok, callerUserId, callerRole, viaFirmFunds } or { ok:false, error }.
 // ============================================================================
-async function authorizeAdminManager(
-  brokerageId: string,
-): Promise<
-  | { ok: true; callerUserId: string; viaFirmFunds: boolean }
+type AuthorizeResult =
+  | {
+      ok: true
+      callerUserId: string
+      callerRole: BrokerageAdminRole | null
+      viaFirmFunds: boolean
+    }
   | { ok: false; error: string }
-> {
+
+async function authorizeAdminManager(brokerageId: string): Promise<AuthorizeResult> {
   // Try FF admin first — most common caller. If user is FF admin, no further
   // checks required.
   const ffAttempt = await getAuthenticatedAdmin()
   if (!ffAttempt.error && ffAttempt.user) {
-    return { ok: true, callerUserId: ffAttempt.user.id, viaFirmFunds: true }
+    return {
+      ok: true,
+      callerUserId: ffAttempt.user.id,
+      callerRole: null,
+      viaFirmFunds: true,
+    }
   }
 
   // Not a FF admin — check brokerage_admin path. authorizeAdminManager is
@@ -83,10 +91,16 @@ async function authorizeAdminManager(
 
   const profile = callerAttempt.profile
   if (profile.role === 'super_admin' || profile.role === 'firm_funds_admin') {
-    return { ok: true, callerUserId: callerAttempt.user.id, viaFirmFunds: true }
+    return {
+      ok: true,
+      callerUserId: callerAttempt.user.id,
+      callerRole: null,
+      viaFirmFunds: true,
+    }
   }
 
-  // brokerage_admin path: must be primary_admin of THIS brokerage.
+  // brokerage_admin path: must be broker_of_record or brokerage_manager of
+  // THIS brokerage.
   const serviceClient = createServiceRoleClient()
   const { data: poolRow, error: poolErr } = await serviceClient
     .from('brokerage_admins')
@@ -101,23 +115,34 @@ async function authorizeAdminManager(
   if (!poolRow) {
     return { ok: false, error: 'You are not an admin of this brokerage' }
   }
-  if (poolRow.role !== 'primary_admin') {
+  const callerRole = poolRow.role as BrokerageAdminRole
+  if (!canManageBrokerageTeam(callerRole)) {
     return {
       ok: false,
-      error: 'Only a primary admin can manage other brokerage admins',
+      error: 'Only the Broker of Record or a Brokerage Manager can manage team admins',
     }
   }
 
-  return { ok: true, callerUserId: callerAttempt.user.id, viaFirmFunds: false }
+  return {
+    ok: true,
+    callerUserId: callerAttempt.user.id,
+    callerRole,
+    viaFirmFunds: false,
+  }
 }
 
 // ============================================================================
 // inviteBrokerageAdmin — add a new admin to a brokerage's pool.
 //
-// Caller must be a Firm Funds admin OR a primary_admin of the target
-// brokerage. Creates the auth user + user_profile (mirroring the legacy flow
-// in admin-actions.ts) and inserts the brokerage_admins junction row.
-// Sends the standard branded magic-link invite email.
+// Caller must be a Firm Funds admin OR the Broker of Record / Brokerage
+// Manager of the target brokerage. Promotion rules:
+//   - Only the BoR (or Firm Funds) may seat a new brokerage_manager.
+//   - Nobody can invite a second BoR via this path. Changing the BoR is a
+//     regulatory event handled by Firm Funds out-of-band.
+//
+// Creates the auth user + user_profile (mirroring the legacy flow in
+// admin-actions.ts) and inserts the brokerage_admins junction row. Sends
+// the standard branded magic-link invite email.
 // ============================================================================
 export async function inviteBrokerageAdmin(input: {
   brokerageId: string
@@ -134,9 +159,27 @@ export async function inviteBrokerageAdmin(input: {
   const auth = await authorizeAdminManager(input.brokerageId)
   if (!auth.ok) return { success: false, error: auth.error }
 
-  const role: BrokerageAdminRole = input.role || 'admin'
-  if (role !== 'admin' && role !== 'primary_admin') {
-    return { success: false, error: 'Invalid role — must be admin or primary_admin' }
+  const requestedRole: BrokerageAdminRole = input.role || 'brokerage_admin'
+  if (!ALL_BROKERAGE_ADMIN_ROLES.includes(requestedRole)) {
+    return { success: false, error: 'Invalid role' }
+  }
+
+  // Tenancy + promotion rules. FF admins can pick any role; brokerage-side
+  // callers cannot seat a BoR through this UI (BoR changes go through Firm
+  // Funds) and only the BoR may promote to brokerage_manager.
+  if (!auth.viaFirmFunds) {
+    if (requestedRole === 'broker_of_record') {
+      return {
+        success: false,
+        error: 'Only Firm Funds can change the Broker of Record. Email bud@firmfunds.ca.',
+      }
+    }
+    if (requestedRole === 'brokerage_manager' && auth.callerRole !== 'broker_of_record') {
+      return {
+        success: false,
+        error: 'Only the Broker of Record can promote an admin to Brokerage Manager.',
+      }
+    }
   }
 
   const email = input.email.trim().toLowerCase()
@@ -253,15 +296,16 @@ export async function inviteBrokerageAdmin(input: {
       }
     }
 
-    // Insert the junction row. If this is the first admin in the pool,
-    // promote them to primary_admin regardless of the requested role.
+    // Insert the junction row. If this is the very first admin in the pool
+    // we seat them as broker_of_record regardless of what was requested — a
+    // brokerage cannot exist with zero BoRs.
     const { count: existingPoolCount } = await serviceClient
       .from('brokerage_admins')
       .select('*', { count: 'exact', head: true })
       .eq('brokerage_id', input.brokerageId)
 
     const finalRole: BrokerageAdminRole =
-      existingPoolCount && existingPoolCount > 0 ? role : 'primary_admin'
+      existingPoolCount && existingPoolCount > 0 ? requestedRole : 'broker_of_record'
 
     const { data: junction, error: junctionErr } = await serviceClient
       .from('brokerage_admins')
@@ -301,6 +345,7 @@ export async function inviteBrokerageAdmin(input: {
       adminEmail: email,
       brokerageName: brokerage.name,
       inviteToken,
+      brokerageId: input.brokerageId,
     })
 
     await logAuditEvent({
@@ -311,10 +356,13 @@ export async function inviteBrokerageAdmin(input: {
         brokerage_name: brokerage.name,
         invited_email: email,
         invited_name: fullName,
+        invited_user_id: authUserId,
         role: finalRole,
+        requested_role: requestedRole,
         invited_by_user_id: auth.callerUserId,
-        invited_via: auth.viaFirmFunds ? 'firm_funds_admin' : 'primary_admin',
-        admin_id: junction.id,
+        invited_by_role: auth.callerRole,
+        invited_via: auth.viaFirmFunds ? 'firm_funds_admin' : 'brokerage_manager_path',
+        brokerage_admin_id: junction.id,
       },
     })
 
@@ -329,7 +377,15 @@ export async function inviteBrokerageAdmin(input: {
 // ============================================================================
 // removeBrokerageAdmin — remove an admin from a brokerage's pool.
 //
-// Cannot remove the last primary_admin (there must always be at least one).
+// Removal rules:
+//   - BoR row can only be removed by a Firm Funds admin (super_admin or
+//     firm_funds_admin). Brokerage-side callers see the row but cannot
+//     remove it; the UI disables their button with a tooltip.
+//   - At least one BoR must always remain. Even Firm Funds cannot drop the
+//     last BoR through this path; promote another admin first.
+//   - A user cannot remove themselves through this path (UI also blocks
+//     this, but enforce on the server too).
+//
 // If the user is on no other brokerages after removal, also delete the auth
 // user + user_profile to free the email. Otherwise leave the auth user in
 // place so they can keep their other brokerage memberships.
@@ -356,18 +412,33 @@ export async function removeBrokerageAdmin(input: {
     const auth = await authorizeAdminManager(row.brokerage_id)
     if (!auth.ok) return { success: false, error: auth.error }
 
-    // If this is a primary_admin, ensure another primary_admin exists.
-    if (row.role === 'primary_admin') {
-      const { count: primaryCount } = await serviceClient
+    if (row.user_id === auth.callerUserId) {
+      return { success: false, error: 'You cannot remove yourself.' }
+    }
+
+    const targetRole = row.role as BrokerageAdminRole
+
+    // BoR removal is locked to Firm Funds only.
+    if (targetRole === 'broker_of_record' && !auth.viaFirmFunds) {
+      return {
+        success: false,
+        error: 'Only Firm Funds can remove the Broker of Record. Email bud@firmfunds.ca to make this change.',
+      }
+    }
+
+    // Last-BoR safety: even Firm Funds can't drop the only BoR through this
+    // path. They should promote a replacement first.
+    if (targetRole === 'broker_of_record') {
+      const { count: borCount } = await serviceClient
         .from('brokerage_admins')
         .select('*', { count: 'exact', head: true })
         .eq('brokerage_id', row.brokerage_id)
-        .eq('role', 'primary_admin')
+        .eq('role', 'broker_of_record')
 
-      if (!primaryCount || primaryCount <= 1) {
+      if (!borCount || borCount <= 1) {
         return {
           success: false,
-          error: 'Cannot remove the last primary admin. Promote another admin first.',
+          error: 'Cannot remove the last Broker of Record. Seat a replacement BoR first.',
         }
       }
     }
@@ -417,9 +488,10 @@ export async function removeBrokerageAdmin(input: {
       metadata: {
         brokerage_admin_id: row.id,
         removed_user_id: row.user_id,
-        removed_role: row.role,
+        removed_role: targetRole,
         removed_by_user_id: auth.callerUserId,
-        removed_via: auth.viaFirmFunds ? 'firm_funds_admin' : 'primary_admin',
+        removed_by_role: auth.callerRole,
+        removed_via: auth.viaFirmFunds ? 'firm_funds_admin' : 'brokerage_manager_path',
         remaining_memberships: remainingMemberships || 0,
         profile_deactivated: profileDeactivated,
         auth_deleted: authDeleted,
@@ -436,7 +508,9 @@ export async function removeBrokerageAdmin(input: {
 
 // ============================================================================
 // listBrokerageAdmins — return the pool for a brokerage with joined profile
-// fields. Any FF admin or any admin in the pool can read the list.
+// fields. Any FF admin or any admin in the pool can read the list (even a
+// plain brokerage_admin can see who else is on their team; only management
+// actions are gated).
 // ============================================================================
 export async function listBrokerageAdmins(
   brokerageId: string,
@@ -483,10 +557,12 @@ export async function listBrokerageAdmins(
 
     const { data: profiles } = await serviceClient
       .from('user_profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, last_login')
       .in('id', userIds)
 
-    const profilesById = new Map((profiles || []).map((p) => [p.id, p]))
+    const profilesById = new Map(
+      (profiles || []).map((p) => [p.id, p as { id: string; full_name: string | null; email: string | null; last_login: string | null }]),
+    )
 
     const rows: BrokerageAdmin[] = (data || []).map((r) => {
       const p = profilesById.get(r.user_id)
@@ -500,6 +576,7 @@ export async function listBrokerageAdmins(
         created_by: r.created_by,
         full_name: p?.full_name ?? null,
         email: p?.email ?? null,
+        last_login: p?.last_login ?? null,
       }
     })
 
@@ -508,6 +585,47 @@ export async function listBrokerageAdmins(
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('listBrokerageAdmins error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
+// getMyBrokerageAdminRole — return the sub-role of the calling brokerage_admin
+// inside their own brokerage. Used by the settings page to decide whether
+// the Team Admins card is visible. Returns { role: null } when the caller is
+// not in any brokerage pool. FF admins always get null here — they manage
+// brokerage teams through the admin console, not the brokerage portal.
+// ============================================================================
+export async function getMyBrokerageAdminRole(): Promise<
+  ActionResult<{ role: BrokerageAdminRole | null; brokerage_id: string | null }>
+> {
+  const callerAttempt = await getAuthenticatedUser(['brokerage_admin'])
+  if (callerAttempt.error || !callerAttempt.user || !callerAttempt.profile) {
+    return { success: false, error: callerAttempt.error || 'Authentication failed' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+  const profile = callerAttempt.profile
+  if (!profile.brokerage_id) {
+    return { success: true, data: { role: null, brokerage_id: null } }
+  }
+
+  const { data: poolRow, error: poolErr } = await serviceClient
+    .from('brokerage_admins')
+    .select('role')
+    .eq('brokerage_id', profile.brokerage_id)
+    .eq('user_id', callerAttempt.user.id)
+    .maybeSingle()
+
+  if (poolErr) {
+    return { success: false, error: `Failed to read role: ${poolErr.message}` }
+  }
+
+  return {
+    success: true,
+    data: {
+      role: (poolRow?.role as BrokerageAdminRole | undefined) ?? null,
+      brokerage_id: profile.brokerage_id,
+    },
   }
 }
 
