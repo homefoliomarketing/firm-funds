@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 195.25" width="480" height="195.25" role="img" aria-label="Choice Advances — Powered by Firm Funds">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 195.25" width="480" height="195.25" role="img" aria-label="Choice Advances, Powered by Firm Funds">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@900&amp;family=Inter:wght@500;800&amp;display=swap');
-    .ff-name { font-family: 'Big Shoulders Display', Impact, 'Arial Black', sans-serif; font-weight: 900; }
+    @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700&amp;family=Inter:wght@500;800&amp;display=swap');
+    .ff-name { font-family: 'Big Shoulders Display', Impact, 'Arial Black', sans-serif; font-weight: 700; }
     .ff-tagline { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-weight: 500; letter-spacing: 0.32em; }
     .ff-tagline-bold { font-weight: 800; letter-spacing: 0.22em; }
   </style>
@@ -12,7 +12,7 @@
       <polygon points="262,256.6 262,220.9 321.7,190.6 311.8,179.7 356.1,183.3 337.1,224.5 331.2,211.4 286.4,232.2 286.4,243.5" />
     </g>
   </g>
-  <text x="240" y="131.1875" text-anchor="middle" font-size="55" fill="#5FA873" class="ff-name" style="letter-spacing:-0.01em">
+  <text x="240" y="131.1875" text-anchor="middle" font-size="55" fill="#5FA873" class="ff-name" style="letter-spacing:0.03em">
     <tspan x="240" y="131.1875">CHOICE ADVANCES</tspan>
   </text>
   <text x="240" y="161.25" text-anchor="middle" font-size="16" fill="#636361" class="ff-tagline" dominant-baseline="hanging">
