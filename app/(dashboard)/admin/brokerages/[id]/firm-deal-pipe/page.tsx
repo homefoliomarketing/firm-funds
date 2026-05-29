@@ -853,7 +853,7 @@ function NotificationRecipientsCard({
             Firm Funds inbox override
           </Label>
           <p className="text-[11px] text-muted-foreground">
-            Replaces the default <span className="font-mono">{initial.ff_inbox_default}</span> for this brokerage&apos;s offer emails and the 4-hour internal escalation. Leave blank to use the default.
+            Replaces the default <span className="font-mono">{initial.ff_inbox_default}</span>{' '}for this brokerage&apos;s offer emails and the 4-hour internal escalation. Leave blank to use the default.
           </p>
           <input
             id="ff-inbox-override"
