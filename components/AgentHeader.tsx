@@ -31,6 +31,10 @@ interface AgentHeaderProps {
   brokerageName?: string | null
   /** White-label: brokerage brand color (hex) */
   brokerageBrandColor?: string | null
+  /** TRUE when brokerageLogo is a generated SVG that already includes the
+   *  "Powered by Firm Funds" tagline. When true, the FF wordmark beside the
+   *  logo is suppressed to avoid duplication. Migration 096. */
+  brokerageLogoIncludesTagline?: boolean | null
 }
 
 export default function AgentHeader({
@@ -43,6 +47,7 @@ export default function AgentHeader({
   brokerageLogo,
   brokerageName,
   brokerageBrandColor,
+  brokerageLogoIncludesTagline,
 }: AgentHeaderProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [pendingReturns, setPendingReturns] = useState(0)
@@ -151,20 +156,31 @@ export default function AgentHeader({
                 <>
                   <Image
                     src={brokerageLogo}
-                    alt={`${brokerageName || 'Brokerage'} logo`}
+                    alt={brokerageLogoIncludesTagline
+                      ? `${brokerageName || 'Brokerage'} — Powered by Firm Funds`
+                      : `${brokerageName || 'Brokerage'} logo`}
                     width={160}
                     height={80}
                     unoptimized
-                    className="h-12 sm:h-16 md:h-20 w-auto object-contain"
+                    className={brokerageLogoIncludesTagline
+                      ? 'h-14 sm:h-20 md:h-24 w-auto object-contain'
+                      : 'h-12 sm:h-16 md:h-20 w-auto object-contain'}
                   />
-                  <div className="w-px h-8 bg-white/15" aria-hidden="true" />
-                  <Image
-                    src="/brand/white.png"
-                    alt="Firm Funds"
-                    width={120}
-                    height={40}
-                    className="h-8 sm:h-10 w-auto opacity-60"
-                  />
+                  {/* Skip the separate FF wordmark when the logo already
+                      contains "Powered by Firm Funds" (generated logos —
+                      migration 096). */}
+                  {!brokerageLogoIncludesTagline && (
+                    <>
+                      <div className="w-px h-8 bg-white/15" aria-hidden="true" />
+                      <Image
+                        src="/brand/white.png"
+                        alt="Firm Funds"
+                        width={120}
+                        height={40}
+                        className="h-8 sm:h-10 w-auto opacity-60"
+                      />
+                    </>
+                  )}
                 </>
               ) : (
                 <Image

@@ -6,7 +6,8 @@ import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox, Wand2, Sparkles } from 'lucide-react'
+import { generateBrokerageLogoSvg, svgToFile } from '@/lib/brokerage-logo-generator'
 import { formatCurrency } from '@/lib/formatting'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsCsv, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
@@ -100,6 +101,7 @@ interface Brokerage {
   bca_signed_at: string | null
   logo_url: string | null
   brand_color: string | null
+  logo_includes_tagline: boolean
   is_white_label_partner: boolean
   profit_share_pct: number
   late_strike_count: number
@@ -137,6 +139,8 @@ interface BrokerageFormData {
   brokerOfRecordName: string
   brokerOfRecordEmail: string
   logoUrl: string
+  /** TRUE if logoUrl was produced by the generator (Powered by Firm Funds baked in). */
+  logoIncludesTagline: boolean
   brandColor: string
   isWhiteLabelPartner: boolean
   profitSharePct: string
@@ -627,13 +631,13 @@ export default function BrokeragesPage() {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [createFormData, setCreateFormData] = useState<BrokerageFormData>({
-    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', logoIncludesTagline: false, brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '',
   })
   // Onboarding contacts (Brokerage Manager + Admin 1/2/3). BOR lives on
   // createFormData because it also writes to the brokerages table.
   const [onboardingContacts, setOnboardingContacts] = useState<OnboardingContactsForm>(emptyOnboardingContactsForm)
   const [editFormData, setEditFormData] = useState<BrokerageFormData & { status: 'active' | 'suspended' | 'inactive' | 'archived' }>({
-    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '', status: 'active',
+    name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', logoIncludesTagline: false, brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '', status: 'active',
   })
   const [agentForm, setAgentForm] = useState<AgentFormData>(emptyAgentForm)
   const [sendInvite, setSendInvite] = useState(true)
@@ -652,6 +656,10 @@ export default function BrokeragesPage() {
   const [brokerageDocs, setBrokerageDocs] = useState<Record<string, { id: string; file_name: string; document_type: string; file_path: string; file_size: number; created_at: string }[]>>({})
   const [uploadingBrokerageDoc, setUploadingBrokerageDoc] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  // Logo generator dialog state — see lib/brokerage-logo-generator.ts
+  const [logoGenOpen, setLogoGenOpen] = useState<{ brokerageId: string; isCreate: boolean } | null>(null)
+  const [logoGenName, setLogoGenName] = useState('')
+  const [logoGenBusy, setLogoGenBusy] = useState(false)
   // KYC state
   const [kycRecoNumber, setKycRecoNumber] = useState('')
   const [kycNotes, setKycNotes] = useState('')
@@ -853,6 +861,7 @@ export default function BrokeragesPage() {
       transactionSystem: createFormData.transactionSystem || undefined, notes: createFormData.notes || undefined,
       brokerOfRecordName: createFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: createFormData.brokerOfRecordEmail || undefined,
       logoUrl: createFormData.logoUrl || undefined, brandColor: createFormData.brandColor || undefined,
+      logoIncludesTagline: createFormData.logoIncludesTagline,
     })
     if (result.success) {
       const newBrokerageId = result.data?.id
@@ -911,7 +920,7 @@ export default function BrokeragesPage() {
       }
 
       setStatusMessage({ type: 'success', text: `Brokerage created successfully${rosterMsg}${contactsMsg}` })
-      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '' })
+      setCreateFormData({ name: '', email: '', brand: '', address: '', city: '', province: '', postalCode: '', phone: '', referralFeePercentage: '', transactionSystem: '', notes: '', brokerOfRecordName: '', brokerOfRecordEmail: '', logoUrl: '', logoIncludesTagline: false, brandColor: BRAND_GREEN_HEX, isWhiteLabelPartner: false, profitSharePct: '' })
       setOnboardingContacts(emptyOnboardingContactsForm)
       setCreateRosterFile(null)
       setShowCreateForm(false)
@@ -943,6 +952,7 @@ export default function BrokeragesPage() {
       transactionSystem: editFormData.transactionSystem || undefined, notes: editFormData.notes || undefined,
       brokerOfRecordName: editFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: editFormData.brokerOfRecordEmail || undefined,
       logoUrl: editFormData.logoUrl || undefined, brandColor: editFormData.brandColor || undefined,
+      logoIncludesTagline: editFormData.logoIncludesTagline,
       isWhiteLabelPartner: profitSharePct > 0,
       profitSharePct,
       status: editFormData.status,
@@ -971,7 +981,7 @@ export default function BrokeragesPage() {
       referralFeePercentage: (brokerage.referral_fee_percentage * 100).toString(),
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
       brokerOfRecordName: brokerage.broker_of_record_name || '', brokerOfRecordEmail: brokerage.broker_of_record_email || '',
-      logoUrl: brokerage.logo_url || '', brandColor: brokerage.brand_color || BRAND_GREEN_HEX,
+      logoUrl: brokerage.logo_url || '', logoIncludesTagline: brokerage.logo_includes_tagline ?? false, brandColor: brokerage.brand_color || BRAND_GREEN_HEX,
       isWhiteLabelPartner: brokerage.is_white_label_partner ?? false,
       profitSharePct: (brokerage.profit_share_pct ?? 0).toString(),
       status: brokerage.status,
@@ -999,9 +1009,10 @@ export default function BrokeragesPage() {
       // Add cache-busting param
       const logoUrl = `${publicUrl}?t=${Date.now()}`
       if (isCreate) {
-        setCreateFormData(prev => ({ ...prev, logoUrl }))
+        // Uploaded logos do NOT include the tagline — templates will add it.
+        setCreateFormData(prev => ({ ...prev, logoUrl, logoIncludesTagline: false }))
       } else {
-        setEditFormData(prev => ({ ...prev, logoUrl }))
+        setEditFormData(prev => ({ ...prev, logoUrl, logoIncludesTagline: false }))
       }
       setStatusMessage({ type: 'success', text: 'Logo uploaded' })
       setTimeout(() => setStatusMessage(null), 2000)
@@ -1010,6 +1021,54 @@ export default function BrokeragesPage() {
     }
     setUploadingLogo(false)
   }
+
+  // ---- Logo Generator ----
+  // Opens the generator dialog. brokerageId is 'new-brokerage-<ts>' for the
+  // create form (matches the handleLogoUpload pattern at line ~994).
+  const openLogoGenerator = (brokerageId: string, currentName: string, isCreate: boolean) => {
+    setLogoGenName(currentName.trim() || 'Brokerage Name')
+    setLogoGenOpen({ brokerageId, isCreate })
+  }
+
+  // Generates the SVG, uploads it to brokerage-logos storage, and updates form
+  // state with the new logoUrl + logoIncludesTagline=true. Form save (Save
+  // Changes) persists to the brokerages table.
+  const handleApplyGeneratedLogo = async () => {
+    if (!logoGenOpen || !logoGenName.trim()) return
+    setLogoGenBusy(true)
+    try {
+      const svg = generateBrokerageLogoSvg(logoGenName, { background: 'transparent' })
+      const file = svgToFile(svg, 'logo-generated.svg')
+      const path = `${logoGenOpen.brokerageId}/logo-generated.svg`
+      const { error: uploadErr } = await supabase.storage.from('brokerage-logos').upload(path, file, { upsert: true, contentType: 'image/svg+xml' })
+      if (uploadErr) {
+        setStatusMessage({ type: 'error', text: `Failed to save logo: ${uploadErr.message}` })
+        setLogoGenBusy(false)
+        return
+      }
+      const { data: { publicUrl } } = supabase.storage.from('brokerage-logos').getPublicUrl(path)
+      const logoUrl = `${publicUrl}?t=${Date.now()}`
+      if (logoGenOpen.isCreate) {
+        setCreateFormData(prev => ({ ...prev, logoUrl, logoIncludesTagline: true }))
+      } else {
+        setEditFormData(prev => ({ ...prev, logoUrl, logoIncludesTagline: true }))
+      }
+      setStatusMessage({ type: 'success', text: 'Logo generated. Click Save to apply.' })
+      setTimeout(() => setStatusMessage(null), 3000)
+      setLogoGenOpen(null)
+    } catch (e) {
+      setStatusMessage({ type: 'error', text: `Generator failed: ${e instanceof Error ? e.message : 'unknown error'}` })
+    }
+    setLogoGenBusy(false)
+  }
+
+  // Live preview SVGs for the dialog (re-generated on every name change).
+  const logoGenPreviewDark = logoGenName.trim()
+    ? generateBrokerageLogoSvg(logoGenName, { background: 'dark' })
+    : null
+  const logoGenPreviewLight = logoGenName.trim()
+    ? generateBrokerageLogoSvg(logoGenName, { background: 'light' })
+    : null
 
   // ---- Agent CRUD ----
   const handleAddAgent = async (e: React.FormEvent, brokerageId: string) => {
@@ -1593,19 +1652,31 @@ export default function BrokeragesPage() {
                 {renderInput('Transaction System', createFormData.transactionSystem, (v) => setCreateFormData({ ...createFormData, transactionSystem: v }), { placeholder: 'e.g., Nexone' })}
                 <div>
                   <label className="block text-sm font-medium mb-2 text-muted-foreground">Brokerage Logo</label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     {/* User-supplied external URL — next/image would need
                         runtime domain config for arbitrary brokerage hosts. */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     {createFormData.logoUrl && <img src={createFormData.logoUrl} alt="Logo" className="h-10 w-auto rounded bg-muted" />}
+                    <button type="button"
+                      onClick={() => openLogoGenerator('new-brokerage-' + Date.now(), createFormData.name, true)}
+                      disabled={!createFormData.name.trim()}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                      <Wand2 size={14} />
+                      {createFormData.logoIncludesTagline ? 'Regenerate' : 'Generate Logo'}
+                    </button>
                     <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors bg-input border border-border text-foreground hover:bg-muted ${uploadingLogo ? 'opacity-50' : ''}`}>
                       <Upload size={14} />
-                      {uploadingLogo ? 'Uploading...' : createFormData.logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                      {uploadingLogo ? 'Uploading...' : createFormData.logoUrl ? 'Replace Upload' : 'Upload Logo'}
                       <input type="file" accept="image/jpeg,image/png,image/svg+xml,image/webp" className="hidden" disabled={uploadingLogo}
                         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f, 'new-brokerage-' + Date.now(), true); e.target.value = '' }} />
                     </label>
+                    {createFormData.logoIncludesTagline && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 px-2 py-1 rounded">
+                        <Sparkles size={10} /> Generated
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[10px] mt-1 text-muted-foreground/60">JPEG, PNG, SVG, or WebP. Max 2MB.</p>
+                  <p className="text-[10px] mt-1 text-muted-foreground/60">Generate a wordmark logo from the brokerage name (recommended), or upload a custom file.</p>
                 </div>
               </div>
 
@@ -1859,22 +1930,34 @@ export default function BrokeragesPage() {
                             {renderInput('Broker of Record Email', editFormData.brokerOfRecordEmail, (v) => setEditFormData({ ...editFormData, brokerOfRecordEmail: v }), { placeholder: 'broker@brokerage.com', type: 'email' })}
                             <div>
                               <label className="block text-sm font-medium mb-2 text-muted-foreground">Brokerage Logo</label>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3 flex-wrap">
                                 {/* User-supplied external URL. */}
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 {editFormData.logoUrl && <img src={editFormData.logoUrl} alt="Logo" className="h-10 w-auto rounded bg-muted" />}
+                                <button type="button"
+                                  onClick={() => editingBrokerageId && openLogoGenerator(editingBrokerageId, editFormData.name, false)}
+                                  disabled={!editFormData.name.trim()}
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed">
+                                  <Wand2 size={14} />
+                                  {editFormData.logoIncludesTagline ? 'Regenerate' : 'Generate Logo'}
+                                </button>
                                 <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors bg-input border border-border text-foreground hover:bg-muted ${uploadingLogo ? 'opacity-50' : ''}`}>
                                   <Upload size={14} />
-                                  {uploadingLogo ? 'Uploading...' : editFormData.logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                                  {uploadingLogo ? 'Uploading...' : editFormData.logoUrl ? 'Replace Upload' : 'Upload Logo'}
                                   <input type="file" accept="image/jpeg,image/png,image/svg+xml,image/webp" className="hidden" disabled={uploadingLogo}
                                     onChange={(e) => { const f = e.target.files?.[0]; if (f && editingBrokerageId) handleLogoUpload(f, editingBrokerageId, false); e.target.value = '' }} />
                                 </label>
                                 {editFormData.logoUrl && (
-                                  <button type="button" onClick={() => setEditFormData(prev => ({ ...prev, logoUrl: '' }))}
+                                  <button type="button" onClick={() => setEditFormData(prev => ({ ...prev, logoUrl: '', logoIncludesTagline: false }))}
                                     className="text-xs text-muted-foreground hover:text-foreground">Remove</button>
                                 )}
+                                {editFormData.logoIncludesTagline && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 px-2 py-1 rounded">
+                                    <Sparkles size={10} /> Generated
+                                  </span>
+                                )}
                               </div>
-                              <p className="text-[10px] mt-1 text-muted-foreground/60">JPEG, PNG, SVG, or WebP. Max 2MB.</p>
+                              <p className="text-[10px] mt-1 text-muted-foreground/60">Generate a wordmark logo from the brokerage name, or upload a custom file (JPEG, PNG, SVG, or WebP, max 2MB).</p>
                             </div>
                           </div>
                           <div>
@@ -3444,6 +3527,96 @@ export default function BrokeragesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============================================================
+           Brokerage Logo Generator dialog
+           Renders the Variant B layout (F-mark crown + wordmark + tagline)
+           from lib/brokerage-logo-generator.ts. Live preview on dark + light
+           backgrounds. On apply, uploads the SVG and updates form state with
+           logoUrl + logoIncludesTagline=true (so templates skip the duplicate
+           FF wordmark — see lib/email.ts brandHeader + components/AgentHeader).
+         ============================================================ */}
+      <Dialog open={!!logoGenOpen} onOpenChange={(open) => { if (!open) setLogoGenOpen(null) }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 size={18} className="text-primary" />
+              Generate Brokerage Logo
+            </DialogTitle>
+            <DialogDescription>
+              Creates a wordmark logo in the Firm Funds style with &ldquo;Powered by Firm Funds&rdquo; baked in. Used in the agent portal header and white-label emails.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2 text-muted-foreground">Brokerage Name</label>
+              <Input
+                value={logoGenName}
+                onChange={(e) => setLogoGenName(e.target.value)}
+                placeholder="e.g. Choice Advances"
+                maxLength={60}
+                disabled={logoGenBusy}
+                autoFocus
+              />
+              <p className="text-[10px] mt-1 text-muted-foreground/60">
+                Long names wrap to two lines automatically. {logoGenName.trim().length} characters.
+              </p>
+            </div>
+
+            {/* Live preview */}
+            <div>
+              <label className="block text-sm font-medium mb-2 text-muted-foreground">Preview</label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg overflow-hidden border border-border">
+                  <div className="px-3 py-1.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">On dark (portal &amp; emails)</div>
+                  <div className="bg-[#0C0C0C] p-6 flex items-center justify-center min-h-[180px]">
+                    {logoGenPreviewDark ? (
+                      <div className="max-w-full" dangerouslySetInnerHTML={{ __html: logoGenPreviewDark }} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Enter a name to preview</span>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg overflow-hidden border border-border">
+                  <div className="px-3 py-1.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">On white (downloads &amp; print)</div>
+                  <div className="bg-white p-6 flex items-center justify-center min-h-[180px]">
+                    {logoGenPreviewLight ? (
+                      <div className="max-w-full" dangerouslySetInnerHTML={{ __html: logoGenPreviewLight }} />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Enter a name to preview</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] mt-2 text-muted-foreground/60">
+                Only the dark version is saved (the SVG is transparent and uses light-grey + green that work on the dark portal and email backgrounds).
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              onClick={() => setLogoGenOpen(null)}
+              disabled={logoGenBusy}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-muted text-foreground hover:bg-muted/80 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyGeneratedLogo}
+              disabled={logoGenBusy || !logoGenName.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold text-white bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              <Sparkles size={12} />
+              {logoGenBusy ? 'Saving…' : 'Use This Logo'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <style>{`
         @keyframes slideInRight {
           from { transform: translateX(100%); }

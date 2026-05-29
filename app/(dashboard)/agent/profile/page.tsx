@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import type { Agent, UserProfile } from '@/types/database'
 
 interface AgentWithBrokerage extends Agent {
-  brokerages?: { name: string | null; logo_url?: string | null } | null
+  brokerages?: { name: string | null; logo_url?: string | null; logo_includes_tagline?: boolean | null } | null
 }
 
 export default function AgentProfilePage() {
@@ -228,6 +228,7 @@ export default function AgentProfilePage() {
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
         brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
       />
 

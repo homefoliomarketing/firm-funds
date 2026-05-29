@@ -29,7 +29,7 @@ import type { UserProfile } from '@/types/database'
 
 interface AgentForMessages {
   id: string
-  brokerages?: { name: string | null; logo_url: string | null; brand_color: string | null } | null
+  brokerages?: { name: string | null; logo_url: string | null; logo_includes_tagline: boolean; brand_color: string | null } | null
 }
 
 interface DocumentReturnItem {
@@ -81,7 +81,7 @@ export default function AgentMessagesPage() {
         setProfile(profileData)
 
         if (profileData.agent_id) {
-          const { data: agentData } = await supabase.from('agents').select('*, brokerages(name, logo_url, brand_color)').eq('id', profileData.agent_id).single()
+          const { data: agentData } = await supabase.from('agents').select('*, brokerages(name, logo_url, logo_includes_tagline, brand_color)').eq('id', profileData.agent_id).single()
           setAgent(agentData)
           await loadInbox(profileData.agent_id)
         }
@@ -253,6 +253,7 @@ export default function AgentMessagesPage() {
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
         brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
       />
 

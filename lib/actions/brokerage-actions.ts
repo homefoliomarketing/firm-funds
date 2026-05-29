@@ -112,7 +112,7 @@ export async function addAgentAsBrokerage(input: {
 
           const { data: brokerage } = await serviceClient
             .from('brokerages')
-            .select('name, logo_url, is_white_label_partner')
+            .select('name, logo_url, logo_includes_tagline, is_white_label_partner')
             .eq('id', profile.brokerage_id)
             .single()
 
@@ -121,6 +121,7 @@ export async function addAgentAsBrokerage(input: {
             agentEmail: email,
             brokerageName: brokerage?.name || 'Your Brokerage',
             brokerageLogoUrl: brokerage?.logo_url,
+            brokerageLogoIncludesTagline: brokerage?.logo_includes_tagline,
             inviteToken: token,
           })
 
@@ -352,7 +353,7 @@ export async function brokerageResendWelcomeEmail(input: { agentId: string }): P
 
   const { data: brokerage } = await serviceClient
     .from('brokerages')
-    .select('name, logo_url, is_white_label_partner')
+    .select('name, logo_url, logo_includes_tagline, is_white_label_partner')
     .eq('id', profile.brokerage_id)
     .single()
 
@@ -361,6 +362,7 @@ export async function brokerageResendWelcomeEmail(input: { agentId: string }): P
     agentEmail: agent.email,
     brokerageName: brokerage?.name || 'Your Brokerage',
     brokerageLogoUrl: brokerage?.logo_url,
+            brokerageLogoIncludesTagline: brokerage?.logo_includes_tagline,
     inviteToken: token,
   })
 

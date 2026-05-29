@@ -92,6 +92,8 @@ export const CreateBrokerageSchema = z.object({
   brokerOfRecordName: sanitizedString(200).optional().nullable(),
   brokerOfRecordEmail: emailSchema.optional().nullable(),
   logoUrl: z.string().url().max(2000).optional().nullable(),
+  /** TRUE when logoUrl was produced by the generator (Powered by Firm Funds baked in). Migration 096. */
+  logoIncludesTagline: z.boolean().optional().default(false),
   brandColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color').optional().nullable(),
   isWhiteLabelPartner: z.boolean().optional().default(false),
   profitSharePct: z.number().min(0, 'Profit share must be 0 or greater').max(100, 'Profit share cannot exceed 100%').optional().default(0),

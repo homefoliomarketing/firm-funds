@@ -30,7 +30,7 @@ interface PendingElection {
 
 interface AgentForHeader {
   id: string
-  brokerages?: { name: string | null; logo_url: string | null } | null
+  brokerages?: { name: string | null; logo_url: string | null;  logo_includes_tagline?: boolean | null} | null
 }
 
 const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof ArrowUpRight }> = {
@@ -130,6 +130,7 @@ export default function AgentAccountPage() {
         title="Account & Ledger"
         subtitle={currentBalance > 0 ? `Balance owing: ${formatCurrency(currentBalance)}` : 'No balance owing'}
         brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
       />
 

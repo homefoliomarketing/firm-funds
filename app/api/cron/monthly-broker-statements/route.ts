@@ -109,7 +109,7 @@ export async function GET(request: Request) {
   // 1. Fetch all brokerages with a profit-share arrangement
   const { data: brokerages, error: brokErr } = await supabase
     .from('brokerages')
-    .select('id, name, email, broker_of_record_email, logo_url, profit_share_pct')
+    .select('id, name, email, broker_of_record_email, logo_url, logo_includes_tagline, profit_share_pct')
     .gt('profit_share_pct', 0)
     .neq('status', 'archived')
 
@@ -195,6 +195,7 @@ export async function GET(request: Request) {
         toEmail,
         brokerageName: brokerage.name,
         brokerageLogoUrl: brokerage.logo_url,
+            brokerageLogoIncludesTagline: brokerage.logo_includes_tagline,
         periodLabel,
         rows,
         totalEarned,

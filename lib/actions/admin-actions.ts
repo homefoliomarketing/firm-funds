@@ -299,6 +299,8 @@ export async function createBrokerage(input: {
   brokerOfRecordName?: string
   brokerOfRecordEmail?: string
   logoUrl?: string
+  /** TRUE if logoUrl was produced by the generator (Powered by Firm Funds baked in). Migration 096. */
+  logoIncludesTagline?: boolean
   brandColor?: string
   isWhiteLabelPartner?: boolean
   profitSharePct?: number
@@ -345,6 +347,7 @@ export async function createBrokerage(input: {
         broker_of_record_email: normalizedBorEmail,
         logo_url: v.logoUrl || null,
         brand_color: v.brandColor || null,
+        logo_includes_tagline: v.logoIncludesTagline ?? false,
         is_white_label_partner: v.isWhiteLabelPartner ?? false,
         profit_share_pct: v.profitSharePct ?? 0,
         status: 'active',
@@ -393,6 +396,8 @@ export async function updateBrokerage(input: {
   brokerOfRecordName?: string
   brokerOfRecordEmail?: string
   logoUrl?: string
+  /** TRUE if logoUrl was produced by the generator (Powered by Firm Funds baked in). Migration 096. */
+  logoIncludesTagline?: boolean
   brandColor?: string
   isWhiteLabelPartner?: boolean
   profitSharePct?: number
@@ -451,6 +456,7 @@ export async function updateBrokerage(input: {
         broker_of_record_email: normalizedBorEmail,
         logo_url: v.logoUrl || null,
         brand_color: v.brandColor || null,
+        logo_includes_tagline: v.logoIncludesTagline ?? false,
         is_white_label_partner: v.isWhiteLabelPartner ?? false,
         profit_share_pct: v.profitSharePct ?? 0,
         status: v.status,
@@ -522,7 +528,7 @@ export async function createAgent(input: {
     // Verify brokerage exists (incl. white-label branding for invite email)
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('id, name, logo_url, is_white_label_partner')
+      .select('id, name, logo_url, logo_includes_tagline, is_white_label_partner')
       .eq('id', v.brokerageId)
       .single()
 
@@ -1558,7 +1564,7 @@ export async function inviteAgent(input: {
     // Verify brokerage exists (incl. white-label branding)
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('id, name, logo_url, is_white_label_partner')
+      .select('id, name, logo_url, logo_includes_tagline, is_white_label_partner')
       .eq('id', input.brokerageId)
       .single()
 
@@ -1737,6 +1743,7 @@ export async function inviteAgent(input: {
         agentEmail: email,
         brokerageName: brokerage.name,
         brokerageLogoUrl: brokerage.logo_url,
+            brokerageLogoIncludesTagline: brokerage.logo_includes_tagline,
         inviteToken,
       })
     }
@@ -1799,7 +1806,7 @@ export async function resendAgentWelcomeEmail(input: {
     // Get brokerage incl. white-label branding for the invite email
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('name, logo_url, is_white_label_partner')
+      .select('name, logo_url, logo_includes_tagline, is_white_label_partner')
       .eq('id', agent.brokerage_id)
       .single()
 
@@ -1887,6 +1894,7 @@ export async function resendAgentWelcomeEmail(input: {
       agentEmail: agent.email,
       brokerageName: brokerage?.name || 'Your Brokerage',
       brokerageLogoUrl: brokerage?.logo_url,
+            brokerageLogoIncludesTagline: brokerage?.logo_includes_tagline,
       inviteToken,
     })
 
@@ -1933,7 +1941,7 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
     // Get brokerage incl. white-label branding
     const { data: brokerage } = await supabase
       .from('brokerages')
-      .select('id, name, logo_url, is_white_label_partner')
+      .select('id, name, logo_url, logo_includes_tagline, is_white_label_partner')
       .eq('id', input.brokerageId)
       .single()
 
@@ -2029,6 +2037,7 @@ export async function sendWelcomeToAllBrokerageAgents(input: {
           agentEmail: agent.email,
           brokerageName: brokerage.name,
           brokerageLogoUrl: brokerage.logo_url,
+            brokerageLogoIncludesTagline: brokerage.logo_includes_tagline,
           inviteToken,
         })
 

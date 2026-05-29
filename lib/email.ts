@@ -292,11 +292,26 @@ function sanitizeSubject(value: string | null | undefined): string {
 interface BrokerageBranding {
   logoUrl: string | null
   name: string
+  /** TRUE when logoUrl was produced by lib/brokerage-logo-generator.ts and
+   *  already contains the "Powered by Firm Funds" tagline. In that case we
+   *  render the logo alone and skip the separate FF wordmark below it to
+   *  avoid duplication. Defaults to FALSE (existing custom-upload behavior).
+   *  See migration 096. */
+  logoIncludesTagline?: boolean
 }
 
 function brandHeader(branding?: BrokerageBranding | null): string {
   if (branding?.logoUrl) {
-    // White-label header: brokerage logo + "Powered by Firm Funds"
+    if (branding.logoIncludesTagline) {
+      // Generated logo — already includes "Powered by Firm Funds". Render alone.
+      // Height bumped to 88px because the generated SVG includes more vertical
+      // content (mark + name + tagline) than a bare brokerage logo.
+      return `
+      <td style="padding:0 0 32px; text-align:center;">
+        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)} — Powered by Firm Funds" height="88" style="height:88px; width:auto; max-width:360px;" />
+      </td>`
+    }
+    // Custom-uploaded logo — add separate "Powered by Firm Funds" below.
     return `
       <td style="padding:0 0 32px; text-align:center;">
         <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}" height="44" style="height:44px; width:auto; max-width:240px;" />
@@ -653,12 +668,14 @@ export async function sendAgentInviteNotification(params: {
   agentEmail: string
   brokerageName: string
   brokerageLogoUrl?: string | null
+  /** TRUE if the logo SVG already contains "Powered by Firm Funds". Migration 096. */
+  brokerageLogoIncludesTagline?: boolean | null
   inviteToken: string
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }): Promise<void> {
   const branding: BrokerageBranding | null = params.brokerageLogoUrl
-    ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
+    ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName, logoIncludesTagline: params.brokerageLogoIncludesTagline ?? false }
     : null
 
   const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
@@ -1963,6 +1980,8 @@ export async function sendMonthlyBrokerStatement(params: {
   toEmail: string
   brokerageName: string
   brokerageLogoUrl?: string | null
+  /** TRUE if the logo SVG already contains "Powered by Firm Funds". Migration 096. */
+  brokerageLogoIncludesTagline?: boolean | null
   periodLabel: string  // e.g. "April 2026"
   rows: Array<{
     propertyAddress: string
@@ -1979,7 +1998,7 @@ export async function sendMonthlyBrokerStatement(params: {
   brokerageId?: string | null
 }): Promise<void> {
   const branding: BrokerageBranding | null = params.brokerageLogoUrl
-    ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName }
+    ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName, logoIncludesTagline: params.brokerageLogoIncludesTagline ?? false }
     : null
 
   const rowsHtml = params.rows.length === 0

@@ -17,7 +17,7 @@ interface PageProps {
 
 interface AgentForHeader {
   id: string
-  brokerages?: { name: string | null; logo_url: string | null } | null
+  brokerages?: { name: string | null; logo_url: string | null;  logo_includes_tagline?: boolean | null} | null
 }
 
 interface DealRow {
@@ -79,7 +79,7 @@ export default function CureElectionPage({ params }: PageProps) {
       if (profileData?.agent_id) {
         const { data: agentData } = await supabase
           .from('agents')
-          .select('*, brokerages(name, logo_url)')
+          .select('*, brokerages(name, logo_url, logo_includes_tagline)')
           .eq('id', profileData.agent_id)
           .single()
         setAgent(agentData)
@@ -154,6 +154,7 @@ export default function CureElectionPage({ params }: PageProps) {
           backHref="/agent/account"
           title="Cure Election"
           brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
           brokerageName={agent?.brokerages?.name}
         />
         <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -182,6 +183,7 @@ export default function CureElectionPage({ params }: PageProps) {
         title="Choose Your Repayment Method"
         subtitle={deal.property_address}
         brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
       />
 

@@ -31,7 +31,7 @@ interface AgentForSetup {
   address_city: string | null
   address_province: string | null
   address_postal_code: string | null
-  brokerages?: { name: string; logo_url: string | null; brand_color: string | null; is_white_label_partner: boolean } | null
+  brokerages?: { name: string; logo_url: string | null;  logo_includes_tagline?: boolean | null; brand_color: string | null; is_white_label_partner: boolean } | null
 }
 
 type StepKey = 'kyc' | 'banking' | 'done'
@@ -41,7 +41,7 @@ export default function AgentSetupPage() {
   const supabase = createClient()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [agent, setAgent] = useState<AgentForSetup | null>(null)
-  const [brokerage, setBrokerage] = useState<{ name: string; logo_url: string | null; brand_color: string | null; is_white_label_partner: boolean } | null>(null)
+  const [brokerage, setBrokerage] = useState<{ name: string; logo_url: string | null;  logo_includes_tagline?: boolean | null; brand_color: string | null; is_white_label_partner: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Banking form state
@@ -71,7 +71,7 @@ export default function AgentSetupPage() {
 
       const { data: agentData } = await supabase
         .from('agents')
-        .select('*, brokerages(name, logo_url, brand_color, is_white_label_partner)')
+        .select('*, brokerages(name, logo_url, logo_includes_tagline, brand_color, is_white_label_partner)')
         .eq('id', prof.agent_id)
         .single()
 
@@ -94,7 +94,7 @@ export default function AgentSetupPage() {
     if (!profile?.agent_id) return
     const { data: agentData } = await supabase
       .from('agents')
-      .select('*, brokerages(name, logo_url, brand_color, is_white_label_partner)')
+      .select('*, brokerages(name, logo_url, logo_includes_tagline, brand_color, is_white_label_partner)')
       .eq('id', profile.agent_id)
       .single()
     if (agentData) {
@@ -200,6 +200,7 @@ export default function AgentSetupPage() {
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
         brokerageLogo={brokerage?.logo_url}
+        brokerageLogoIncludesTagline={brokerage?.logo_includes_tagline}
         brokerageName={brokerage?.name}
         brokerageBrandColor={brokerage?.brand_color}
         title="Account Setup"

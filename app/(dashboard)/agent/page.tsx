@@ -41,7 +41,7 @@ interface AgentForDashboard {
   address_city: string | null
   address_province: string | null
   address_postal_code: string | null
-  brokerages?: { name: string | null; logo_url: string | null; brand_color: string | null } | null
+  brokerages?: { name: string | null; logo_url: string | null; logo_includes_tagline: boolean; brand_color: string | null } | null
 }
 
 /**
@@ -338,6 +338,7 @@ function AgentDashboardInner() {
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
         brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
       />
 

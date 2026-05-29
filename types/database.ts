@@ -68,6 +68,10 @@ export interface Brokerage {
   // White-label branding
   logo_url: string | null
   brand_color: string | null
+  /** TRUE when logo_url has "Powered by Firm Funds" baked in (generated logos
+   *  from lib/brokerage-logo-generator.ts). Templates check this to avoid
+   *  double-rendering the FF wordmark next to the logo. Migration 096. */
+  logo_includes_tagline: boolean
   // White-label partner — Session 34
   is_white_label_partner: boolean
   profit_share_pct: number  // Negotiated %, per-brokerage. Whole numbers (20.00 = 20%). Never hardcoded.

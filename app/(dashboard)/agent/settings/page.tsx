@@ -21,7 +21,7 @@ import type { UserProfile } from '@/types/database'
 
 interface AgentForSettings {
   id: string
-  brokerages?: { name: string | null; logo_url?: string | null; brand_color?: string | null } | null
+  brokerages?: { name: string | null; logo_url?: string | null; brand_color?: string | null; logo_includes_tagline?: boolean | null } | null
 }
 
 export default function AgentSettingsPage() {
@@ -79,7 +79,7 @@ export default function AgentSettingsPage() {
       if (profileData.agent_id) {
         const { data: agentData } = await supabase
           .from('agents')
-          .select('*, brokerages(name, logo_url, brand_color)')
+          .select('*, brokerages(name, logo_url, logo_includes_tagline, brand_color)')
           .eq('id', profileData.agent_id)
           .single()
         setAgent(agentData)
@@ -183,6 +183,7 @@ export default function AgentSettingsPage() {
         title="Settings"
         subtitle="Manage your account"
         brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
       />
 

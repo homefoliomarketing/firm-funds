@@ -31,7 +31,7 @@ import {
 interface AgentForNewDeal {
   id: string
   kyc_status: string | null
-  brokerages?: { name: string | null; logo_url: string | null; brand_color: string | null } | null
+  brokerages?: { name: string | null; logo_url: string | null; logo_includes_tagline: boolean; brand_color: string | null } | null
 }
 
 // Suspense boundary required by Next.js 16 for useSearchParams.
