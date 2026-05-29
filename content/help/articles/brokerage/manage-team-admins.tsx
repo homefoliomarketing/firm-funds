@@ -74,10 +74,22 @@ function Body() {
           {
             title: 'Send the invite',
             expected: 'Click Invite. A success banner confirms the email was sent. The new row appears with an Invite pending badge until they click the link and set their password.',
-            fallback: 'If they cannot find the email, ask them to check spam for notifications@firmfunds.ca. If it still has not arrived, contact Firm Funds and we can resend or check our delivery logs.',
+            fallback: 'If they cannot find the email, ask them to check spam for notifications@firmfunds.ca. If it still has not arrived, click the Resend invite button next to their row on the Team Admins page. That issues a fresh 72-hour magic link to the same address.',
           },
         ]}
       />
+
+      <h2>Resending an invite</h2>
+      <p>
+        Invite emails expire 72 hours after they go out. If a new admin
+        misses that window, or the email never arrived, click{' '}
+        <strong>Resend invite</strong> on their row. We issue a fresh
+        72-hour magic link to the same email address and your colleague
+        starts over from the &ldquo;set your password&rdquo; screen. The
+        button only appears next to admins who have not yet accepted; once
+        someone has signed in for the first time, they use{' '}
+        <strong>Forgot password</strong> on the login page instead.
+      </p>
 
       <h2>Removing someone</h2>
       <p>

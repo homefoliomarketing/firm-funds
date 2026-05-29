@@ -78,20 +78,18 @@ function Body() {
 
       <HelpCallout
         variant="note"
-        title="Phone and business hours"
+        title="Need to talk to someone"
       >
         <p>
-          We do not currently publish a support phone number. If you need a
-          live voice for an urgent matter, email{' '}
+          We do not publish a public support phone number. If you need a live
+          voice for an urgent matter, email{' '}
           <a
             href="mailto:bud@firmfunds.ca"
             className="text-primary underline underline-offset-2 hover:text-foreground"
           >
             bud@firmfunds.ca
           </a>{' '}
-          and ask for a call back; we will respond with a number and a time.
-          Posted hours and a public phone line are on the roadmap; this
-          article will be updated when they are confirmed.
+          and ask for a call back. We will respond with a number and a time.
         </p>
       </HelpCallout>
     </div>

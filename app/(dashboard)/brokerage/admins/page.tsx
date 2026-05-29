@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   ArrowLeft, Users, UserPlus, Trash2, ShieldCheck, Mail, CheckCircle2,
-  AlertTriangle, Loader2, Clock, Lock,
+  AlertTriangle, Loader2, Clock, Lock, Send,
 } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
@@ -23,6 +23,7 @@ import {
   inviteBrokerageAdmin,
   listBrokerageAdmins,
   removeBrokerageAdmin,
+  resendBrokerageAdminInvite,
   getMyBrokerageAdminRole,
 } from '@/lib/actions/brokerage-admin-actions'
 import {
@@ -78,6 +79,9 @@ export default function BrokerageAdminsPage() {
 
   const [removeTarget, setRemoveTarget] = useState<BrokerageAdmin | null>(null)
   const [removing, setRemoving] = useState(false)
+
+  /** Admin ID currently being resent. Used to show a spinner on the right row. */
+  const [resendingId, setResendingId] = useState<string | null>(null)
 
   const flash = useCallback((kind: 'ok' | 'err', text: string) => {
     if (kind === 'ok') { setOkMsg(text); setErrMsg(null) } else { setErrMsg(text); setOkMsg(null) }
@@ -165,6 +169,18 @@ export default function BrokerageAdminsPage() {
       setInviteError(result.error || 'Failed to send invite.')
     }
     setInviting(false)
+  }
+
+  const handleResend = async (admin: BrokerageAdmin) => {
+    if (!profile?.brokerage_id) return
+    setResendingId(admin.id)
+    const result = await resendBrokerageAdminInvite({ brokerageAdminId: admin.id })
+    if (result.success) {
+      flash('ok', `Invite resent to ${admin.email || 'admin'}.`)
+    } else {
+      flash('err', result.error || 'Failed to resend invite.')
+    }
+    setResendingId(null)
   }
 
   const handleRemove = async () => {
@@ -344,22 +360,41 @@ export default function BrokerageAdminsPage() {
                               : <span className="text-muted-foreground/60">Never</span>}
                           </td>
                           <td className="px-3 py-3 text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-destructive border-destructive/30 hover:bg-destructive/10 disabled:opacity-50"
-                              onClick={() => setRemoveTarget(a)}
-                              disabled={removeBlocked}
-                              title={removeReason}
-                              aria-label={removeReason}
-                            >
-                              {isBor ? (
-                                <Lock size={13} className="mr-1" aria-hidden="true" />
-                              ) : (
-                                <Trash2 size={13} className="mr-1" aria-hidden="true" />
+                            <div className="flex items-center justify-end gap-2 flex-wrap">
+                              {isPending && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleResend(a)}
+                                  disabled={resendingId === a.id}
+                                  title={`Resend invite email to ${a.email || 'this admin'}`}
+                                  aria-label={`Resend invite to ${a.full_name || a.email || 'this admin'}`}
+                                >
+                                  {resendingId === a.id ? (
+                                    <Loader2 size={13} className="mr-1 animate-spin" aria-hidden="true" />
+                                  ) : (
+                                    <Send size={13} className="mr-1" aria-hidden="true" />
+                                  )}
+                                  Resend invite
+                                </Button>
                               )}
-                              Remove
-                            </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-destructive border-destructive/30 hover:bg-destructive/10 disabled:opacity-50"
+                                onClick={() => setRemoveTarget(a)}
+                                disabled={removeBlocked}
+                                title={removeReason}
+                                aria-label={removeReason}
+                              >
+                                {isBor ? (
+                                  <Lock size={13} className="mr-1" aria-hidden="true" />
+                                ) : (
+                                  <Trash2 size={13} className="mr-1" aria-hidden="true" />
+                                )}
+                                Remove
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       )

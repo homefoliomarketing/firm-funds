@@ -375,6 +375,120 @@ export async function inviteBrokerageAdmin(input: {
 }
 
 // ============================================================================
+// resendBrokerageAdminInvite — issue a fresh 72h magic-link to a pending admin.
+//
+// Use case: the original invite email expired (72h) or never arrived. Only
+// applies to junction rows where `accepted_at` is still null. Once the admin
+// has accepted (set their password), they can do a normal password reset
+// instead.
+//
+// Authorization mirrors removeBrokerageAdmin: FF admin OR BoR/manager of the
+// target brokerage. We do not require BoR-only here because the action does
+// not change roles; it just re-sends the same invite that this caller was
+// already allowed to create.
+//
+// Side effects: creates a new `invite_tokens` row (the old token stays valid
+// until it expires; we don't actively invalidate, to keep this idempotent
+// from the user's perspective if they click "Resend" twice).
+// ============================================================================
+export async function resendBrokerageAdminInvite(input: {
+  brokerageAdminId: string
+}): Promise<ActionResult> {
+  if (!input.brokerageAdminId) {
+    return { success: false, error: 'brokerageAdminId is required' }
+  }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    // Load the row + the joined profile so we can address the email.
+    const { data: row, error: rowErr } = await serviceClient
+      .from('brokerage_admins')
+      .select('id, brokerage_id, user_id, role, accepted_at')
+      .eq('id', input.brokerageAdminId)
+      .single()
+
+    if (rowErr || !row) return { success: false, error: 'Brokerage admin row not found' }
+    if (row.accepted_at) {
+      return {
+        success: false,
+        error: 'This admin already accepted their invite. They can use Forgot password to sign in again.',
+      }
+    }
+
+    const auth = await authorizeAdminManager(row.brokerage_id)
+    if (!auth.ok) return { success: false, error: auth.error }
+
+    // Pull the user_profile (email + first name) and brokerage name so we can
+    // re-render the same invite email.
+    const [profileRes, brokerageRes] = await Promise.all([
+      serviceClient
+        .from('user_profiles')
+        .select('email, full_name')
+        .eq('id', row.user_id)
+        .single(),
+      serviceClient
+        .from('brokerages')
+        .select('id, name')
+        .eq('id', row.brokerage_id)
+        .single(),
+    ])
+
+    if (profileRes.error || !profileRes.data?.email) {
+      return { success: false, error: 'Could not find an email for this admin.' }
+    }
+    if (brokerageRes.error || !brokerageRes.data) {
+      return { success: false, error: 'Brokerage not found' }
+    }
+
+    const email = profileRes.data.email
+    const firstName = (profileRes.data.full_name ?? '').split(' ')[0] || 'there'
+
+    // Fresh 72h token. The old token stays valid until it expires on its
+    // own; we don't proactively void it so that a duplicate click does not
+    // race-condition into "already used" errors.
+    const inviteToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+    await serviceClient
+      .from('invite_tokens')
+      .insert({
+        token: inviteToken,
+        user_id: row.user_id,
+        email,
+        expires_at: expiresAt,
+      })
+
+    await sendBrokerageInviteNotification({
+      adminName: firstName,
+      adminEmail: email,
+      brokerageName: brokerageRes.data.name,
+      inviteToken,
+      brokerageId: row.brokerage_id,
+    })
+
+    await logAuditEvent({
+      action: 'brokerage_admin.invite_resent',
+      entityType: 'brokerage',
+      entityId: row.brokerage_id,
+      metadata: {
+        brokerage_admin_id: row.id,
+        recipient_email: email,
+        recipient_user_id: row.user_id,
+        resent_by_user_id: auth.callerUserId,
+        resent_by_role: auth.callerRole,
+        resent_via: auth.viaFirmFunds ? 'firm_funds_admin' : 'brokerage_manager_path',
+      },
+    })
+
+    return { success: true }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('resendBrokerageAdminInvite error:', _msg)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// ============================================================================
 // removeBrokerageAdmin — remove an admin from a brokerage's pool.
 //
 // Removal rules:
