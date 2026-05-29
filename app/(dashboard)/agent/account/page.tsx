@@ -26,6 +26,7 @@ interface PendingElection {
   property_address: string
   outstanding_balance: number | null
   cure_election_deadline: string | null
+  cure_election: 'cash_repayment' | 'commission_assignment' | null
 }
 
 interface AgentForHeader {
@@ -84,16 +85,18 @@ export default function AgentAccountPage() {
           setCurrentBalance(data.currentBalance)
         }
 
-        // Fetch any pending cure elections — failed-to-close deals awaiting agent choice
-        const { data: pending } = await supabase
+        // Fetch all failed-to-close deals on this agent. Some need an election
+        // decision still, others have a chosen path and need the agent to
+        // manage remediation deals. Split into two groups for the two UI
+        // sections below.
+        const { data: failed } = await supabase
           .from('deals')
-          .select('id, property_address, outstanding_balance, cure_election_deadline')
+          .select('id, property_address, outstanding_balance, cure_election_deadline, cure_election')
           .eq('agent_id', profileData.agent_id)
           .eq('status', 'failed_to_close')
-          .is('cure_election', null)
           .order('cure_election_deadline', { ascending: true })
 
-        if (pending) setPendingElections(pending as PendingElection[])
+        if (failed) setPendingElections(failed as PendingElection[])
       }
 
       setLoading(false)
@@ -135,10 +138,12 @@ export default function AgentAccountPage() {
       />
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Pending cure election banner(s) — CPA Article 5.5 */}
-        {pendingElections.length > 0 && (
+        {/* Pending cure election banner(s) — for failed deals without an
+            election yet (CPA Article 5.5). One row per pending deal links
+            into the election flow. */}
+        {pendingElections.filter(p => p.cure_election == null).length > 0 && (
           <section aria-label="Action required" className="mb-6 space-y-3">
-            {pendingElections.map((p) => {
+            {pendingElections.filter(p => p.cure_election == null).map((p) => {
               const deadlineFmt = p.cure_election_deadline
                 ? new Date(p.cure_election_deadline).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })
                 : null
@@ -157,7 +162,7 @@ export default function AgentAccountPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-status-red mb-0.5">
-                        Action required — choose your repayment method
+                        Action required: choose your repayment method
                       </p>
                       <p className="text-xs text-foreground/80 truncate">
                         {p.property_address}
@@ -170,12 +175,40 @@ export default function AgentAccountPage() {
                           Election due by {deadlineFmt} ({daysLeft} {daysLeft === 1 ? 'day' : 'days'} left)
                         </p>
                       )}
+                      <p className="text-[11px] text-status-red/80 mt-1">
+                        After you choose commission assignment, add the upcoming deals at <span className="font-semibold">My failed deals</span>.
+                      </p>
                     </div>
                     <ArrowRight size={18} className="text-status-red flex-shrink-0" />
                   </div>
                 </Link>
               )
             })}
+          </section>
+        )}
+
+        {/* Manage failed deals link, shown whenever the agent has any failed
+            deal at all (election made or not). One-click path into the
+            remediation page so the agent can add commission assignments. */}
+        {pendingElections.length > 0 && (
+          <section aria-label="Failed deals" className="mb-6">
+            <Link
+              href="/agent/failed-deals"
+              className="block rounded-xl border border-amber-800/40 bg-amber-950/15 hover:bg-amber-950/30 transition-colors"
+            >
+              <div className="p-4 sm:p-5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={18} className="text-amber-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-amber-200 mb-0.5">My failed deals</p>
+                  <p className="text-xs text-foreground/80">
+                    Review the balance owing on each failed deal and add commission assignments to clear it.
+                  </p>
+                </div>
+                <ArrowRight size={18} className="text-amber-300 flex-shrink-0" />
+              </div>
+            </Link>
           </section>
         )}
 

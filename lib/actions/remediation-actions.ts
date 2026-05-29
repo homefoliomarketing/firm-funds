@@ -1,9 +1,12 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedAdmin, getAuthenticatedUser } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import { liveFailedDealInterestOwed } from '@/lib/calculations'
+import { isInternalAdminRole } from '@/lib/access'
+import type { UserProfile, UserRole } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type ActionResult = { success: boolean; error?: string; data?: unknown }
 
@@ -24,12 +27,91 @@ export interface RemediationDealInput {
 }
 
 // ============================================================================
+// Tenancy gate — used by create / update / cancel / get to confirm the caller
+// is allowed to act on a particular failed deal.
+//
+// Roles:
+//   super_admin / firm_funds_admin → any failed deal
+//   brokerage_admin                → failed deal's agent must belong to the
+//                                    caller's brokerage_id
+//   agent                          → failed deal's agent_id must match the
+//                                    caller's linked agent_id
+//
+// Returns the failed-deal record (with the agent's brokerage_id joined in)
+// on success so the caller doesn't refetch.
+// ============================================================================
+
+interface FailedDealForAccess {
+  id: string
+  agent_id: string
+  status: string
+  cure_election: string | null
+  agent_brokerage_id: string | null
+}
+
+async function authorizeFailedDealAccess(
+  serviceClient: SupabaseClient,
+  profile: UserProfile,
+  failedDealId: string,
+): Promise<{ ok: true; deal: FailedDealForAccess } | { ok: false; error: string }> {
+  const { data, error } = await serviceClient
+    .from('deals')
+    .select('id, agent_id, status, cure_election, agents:agents!deals_agent_id_fkey(id, brokerage_id)')
+    .eq('id', failedDealId)
+    .single()
+  if (error || !data) return { ok: false, error: 'Failed deal not found' }
+
+  // Supabase typings come back as a 1-to-1 array on the join; flatten via unknown.
+  const raw = data as unknown as {
+    id: string
+    agent_id: string
+    status: string
+    cure_election: string | null
+    agents: { id: string; brokerage_id: string | null } | Array<{ id: string; brokerage_id: string | null }> | null
+  }
+  const joinedAgent = Array.isArray(raw.agents) ? (raw.agents[0] ?? null) : raw.agents
+
+  const deal: FailedDealForAccess = {
+    id: raw.id,
+    agent_id: raw.agent_id,
+    status: raw.status,
+    cure_election: raw.cure_election ?? null,
+    agent_brokerage_id: joinedAgent?.brokerage_id ?? null,
+  }
+
+  if (isInternalAdminRole(profile.role)) {
+    return { ok: true, deal }
+  }
+  if (profile.role === 'brokerage_admin') {
+    if (!profile.brokerage_id) {
+      return { ok: false, error: 'Your account is not linked to a brokerage' }
+    }
+    if (deal.agent_brokerage_id !== profile.brokerage_id) {
+      return { ok: false, error: 'This failed deal is not in your brokerage' }
+    }
+    return { ok: true, deal }
+  }
+  if (profile.role === 'agent') {
+    if (!profile.agent_id) {
+      return { ok: false, error: 'Your account is not linked to an agent profile' }
+    }
+    if (deal.agent_id !== profile.agent_id) {
+      return { ok: false, error: 'This failed deal does not belong to you' }
+    }
+    return { ok: true, deal }
+  }
+  return { ok: false, error: 'Insufficient permissions' }
+}
+
+const SUBMIT_ROLES: readonly UserRole[] = ['super_admin', 'firm_funds_admin', 'brokerage_admin', 'agent']
+
+// ============================================================================
 // Create a new remediation deal under a failed deal
 // ============================================================================
 
 export async function createRemediationDeal(input: RemediationDealInput): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  const { error: authErr, user, profile } = await getAuthenticatedUser(SUBMIT_ROLES)
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.propertyAddress?.trim()) return { success: false, error: 'Property address is required' }
   if (!input.brokerageLegalName?.trim()) return { success: false, error: 'Brokerage legal name is required' }
@@ -40,13 +122,9 @@ export async function createRemediationDeal(input: RemediationDealInput): Promis
   const serviceClient = createServiceRoleClient()
 
   try {
-    const { data: failedDeal, error: fdErr } = await serviceClient
-      .from('deals')
-      .select('id, agent_id, status, cure_election')
-      .eq('id', input.failedDealId)
-      .single()
-
-    if (fdErr || !failedDeal) return { success: false, error: 'Failed deal not found' }
+    const access = await authorizeFailedDealAccess(serviceClient, profile, input.failedDealId)
+    if (!access.ok) return { success: false, error: access.error }
+    const failedDeal = access.deal
     if (failedDeal.status !== 'failed_to_close') {
       return { success: false, error: 'Deal is not in failed-to-close state' }
     }
@@ -99,6 +177,7 @@ export async function createRemediationDeal(input: RemediationDealInput): Promis
         directed_amount: input.directedAmount,
         property_address: input.propertyAddress.trim(),
         brokerage: input.brokerageLegalName.trim(),
+        submitter_role: profile.role,
       },
     })
 
@@ -118,8 +197,8 @@ export async function updateRemediationDeal(
   id: string,
   input: Partial<Omit<RemediationDealInput, 'failedDealId'>>,
 ): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  const { error: authErr, user, profile } = await getAuthenticatedUser(SUBMIT_ROLES)
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
@@ -134,6 +213,10 @@ export async function updateRemediationDeal(
     if (existing.status !== 'pending') {
       return { success: false, error: `Cannot edit a remediation deal in status "${existing.status}". Cancel it and create a new one.` }
     }
+
+    // Tenancy: caller must be allowed to act on the parent failed deal.
+    const access = await authorizeFailedDealAccess(serviceClient, profile, existing.failed_deal_id)
+    if (!access.ok) return { success: false, error: access.error }
 
     const patch: Record<string, unknown> = {}
     if (input.propertyAddress !== undefined) patch.property_address = input.propertyAddress.trim()
@@ -171,7 +254,7 @@ export async function updateRemediationDeal(
       action: 'remediation_deal.updated',
       entityType: 'deal',
       entityId: existing.failed_deal_id,
-      metadata: { remediation_deal_id: id, patch },
+      metadata: { remediation_deal_id: id, patch, submitter_role: profile.role },
     })
 
     return { success: true, data: { id } }
@@ -189,8 +272,8 @@ export async function updateRemediationDeal(
 // ============================================================================
 
 export async function cancelRemediationDeal(id: string, reason: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  const { error: authErr, user, profile } = await getAuthenticatedUser(SUBMIT_ROLES)
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!reason?.trim()) return { success: false, error: 'Cancellation reason is required' }
 
@@ -211,6 +294,10 @@ export async function cancelRemediationDeal(id: string, reason: string): Promise
       return { success: false, error: 'Remediation deal is already cancelled' }
     }
 
+    // Tenancy: caller must be allowed to act on the parent failed deal.
+    const access = await authorizeFailedDealAccess(serviceClient, profile, existing.failed_deal_id)
+    if (!access.ok) return { success: false, error: access.error }
+
     const stampedNote = `[Cancelled ${new Date().toISOString().slice(0, 10)}] ${reason.trim()}${existing.notes ? `\n\nPrior notes: ${existing.notes}` : ''}`
 
     const { error: updateErr } = await serviceClient
@@ -227,7 +314,7 @@ export async function cancelRemediationDeal(id: string, reason: string): Promise
       action: 'remediation_deal.cancelled',
       entityType: 'deal',
       entityId: existing.failed_deal_id,
-      metadata: { remediation_deal_id: id, reason: reason.trim(), prior_status: existing.status },
+      metadata: { remediation_deal_id: id, reason: reason.trim(), prior_status: existing.status, submitter_role: profile.role },
     })
 
     return { success: true, data: { id } }
@@ -255,6 +342,9 @@ export async function markRemediationDealRemitted(input: {
   remittedAt: string  // YYYY-MM-DD
   notes?: string
 }): Promise<ActionResult> {
+  // FF admin only. This records that money actually arrived at Firm Funds,
+  // not a submission step. Brokerage admins and agents can create / update /
+  // cancel remediation deals, but only FF marks them remitted.
   const { error: authErr, user } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
@@ -517,12 +607,15 @@ export async function markRemediationDealRemitted(input: {
 // ============================================================================
 
 export async function getRemediationDealsForFailedDeal(failedDealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  const { error: authErr, user, profile } = await getAuthenticatedUser(SUBMIT_ROLES)
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
 
   try {
+    const access = await authorizeFailedDealAccess(serviceClient, profile, failedDealId)
+    if (!access.ok) return { success: false, error: access.error }
+
     const { data, error } = await serviceClient
       .from('remediation_deals')
       .select('*, esignature_envelopes:esignature_envelopes(envelope_id, status, agent_signed_at)')
@@ -534,6 +627,178 @@ export async function getRemediationDealsForFailedDeal(failedDealId: string): Pr
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'An unexpected error occurred'
     console.error('getRemediationDealsForFailedDeal error:', message)
+    return { success: false, error: message }
+  }
+}
+
+// ============================================================================
+// List failed deals visible to the current caller. Used by the brokerage and
+// agent failed-deals pages. Returns rows pre-scoped by tenancy:
+//   super_admin / firm_funds_admin → all failed-to-close deals
+//   brokerage_admin                → only failed deals at the caller's brokerage
+//   agent                          → only the caller's own failed deals
+// ============================================================================
+
+export interface FailedDealForCaller {
+  id: string
+  property_address: string
+  closing_date: string | null
+  failed_to_close_at: string | null
+  outstanding_balance: number
+  failed_deal_interest_charged: number
+  live_balance_owed: number
+  cure_election: string | null
+  cure_election_deadline: string | null
+  agent: {
+    id: string
+    first_name: string
+    last_name: string
+    email: string | null
+    brokerage_id: string | null
+    brokerage_name: string | null
+    brokerage_address: string | null
+    broker_of_record_name: string | null
+    broker_of_record_email: string | null
+  }
+  remediation_count: number
+  remediation_active_count: number
+}
+
+export async function getFailedDealsForCaller(): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(SUBMIT_ROLES)
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    let query = serviceClient
+      .from('deals')
+      .select(`
+        id, property_address, closing_date, failed_to_close_at,
+        outstanding_balance, failed_deal_interest_charged,
+        cure_election, cure_election_deadline,
+        agents:agents!deals_agent_id_fkey(
+          id, first_name, last_name, email, brokerage_id,
+          brokerages:brokerages!agents_brokerage_id_fkey(
+            id, name, address, broker_of_record_name, broker_of_record_email
+          )
+        ),
+        remediation_deals(id, status)
+      `)
+      .eq('status', 'failed_to_close')
+      .order('failed_to_close_at', { ascending: false })
+
+    if (profile.role === 'brokerage_admin') {
+      if (!profile.brokerage_id) {
+        return { success: false, error: 'Your account is not linked to a brokerage' }
+      }
+      // Filter by the agent's brokerage. PostgREST supports foreign-table eq.
+      query = query.eq('agents.brokerage_id', profile.brokerage_id)
+    } else if (profile.role === 'agent') {
+      if (!profile.agent_id) {
+        return { success: false, error: 'Your account is not linked to an agent profile' }
+      }
+      query = query.eq('agent_id', profile.agent_id)
+    }
+
+    const { data, error } = await query
+    if (error) return { success: false, error: error.message }
+
+    // Shape each row, compute live balance, and drop any rows the join filter
+    // didn't actually scope (agent.brokerage_id mismatch returns the row but
+    // with agents=null on PostgREST, so filter those out for brokerage_admin).
+    const rows: FailedDealForCaller[] = []
+    for (const raw of (data as unknown as Array<{
+      id: string
+      property_address: string
+      closing_date: string | null
+      failed_to_close_at: string | null
+      outstanding_balance: number | null
+      failed_deal_interest_charged: number | null
+      cure_election: string | null
+      cure_election_deadline: string | null
+      agents: {
+        id: string
+        first_name: string
+        last_name: string
+        email: string | null
+        brokerage_id: string | null
+        brokerages: {
+          id: string
+          name: string | null
+          address: string | null
+          broker_of_record_name: string | null
+          broker_of_record_email: string | null
+        } | Array<{
+          id: string
+          name: string | null
+          address: string | null
+          broker_of_record_name: string | null
+          broker_of_record_email: string | null
+        }> | null
+      } | Array<{
+        id: string
+        first_name: string
+        last_name: string
+        email: string | null
+        brokerage_id: string | null
+        brokerages: {
+          id: string
+          name: string | null
+          address: string | null
+          broker_of_record_name: string | null
+          broker_of_record_email: string | null
+        } | Array<{
+          id: string
+          name: string | null
+          address: string | null
+          broker_of_record_name: string | null
+          broker_of_record_email: string | null
+        }> | null
+      }> | null
+      remediation_deals: Array<{ id: string; status: string }> | null
+    }>) || []) {
+      const agent = Array.isArray(raw.agents) ? (raw.agents[0] ?? null) : raw.agents
+      if (!agent) continue
+      if (profile.role === 'brokerage_admin' && agent.brokerage_id !== profile.brokerage_id) continue
+      const brokerage = Array.isArray(agent.brokerages) ? (agent.brokerages[0] ?? null) : agent.brokerages
+      const principal = Number(raw.outstanding_balance) || 0
+      const postedInterest = Number(raw.failed_deal_interest_charged) || 0
+      const liveInterestTotal = raw.failed_to_close_at
+        ? liveFailedDealInterestOwed(principal, raw.failed_to_close_at)
+        : 0
+      const liveBalanceOwed = Math.round((principal + Math.max(postedInterest, liveInterestTotal)) * 100) / 100
+      const remediations = raw.remediation_deals || []
+      rows.push({
+        id: raw.id,
+        property_address: raw.property_address,
+        closing_date: raw.closing_date,
+        failed_to_close_at: raw.failed_to_close_at,
+        outstanding_balance: principal,
+        failed_deal_interest_charged: postedInterest,
+        live_balance_owed: liveBalanceOwed,
+        cure_election: raw.cure_election,
+        cure_election_deadline: raw.cure_election_deadline,
+        agent: {
+          id: agent.id,
+          first_name: agent.first_name,
+          last_name: agent.last_name,
+          email: agent.email,
+          brokerage_id: agent.brokerage_id,
+          brokerage_name: brokerage?.name ?? null,
+          brokerage_address: brokerage?.address ?? null,
+          broker_of_record_name: brokerage?.broker_of_record_name ?? null,
+          broker_of_record_email: brokerage?.broker_of_record_email ?? null,
+        },
+        remediation_count: remediations.length,
+        remediation_active_count: remediations.filter(r => r.status !== 'cancelled' && r.status !== 'remitted').length,
+      })
+    }
+
+    return { success: true, data: rows }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+    console.error('getFailedDealsForCaller error:', message)
     return { success: false, error: message }
   }
 }

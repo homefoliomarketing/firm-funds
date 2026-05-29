@@ -583,6 +583,27 @@ export default function BrokerageDashboard() {
             <Button variant="outline" onClick={() => router.push('/brokerage/amendments/new')} className="h-9">
               <CalendarClock size={14} className="mr-1.5" /> Request a deal change
             </Button>
+            {(() => {
+              // Count of deals in failed_to_close status owned by this brokerage's
+              // agents. The list is loaded into `deals` already, so derive the
+              // badge inline rather than refetch.
+              const failedCount = deals.filter(d => d.status === 'failed_to_close').length
+              return (
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/brokerage/failed-deals')}
+                  className="h-9 relative"
+                  aria-label={failedCount > 0 ? `Failed deals, ${failedCount} requiring attention` : 'Failed deals'}
+                >
+                  <AlertTriangle size={14} className="mr-1.5" /> Failed deals
+                  {failedCount > 0 && (
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-[20px] px-1.5 h-5 rounded-full text-[11px] font-bold bg-amber-500 text-amber-950">
+                      {failedCount}
+                    </span>
+                  )}
+                </Button>
+              )
+            })()}
             <Button
               variant="outline"
               onClick={() => { setRecordPaymentDealId(null); setShowRecordPayment(true) }}
