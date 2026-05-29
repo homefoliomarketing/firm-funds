@@ -22,6 +22,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'deal.closing_date_updated':'Closing Date Changed',
   'deal.admin_notes_updated': 'Admin Notes Updated',
   'deal.admin_note_added':    'Admin Note Added',
+  'deal.firm_deal_offer_manually_nudged': 'Brokerage Reminded By Agent',
   'document.upload':          'Document Uploaded',
   'document.delete':          'Document Deleted',
   'document.view':            'Document Viewed',

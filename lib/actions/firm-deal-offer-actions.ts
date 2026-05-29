@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser } from '@/lib/auth-helpers'
 import {
   sendBrokerageOfferNotification,
+  sendBrokerageOfferNudge2h,
   sendAgentDeclineNotification,
   loadBrokerageOfferRecipients,
 } from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
@@ -659,4 +660,153 @@ export async function declineFirmDealOffer(
   })
 
   return { success: true, data: { deal_id: dealId } }
+}
+
+// ============================================================================
+// remindBrokerageOfPendingOffer
+//
+// Agent-triggered manual nudge from the offered-deal detail page. Fires the
+// same email the 2h cron would send (sendBrokerageOfferNudge2h), letting an
+// anxious agent ping their brokerage earlier than the automated cadence.
+//
+// Rate limit: at most one manual nudge per 6 hours per deal. Recorded in
+// deals.last_manual_nudge_at (migration 096). This is per-deal rather than
+// per-agent so an agent juggling several offered deals can nudge each
+// brokerage once, but can't spam any one brokerage.
+//
+// Interaction with the automated 2h cron:
+//   - The dispatcher always stamps brokerage_nudge_2h_at when this variant
+//     sends. So firing manually before the 2h cron means the cron's
+//     `!brokerage_nudge_2h_at` gate will be false and the cron skips that
+//     row. That's by design: manual nudge supersedes automated 2h nudge.
+//   - Firing manually after the 2h cron already sent is allowed (subject to
+//     the 6h rate limit) and re-stamps brokerage_nudge_2h_at, which is
+//     harmless — the cron's gate stays closed regardless.
+//   - The 4h internal escalation tracks internal_alert_4h_at independently
+//     and is not affected.
+// ============================================================================
+
+const MANUAL_NUDGE_COOLDOWN_MS = 6 * 60 * 60 * 1000
+
+export interface RemindBrokerageResult {
+  deal_id: string
+  /** Recipients the nudge was sent to. Surfaced so the agent UI can hint
+   *  that the brokerage admin team really did get an email. */
+  recipients: string[]
+  /** When the rate-limit window expires, so the UI can render a "you can
+   *  nudge again at HH:MM" hint instead of just "rate limited". */
+  next_allowed_at: string
+}
+
+export async function remindBrokerageOfPendingOffer(
+  dealId: string
+): Promise<ActionResult<RemindBrokerageResult>> {
+  if (!dealId || typeof dealId !== 'string') {
+    return { success: false, error: 'Missing deal id.' }
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealId)) {
+    return { success: false, error: 'Invalid deal id.' }
+  }
+
+  const auth = await getAuthenticatedUser(['agent'])
+  if (auth.error || !auth.profile?.agent_id) {
+    return { success: false, error: auth.error ?? 'Not an agent.' }
+  }
+  const myAgentId = auth.profile.agent_id as string
+
+  const supabase = createServiceRoleClient()
+
+  // Load just enough of the deal to verify ownership, status, and rate-limit
+  // window. The dispatcher re-loads the full context (brokerage, agent, pipe
+  // brand) so we don't need to fetch those columns here.
+  const { data: deal, error: dealErr } = await supabase
+    .from('deals')
+    .select('id, agent_id, brokerage_id, status, last_manual_nudge_at')
+    .eq('id', dealId)
+    .maybeSingle()
+  if (dealErr) return { success: false, error: dealErr.message }
+  if (!deal) return { success: false, error: 'Deal not found.' }
+
+  if (deal.agent_id !== myAgentId) {
+    return { success: false, error: 'This deal does not belong to you.' }
+  }
+  if (deal.status !== 'offered') {
+    return {
+      success: false,
+      error: 'Reminders are only available while the offer is waiting for your brokerage to submit.',
+    }
+  }
+
+  const nowMs = Date.now()
+  if (deal.last_manual_nudge_at) {
+    const lastMs = new Date(deal.last_manual_nudge_at as string).getTime()
+    if (!isNaN(lastMs) && nowMs - lastMs < MANUAL_NUDGE_COOLDOWN_MS) {
+      const nextAllowedMs = lastMs + MANUAL_NUDGE_COOLDOWN_MS
+      const minutesLeft = Math.ceil((nextAllowedMs - nowMs) / 60_000)
+      const hoursLeft = Math.floor(minutesLeft / 60)
+      const wait = hoursLeft >= 1
+        ? `${hoursLeft}h ${minutesLeft - hoursLeft * 60}m`
+        : `${minutesLeft}m`
+      return {
+        success: false,
+        error: `You already sent a reminder recently. You can send another in ${wait}.`,
+      }
+    }
+  }
+
+  // Fire the same email the 2h cron would send. This also stamps
+  // brokerage_nudge_2h_at via the dispatcher's update block.
+  const dispatch = await sendBrokerageOfferNudge2h(supabase, dealId)
+  if (dispatch.outcome === 'errored') {
+    return {
+      success: false,
+      error: `We couldn't send the reminder right now: ${dispatch.error ?? 'unknown error'}. Try again in a moment.`,
+    }
+  }
+  if (dispatch.outcome === 'skipped') {
+    // No recipients on file — same gate the acceptance flow uses. Tell the
+    // agent to contact support rather than leaving them clicking forever.
+    return {
+      success: false,
+      error: 'Your brokerage is not set up to receive reminders. Please contact Firm Funds support at support@firmfunds.ca.',
+    }
+  }
+
+  const nowIso = new Date(nowMs).toISOString()
+  const { error: stampErr } = await supabase
+    .from('deals')
+    .update({ last_manual_nudge_at: nowIso })
+    .eq('id', dealId)
+  if (stampErr) {
+    // The email already went out; failing to record the timestamp would just
+    // let the agent re-fire immediately. Log loudly and surface a soft warning
+    // so support can investigate, but don't roll back the send.
+    console.warn(
+      '[remindBrokerageOfPendingOffer] failed to stamp last_manual_nudge_at:',
+      stampErr.message
+    )
+  }
+
+  await logAuditEvent({
+    action: 'deal.firm_deal_offer_manually_nudged',
+    entityType: 'deal',
+    entityId: dealId,
+    metadata: {
+      brokerage_id: deal.brokerage_id,
+      agent_id: myAgentId,
+      triggered_by_user_id: auth.user?.id ?? null,
+      recipients: dispatch.recipients,
+      provider_id: dispatch.provider_id ?? null,
+      sent_at: nowIso,
+    },
+  })
+
+  return {
+    success: true,
+    data: {
+      deal_id: dealId,
+      recipients: dispatch.recipients,
+      next_allowed_at: new Date(nowMs + MANUAL_NUDGE_COOLDOWN_MS).toISOString(),
+    },
+  }
 }

@@ -7,6 +7,7 @@ import {
   ArrowLeft, FileText, DollarSign, MapPin, Clock,
   Upload, Download, ChevronDown, ChevronUp, Paperclip,
   CheckCircle2, AlertTriangle, Pencil, Save, X, Send, Loader2,
+  Bell,
 } from 'lucide-react'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
@@ -18,6 +19,7 @@ import {
   formatStatusLabel,
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal, uploadDocument, getDocumentSignedUrl } from '@/lib/actions/deal-actions'
+import { remindBrokerageOfPendingOffer } from '@/lib/actions/firm-deal-offer-actions'
 import { getChargeDays } from '@/lib/calculations'
 import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
 import { submitClosingDateAmendment, getDealAmendments } from '@/lib/actions/amendment-actions'
@@ -113,6 +115,13 @@ export default function AgentDealDetailPage() {
   /** Ref on the editing card so we can scroll the first error into view. */
   const editFormRef = useRef<HTMLDivElement>(null)
   const [cancelling, setCancelling] = useState(false)
+  // Manual brokerage reminder (offered-status only). One-shot inline feedback
+  // so we don't pollute the page-wide statusMessage with offered-flow text.
+  const [reminderSending, setReminderSending] = useState(false)
+  const [reminderFeedback, setReminderFeedback] = useState<{
+    type: 'success' | 'error'
+    text: string
+  } | null>(null)
   // Closing date amendment state
   const [showAmendmentModal, setShowAmendmentModal] = useState(false)
   const [amendNewClosingDate, setAmendNewClosingDate] = useState('')
@@ -305,6 +314,29 @@ export default function AgentDealDetailPage() {
       setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
     }
     window.open(signedUrl, '_blank')
+  }
+
+  // Offered-status only. Fires the same email the 2h cron would send, with a
+  // 6-hour rate limit enforced server-side. Success message stays inline next
+  // to the button so the agent can see what happened without scrolling.
+  const handleRemindBrokerage = async () => {
+    if (!deal) return
+    setReminderSending(true)
+    setReminderFeedback(null)
+    const result = await remindBrokerageOfPendingOffer(deal.id)
+    if (result.success && result.data) {
+      const count = result.data.recipients.length
+      setReminderFeedback({
+        type: 'success',
+        text: `Reminder sent to ${count} ${count === 1 ? 'recipient' : 'recipients'} at your brokerage. We'll let you know if they submit.`,
+      })
+    } else {
+      setReminderFeedback({
+        type: 'error',
+        text: result.error || 'Could not send the reminder. Please try again.',
+      })
+    }
+    setReminderSending(false)
   }
 
   const startEditing = () => {
@@ -584,6 +616,45 @@ export default function AgentDealDetailPage() {
               <p className="text-xs mt-5 text-muted-foreground">
                 If you haven&apos;t heard anything in a day, give your brokerage a quick call. We&apos;ll also nudge them automatically.
               </p>
+
+              <div className="mt-5 pt-5 border-t border-border/40">
+                <p className="text-xs font-semibold text-foreground mb-1">
+                  Want us to nudge them right now?
+                </p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Sends your brokerage another email with the offer details. You can do this once every six hours.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRemindBrokerage}
+                  disabled={reminderSending}
+                  className="gap-1.5"
+                >
+                  {reminderSending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                  Remind my brokerage
+                </Button>
+                {reminderFeedback && (
+                  <p
+                    role="status"
+                    className={`mt-3 text-xs flex items-start gap-1.5 ${
+                      reminderFeedback.type === 'success' ? 'text-primary' : 'text-destructive'
+                    }`}
+                  >
+                    {reminderFeedback.type === 'success' ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                    )}
+                    <span>{reminderFeedback.text}</span>
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </main>
