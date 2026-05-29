@@ -7,7 +7,7 @@ import {
   FileText, Users, DollarSign, ChevronDown, ChevronUp, AlertTriangle,
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
-  MessageSquare, Inbox, Settings, Bell, Eye, ExternalLink, X, Phone,
+  MessageSquare, Inbox, Settings, Bell, Eye, ExternalLink, X, Phone, LifeBuoy,
   CalendarClock,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
@@ -552,6 +552,14 @@ export default function BrokerageDashboard() {
                     {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
                   </span>
                 )}
+              </button>
+              <button
+                onClick={() => router.push('/help')}
+                className="p-1.5 rounded-lg transition-colors text-white/50 hover:text-primary"
+                title="Help Center"
+                aria-label="Open Help Center"
+              >
+                <LifeBuoy size={16} />
               </button>
               <button
                 onClick={() => router.push('/brokerage/settings')}

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
-import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet, AlertTriangle } from 'lucide-react'
+import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet, AlertTriangle, LifeBuoy } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
@@ -135,6 +135,7 @@ export default function AgentHeader({
   const isProfilePage = pathname === '/agent/profile'
   const isSettingsPage = pathname === '/agent/settings'
   const isFailedDealsPage = pathname === '/agent/failed-deals'
+  const isHelpPage = pathname.startsWith('/help')
 
   const navBtnClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -260,6 +261,10 @@ export default function AgentHeader({
                   <button onClick={() => router.push('/agent/settings')} className={navBtnClass(isSettingsPage)}>
                     <Settings size={14} />
                     Settings
+                  </button>
+                  <button onClick={() => router.push('/help')} className={navBtnClass(isHelpPage)} aria-label="Open Help Center">
+                    <LifeBuoy size={14} />
+                    Help
                   </button>
                 </nav>
               </div>
