@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import SignOutModal from '@/components/SignOutModal'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 
 interface DealRow {
   id: string
@@ -52,6 +53,8 @@ function AmendmentNewInner() {
 
   const [loading, setLoading] = useState(true)
   const [deals, setDeals] = useState<DealRow[]>([])
+  // Brokerage (for header branding — generated logo or FF default)
+  const [brokerage, setBrokerage] = useState<{ name: string; logo_url: string | null; logo_includes_tagline: boolean } | null>(null)
   const [pendingDealIds, setPendingDealIds] = useState<Set<string>>(new Set())
 
   const [selectedDealId, setSelectedDealId] = useState<string>('')
@@ -80,6 +83,14 @@ function AmendmentNewInner() {
         router.push('/login')
         return
       }
+
+      // Load brokerage row for header branding
+      const { data: brokerageData } = await supabase
+        .from('brokerages')
+        .select('name, logo_url, logo_includes_tagline')
+        .eq('id', profile.brokerage_id)
+        .single()
+      if (brokerageData) setBrokerage(brokerageData as { name: string; logo_url: string | null; logo_includes_tagline: boolean })
 
       const { data: dealData } = await supabase
         .from('deals')
@@ -218,7 +229,7 @@ function AmendmentNewInner() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+            <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="sm" />
             <div className="w-px h-6 bg-border" />
             <button
               onClick={() => router.push('/brokerage')}

@@ -11,6 +11,7 @@ import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument
 import { resendAgentWelcomeEmail } from '@/lib/actions/admin-actions'
 import { formatCurrency } from '@/lib/formatting'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,7 +26,7 @@ import {
 } from '@/components/ui/file-upload-progress'
 import type { Brokerage, UserProfile } from '@/types/database'
 
-type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
+type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'logo_includes_tagline' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
 
 interface AgentRow {
   id: string
@@ -398,7 +399,7 @@ function NewBrokerageDealPageInner() {
         <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/white.png" alt="Firm Funds" className="h-10 w-auto" />
+            <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
             <div className="w-px h-8 bg-white/15" />
             <p className="text-sm font-medium text-white">Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}</p>
           </div>
@@ -450,7 +451,7 @@ function NewBrokerageDealPageInner() {
               <ArrowLeft size={16} />
             </button>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/white.png" alt="Firm Funds" className="h-10 w-auto" />
+            <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
             <div className="w-px h-8 bg-white/15 hidden sm:block" />
             <p className="text-sm font-medium text-white hidden sm:block">Submit Advance Request{brokerage ? ` — ${brokerage.name}` : ''}</p>
           </div>

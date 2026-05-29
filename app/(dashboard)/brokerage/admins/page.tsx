@@ -8,6 +8,7 @@ import {
   AlertTriangle, Loader2, Clock,
 } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,7 +29,7 @@ import {
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import type { Brokerage, UserProfile } from '@/types/database'
 
-type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
+type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'logo_includes_tagline' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
 
 export default function BrokerageAdminsPage() {
   const router = useRouter()
@@ -176,7 +177,7 @@ export default function BrokerageAdminsPage() {
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
+              <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
               <div className="w-px h-8 bg-white/15" />
               <button
                 onClick={() => router.push('/brokerage')}

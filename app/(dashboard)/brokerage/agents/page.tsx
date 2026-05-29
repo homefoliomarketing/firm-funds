@@ -10,13 +10,14 @@ import {
   addAgentAsBrokerage, brokerageResendWelcomeEmail, brokerageUpdateAgentContact,
 } from '@/lib/actions/brokerage-actions'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import type { Brokerage, UserProfile } from '@/types/database'
 
-type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
+type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'logo_includes_tagline' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
 
 interface AgentRow {
   id: string
@@ -197,7 +198,7 @@ export default function BrokerageAgentsPage() {
             <ArrowLeft size={16} />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/white.png" alt="Firm Funds" className="h-10 w-auto" />
+          <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
           <div className="w-px h-8 bg-white/15 hidden sm:block" />
           <p className="text-sm font-medium text-white hidden sm:block">Agents{brokerage ? ` — ${brokerage.name}` : ''}</p>
         </div>

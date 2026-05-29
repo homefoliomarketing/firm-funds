@@ -25,6 +25,7 @@ import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -44,7 +45,7 @@ interface BrokerageInboxDeal {
 }
 
 type BrokeragePublic = Pick<Brokerage,
-  | 'id' | 'name' | 'logo_url' | 'email' | 'profit_share_pct' | 'is_white_label_partner'
+  | 'id' | 'name' | 'logo_url' | 'logo_includes_tagline' | 'email' | 'profit_share_pct' | 'is_white_label_partner'
   | 'broker_of_record_name' | 'broker_of_record_email'
 >
 
@@ -531,7 +532,7 @@ export default function BrokerageDashboard() {
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/white.png" alt="Firm Funds" className="h-10 sm:h-12 w-auto" />
+              <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
               <div className="w-px h-8 hidden sm:block bg-white/15" />
               <p className="text-xs sm:text-sm font-medium tracking-wide text-white hidden sm:block">
                 Brokerage Portal{brokerage ? ` — ${brokerage.name}` : ''}

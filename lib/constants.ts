@@ -48,6 +48,7 @@ export const BROKERAGE_PUBLIC_COLUMNS = [
   'broker_of_record_name',
   'broker_of_record_email',
   'logo_url',
+  'logo_includes_tagline',
   'brand_color',
   'bca_signed_at',
   'is_white_label_partner',
