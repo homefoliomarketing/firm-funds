@@ -32,19 +32,56 @@
  * Failure modes redirect to /login with a tiny ?reason= param so the
  * login page can show a contextual message ("Your link expired, please
  * sign in"). We never expose which failure mode occurred to a caller who
- * is guessing tokens.
+ * is guessing tokens, but we DO distinguish:
+ *
+ *   firm_deal_invalid     — token missing / malformed / unknown
+ *   firm_deal_expired     — token is past its 7-day TTL
+ *   firm_deal_no_account  — token valid, but the matched agent has no
+ *                           Firm Funds account yet. This is the most
+ *                           common real-world failure: the spreadsheet
+ *                           matched an agents row that no human has ever
+ *                           signed up against. The login page tells the
+ *                           recipient to contact their brokerage admin.
+ *
+ * Every failure also writes an audit_log row so production triage doesn't
+ * depend on tailing Netlify function logs.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { consumeFirmDealMagicLink } from '@/lib/firm-deal-detection/magic-link'
+import { logAuditEventServiceRole } from '@/lib/audit'
 
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
 
-function loginRedirect(reason: 'expired' | 'invalid'): NextResponse {
+type FailureReason = 'expired' | 'invalid' | 'no_account'
+
+function loginRedirect(reason: FailureReason): NextResponse {
   const url = new URL('/login', APP_URL)
   url.searchParams.set('reason', `firm_deal_${reason}`)
   return NextResponse.redirect(url)
+}
+
+/**
+ * Best-effort audit log for every magic-link failure. Wrapped so an audit
+ * insert error never causes the response to fail — the user-facing redirect
+ * is what matters; the log is a forensic aid.
+ */
+async function logFailure(
+  reason: FailureReason | 'verify_failed' | 'generate_link_failed',
+  metadata: Record<string, unknown>
+): Promise<void> {
+  try {
+    await logAuditEventServiceRole({
+      action: 'firm_deal.magic_link_consume_failed',
+      entityType: 'firm_deal_magic_link',
+      severity: 'warning',
+      metadata: { reason, ...metadata },
+    })
+  } catch {
+    // Audit failure is non-fatal; the console.error below carries the same
+    // context if Netlify logs are available.
+  }
 }
 
 export async function GET(
@@ -55,28 +92,48 @@ export async function GET(
   const { token } = await params
   const service = createServiceRoleClient()
 
+  // Token prefix for audit/log — never the full token, which would be
+  // replayable if logs leaked.
+  const tokenPrefix = typeof token === 'string' ? token.slice(0, 8) : null
+
   const consumed = await consumeFirmDealMagicLink(service, token)
   if (!consumed.ok) {
-    return loginRedirect(consumed.reason === 'expired' ? 'expired' : 'invalid')
+    const reason: FailureReason = consumed.reason === 'expired' ? 'expired' : 'invalid'
+    console.error('[firm-deal-magic-link] consume failed', {
+      reason,
+      token_prefix: tokenPrefix,
+    })
+    await logFailure(reason, { token_prefix: tokenPrefix })
+    return loginRedirect(reason)
   }
 
   // We need the agent's Supabase auth email to mint a magic link. The
   // auth-side email lives on user_profiles (the row joined to auth.users
   // by id). agents.email is the broker-supplied address and may be NULL
-  // for agents we know about but who never signed up themselves; we treat
-  // that as "no usable Firm Funds account" and bounce to login.
+  // for agents we know about but who never signed up themselves. Those
+  // unregistered agents get a clearer "no_account" reason so the login
+  // page can tell the recipient to ask their brokerage admin (vs the
+  // generic "invalid" which used to leave them staring at a blank login
+  // form with no idea what happened).
   const { data: profile, error: profileErr } = await service
     .from('user_profiles')
     .select('id, email')
     .eq('agent_id', consumed.agent_id)
     .maybeSingle()
   if (profileErr || !profile || !profile.email) {
-    console.error(
-      '[firm-deal-magic-link] no user_profile for agent',
-      consumed.agent_id,
-      profileErr?.message
-    )
-    return loginRedirect('invalid')
+    console.error('[firm-deal-magic-link] no user_profile for agent', {
+      agent_id: consumed.agent_id,
+      event_id: consumed.firm_deal_event_id,
+      token_prefix: tokenPrefix,
+      db_error: profileErr?.message ?? null,
+    })
+    await logFailure('no_account', {
+      agent_id: consumed.agent_id,
+      event_id: consumed.firm_deal_event_id,
+      token_prefix: tokenPrefix,
+      db_error: profileErr?.message ?? null,
+    })
+    return loginRedirect('no_account')
   }
 
   // Ask Supabase to mint a one-time OTP for this email. We do not send the
@@ -89,6 +146,12 @@ export async function GET(
   })
   if (linkErr || !linkData?.properties?.hashed_token) {
     console.error('[firm-deal-magic-link] generateLink failed', linkErr?.message)
+    await logFailure('generate_link_failed', {
+      agent_id: consumed.agent_id,
+      event_id: consumed.firm_deal_event_id,
+      token_prefix: tokenPrefix,
+      error: linkErr?.message ?? null,
+    })
     return loginRedirect('invalid')
   }
 
@@ -128,6 +191,12 @@ export async function GET(
   })
   if (verifyErr) {
     console.error('[firm-deal-magic-link] verifyOtp failed', verifyErr.message)
+    await logFailure('verify_failed', {
+      agent_id: consumed.agent_id,
+      event_id: consumed.firm_deal_event_id,
+      token_prefix: tokenPrefix,
+      error: verifyErr.message,
+    })
     return loginRedirect('invalid')
   }
 

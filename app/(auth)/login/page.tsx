@@ -64,6 +64,30 @@ function LoginPageInner() {
     if (searchParams.get('reason') === 'timeout') {
       return { tone: 'info' as const, text: 'You were signed out due to inactivity.' }
     }
+    // Firm-deal magic links from offer emails + SMS land here when the
+    // /agent/firm-deal/[token] route can't sign the recipient in. Each
+    // reason gets its own copy so the recipient knows what to do next
+    // instead of staring at a blank login form. See
+    // app/agent/firm-deal/[token]/route.ts for what sets each reason.
+    const reason = searchParams.get('reason')
+    if (reason === 'firm_deal_expired') {
+      return {
+        tone: 'warning' as const,
+        text: 'That deal link has expired. Ask your brokerage to resend the offer, or sign in below if you already have an account.',
+      }
+    }
+    if (reason === 'firm_deal_invalid') {
+      return {
+        tone: 'warning' as const,
+        text: "We couldn't open that deal link. It may have been mistyped or expired. Ask your brokerage to resend it, or sign in below.",
+      }
+    }
+    if (reason === 'firm_deal_no_account') {
+      return {
+        tone: 'warning' as const,
+        text: "That deal was sent to you, but you don't have a Firm Funds account yet. Ask your brokerage admin to add you, then click the link in the welcome email.",
+      }
+    }
     return null
   })()
 
