@@ -88,8 +88,16 @@ export async function pollSpreadsheetPipe(
   const allTabs = [cfg.conditional_tab, ...cfg.tabs_to_watch]
   const tabValues = await readAllTabValues(cfg.sheet_id, allTabs)
 
-  // Build current state: { rowIdentityHash -> tabName } using the first tab
-  // we see a row in (a row should normally only appear in one tab anyway).
+  // Build current state: { rowIdentityHash -> tabName }.
+  //
+  // Tie-breaker when the same row appears in BOTH Conditional AND a watched
+  // month tab: prefer the month tab. Bud's flow is "copy the row to the
+  // month tab when it firms up", and admins sometimes leave the original
+  // Conditional row in place rather than deleting it. Without this
+  // tie-breaker the poller treated the Conditional placement as authoritative
+  // (first-seen wins, Conditional is first in allTabs), so the row never
+  // looked like it had moved and no firm-deal event fired. 150 Pittsburgh
+  // hit exactly this case 2026-05-28.
   const currentTabByHash: Record<string, string> = {}
   // Also keep the row itself so we can reuse it for the raw_payload when we
   // detect a firm event.
@@ -104,12 +112,20 @@ export async function pollSpreadsheetPipe(
       if (!row || !isDataRow(row, cols)) continue
       rowsSeen++
       const h = rowIdentityHash(row, cols)
-      // First-seen wins so if a row somehow appears in two tabs (e.g. a
-      // copy-paste mistake), we record the conditional placement.
-      if (!(h in currentTabByHash)) {
+      const seenTab = currentTabByHash[h]
+      if (seenTab === undefined) {
+        // First sighting — record it.
+        currentTabByHash[h] = tab
+        currentRowByHash[h] = { tab, row }
+      } else if (seenTab === cfg.conditional_tab && cfg.tabs_to_watch.includes(tab)) {
+        // Duplicate: prior sighting was Conditional, new sighting is a
+        // watched month tab. Month tab wins because it represents the
+        // "firmed" state of the deal. The Conditional copy is stale.
         currentTabByHash[h] = tab
         currentRowByHash[h] = { tab, row }
       }
+      // Other duplicates (both in month tabs, or Conditional-then-Conditional)
+      // keep the first sighting.
     }
   }
 
