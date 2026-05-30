@@ -6,6 +6,21 @@
 **DB:** Supabase PostgreSQL with RLS
 **Owner:** Bud (homefoliomarketing@gmail.com)
 
+## Documentation — CHECK THIS FIRST
+
+Full project documentation lives in `docs/`. Start at `docs/README.md` (the hub). **Prefer reading the docs over digging through source code** when you need to understand how something works. This saves context and keeps everyone working from the same model. The source is still the final authority, but the docs are the fast path.
+
+Where to look:
+- `docs/architecture/` — overview, authentication, database schema and migration history, directory structure
+- `docs/business/` — financial model, deal lifecycle, firm-deal detection
+- `docs/api/` — REST endpoints, cron jobs, webhooks
+- `docs/integrations/` — DocuSign, Resend email, ParcLabs
+- `docs/development/` — setup, deployment, conventions and gotchas
+
+**Keep the docs current.** Any change that alters behavior MUST update the matching doc in the same commit. Treat a stale doc as a bug in your change. The "when you change X, update Y" mapping is in `CONTRIBUTING.md`. Quick version: migrations -> `docs/architecture/database.md`; API routes -> `docs/api/rest-endpoints.md`; crons -> `docs/api/cron-jobs.md`; webhooks -> `docs/api/webhooks.md`; financial math -> `docs/business/financial-model.md`; deal flow -> `docs/business/deal-lifecycle.md`; firm deals -> `docs/business/firm-deals.md`; integrations -> `docs/integrations/*`; auth/middleware -> `docs/architecture/authentication.md`; new env var -> `docs/development/setup.md`; build/deploy -> `docs/development/deployment.md`; conventions/gotchas -> `docs/development/conventions.md`. Refresh the `_Last updated:_` line when you edit a doc.
+
+If you discover the docs are wrong or out of date while working, fix them as part of the task rather than leaving the drift.
+
 ## Agent Capabilities — READ THIS FIRST
 
 You have FULL autonomy to run commands. Bud should never have to copy-paste anything.

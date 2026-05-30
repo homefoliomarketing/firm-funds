@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Firm Funds
 
-## Getting Started
+Real estate commission advance platform. Firm Funds buys a real estate agent's pending commission at a discount and advances the cash before closing, then collects the full commission from the brokerage at settlement.
 
-First, run the development server:
+**Live:** [firmfunds.ca](https://firmfunds.ca) (Netlify, auto-deploys from `main`)
+
+## What it does
+
+- Agents (or brokerage admins on their behalf) request an advance against a firm deal.
+- Firm Funds underwrites the deal against a 12-item checklist, then funds it by EFT.
+- The discount fee is $0.80 per $1,000 per day until closing. At settlement the brokerage remits the full commission.
+- Failed-to-close deals run through a remediation and cure flow with 24%/yr late interest after a 30-day grace.
+- Firm deals are detected automatically from brokerage-shared spreadsheets and matched to agents, who receive an offer by email and SMS magic link.
+
+## Tech stack
+
+- **Next.js 16.2.1** (App Router, Turbopack) on **Netlify** serverless functions
+- **Supabase** PostgreSQL with Row Level Security as the primary security boundary
+- **DocuSign** for contract signing, **Resend** for transactional email, **Twilio** for SMS
+- Dark-mode-only UI
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000
+npx tsc --noEmit     # type-check before pushing
+npm run build        # Netlify checks are stricter than local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Environment variables and local setup are documented in [docs/development/setup.md](docs/development/setup.md).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Documentation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Full documentation lives in [`docs/`](docs/README.md). Read the relevant doc before digging through source code.
 
-## Learn More
+- [Architecture](docs/architecture/overview.md): system overview, auth, database, directory structure
+- [Business logic](docs/business/financial-model.md): financial model, deal lifecycle, firm deals
+- [API reference](docs/api/rest-endpoints.md): REST endpoints, cron jobs, webhooks
+- [Integrations](docs/integrations/docusign.md): DocuSign, Resend email, ParcLabs
+- [Development](docs/development/setup.md): setup, deployment, conventions
 
-To learn more about Next.js, take a look at the following resources:
+## Contributing
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The core rule: any change that alters behavior must update the matching doc in the same commit. A stale doc is a bug in the change that made it stale.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Git workflow
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Work on `main` and push directly; there is no pull request process. Confirm with the owner before pushing. Do not commit secrets (`.env.local` and credentials stay out of source control).

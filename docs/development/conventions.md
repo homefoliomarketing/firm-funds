@@ -1,0 +1,66 @@
+# Coding Conventions and Gotchas
+
+_Last updated: 2026-05-29_
+
+Project-specific rules and known traps. Read this before writing code, because several conventions here override defaults you might assume from older Next.js or Supabase versions.
+
+## Next.js 16 (this is not the Next.js you may know)
+
+This version has breaking changes from older releases. When in doubt, read the relevant guide under `node_modules/next/dist/docs/` before writing code.
+
+- `params` in dynamic routes are Promises. Await them.
+- `'use server'` files can only export async functions.
+- `useSearchParams()` requires a `<Suspense>` boundary.
+- The project uses the App Router with route groups. Server components and server actions are the default.
+
+## Supabase and Row Level Security
+
+RLS is the number one source of bugs. The rules:
+
+- `createClient()` from `@/lib/supabase/client` is synchronous and for the browser.
+- `createClient()` from `@/lib/supabase/server` is async (it reads cookies).
+- `createServiceRoleClient()` from `@/lib/supabase/server` bypasses RLS. Use it for all server-side mutations.
+- All agent balance writes must go through the `apply_agent_balance_delta` RPC (migration 052). Never read-modify-write a balance directly. The same rule applies to `record_brokerage_late_strike` and `apply_remediation_remittance`.
+
+See [docs/architecture/database.md](../architecture/database.md) and [docs/architecture/authentication.md](../architecture/authentication.md).
+
+## Middleware allowlist
+
+External POST endpoints (webhooks, callbacks) must be in the `PUBLIC_PATHS` array in `middleware.ts` or they get redirected (302) to `/login`. The `/api/kyc-*` wildcard was replaced with exact matches, so add new KYC routes explicitly.
+
+## Netlify serverless
+
+- Always `await` async operations in serverless functions or they get killed mid-flight.
+- File uploads must use signed URLs.
+- Netlify TypeScript checking is stricter than local `tsc --noEmit`. Watch null checks and unused imports.
+
+## Theme
+
+Dark mode is permanently locked. Use the `useTheme()` hook. Note that `colors.gold` is actually green (`#5FA873`).
+
+## TypeScript
+
+- Type check with `npx tsc --noEmit`. Exclude `.next/` errors.
+
+## Financial code
+
+All money math lives in `lib/calculations.ts` and `lib/constants.ts`. Do not hardcode rates inline. Key invariants:
+
+- Discount rate: $0.80 per $1,000 per day, chargeable days = `days_until_closing - 1` via `getChargeDays()`.
+- `brokerage_split_pct` stores whole numbers (5 means 5%), not decimals. Do not multiply by 100.
+- Settlement days are snapshotted at submission into `deals.settlement_days_at_funding`.
+
+Full detail in [docs/business/financial-model.md](../business/financial-model.md).
+
+## Copy and writing style
+
+- Do not use em dashes in any user-facing copy or in documentation. The owner treats them as an AI tell. Use commas, colons, or parentheses instead. This applies to these docs too.
+- No emojis unless explicitly requested.
+
+## Git workflow
+
+Push directly to `main`. No feature branches, no pull request workflow. Confirm with the owner before pushing. Commit messages follow the existing style in `git log` (for example `feat(area): summary`, `fix(area): summary`, `docs(area): summary`).
+
+## Documentation upkeep
+
+When you change behavior, update the matching doc in `docs/` in the same change. Treat an out-of-date doc as a bug. See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the doc-to-code mapping.
