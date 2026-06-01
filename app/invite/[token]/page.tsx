@@ -96,7 +96,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
         setStatus('valid')
       }
     } catch {
-      setError('Something went wrong. Please try again.')
+      setError('We could not set your password. The invite link may have expired. Ask your brokerage to resend it, or try again.')
       setStatus('valid')
     }
   }

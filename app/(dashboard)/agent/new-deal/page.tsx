@@ -505,9 +505,14 @@ function NewDealPageInner() {
         {/* Draft restored banner */}
         {draftRestored && (
           <div className="mb-4 px-4 py-3 rounded-lg flex items-center justify-between bg-status-blue-muted/40 border border-status-blue-border/40">
-            <div className="flex items-center gap-2">
-              <Save size={14} className="text-status-blue" />
-              <span className="text-xs font-medium text-status-blue">Draft restored from your last session</span>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <Save size={14} className="text-status-blue" aria-hidden="true" />
+                <span className="text-xs font-medium text-status-blue">Draft restored from your last session</span>
+              </div>
+              <span className="text-[11px] text-muted-foreground pl-6">
+                Your typed details were saved, but attached documents were not. Please re-attach any files before submitting.
+              </span>
             </div>
             <button
               type="button"
@@ -548,10 +553,11 @@ function NewDealPageInner() {
             </CardHeader>
             <CardContent className="p-6 space-y-5">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Label htmlFor="street-address" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                   <MapPin size={12} className="text-primary" /> Street Address *
                 </Label>
                 <Input
+                  id="street-address"
                   type="text"
                   value={streetAddress}
                   onChange={(e) => setStreetAddress(e.target.value)}
@@ -561,8 +567,9 @@ function NewDealPageInner() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City *</Label>
+                  <Label htmlFor="city" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City *</Label>
                   <Input
+                    id="city"
                     type="text"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
@@ -571,8 +578,9 @@ function NewDealPageInner() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
+                  <Label htmlFor="province" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
                   <Input
+                    id="province"
                     type="text"
                     value={province}
                     onChange={(e) => setProvince(e.target.value)}
@@ -580,8 +588,9 @@ function NewDealPageInner() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code *</Label>
+                  <Label htmlFor="postal-code" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code *</Label>
                   <Input
+                    id="postal-code"
                     type="text"
                     value={postalCode}
                     onChange={(e) => setPostalCode(e.target.value)}
@@ -629,8 +638,9 @@ function NewDealPageInner() {
                   })()}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your Representation *</Label>
+                  <Label htmlFor="representation" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your Representation *</Label>
                   <select
+                    id="representation"
                     value={transactionType}
                     onChange={(e) => setTransactionType(e.target.value)}
                     className="w-full rounded-lg px-4 py-2.5 text-base sm:text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary"
@@ -654,10 +664,11 @@ function NewDealPageInner() {
             <CardContent className="p-6 space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="gross-commission" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <DollarSign size={12} className="text-primary" /> Gross Commission ($) *
                   </Label>
                   <Input
+                    id="gross-commission"
                     type="number"
                     value={grossCommission}
                     onChange={(e) => setGrossCommission(e.target.value)}
@@ -669,10 +680,11 @@ function NewDealPageInner() {
                   <p className="text-xs text-muted-foreground">Your total commission on this deal before brokerage split</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="brokerage-split" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <Percent size={12} className="text-primary" /> Brokerage Split (%) *
                   </Label>
                   <Input
+                    id="brokerage-split"
                     type="number"
                     value={brokerageSplitPct}
                     onChange={(e) => setBrokerageSplitPct(e.target.value)}
@@ -686,8 +698,9 @@ function NewDealPageInner() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes (optional)</Label>
+                <Label htmlFor="notes" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes (optional)</Label>
                 <Textarea
+                  id="notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Any additional details about this deal..."
@@ -878,26 +891,45 @@ function NewDealPageInner() {
             </div>
           )}
 
-          {/* Submit */}
-          <div className="flex gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1 py-3"
-              onClick={() => router.push('/agent')}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0)}
-              className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2"
-            >
-              {submitting
-                ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting…</>
-                : (<><Send size={16} />Review &amp; Submit</>)}
-            </Button>
-          </div>
+          {/* Submit. When disabled (and not mid-submit), show a short inline
+              reason right next to the button so the agent isn't left guessing
+              why they can't continue. */}
+          {(() => {
+            const submitDisabled = !preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0)
+            let disabledReason: string | null = null
+            if (!submitting) {
+              if (!isFirm) disabledReason = 'Confirm the deal is firm above to submit.'
+              else if (docSlots.aps.length === 0) disabledReason = 'Attach the Agreement of Purchase & Sale to submit.'
+              else if (isFirstAdvance && docSlots.banking_info.length === 0) disabledReason = 'Attach your banking information to submit your first advance.'
+              else if (!preview) disabledReason = 'Complete the required deal details to submit.'
+            }
+            return (
+              <>
+                {disabledReason && (
+                  <p className="text-xs text-muted-foreground mb-2 text-center sm:text-right">{disabledReason}</p>
+                )}
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1 py-3"
+                    onClick={() => router.push('/agent')}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={submitDisabled}
+                    className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2"
+                  >
+                    {submitting
+                      ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting...</>
+                      : (<><Send size={16} />Review &amp; Submit</>)}
+                  </Button>
+                </div>
+              </>
+            )
+          })()}
         </form>
 
         {/* Confirmation Modal */}
@@ -983,7 +1015,7 @@ function NewDealPageInner() {
                     className="flex-1 h-10 text-sm font-semibold flex items-center justify-center gap-2 bg-primary hover:bg-primary/90"
                   >
                     {submitting
-                      ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting…</>
+                      ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Submitting...</>
                       : (<><Send size={16} />Confirm &amp; Submit</>)}
                   </Button>
                 </DialogFooter>

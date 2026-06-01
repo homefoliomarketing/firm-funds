@@ -49,7 +49,7 @@ function LoginPageInner() {
       return { tone: 'warning' as const, text: 'That confirmation link is invalid or has already been used.' }
     }
     if (brokerageEmail === 'error') {
-      return { tone: 'error' as const, text: 'Something went wrong confirming the brokerage contact email. Please try again.' }
+      return { tone: 'error' as const, text: "We couldn't confirm that email link. It may have expired. Request a new one." }
     }
     const emailChange = searchParams.get('email_change')
     if (emailChange === 'confirmed') {

@@ -2459,3 +2459,146 @@ export async function sendRemediationIdpSignedNotification(params: {
       `),
   })
 }
+
+// ============================================================================
+// Operational / dead-letter alerts
+// ============================================================================
+
+/**
+ * Loud internal alert when an email in the cron_email_failures dead-letter
+ * queue permanently gives up (gave_up_at set after MAX_ATTEMPTS). Sent to the
+ * Firm Funds ops inbox so a stuck notification surfaces somewhere a human
+ * actually looks, not just in the Netlify function logs. Fail-soft: never
+ * throws, so a failure to send the alert can't break the retry sweep.
+ */
+export async function sendDeadLetterGiveUpAlert(params: {
+  failureId: string
+  emailType: string
+  recipient: string
+  subject: string | null
+  error: string
+  attemptCount: number
+}): Promise<void> {
+  await sendEmailWithUnsubscribe({
+    to: ADMIN_EMAIL,
+    transactional: true,
+    subject: sanitizeSubject(
+      `[Firm Funds] Email permanently failed: ${params.emailType}`
+    ),
+    html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Email permanently failed</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          A queued email exhausted all retry attempts and has been marked given-up in the dead-letter queue. It will not be retried again automatically. Please investigate and re-send by hand if needed.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Email type</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.emailType ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Recipient</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.recipient ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Original subject</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.subject ?? '(none)')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Attempts</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.attemptCount}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Last error</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.error ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Failure row id</td>
+                  <td style="padding:8px 0; color:#737373; font-size:12px; font-family:monospace;">${escapeHtml(params.failureId ?? '')}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      `),
+  })
+}
+
+/**
+ * Resend the overdue-remediation digest from a stored dead-letter payload.
+ * Shares the same look as the live digest in
+ * /api/cron/remediation-overdue-escalation but is self-contained so the retry
+ * sweep can rebuild the email from the rows captured at enqueue time. Throws
+ * on a send failure so the retry sweep can record the attempt and back off.
+ */
+export interface RemediationOverdueDigestRow {
+  property_address?: string | null
+  brokerage_legal_name?: string | null
+  directed_amount?: number | null
+  created_at?: string | null
+  escalation_level?: number | null
+}
+
+export async function sendRemediationOverdueDigest(
+  rows: RemediationOverdueDigestRow[]
+): Promise<void> {
+  const resend = getResend()
+  if (!resend) {
+    throw new Error('RESEND_API_KEY not configured')
+  }
+
+  const ffInbox = process.env.FIRM_FUNDS_OFFER_INBOX || ADMIN_EMAIL
+  const fmtCurrency = (n: number | null | undefined): string =>
+    n == null
+      ? 'n/a'
+      : `$${Number(n).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const rowsHtml = rows
+    .map((r) => {
+      const daysOverdue = r.created_at
+        ? Math.floor((Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60 * 24))
+        : 0
+      return `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #2a2a2a;">${escapeHtml(String(r.property_address ?? ''))}</td>
+          <td style="padding:8px;border-bottom:1px solid #2a2a2a;">${escapeHtml(String(r.brokerage_legal_name ?? ''))}</td>
+          <td style="padding:8px;border-bottom:1px solid #2a2a2a;text-align:right;">${fmtCurrency(r.directed_amount)}</td>
+          <td style="padding:8px;border-bottom:1px solid #2a2a2a;text-align:right;">${daysOverdue}d</td>
+          <td style="padding:8px;border-bottom:1px solid #2a2a2a;text-align:right;">${(r.escalation_level ?? 0) + 1}</td>
+        </tr>`
+    })
+    .join('')
+
+  const html = wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700;">Overdue Remediation Digest (retry)</h2>
+        <p style="margin:0 0 16px; color:#E5E5E5;">${rows.length} remediation${rows.length === 1 ? '' : 's'} have been waiting more than 14 days since their IDP was signed without remittance. Action needed.</p>
+        <table style="width:100%;border-collapse:collapse;background:#171717;border:1px solid #2a2a2a;margin-top:8px;">
+          <thead>
+            <tr style="background:#1f1f1f;">
+              <th style="padding:8px;text-align:left;">Property</th>
+              <th style="padding:8px;text-align:left;">Brokerage</th>
+              <th style="padding:8px;text-align:right;">Directed</th>
+              <th style="padding:8px;text-align:right;">Days Overdue</th>
+              <th style="padding:8px;text-align:right;">Escalation</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      `)
+
+  const result = (await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: ffInbox,
+    subject: sanitizeSubject(
+      `[Firm Funds] ${rows.length} overdue remediation${rows.length === 1 ? '' : 's'} (retry)`
+    ),
+    html,
+  })) as { error: { message?: string } | string | null } | null
+  if (result && result.error) {
+    const errVal = result.error
+    const msg = typeof errVal === 'string' ? errVal : errVal.message ?? 'Unknown resend error'
+    throw new Error(msg)
+  }
+}

@@ -1,6 +1,6 @@
 # Firm Funds Database Architecture
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-01_
 
 This document describes the Supabase Postgres data layer for Firm Funds: the tables, status enums, stored procedures, Row Level Security model, and the full migration history that produced the schema.
 
@@ -23,6 +23,8 @@ The numbering groups roughly into feature batches:
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
 
 There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `099_remediation_signed_at.sql`.
+
+**Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
 ### Naming note
 

@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft, DollarSign, TrendingUp, CheckCircle2, AlertTriangle, Clock, Activity } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
+import { EmptyState } from '@/components/ui/empty-state'
 
 export const dynamic = 'force-dynamic'
 
@@ -208,9 +209,12 @@ export default async function PortfolioPage() {
             </CardHeader>
             <CardContent className="p-0">
               {s.statusBuckets.size === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-                  No deals on the books yet.
-                </div>
+                <EmptyState
+                  icon={Activity}
+                  title="No deals on the books yet"
+                  description="Once deals start flowing through, the count and dollar total for each status will show here."
+                  compact
+                />
               ) : (
                 <div className="divide-y divide-border/30">
                   {Array.from(s.statusBuckets.entries())
@@ -243,9 +247,12 @@ export default async function PortfolioPage() {
             </CardHeader>
             <CardContent className="p-0">
               {s.recentFunded.length === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-                  No funded deals yet. Once funding kicks in, the most recent ones will show here.
-                </div>
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="No funded deals yet"
+                  description="Once funding kicks in, the most recent funded deals will show here."
+                  compact
+                />
               ) : (
                 <div className="divide-y divide-border/30">
                   {s.recentFunded.map(deal => (

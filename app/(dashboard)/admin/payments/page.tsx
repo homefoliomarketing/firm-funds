@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 import { confirmBrokeragePaymentClaim, rejectBrokeragePaymentClaim } from '@/lib/actions/admin-actions'
 
 interface PaymentEntry {
@@ -522,14 +523,14 @@ export default function AdminPaymentsPage() {
         {/* Brokerage Cards */}
         {filteredSummaries.length === 0 ? (
           <Card>
-            <CardContent className="p-12 text-center">
-              <Building2 size={40} className="mx-auto mb-4 text-muted-foreground/30" />
-              <p className="font-semibold text-muted-foreground">
-                {summaries.length === 0 ? 'No funded deals yet' : 'No matching brokerages'}
-              </p>
-              <p className="text-sm mt-1 text-muted-foreground/70">
-                {summaries.length === 0 ? 'Brokerage payment tracking will appear here once deals are funded.' : 'Try adjusting your search or filter.'}
-              </p>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Building2}
+                title={summaries.length === 0 ? 'No funded deals yet' : 'No matching brokerages'}
+                description={summaries.length === 0
+                  ? 'Brokerage payment tracking will appear here once deals are funded.'
+                  : 'Try adjusting your search or filter.'}
+              />
             </CardContent>
           </Card>
         ) : (

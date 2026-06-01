@@ -50,7 +50,7 @@ When you add a new cron endpoint, you must also add the schedule in the cron-job
 
 ## Middleware and public routes
 
-Any new API route that accepts an external POST (a webhook or callback) must be added to the `PUBLIC_PATHS` allowlist in `middleware.ts`, or middleware will redirect it (302) to `/login`. See [docs/architecture/authentication.md](../architecture/authentication.md).
+Any new API route that accepts an external POST (a webhook or callback) must be added to the `PUBLIC_PATHS` allowlist in `proxy.ts` (the Next.js 16 request middleware at the repo root, function `proxy`), or the middleware will redirect it (302) to `/login`. See [docs/architecture/authentication.md](../architecture/authentication.md).
 
 ## Deploy checklist
 

@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import type { Brokerage, UserProfile } from '@/types/database'
 
 type BrokeragePublic = Pick<Brokerage, 'id' | 'name' | 'logo_url' | 'logo_includes_tagline' | 'email' | 'profit_share_pct' | 'is_white_label_partner'>
@@ -263,7 +264,11 @@ export default function BrokerageAgentsPage() {
         <Card>
           <CardContent className="p-0">
             {agents.length === 0 ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">No active agents on roster yet.</div>
+              <EmptyState
+                icon={UserPlus}
+                title="No agents on your roster yet"
+                description="Use the Add agent button above to invite your first agent."
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

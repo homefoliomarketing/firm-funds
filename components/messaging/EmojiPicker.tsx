@@ -62,8 +62,11 @@ export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
           {EMOJI_CATEGORIES.map((cat, i) => (
             <button
               key={cat.label}
+              type="button"
               onClick={() => setActiveCategory(i)}
-              className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+              aria-label={`Show ${cat.label} emoji`}
+              aria-pressed={activeCategory === i}
+              className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 activeCategory === i
                   ? 'bg-primary/20 text-primary'
                   : 'text-muted-foreground hover:text-foreground'
@@ -73,8 +76,8 @@ export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
             </button>
           ))}
         </div>
-        <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
-          <X size={14} />
+        <button type="button" onClick={onClose} aria-label="Close emoji picker" className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <X size={14} aria-hidden="true" />
         </button>
       </div>
 
@@ -83,8 +86,10 @@ export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
         {EMOJI_CATEGORIES[activeCategory].emojis.map((emoji, i) => (
           <button
             key={i}
+            type="button"
             onClick={() => { onSelect(emoji); onClose() }}
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 text-lg transition-colors"
+            aria-label={`Insert ${emoji} emoji`}
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10 text-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {emoji}
           </button>

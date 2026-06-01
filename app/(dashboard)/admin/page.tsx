@@ -131,6 +131,7 @@ export default function AdminDashboard() {
   const [preauthViewUrl, setPreauthViewUrl] = useState<string | null>(null)
   const [revealedBankingIds, setRevealedBankingIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -156,14 +157,21 @@ export default function AdminDashboard() {
         return
       }
 
-      const [
-        { data: deals },
-        { data: bankingAgents },
-        { data: kycAgents },
-        { data: allMsgs },
-        { data: dismissals },
-        { count: firmDealPendingCount },
-      ] = await Promise.all([
+      let deals: DashboardDeal[] | null = null
+      let bankingAgents: DashboardBankingAgent[] | null = null
+      let kycAgents: DashboardKycAgent[] | null = null
+      let allMsgs: { deal_id: string; sender_role: string; created_at: string }[] | null = null
+      let dismissals: { deal_id: string; dismissed_at: string }[] | null = null
+      let firmDealPendingCount: number | null = null
+      try {
+        const [
+          { data: dealsRes, error: dealsErr },
+          { data: bankingRes },
+          { data: kycRes },
+          { data: msgsRes },
+          { data: dismissalsRes },
+          { count: firmDealCountRes },
+        ] = await Promise.all([
         // Safety cap. Long-term this should paginate/aggregate server-side.
         supabase.from('deals').select('*, agents(first_name, last_name)').order('created_at', { ascending: false }).limit(500),
         // TODO: banking_submitted_transit/institution/account should be fetched
@@ -181,7 +189,23 @@ export default function AdminDashboard() {
           .from('firm_deal_events')
           .select('id', { count: 'exact', head: true })
           .in('status', ['unmatched', 'awaiting_approval', 'errored']),
-      ])
+        ])
+        // The deals query is the primary load — a PostgREST error here means
+        // the queue could not be fetched, which is different from an empty
+        // queue. Surface it so the UI can show a load-failed message.
+        if (dealsErr) throw dealsErr
+        deals = (dealsRes as DashboardDeal[] | null)
+        bankingAgents = (bankingRes as DashboardBankingAgent[] | null)
+        kycAgents = (kycRes as DashboardKycAgent[] | null)
+        allMsgs = msgsRes
+        dismissals = dismissalsRes
+        firmDealPendingCount = firmDealCountRes ?? null
+      } catch {
+        // A failed primary load should not look like a genuinely empty queue.
+        setLoadError(true)
+        setLoading(false)
+        return
+      }
 
       setPendingBankingAgents((bankingAgents || []) as DashboardBankingAgent[])
       setPendingKycAgents((kycAgents || []) as DashboardKycAgent[])
@@ -839,7 +863,18 @@ export default function AdminDashboard() {
             </div>
           </CardHeader>
 
-          {paged.length === 0 ? (
+          {loadError ? (
+            <div role="alert" className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+              <AlertTriangle size={28} className="text-status-amber" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">We could not load deals.</p>
+                <p className="text-xs text-muted-foreground mt-1">Refresh to try again.</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                Refresh
+              </Button>
+            </div>
+          ) : paged.length === 0 ? (
             <EmptyState
               icon={FileText}
               title={searchQuery || statusFilter ? 'No deals match your filters' : 'No deals yet'}
@@ -995,6 +1030,7 @@ export default function AdminDashboard() {
                 <Button
                   variant="outline"
                   size="icon"
+                  aria-label="Previous page"
                   className="h-8 w-8 border-border/50"
                   disabled={page === 1}
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -1012,6 +1048,8 @@ export default function AdminDashboard() {
                       key={pageNum}
                       variant={pageNum === page ? 'default' : 'outline'}
                       size="icon"
+                      aria-label={`Go to page ${pageNum}`}
+                      aria-current={pageNum === page ? 'page' : undefined}
                       className={`h-8 w-8 text-xs ${pageNum !== page ? 'border-border/50' : ''}`}
                       onClick={() => setCurrentPage(pageNum)}
                     >
@@ -1022,6 +1060,7 @@ export default function AdminDashboard() {
                 <Button
                   variant="outline"
                   size="icon"
+                  aria-label="Next page"
                   className="h-8 w-8 border-border/50"
                   disabled={page === totalPages}
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}

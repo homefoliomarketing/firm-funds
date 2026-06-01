@@ -1,6 +1,6 @@
 # Local Development Setup
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-01_
 
 This guide gets a developer from a fresh clone to a running local instance of Firm Funds.
 
@@ -9,7 +9,7 @@ This guide gets a developer from a fresh clone to a running local instance of Fi
 - Node.js 20 or newer.
 - npm (ships with Node).
 - Access to the Supabase project (URL, anon key, service role key, and database connection string).
-- Credentials for DocuSign, Resend, and ParcLabs if you need those features locally.
+- Credentials for DocuSign, Resend, Twilio, and the Google Sheets service account if you need those features locally.
 
 The owner develops on Windows using PowerShell from `C:\Users\randi\Dev\firm-funds`. Commands below work in PowerShell and in a POSIX shell unless noted.
 
@@ -30,6 +30,10 @@ Other scripts:
 | `npm run build` | Production build |
 | `npm run start` | Serve the production build |
 | `npm run lint` | Run eslint |
+| `npm run typecheck` | Type check (`tsc --noEmit`) |
+| `npm test` | Run the Vitest unit tests once |
+| `npm run test:watch` | Run Vitest in watch mode |
+| `npm run check` | Typecheck then lint |
 | `npx tsc --noEmit` | Type check (exclude `.next/` errors) |
 
 ## Environment variables
@@ -52,32 +56,66 @@ Create `.env.local` in the repo root. The application reads the following variab
 
 | Variable | Purpose |
 |----------|---------|
-| `DOCUSIGN_CLIENT_ID` | Integration key (client id) |
+| `DOCUSIGN_INTEGRATION_KEY` | Integration key (client id) |
+| `DOCUSIGN_SECRET_KEY` | OAuth secret key for the auth-code grant |
 | `DOCUSIGN_ACCOUNT_ID` | DocuSign account id |
-| `DOCUSIGN_IMPERSONATED_USER_ID` | User id for JWT impersonation |
-| `DOCUSIGN_PRIVATE_KEY` | RSA private key for JWT grant |
-| `DOCUSIGN_BASE_PATH` | API base path (production vs demo) |
-| `DOCUSIGN_WEBHOOK_HMAC_KEY` | HMAC key to verify inbound Connect webhooks |
+| `DOCUSIGN_AUTH_URL` | OAuth base URL (account-d.docusign.com for demo, account.docusign.com for production) |
+| `DOCUSIGN_BASE_URL` | REST API base URL (production vs demo) |
+| `DOCUSIGN_REDIRECT_URI` | OAuth callback URL registered with DocuSign |
+| `DOCUSIGN_HMAC_SECRET` | HMAC key to verify inbound Connect webhooks |
+| `DOCUSIGN_HMAC_DEV_BYPASS` | Set to `true` only in local dev to skip webhook HMAC verification |
 
 ### Resend (email)
 
 | Variable | Purpose |
 |----------|---------|
-| `RESEND_API_KEY` | Resend API key |
-| `RESEND_FROM_EMAIL` | From address for transactional email |
+| `RESEND_API_KEY` | Resend API key for transactional email |
 
-### ParcLabs (firm-deal detection)
+### Firm-deal detection (Google Sheets + Anthropic)
+
+There is no ParcLabs integration in the codebase. Proactive deal detection polls each partner brokerage's deal-tracking Google Sheet and parses new rows with Claude. See [docs/integrations/parcllabs.md](../integrations/parcllabs.md) for the full picture.
 
 | Variable | Purpose |
 |----------|---------|
-| `PARCLLABS_API_KEY` | ParcLabs API key for polling property events |
-| `PARCLLABS_WEBHOOK_SECRET` | Shared secret to verify inbound ParcLabs webhooks |
+| `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON` | Read-only service-account credentials JSON (stored as a JSON string) for the Sheets client |
+| `ANTHROPIC_API_KEY` | Used by the row parser to call Claude when reading new sheet rows |
+| `FIRM_DEAL_FROM_ADDRESS` | From address for firm-deal notification emails |
+| `FIRM_FUNDS_OFFER_INBOX` | Inbox that receives brokerage offer and escalation emails (default `bud@firmfunds.ca`) |
+
+### Twilio (firm-deal SMS notifications)
+
+| Variable | Purpose |
+|----------|---------|
+| `TWILIO_ACCOUNT_SID` | Twilio account SID |
+| `TWILIO_API_KEY_SID` | Twilio API key SID |
+| `TWILIO_API_KEY_SECRET` | Twilio API key secret |
+| `TWILIO_PHONE_NUMBER` | Twilio sender phone number (E.164) |
+
+### Upstash Redis (rate limiting)
+
+| Variable | Purpose |
+|----------|---------|
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token |
+
+### Google Maps (address autocomplete)
+
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Google Maps JS API key for the address autocomplete field |
 
 ### Cron
 
 | Variable | Purpose |
 |----------|---------|
 | `CRON_SECRET` | Shared secret required by every `/api/cron/*` endpoint. The external scheduler must send it |
+| `CRON_BACKFILL_SECRET` | Separate secret for the monthly-broker-statements backfill path |
+
+### Seed (local/dev only)
+
+| Variable | Purpose |
+|----------|---------|
+| `SEED_SECRET` | Guards the `/api/seed` route. Leave unset in production |
 
 ## Running database migrations and SQL
 

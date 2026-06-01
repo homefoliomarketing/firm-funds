@@ -53,7 +53,7 @@ You don't need to ask permission to push to git. Just send it if we are completi
 
 ## Middleware Warning
 
-If you create API routes that accept external POSTs (webhooks, callbacks), add them to the EXPLICIT allowlist in `middleware.ts` (PUBLIC_PATHS array) or they'll get 302'd to `/login`. Current exclusions: `/login`, `/auth`, `/kyc-upload`, `/api/kyc-mobile-upload`, `/api/kyc-desktop-upload`, `/api/kyc-validate-token`, `/invite`, `/api/magic-link`, `/api/rate-limit`, `/api/docusign/webhook`, `/api/cron/*`. The `/api/kyc-*` wildcard was replaced with exact matches in Session 6 — add new KYC routes explicitly.
+If you create API routes that accept external POSTs (webhooks, callbacks), add them to the EXPLICIT allowlist in `proxy.ts` (PUBLIC_PATHS array) or they'll get 302'd to `/login`. The request middleware in Next.js 16 lives in `proxy.ts` at the repo root (function `proxy`), not the older `middleware.ts`. Current exclusions: `/login`, `/auth`, `/kyc-upload`, `/api/kyc-mobile-upload`, `/api/kyc-desktop-upload`, `/api/kyc-validate-token`, `/invite`, `/api/magic-link`, `/api/rate-limit`, `/api/docusign/webhook`, `/api/cron/*`. The `/api/kyc-*` wildcard was replaced with exact matches in Session 6, so add new KYC routes explicitly.
 
 ## Working with Bud
 

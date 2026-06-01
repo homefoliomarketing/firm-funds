@@ -112,7 +112,7 @@ export default function ChangePasswordPage() {
       window.location.href = redirectPath
     } catch (err) {
       console.error('Change password error:', err)
-      setError('Something went wrong. Please try again.')
+      setError('We could not update your password. Check your connection and try again.')
       setLoading(false)
     }
   }

@@ -605,6 +605,7 @@ export default function DealDetailPage() {
   const [denialReason, setDenialReason] = useState('')
   const [showDenialInput, setShowDenialInput] = useState(false)
   const [pendingBackward, setPendingBackward] = useState<string | null>(null)
+  const [showApproveConfirmation, setShowApproveConfirmation] = useState(false)
   const [showFundingConfirmation, setShowFundingConfirmation] = useState(false)
   // Per-deal brokerage referral override entered at funding time (percentage as a string, e.g. "20" for 20%)
   const [fundingReferralPctInput, setFundingReferralPctInput] = useState<string>('')
@@ -957,6 +958,13 @@ export default function DealDetailPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!deal) return
     if (newStatus === 'denied' && !denialReason.trim()) { setShowDenialInput(true); return }
+    // Approve is gated behind a confirmation step (matches Fund/Deny) because
+    // approving moves the deal forward and triggers the agent contract.
+    if (newStatus === 'approved' && !showApproveConfirmation && !isBackwardTransition(newStatus)) {
+      setShowApproveConfirmation(true)
+      return
+    }
+    setShowApproveConfirmation(false)
     if (newStatus === 'funded' && !showFundingConfirmation) {
       // Initialize the referral override input from the brokerage default
       const defaultPct = brokerage?.referral_fee_percentage ?? 0.20
@@ -1543,6 +1551,39 @@ export default function DealDetailPage() {
             </div>
           )}
 
+          {/* APPROVE CONFIRMATION */}
+          {showApproveConfirmation && (
+            <div className="mt-4 pt-4 border-t border-border/50">
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-emerald-950/20 border border-emerald-800/40">
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-500" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold mb-1 text-emerald-400">
+                    Approve this deal?
+                  </p>
+                  <p className="text-xs mb-3 text-emerald-200/70">
+                    Approving moves the deal forward and lets you send the agent contract for signature. You can still revert to Under Review afterward if needed.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleStatusChange('approved')}
+                      disabled={updating}
+                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-emerald-700 hover:bg-emerald-800"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      {updating ? 'Approving...' : 'Confirm Approval'}
+                    </button>
+                    <button
+                      onClick={() => setShowApproveConfirmation(false)}
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* FUNDING CONFIRMATION */}
           {showFundingConfirmation && deal && (() => {
             const daysUntilClosing = Math.max(1, calcDaysUntilClosing(deal.closing_date))
@@ -1882,6 +1923,7 @@ export default function DealDetailPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Remove EFT transfer"
                         className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         onClick={async () => {
                           const result = await removeEftTransfer({ transferId: eft.id })
@@ -2025,6 +2067,7 @@ export default function DealDetailPage() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="Remove brokerage payment"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={async () => {
                         if (!confirm('Remove this payment?')) return
@@ -2522,6 +2565,7 @@ export default function DealDetailPage() {
                                       onClick={(e) => handleUnlinkDocument(e, item)}
                                       className="p-0.5 rounded transition-colors text-muted-foreground/60 hover:text-destructive"
                                       title="Unlink document"
+                                      aria-label="Unlink document"
                                     >
                                       <Unlink className="w-3 h-3" />
                                     </button>
@@ -2583,6 +2627,7 @@ export default function DealDetailPage() {
                       onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
                       className="p-1 rounded transition text-muted-foreground hover:text-primary"
                       title="Open in new tab"
+                      aria-label="Open document in new tab"
                     >
                       <ExternalLink size={13} />
                     </button>
@@ -2590,12 +2635,14 @@ export default function DealDetailPage() {
                       onClick={() => window.open(viewingDoc.originalUrl, '_blank')}
                       className="p-1 rounded transition text-muted-foreground hover:text-primary"
                       title="Download"
+                      aria-label="Download document"
                     >
                       <Download size={13} />
                     </button>
                     <button
                       onClick={closeDocViewer}
                       className="p-1 rounded transition text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="Close document viewer"
                     >
                       <X size={14} />
                     </button>
@@ -2773,6 +2820,7 @@ export default function DealDetailPage() {
                           <button
                             onClick={() => handleDocumentDownload(doc)}
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-muted text-primary hover:bg-muted/70 transition-colors"
+                            aria-label="Download document"
                           >
                             <Download className="w-3 h-3" />
                           </button>
@@ -2780,12 +2828,14 @@ export default function DealDetailPage() {
                             onClick={() => { setReturningDocId(returningDocId === doc.id ? null : doc.id); setReturnReason('') }}
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-950/30 text-amber-500 border border-amber-800/30"
                             title="Return to agent"
+                            aria-label="Return document to agent"
                           >
                             <Undo2 className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => handleDocumentDelete(doc)}
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                            aria-label="Delete document"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>

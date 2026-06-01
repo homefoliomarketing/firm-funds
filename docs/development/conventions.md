@@ -26,7 +26,7 @@ See [docs/architecture/database.md](../architecture/database.md) and [docs/archi
 
 ## Middleware allowlist
 
-External POST endpoints (webhooks, callbacks) must be in the `PUBLIC_PATHS` array in `middleware.ts` or they get redirected (302) to `/login`. The `/api/kyc-*` wildcard was replaced with exact matches, so add new KYC routes explicitly.
+External POST endpoints (webhooks, callbacks) must be in the `PUBLIC_PATHS` array in `proxy.ts` (the Next.js 16 request middleware at the repo root, function `proxy`) or they get redirected (302) to `/login`. The `/api/kyc-*` wildcard was replaced with exact matches, so add new KYC routes explicitly.
 
 ## Netlify serverless
 

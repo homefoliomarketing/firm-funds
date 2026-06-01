@@ -54,7 +54,7 @@ export async function verifyBrokerageKyc(input: {
 
     if (updateError) {
       console.error('Brokerage KYC verify error:', updateError.message)
-      return { success: false, error: `Failed to verify brokerage: ${updateError.message}` }
+      return { success: false, error: "We could not save the brokerage verification. Refresh and try again. If it keeps happening, contact support with the brokerage name." }
     }
 
     await logAuditEvent({
@@ -71,7 +71,7 @@ export async function verifyBrokerageKyc(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Brokerage KYC verify error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -98,7 +98,7 @@ export async function revokeBrokerageKyc(input: {
 
     if (updateError) {
       console.error('Brokerage KYC revoke error:', updateError.message)
-      return { success: false, error: `Failed to revoke KYC: ${updateError.message}` }
+      return { success: false, error: "We could not revoke the brokerage verification. Refresh and try again. If it keeps happening, contact support with the brokerage name." }
     }
 
     await logAuditEvent({
@@ -112,7 +112,7 @@ export async function revokeBrokerageKyc(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Brokerage KYC revoke error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -173,7 +173,7 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
 
       if (uploadError) {
         console.error('KYC upload error:', uploadError.message)
-        return { success: false, error: `Upload failed for file ${i + 1}: ${uploadError.message}` }
+        return { success: false, error: `We could not upload file ${i + 1}. Check your connection and try again.` }
       }
       filePaths.push(filePath)
     }
@@ -195,7 +195,7 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
 
     if (updateError) {
       console.error('Agent KYC update error:', updateError.message)
-      return { success: false, error: `Failed to update KYC status: ${updateError.message}` }
+      return { success: false, error: 'We could not save your ID submission. Refresh and try again. If it keeps happening, contact support.' }
     }
 
     await logAuditEvent({
@@ -209,7 +209,7 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Agent KYC submit error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -262,7 +262,7 @@ export async function verifyAgentKyc(input: {
 
     if (updateError) {
       console.error('Agent KYC verify error:', updateError.message)
-      return { success: false, error: `Failed to verify agent: ${updateError.message}` }
+      return { success: false, error: "We could not verify the agent. Refresh and try again. If it keeps happening, contact support with the agent's name." }
     }
 
     // ---------------------------------------------------------------
@@ -368,7 +368,7 @@ export async function verifyAgentKyc(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Agent KYC verify error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -409,7 +409,7 @@ export async function rejectAgentKyc(input: {
 
     if (updateError) {
       console.error('Agent KYC reject error:', updateError.message)
-      return { success: false, error: `Failed to reject agent KYC: ${updateError.message}` }
+      return { success: false, error: "We could not record the rejection. Refresh and try again. If it keeps happening, contact support with the agent's name." }
     }
 
     await logAuditEvent({
@@ -427,7 +427,7 @@ export async function rejectAgentKyc(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Agent KYC reject error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -485,7 +485,7 @@ export async function getAgentKycDocumentUrl(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('KYC document URL error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -573,7 +573,7 @@ export async function sendKycMobileLink(): Promise<ActionResult> {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Send KYC mobile link error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 
@@ -643,7 +643,7 @@ export async function submitKycViaMobileToken(formData: FormData): Promise<Actio
 
       if (uploadError) {
         console.error('KYC mobile upload error:', uploadError.message)
-        return { success: false, error: `Upload failed for file ${i + 1}: ${uploadError.message}` }
+        return { success: false, error: `We could not upload file ${i + 1}. Check your connection and try again.` }
       }
       filePaths.push(filePath)
     }
@@ -683,7 +683,7 @@ export async function submitKycViaMobileToken(formData: FormData): Promise<Actio
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('KYC mobile upload error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
+    return { success: false, error: "Something failed on our end. Refresh and try again. If it keeps happening, contact support with the agent's name." }
   }
 }
 

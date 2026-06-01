@@ -2,8 +2,14 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import {
   sendSettlementReminderClosingDay,
   sendSettlementReminderPaymentCheckIn,
+  sendDeadLetterGiveUpAlert,
+  sendRemediationOverdueDigest,
+  type RemediationOverdueDigestRow,
 } from '@/lib/email'
-import { sendAgentDeclineNotification } from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
+import {
+  sendAgentDeclineNotification,
+  sendBrokerageOfferNotification,
+} from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
 
 const JOB_NAME = 'retry_failed_emails'
 const RETRY_INTERVAL_MINUTES = 15
@@ -21,13 +27,26 @@ const MAX_ATTEMPTS = 5
 //
 // For each row, dispatches to the matching retry handler based on email_type.
 // Currently supported types:
-//   - 'settlement_reminder' — settlement reminders, both closing-day and
-//                              payment-check-in variants
-//   - 'offer_decline'       — brokerage decline notification to the agent
+//   - 'settlement_reminder'           — settlement reminders, both closing-day
+//                                        and payment-check-in variants
+//   - 'offer_decline' /
+//     'firm_deal_decline_notification' — brokerage decline notification to the
+//                                        agent (two type strings map to the
+//                                        same resend path; the latter is what
+//                                        the decline action actually enqueues)
+//   - 'firm_deal_offer_notification'  — brokerage "an agent accepted, please
+//                                        submit" notification, resent only if
+//                                        the deal is still in 'offered' status
+//   - 'remediation_overdue_digest'    — daily overdue-remediation digest to the
+//                                        Firm Funds inbox
 //
 // Any other email_type is logged and skipped (the cron does NOT consume the
 // attempt_count for unknown types; an operator must either add the case or
 // manually mark gave_up_at).
+//
+// When a row exhausts MAX_ATTEMPTS it is marked gave_up_at AND a loud internal
+// alert is emailed to the Firm Funds ops inbox so a permanently-stuck email
+// surfaces somewhere a human looks.
 //
 // Suggested cadence: every 15 minutes.
 // =============================================================================
@@ -158,6 +177,25 @@ export async function GET(request: Request) {
             `id=${row.id} email_type=${row.email_type} ` +
             `recipient=${row.recipient} error="${errMsg}"`
           )
+          // Make the failure LOUD: email the Firm Funds ops inbox so a stuck
+          // notification surfaces somewhere a human looks, not just in logs.
+          // Best-effort — a failure to send the alert must not break the sweep
+          // or re-enter the queue, so we await it and swallow any error.
+          try {
+            await sendDeadLetterGiveUpAlert({
+              failureId: row.id,
+              emailType: row.email_type,
+              recipient: row.recipient,
+              subject: row.subject,
+              error: errMsg,
+              attemptCount: nextAttempt,
+            })
+          } catch (alertErr) {
+            console.error(
+              `[retry-failed-emails] failed to send give-up alert for id=${row.id}:`,
+              alertErr instanceof Error ? alertErr.message : alertErr
+            )
+          }
           outcomes.push({ id: row.id, email_type: row.email_type, outcome: 'gave_up', detail: errMsg })
         } else {
           outcomes.push({ id: row.id, email_type: row.email_type, outcome: 'retry_failed', detail: errMsg })
@@ -223,19 +261,80 @@ async function attemptRetry(row: FailureRow): Promise<void> {
       }
       return
     }
-    case 'offer_decline': {
-      const { dealId, declineReason } = payload as {
-        dealId: string
-        declineReason: string
+    // Two type strings reach this case. The legacy 'offer_decline' label used
+    // camelCase payload keys (dealId/declineReason); the type the decline
+    // action actually enqueues today is 'firm_deal_decline_notification' with
+    // snake_case keys (deal_id/decline_reason). Accept either shape so neither
+    // is dropped into the default branch and retried forever.
+    case 'offer_decline':
+    case 'firm_deal_decline_notification': {
+      const p = payload as {
+        dealId?: string
+        deal_id?: string
+        declineReason?: string
+        decline_reason?: string
       }
+      const dealId = p.dealId ?? p.deal_id
+      const declineReason = p.declineReason ?? p.decline_reason
       if (!dealId || !declineReason) {
-        throw new Error('offer_decline payload missing dealId or declineReason')
+        throw new Error('decline notification payload missing deal id or reason')
       }
       const supabase = createServiceRoleClient()
       const result = await sendAgentDeclineNotification(supabase, dealId, declineReason)
+      // 'skipped' means the agent has no email on file (intentionally nullable
+      // in our schema). There is no recipient to ever retry to, so treat it as
+      // resolved rather than burning attempts forever.
+      if (result.outcome === 'skipped') return
       if (result.outcome !== 'sent') {
         throw new Error(result.error || `decline notification ${result.outcome}`)
       }
+      return
+    }
+    case 'firm_deal_offer_notification': {
+      // Enqueued by acceptFirmDealOffer when the initial brokerage "an agent
+      // accepted, please submit" email fails. Payload: { deal_id, event_id,
+      // agent_id }. We only need deal_id to resend.
+      const { deal_id: dealId } = payload as {
+        deal_id?: string
+        event_id?: string
+        agent_id?: string
+      }
+      if (!dealId) {
+        throw new Error('firm_deal_offer_notification payload missing deal_id')
+      }
+      const supabase = createServiceRoleClient()
+      // Guard against resending a stale offer: if the brokerage already
+      // submitted (deal left 'offered'), there is nothing to chase. Mark the
+      // row resolved instead of re-sending a misleading "please submit" email.
+      const { data: deal } = await supabase
+        .from('deals')
+        .select('status')
+        .eq('id', dealId)
+        .maybeSingle()
+      if (!deal) {
+        // The deal vanished (deleted/cancelled hard). Nothing to resend; stop
+        // retrying by treating this as resolved.
+        return
+      }
+      if (deal.status !== 'offered') return
+      const result = await sendBrokerageOfferNotification(supabase, dealId)
+      // 'skipped' means no recipients configured for the brokerage — no
+      // channel to ever deliver to, so stop retrying.
+      if (result.outcome === 'skipped') return
+      if (result.outcome !== 'sent') {
+        throw new Error(result.error || `offer notification ${result.outcome}`)
+      }
+      return
+    }
+    case 'remediation_overdue_digest': {
+      // Enqueued by /api/cron/remediation-overdue-escalation with the full row
+      // set captured at send time: payload = { rows: OverdueRow[] }. Rebuild
+      // and resend the digest from that snapshot.
+      const { rows } = payload as { rows?: unknown }
+      if (!Array.isArray(rows) || rows.length === 0) {
+        throw new Error('remediation_overdue_digest payload missing rows')
+      }
+      await sendRemediationOverdueDigest(rows as RemediationOverdueDigestRow[])
       return
     }
     default:

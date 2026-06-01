@@ -157,7 +157,11 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       const accrualStart = failedAt ? failedDealAccrualStartDate(failedAt) : ''
       const liveInterestTotal = failedAt ? liveFailedDealInterestOwed(principal, failedAt) : 0
       const unposted = Math.max(0, Math.round((liveInterestTotal - postedInterest) * 100) / 100)
-      const liveBalance = Math.round((principal + liveInterestTotal) * 100) / 100
+      // Canonical "amount owed": principal plus the GREATER of posted vs live
+      // interest, so the figure never understates what has already been posted.
+      // Matches live_balance_owed in remediation-actions.ts so every portal
+      // shows the same number for the same deal.
+      const liveBalance = Math.round((principal + Math.max(postedInterest, liveInterestTotal)) * 100) / 100
       const inGrace = accrualStart ? today < accrualStart : false
 
       return {

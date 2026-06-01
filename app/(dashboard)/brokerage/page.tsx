@@ -356,7 +356,7 @@ export default function BrokerageDashboard() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch {
-      alert('Failed to download report. Please try again.')
+      setPaymentStatusMsg({ type: 'error', text: 'We could not download the report. Check your connection and try again.' })
     }
     setDownloadingPdf(false)
   }
@@ -387,7 +387,7 @@ export default function BrokerageDashboard() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch {
-      alert('Failed to generate CSV. Please try again.')
+      setPaymentStatusMsg({ type: 'error', text: 'We could not build the CSV export. Check your connection and try again.' })
     }
     setDownloadingCsv(false)
   }

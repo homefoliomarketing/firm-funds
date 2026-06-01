@@ -39,7 +39,7 @@ interface Agent {
   id: string
   first_name: string
   last_name: string
-  email: string | null  // âš ï¸ TEMPORARY: nullable for testing â€” revert before go-live
+  email: string | null  // TEMPORARY: nullable for testing, revert before go-live
   phone: string | null
   reco_number: string | null
   status: 'active' | 'suspended' | 'archived'
@@ -208,7 +208,7 @@ interface BrokerageUserProfile {
 }
 
 // ============================================================================
-// Status badge helper (local â€” no colors dependency)
+// Status badge helper (local, no colors dependency)
 // ============================================================================
 
 function getLocalStatusBadgeClass(status: string): string {
@@ -437,7 +437,7 @@ function LateStrikeSection({ brokerage, onChange }: { brokerage: Brokerage; onCh
                 disabled={submitting || !reason.trim()}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition"
               >
-                {submitting ? 'Resettingâ€¦' : 'Confirm reset'}
+                {submitting ? 'Resetting...' : 'Confirm reset'}
               </button>
             </div>
           </div>
@@ -527,8 +527,8 @@ function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
         {displayStatus && (
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getBcaBadgeClass(displayStatus)}`}>
             {displayStatus === 'signed' && <><CheckCircle size={11} /> Signed</>}
-            {displayStatus === 'sent' && 'Sent â€” Awaiting Signature'}
-            {displayStatus === 'delivered' && 'Delivered â€” Awaiting Signature'}
+            {displayStatus === 'sent' && 'Sent, awaiting signature'}
+            {displayStatus === 'delivered' && 'Delivered, awaiting signature'}
             {displayStatus === 'declined' && <><XCircle size={11} /> Declined</>}
             {displayStatus === 'voided' && 'Voided'}
           </span>
@@ -961,7 +961,7 @@ export default function BrokeragesPage() {
       const queued = (result.data as { welcomeQueued?: { sent: number; failed: number } } | null)?.welcomeQueued
       let msg = 'Brokerage updated successfully'
       if (queued) {
-        msg += ` â€” welcome emails queued: ${queued.sent} sent, ${queued.failed} failed`
+        msg += `: welcome emails queued: ${queued.sent} sent, ${queued.failed} failed`
       }
       setStatusMessage({ type: 'success', text: msg })
       setEditingBrokerageId(null)
@@ -1073,7 +1073,7 @@ export default function BrokeragesPage() {
   // ---- Agent CRUD ----
   const handleAddAgent = async (e: React.FormEvent, brokerageId: string) => {
     e.preventDefault()
-    // âš ï¸ TEMPORARY: email not required for testing â€” REVERT BEFORE GO-LIVE
+    // TEMPORARY: email not required for testing, REVERT BEFORE GO-LIVE
     if (!agentForm.firstName.trim() || !agentForm.lastName.trim()) {
       setStatusMessage({ type: 'error', text: 'First name and last name are required' }); return
     }
@@ -1082,7 +1082,7 @@ export default function BrokeragesPage() {
     setSubmitting(true)
 
     if (canInvite) {
-      // Create agent record + auth user (no email yet â€” send in bulk when brokerage is ready)
+      // Create agent record + auth user (no email yet, send in bulk when brokerage is ready)
       const result = await inviteAgent({
         brokerageId,
         firstName: agentForm.firstName, lastName: agentForm.lastName,
@@ -1303,7 +1303,7 @@ export default function BrokeragesPage() {
       const sent = result.data?.sent || 0
       const failed = result.data?.failed || 0
       if (failed > 0) {
-        setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}. ${failed} failed â€” use individual resend for those.` })
+        setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}. ${failed} failed, use individual resend for those.` })
       } else {
         setStatusMessage({ type: 'success', text: `Welcome emails sent to ${sent} agent${sent !== 1 ? 's' : ''}!` })
       }
@@ -1558,7 +1558,7 @@ export default function BrokeragesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Main content area â€” shrinks when KYC panel is open */}
+      {/* Main content area - shrinks when KYC panel is open */}
       <div style={{ marginRight: kycPreviewPanel ? kycPanelWidth : 0, transition: 'margin-right 0.2s ease-out' }}>
       {/* Header */}
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50 sticky top-0 z-50">
@@ -1606,7 +1606,7 @@ export default function BrokeragesPage() {
           <div>
             <h2 className="text-2xl font-bold text-foreground">Brokerages</h2>
             <p className="text-sm mt-1 text-muted-foreground">
-              {brokerages.length} brokerage{brokerages.length !== 1 ? 's' : ''} Â· {brokerages.reduce((sum, b) => sum + b.agents.length, 0)} total agents
+              {brokerages.length} brokerage{brokerages.length !== 1 ? 's' : ''} - {brokerages.reduce((sum, b) => sum + b.agents.length, 0)} total agents
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1828,7 +1828,7 @@ export default function BrokeragesPage() {
                         )}
                         {brokerage.is_white_label_partner && (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30"
-                            title={`White-label partner â€” ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
+                            title={`White-label partner, ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
                           >
                             White-Label
                           </span>
@@ -1966,7 +1966,7 @@ export default function BrokeragesPage() {
                               rows={3} className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary resize-none transition-colors" />
                           </div>
 
-                          {/* Profit Share â€” every onboarded brokerage is a white-label partner */}
+                          {/* Profit Share - every onboarded brokerage is a white-label partner */}
                           <div className="border border-border/60 rounded-lg p-4 bg-muted/20 space-y-3">
                             <div>
                               <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
@@ -1989,7 +1989,7 @@ export default function BrokeragesPage() {
                                 className={inputCls}
                               />
                               <p className="text-[11px] mt-1.5 text-muted-foreground/70">
-                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal â€” renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
+                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal - renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
                               </p>
                               <p className="text-[11px] mt-1 text-amber-400/80">
                                 Setting this above 0 (when previously 0) queues welcome emails to roster agents with an email on file.
@@ -2009,16 +2009,16 @@ export default function BrokeragesPage() {
                       ) : (
                         <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm border-b border-border/50">
                           <FieldValue label="Address">
-                            {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || 'â€”'}
+                            {[brokerage.address, brokerage.city, brokerage.province, brokerage.postal_code].filter(Boolean).join(', ') || '-'}
                           </FieldValue>
-                          <FieldValue label="Phone">{brokerage.phone || 'â€”'}</FieldValue>
-                          <FieldValue label="Transaction System">{brokerage.transaction_system || 'â€”'}</FieldValue>
-                          <FieldValue label="Notes">{brokerage.notes || 'â€”'}</FieldValue>
+                          <FieldValue label="Phone">{brokerage.phone || '-'}</FieldValue>
+                          <FieldValue label="Transaction System">{brokerage.transaction_system || '-'}</FieldValue>
+                          <FieldValue label="Notes">{brokerage.notes || '-'}</FieldValue>
                           <FieldValue
                             label="Broker of Record"
                             detail={brokerage.broker_of_record_email || undefined}
                           >
-                            {brokerage.broker_of_record_name || 'â€”'}
+                            {brokerage.broker_of_record_name || '-'}
                           </FieldValue>
                         </div>
                       )}
@@ -2026,7 +2026,7 @@ export default function BrokeragesPage() {
                       {/* FINTRAC KYC Verification */}
                       <BrokerageRowSection
                         icon={<Shield size={15} className="text-primary" />}
-                        title="FINTRAC â€” RECO Verification"
+                        title="FINTRAC - RECO Verification"
                         titleExtras={
                           brokerage.kyc_verified ? (
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded ml-2 ${getKycBadgeClass('verified')}`}>
@@ -2036,17 +2036,17 @@ export default function BrokeragesPage() {
                         }
                       >
                         {brokerage.kyc_verified ? (
-                          /* Verified state â€” show verification details */
+                          /* Verified state - show verification details */
                           <div className="space-y-2">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                              <FieldValue label="RECO Reg #">{brokerage.reco_registration_number || 'â€”'}</FieldValue>
+                              <FieldValue label="RECO Reg #">{brokerage.reco_registration_number || '-'}</FieldValue>
                               <FieldValue label="Verified On">
                                 {brokerage.reco_verification_date
                                   ? new Date(brokerage.reco_verification_date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-                                  : 'â€”'}
+                                  : '-'}
                               </FieldValue>
-                              <FieldValue label="Verified By">{brokerage.kyc_verified_by || 'â€”'}</FieldValue>
-                              <FieldValue label="Notes">{brokerage.reco_verification_notes || 'â€”'}</FieldValue>
+                              <FieldValue label="Verified By">{brokerage.kyc_verified_by || '-'}</FieldValue>
+                              <FieldValue label="Notes">{brokerage.reco_verification_notes || '-'}</FieldValue>
                             </div>
                             <button
                               onClick={async () => {
@@ -2068,7 +2068,7 @@ export default function BrokeragesPage() {
                             </button>
                           </div>
                         ) : (
-                          /* Not verified â€” show verification form */
+                          /* Not verified - show verification form */
                           <div className="space-y-3">
                             <p className="text-xs text-muted-foreground">
                               Verify this brokerage on the RECO Public Register, then record the verification below.
@@ -2392,7 +2392,7 @@ export default function BrokeragesPage() {
                                     </div>
                                     <p className="text-[10px] text-muted-foreground/60">
                                       <Mail size={10} className="inline mr-1" style={{ verticalAlign: 'middle' }} />
-                                      A branded setup email will be sent with a magic link. They&apos;ll set their own password â€” no credentials to share.
+                                      A branded setup email will be sent with a magic link. They&apos;ll set their own password - no credentials to share.
                                     </p>
                                   </div>
                                 )}
@@ -2501,7 +2501,7 @@ export default function BrokeragesPage() {
                                 Create login
                               </label>
                               <span className="text-xs text-muted-foreground">
-                                {sendInvite ? '(login created â€” send welcome email later)' : '(roster only â€” no login)'}
+                                {sendInvite ? '(login created, send welcome email later)' : '(roster only, no login)'}
                               </span>
                             </div>
                             <div className="flex gap-3 pt-1">
@@ -2694,9 +2694,9 @@ export default function BrokeragesPage() {
                                             </span>
                                           ) : null}
                                         </td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email || 'â€”'}</td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || 'â€”'}</td>
-                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.reco_number || 'â€”'}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.email || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.phone || '-'}</td>
+                                        <td className="px-4 py-3 text-sm text-muted-foreground">{agent.reco_number || '-'}</td>
                                         <td className="px-4 py-3">
                                           <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded ${getLocalStatusBadgeClass(agent.status)}`}>
                                             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
@@ -2709,7 +2709,7 @@ export default function BrokeragesPage() {
                                               {formatCurrency(agent.account_balance)}
                                             </span>
                                           ) : (
-                                            <span className="text-xs text-muted-foreground/50">â€”</span>
+                                            <span className="text-xs text-muted-foreground/50">-</span>
                                           )}
                                         </td>
                                         <td className="px-4 py-3">
@@ -2725,7 +2725,7 @@ export default function BrokeragesPage() {
                                                 </span>
                                                 {kycStatus === 'submitted' && (
                                                   <div className="flex flex-col gap-1.5 mt-1.5">
-                                                    {/* VIEW ID â€” large button */}
+                                                    {/* VIEW ID - large button */}
                                                     <button
                                                       onClick={async (e) => {
                                                         e.stopPropagation()
@@ -2981,7 +2981,7 @@ export default function BrokeragesPage() {
                                                     </div>
                                                     <div className="flex items-center gap-4 mb-2">
                                                       <span className="text-xs font-mono text-muted-foreground">
-                                                        Transit: {agent.banking_submitted_transit} Â· Inst: {agent.banking_submitted_institution} Â· Acct: {agent.banking_submitted_account}
+                                                        Transit: {agent.banking_submitted_transit} - Inst: {agent.banking_submitted_institution} - Acct: {agent.banking_submitted_account}
                                                       </span>
                                                     </div>
                                                     {bankingRejectingId === agent.id ? (
@@ -3060,7 +3060,7 @@ export default function BrokeragesPage() {
                                                       <span className="text-xs font-medium text-primary">Verified</span>
                                                     </div>
                                                     <span className="text-xs font-mono text-muted-foreground">
-                                                      Transit: {agent.bank_transit_number} Â· Inst: {agent.bank_institution_number} Â· Acct: {'â€¢'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
+                                                      Transit: {agent.bank_transit_number} - Inst: {agent.bank_institution_number} - Acct: {'*'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
                                                     </span>
                                                     <button
                                                       onClick={() => {
@@ -3205,7 +3205,7 @@ export default function BrokeragesPage() {
                                                               <p className="text-xs text-foreground truncate">{tx.description}</p>
                                                               <p className="text-[10px] text-muted-foreground/60 tabular-nums mt-0.5">
                                                                 {new Date(tx.created_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
-                                                                {' Â· '}{tx.type.replace(/_/g, ' ')}
+                                                                {' - '}{tx.type.replace(/_/g, ' ')}
                                                               </p>
                                                             </div>
                                                             <div className="text-right shrink-0 ml-3">
@@ -3273,7 +3273,7 @@ export default function BrokeragesPage() {
       </main>
       </div>{/* end of content area that shrinks */}
 
-      {/* KYC Document Side Panel â€” sits beside main content, not on top */}
+      {/* KYC Document Side Panel - sits beside main content, not on top */}
       {kycPreviewPanel && (
         <div
           className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl bg-card border-l-2 border-l-primary"
@@ -3310,7 +3310,7 @@ export default function BrokeragesPage() {
               </button>
             </div>
           </div>
-          {/* Agent Address â€” for cross-referencing with ID */}
+          {/* Agent Address - for cross-referencing with ID */}
           {kycPreviewPanel.agentAddress && (
             <div className="px-3 py-2 border-b border-border bg-primary/5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">Address on File</p>
@@ -3323,7 +3323,7 @@ export default function BrokeragesPage() {
               <p className="text-[11px] text-muted-foreground">Agent hasn&apos;t submitted their address yet</p>
             </div>
           )}
-          {/* Panel Content â€” shows all uploaded ID images */}
+          {/* Panel Content - shows all uploaded ID images */}
           <div className="flex-1 overflow-auto p-3">
             {kycPreviewPanel.blobUrls.map((blobUrl, i) => {
               const ext = kycPreviewPanel.originalUrls[i]?.split('?')[0].split('.').pop()?.toLowerCase() || ''
@@ -3363,7 +3363,7 @@ export default function BrokeragesPage() {
               </label>
             ))}
           </div>
-          {/* Panel Footer â€” Approve/Reject actions */}
+          {/* Panel Footer - Approve/Reject actions */}
           <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0 border-t border-border bg-background">
             <button
               onClick={async () => {
@@ -3570,7 +3570,7 @@ export default function BrokeragesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-lg overflow-hidden border border-border">
                   <div className="px-3 py-1.5 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">On dark (portal &amp; emails)</div>
-                  <div className="bg-[#0C0C0C] p-6 flex items-center justify-center min-h-[180px]">
+                  <div className="bg-background p-6 flex items-center justify-center min-h-[180px]">
                     {logoGenPreviewDark ? (
                       // The generated SVG has explicit width/height attrs (480 × ~265)
                       // intentionally — those are the intrinsic dimensions for downloads
@@ -3615,7 +3615,7 @@ export default function BrokeragesPage() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold text-white bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               <Sparkles size={12} />
-              {logoGenBusy ? 'Saving…' : 'Use This Logo'}
+              {logoGenBusy ? 'Saving...' : 'Use This Logo'}
             </button>
           </DialogFooter>
         </DialogContent>

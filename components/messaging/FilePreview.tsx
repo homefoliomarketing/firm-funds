@@ -37,10 +37,12 @@ export default function FilePreview({ fileName, fileType, fileSize, fileUrl, onR
         </a>
         {onRemove && (
           <button
+            type="button"
             onClick={onRemove}
-            className="absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center bg-destructive text-destructive-foreground"
+            aria-label={`Remove attachment ${fileName}`}
+            className="absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center bg-destructive text-destructive-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <X size={12} />
+            <X size={12} aria-hidden="true" />
           </button>
         )}
         {fileSize && (
@@ -66,17 +68,20 @@ export default function FilePreview({ fileName, fileType, fileSize, fileUrl, onR
           href={fileUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="p-1.5 rounded-md transition-colors flex-shrink-0 text-muted-foreground hover:text-primary"
+          aria-label={`Download ${fileName}`}
+          className="p-1.5 rounded-md transition-colors flex-shrink-0 text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <Download size={14} />
+          <Download size={14} aria-hidden="true" />
         </a>
       )}
       {onRemove && (
         <button
+          type="button"
           onClick={onRemove}
-          className="p-1 rounded-md flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+          aria-label={`Remove attachment ${fileName}`}
+          className="p-1 rounded-md flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <X size={14} />
+          <X size={14} aria-hidden="true" />
         </button>
       )}
     </div>

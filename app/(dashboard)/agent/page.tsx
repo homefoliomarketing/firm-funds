@@ -107,7 +107,11 @@ function AgentDashboardInner() {
   // /agent?firm_deal=<id>. The banner is the offer's home; if a deal record
   // already exists for the offer we also scroll the list to it.
   const [firmDealOffer, setFirmDealOffer] = useState<FirmDealOfferSummary | null>(null)
-  const [firmDealOfferDismissed, setFirmDealOfferDismissed] = useState(false)
+  // Collapsing (not removing) the offer banner: the X used to set this true
+  // and the banner vanished for the session, taking the primary CTA with it.
+  // Now the X collapses the banner to a small persistent pill the agent can
+  // re-expand, so the offer is never lost. Purely client-side.
+  const [firmDealOfferCollapsed, setFirmDealOfferCollapsed] = useState(false)
   // Offer-acceptance UX: the banner button changes to a confirmation state
   // after the agent clicks "Notify my brokerage". We track the inflight
   // call so we can show a spinner and disable the button against
@@ -460,7 +464,32 @@ function AgentDashboardInner() {
             but we don't re-fetch the offer summary, so offer_deal_id in
             firmDealOffer stays null. The just-accepted flag bridges that
             gap and also gives us a moment to celebrate the click. */}
-        {firmDealOffer && !firmDealOfferDismissed && (
+        {firmDealOffer && firmDealOfferCollapsed && (
+          <section aria-label="Firm deal offer">
+            <button
+              type="button"
+              onClick={() => setFirmDealOfferCollapsed(false)}
+              aria-expanded={false}
+              aria-label="You have an advance offer. Expand to view the details."
+              className="group mb-6 w-full text-left rounded-xl px-4 py-2.5 flex items-center gap-3 bg-primary/10 border border-primary/30 hover:bg-primary/15 transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <Sparkles size={16} className="text-primary shrink-0" aria-hidden="true" />
+              <span className="flex-1 min-w-0 text-sm font-medium text-foreground truncate">
+                {offerJustAccepted
+                  ? `${agent?.brokerages?.name || 'Your brokerage'} has been notified about your advance`
+                  : 'You have an advance offer'}
+                {firmDealOffer.address && (
+                  <span className="text-muted-foreground font-normal"> ({firmDealOffer.address})</span>
+                )}
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-primary inline-flex items-center gap-0.5">
+                View
+                <ChevronRight size={13} aria-hidden="true" />
+              </span>
+            </button>
+          </section>
+        )}
+        {firmDealOffer && !firmDealOfferCollapsed && (
           <section aria-label="Firm deal offer">
             <div className="mb-6 rounded-xl p-5 flex items-start justify-between gap-4 bg-primary/10 border border-primary/30 relative">
               <div className="flex items-start gap-3 min-w-0">
@@ -547,8 +576,9 @@ function AgentDashboardInner() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  onClick={() => setFirmDealOfferDismissed(true)}
-                  aria-label="Dismiss offer banner"
+                  onClick={() => setFirmDealOfferCollapsed(true)}
+                  aria-label="Collapse offer banner to a smaller strip"
+                  aria-expanded={true}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <X size={14} aria-hidden="true" />

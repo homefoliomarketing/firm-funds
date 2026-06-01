@@ -1,6 +1,6 @@
 # Contributing to Firm Funds
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-01_
 
 This guide covers how to work in the repository and, most importantly, how to keep the documentation current.
 
@@ -17,17 +17,17 @@ The flip side of that principle: **documentation is only useful if it is current
 | A database migration, table, column, enum, or RPC (`supabase/migrations/`) | [docs/architecture/database.md](docs/architecture/database.md) |
 | An API route (`app/api/**/route.ts`) | [docs/api/rest-endpoints.md](docs/api/rest-endpoints.md) |
 | A cron endpoint (`app/api/cron/**`) | [docs/api/cron-jobs.md](docs/api/cron-jobs.md) |
-| A webhook (`app/api/docusign/webhook`, `app/api/webhooks/parcllabs`) | [docs/api/webhooks.md](docs/api/webhooks.md) |
+| A webhook (`app/api/docusign/webhook/route.ts`) | [docs/api/webhooks.md](docs/api/webhooks.md) |
 | Financial math (`lib/calculations.ts`, `lib/constants.ts`) | [docs/business/financial-model.md](docs/business/financial-model.md) |
 | Deal status flow, underwriting, settlement, remediation | [docs/business/deal-lifecycle.md](docs/business/deal-lifecycle.md) |
-| Firm-deal detection, matching, offer flow (`lib/firm-deals/`) | [docs/business/firm-deals.md](docs/business/firm-deals.md) |
-| DocuSign integration (`lib/docusign/`) | [docs/integrations/docusign.md](docs/integrations/docusign.md) |
-| Email templates or Resend logic (`lib/email/`) | [docs/integrations/email.md](docs/integrations/email.md) |
-| ParcLabs integration (`lib/firm-deals/parcllabs.ts`) | [docs/integrations/parcllabs.md](docs/integrations/parcllabs.md) |
+| Firm-deal detection, matching, offer flow (`lib/firm-deal-detection/`) | [docs/business/firm-deals.md](docs/business/firm-deals.md) |
+| DocuSign integration (`lib/docusign.ts`) | [docs/integrations/docusign.md](docs/integrations/docusign.md) |
+| Email templates or Resend logic (`lib/email.ts`) | [docs/integrations/email.md](docs/integrations/email.md) |
+| Firm-deal data source (Google Sheets, no ParcLabs: `lib/firm-deal-detection/sheets-client.ts`) | [docs/integrations/parcllabs.md](docs/integrations/parcllabs.md) |
 | Auth, middleware, roles, Supabase clients | [docs/architecture/authentication.md](docs/architecture/authentication.md) |
 | Directory structure, new top-level areas | [docs/architecture/directory-structure.md](docs/architecture/directory-structure.md) |
 | A new environment variable | [docs/development/setup.md](docs/development/setup.md) |
-| Build or deploy config (`netlify.toml`) | [docs/development/deployment.md](docs/development/deployment.md) |
+| Build or deploy config (`next.config.ts`, `netlify.toml`) | [docs/development/deployment.md](docs/development/deployment.md) |
 | A coding convention or a newly discovered gotcha | [docs/development/conventions.md](docs/development/conventions.md) |
 
 When you add a whole new feature area, add a new doc and link it from [docs/README.md](docs/README.md).
@@ -40,7 +40,7 @@ Read [docs/development/conventions.md](docs/development/conventions.md) before w
 
 - Next.js 16: `params` are Promises, `'use server'` files export only async functions.
 - Use `createServiceRoleClient()` for server-side mutations; balance writes go through RPCs.
-- Add external POST routes to `PUBLIC_PATHS` in `middleware.ts`.
+- Add external POST routes to `PUBLIC_PATHS` in `proxy.ts` (the Next.js 16 request middleware, function `proxy`).
 - Always `await` async work in serverless functions.
 - No em dashes in copy or docs. No emojis unless requested.
 

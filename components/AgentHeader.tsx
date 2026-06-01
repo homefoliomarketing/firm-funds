@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
-import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet, AlertTriangle, LifeBuoy } from 'lucide-react'
+import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet, AlertTriangle, LifeBuoy, Menu, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
@@ -52,6 +52,7 @@ export default function AgentHeader({
   const [unreadCount, setUnreadCount] = useState(0)
   const [pendingReturns, setPendingReturns] = useState(0)
   const [failedDealsCount, setFailedDealsCount] = useState(0)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
@@ -137,6 +138,41 @@ export default function AgentHeader({
   const isFailedDealsPage = pathname === '/agent/failed-deals'
   const isHelpPage = pathname.startsWith('/help')
 
+  // Shared nav model used by both the desktop nav and the mobile menu so the
+  // two can never drift apart. `badge` renders a count chip when > 0; the
+  // Failed deals item is only included when the agent actually has one.
+  const navLinks: Array<{
+    href: string
+    label: string
+    icon: typeof Home
+    active: boolean
+    badge?: number
+    badgeTone?: 'red' | 'amber'
+    ariaLabel?: string
+  }> = [
+    { href: '/agent', label: 'Dashboard', icon: Home, active: isDashboard },
+    { href: '/agent/messages', label: 'Messages', icon: MessageSquare, active: isMessagesPage, badge: totalNotifications, badgeTone: 'red' },
+    ...(failedDealsCount > 0
+      ? [{ href: '/agent/failed-deals', label: 'Failed deals', icon: AlertTriangle, active: isFailedDealsPage, badge: failedDealsCount, badgeTone: 'amber' as const, ariaLabel: `Failed deals, ${failedDealsCount} needing attention` }]
+      : []),
+    { href: '/agent/account', label: 'Account Balance', icon: Wallet, active: isAccountPage },
+    { href: '/agent/profile', label: 'Profile', icon: User, active: isProfilePage },
+    { href: '/agent/settings', label: 'Settings', icon: Settings, active: isSettingsPage },
+    { href: '/help', label: 'Help', icon: LifeBuoy, active: isHelpPage, ariaLabel: 'Open Help Center' },
+  ]
+
+  // Note: the mobile menu links close the menu in their own onClick handler,
+  // so there's no route-change effect here (which would trip
+  // react-hooks/set-state-in-effect and cause cascading renders).
+
+  // Escape closes the mobile menu.
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileMenuOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [mobileMenuOpen])
+
   const navBtnClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
       active
@@ -201,10 +237,12 @@ export default function AgentHeader({
             {backHref ? (
               <>
                 <button
+                  type="button"
                   onClick={() => router.push(backHref)}
-                  className="text-white/60 hover:text-primary transition-colors"
+                  aria-label="Go back"
+                  className="text-white/60 hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
                 >
-                  <ArrowLeft size={20} />
+                  <ArrowLeft size={20} aria-hidden="true" />
                 </button>
                 <div>
                   {title && <h1 className="text-lg font-bold text-white">{title}</h1>}
@@ -216,56 +254,35 @@ export default function AgentHeader({
                 <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
                   Agent Portal
                 </p>
-                {/* Nav links */}
-                <nav className="hidden sm:flex items-center gap-1">
-                  <button onClick={() => router.push('/agent')} className={navBtnClass(isDashboard)}>
-                    <Home size={14} />
-                    Dashboard
-                  </button>
-                  <button onClick={() => router.push('/agent/messages')} className={`${navBtnClass(isMessagesPage)} relative`}>
-                    <MessageSquare size={14} />
-                    Messages
-                    {totalNotifications > 0 && (
-                      <span className="ml-1">
-                        <NotificationBadge count={totalNotifications} />
-                      </span>
-                    )}
-                  </button>
-                  {/* Failed deals: only rendered when the agent has at
-                      least one failed-to-close deal. Keeps the nav clean
-                      for the 99% of agents who never see one. The amber
-                      badge differentiates this from the red message badge
-                      (Messages is "new info", Failed deals is "action
-                      required, ongoing"). */}
-                  {failedDealsCount > 0 && (
+                {/* Nav links (desktop). Failed deals only appears when the
+                    agent has one; the amber badge differentiates it from the
+                    red Messages badge. Rendered from the shared navLinks
+                    model so the mobile menu stays in sync. */}
+                <nav className="hidden sm:flex items-center gap-1" aria-label="Agent">
+                  {navLinks.map(({ href, label, icon: Icon, active, badge, badgeTone, ariaLabel }) => (
                     <button
-                      onClick={() => router.push('/agent/failed-deals')}
-                      className={`${navBtnClass(isFailedDealsPage)} relative`}
-                      aria-label={`Failed deals, ${failedDealsCount} needing attention`}
+                      key={href}
+                      type="button"
+                      onClick={() => router.push(href)}
+                      className={`${navBtnClass(active)} ${badge ? 'relative' : ''}`}
+                      aria-label={ariaLabel}
+                      aria-current={active ? 'page' : undefined}
                     >
-                      <AlertTriangle size={14} />
-                      Failed deals
-                      <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-amber-950">
-                        {failedDealsCount > 99 ? '99+' : failedDealsCount}
-                      </span>
+                      <Icon size={14} aria-hidden="true" />
+                      {label}
+                      {badge && badge > 0 && (
+                        badgeTone === 'amber' ? (
+                          <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-amber-950">
+                            {badge > 99 ? '99+' : badge}
+                          </span>
+                        ) : (
+                          <span className="ml-1">
+                            <NotificationBadge count={badge} />
+                          </span>
+                        )
+                      )}
                     </button>
-                  )}
-                  <button onClick={() => router.push('/agent/account')} className={navBtnClass(isAccountPage)}>
-                    <Wallet size={14} />
-                    Account Balance
-                  </button>
-                  <button onClick={() => router.push('/agent/profile')} className={navBtnClass(isProfilePage)}>
-                    <User size={14} />
-                    Profile
-                  </button>
-                  <button onClick={() => router.push('/agent/settings')} className={navBtnClass(isSettingsPage)}>
-                    <Settings size={14} />
-                    Settings
-                  </button>
-                  <button onClick={() => router.push('/help')} className={navBtnClass(isHelpPage)} aria-label="Open Help Center">
-                    <LifeBuoy size={14} />
-                    Help
-                  </button>
+                  ))}
                 </nav>
               </div>
             )}
@@ -277,11 +294,12 @@ export default function AgentHeader({
 
             {/* Mobile notification bell (always visible) */}
             <button
+              type="button"
               onClick={() => router.push('/agent/messages')}
-              className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden"
+              className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={totalNotifications > 0 ? `Messages: ${totalNotifications} unread` : 'Messages'}
             >
-              <Bell size={18} />
+              <Bell size={18} aria-hidden="true" />
               {totalNotifications > 0 && (
                 <span className="absolute -top-0.5 -right-0.5">
                   <NotificationBadge count={totalNotifications} />
@@ -289,14 +307,30 @@ export default function AgentHeader({
               )}
             </button>
 
+            {/* Mobile menu toggle (hamburger). Only shown in the main-nav
+                layout, where the desktop nav is hidden on small screens. */}
+            {!backHref && (
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(v => !v)}
+                className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="agent-mobile-menu"
+              >
+                {mobileMenuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+              </button>
+            )}
+
             {/* Desktop bell (when on deal pages, not in main nav) */}
             {backHref && (
               <button
+                type="button"
                 onClick={() => router.push('/agent/messages')}
-                className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white hidden sm:block"
+                className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white hidden sm:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={totalNotifications > 0 ? `Messages: ${totalNotifications} unread` : 'Messages'}
               >
-                <Bell size={18} />
+                <Bell size={18} aria-hidden="true" />
                 {totalNotifications > 0 && (
                   <span className="absolute -top-0.5 -right-0.5">
                     <NotificationBadge count={totalNotifications} />
@@ -314,6 +348,41 @@ export default function AgentHeader({
             <SignOutModal onConfirm={handleLogout} />
           </div>
         </div>
+
+        {/* Mobile menu panel. Mirrors the desktop nav from the shared
+            navLinks model. Hidden on sm+ where the inline nav is shown. */}
+        {!backHref && mobileMenuOpen && (
+          <nav
+            id="agent-mobile-menu"
+            aria-label="Agent"
+            className="sm:hidden border-t border-border/50 py-2"
+          >
+            {navLinks.map(({ href, label, icon: Icon, active, badge, badgeTone, ariaLabel }) => (
+              <button
+                key={href}
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); router.push(href) }}
+                aria-label={ariaLabel}
+                aria-current={active ? 'page' : undefined}
+                className={`flex w-full items-center gap-2.5 px-2 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  active ? 'text-white bg-white/10' : 'text-white/70 hover:text-white hover:bg-white/5'
+                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+              >
+                <Icon size={16} aria-hidden="true" />
+                <span className="flex-1 text-left">{label}</span>
+                {badge && badge > 0 && (
+                  badgeTone === 'amber' ? (
+                    <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-amber-950">
+                      {badge > 99 ? '99+' : badge}
+                    </span>
+                  ) : (
+                    <NotificationBadge count={badge} />
+                  )
+                )}
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
     </header>
   )

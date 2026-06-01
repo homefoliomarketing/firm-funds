@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# but keep the committed template
+!.env.example
 
 # vercel
 .vercel
@@ -56,3 +58,9 @@ supabase/.temp/
 
 # Local preview artifacts from firm-deal-detection test scripts
 /firm-deal-email-preview.html
+
+# Scratch planning files (not part of the project)
+findings.md
+progress.md
+task_plan.md
+.codex/

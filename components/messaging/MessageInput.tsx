@@ -119,8 +119,9 @@ export default function MessageInput({ onSend, placeholder, disabled, quickRepli
           {quickReplies.map((qr, i) => (
             <button
               key={i}
+              type="button"
               onClick={() => { setText(qr.message); setShowQuickReplies(false); textareaRef.current?.focus() }}
-              className="px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors bg-background text-muted-foreground border border-border/50 hover:border-primary hover:text-primary"
+              className="px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors bg-background text-muted-foreground border border-border/50 hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {qr.label}
             </button>
@@ -156,16 +157,22 @@ export default function MessageInput({ onSend, placeholder, disabled, quickRepli
             <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setShowEmoji(false)} />
           )}
           <button
+            type="button"
             onClick={() => { setShowEmoji(!showEmoji); setShowQuickReplies(false) }}
-            className={`p-2 rounded-lg transition-colors ${showEmoji ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+            aria-label="Add emoji"
+            aria-pressed={showEmoji}
+            aria-expanded={showEmoji}
+            className={`p-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${showEmoji ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <Smile size={18} />
+            <Smile size={18} aria-hidden="true" />
           </button>
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            className={`p-2 rounded-lg transition-colors ${attachedFile ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            aria-label="Attach file"
+            className={`p-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${attachedFile ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <Paperclip size={18} />
+            <Paperclip size={18} aria-hidden="true" />
           </button>
           <input
             ref={fileInputRef}
@@ -176,16 +183,22 @@ export default function MessageInput({ onSend, placeholder, disabled, quickRepli
           />
           {quickReplies && (
             <button
+              type="button"
               onClick={() => { setShowQuickReplies(!showQuickReplies); setShowEmoji(false) }}
-              className={`p-2 rounded-lg transition-colors ${showQuickReplies ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
+              aria-label="Quick replies"
+              aria-pressed={showQuickReplies}
+              aria-expanded={showQuickReplies}
+              className={`p-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${showQuickReplies ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'}`}
             >
-              <Zap size={18} />
+              <Zap size={18} aria-hidden="true" />
             </button>
           )}
         </div>
 
         {/* Textarea */}
+        <label htmlFor="message-input" className="sr-only">Message</label>
         <textarea
+          id="message-input"
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -193,16 +206,19 @@ export default function MessageInput({ onSend, placeholder, disabled, quickRepli
           placeholder={placeholder || 'Type a message... (Shift+Enter for new line)'}
           disabled={disabled || sending}
           rows={1}
-          className="flex-1 resize-none rounded-xl px-4 py-2.5 text-sm outline-none transition-colors disabled:opacity-50 bg-muted/30 border border-border/50 text-foreground placeholder:text-muted-foreground focus:border-primary min-h-[40px] max-h-[120px]"
+          aria-label="Message"
+          className="flex-1 resize-none rounded-xl px-4 py-2.5 text-sm outline-none transition-colors disabled:opacity-50 bg-muted/30 border border-border/50 text-foreground placeholder:text-muted-foreground focus:border-primary focus-visible:ring-2 focus-visible:ring-ring min-h-[40px] max-h-[120px]"
         />
 
         {/* Send button */}
         <button
+          type="button"
           onClick={handleSend}
           disabled={!canSend}
-          className={`p-2.5 rounded-xl transition-colors disabled:opacity-30 flex-shrink-0 ${canSend ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-muted text-muted-foreground'}`}
+          aria-label="Send message"
+          className={`p-2.5 rounded-xl transition-colors disabled:opacity-30 flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${canSend ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-muted text-muted-foreground'}`}
         >
-          <Send size={18} />
+          <Send size={18} aria-hidden="true" />
         </button>
       </div>
     </div>

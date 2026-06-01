@@ -564,6 +564,41 @@ export async function markRemediationDealRemitted(input: {
       }
     }
 
+    // Overpayment surplus: the brokerage remitted more than this failed deal
+    // owed. Post the excess as a credit on the agent's account (a negative
+    // delta lowers the balance, so Firm Funds now owes the agent), to be
+    // refunded manually. All balance writes go through apply_agent_balance_delta.
+    let surplusCreditPosted = false
+    if (surplusAmount > 0.005) {
+      const { error: surplusErr } = await serviceClient.rpc('apply_agent_balance_delta', {
+        p_agent_id: agent.id,
+        p_delta: -surplusAmount,
+        p_type: 'credit',
+        p_description: `Overpayment surplus on Remediation IDP - ${rem.property_address} (${rem.brokerage_legal_name}). Refundable to agent.`,
+        p_deal_id: failedDeal.id,
+        p_created_by: user.id,
+      })
+      if (surplusErr) {
+        // The remittance itself already succeeded; only the surplus credit
+        // failed. Surface it loudly for manual follow-up rather than failing
+        // the whole operation (which would imply the remittance did not land).
+        console.error('markRemediationDealRemitted surplus credit failed:', surplusErr.message)
+        await logAuditEvent({
+          action: 'remediation_deal.surplus_credit_failed',
+          entityType: 'deal',
+          entityId: failedDeal.id,
+          severity: 'warning',
+          metadata: {
+            remediation_deal_id: rem.id,
+            surplus_amount: surplusAmount,
+            error: surplusErr.message,
+          },
+        })
+      } else {
+        surplusCreditPosted = true
+      }
+    }
+
     await logAuditEvent({
       action: 'remediation_deal.remitted',
       entityType: 'deal',
@@ -578,6 +613,7 @@ export async function markRemediationDealRemitted(input: {
           principal: applyToPrincipal,
           surplus: surplusAmount,
         },
+        surplus_credit_posted: surplusCreditPosted,
         failed_deal_cleared: fullyCleared,
         prior_principal: principal,
         new_principal: newPrincipal,
@@ -592,6 +628,7 @@ export async function markRemediationDealRemitted(input: {
         newPrincipal,
         newPostedInterest,
         surplus: surplusAmount,
+        surplusCreditPosted,
         creditApplied: creditAmount,
       },
     }

@@ -97,6 +97,7 @@ export async function GET(request: Request) {
 
     const nowMs = Date.now()
     const expired: string[] = []
+    const neverNotified: string[] = []
     let nudged2h = 0
     let escalated4h = 0
     let errored = 0
@@ -104,14 +105,31 @@ export async function GET(request: Request) {
 
     for (const row of offered) {
       try {
-        const createdMs = row.created_at ? new Date(row.created_at).getTime() : null
         const notifiedMs = row.brokerage_notified_at
           ? new Date(row.brokerage_notified_at).getTime()
           : null
 
-        // 60-day expiry takes priority over nudges. If we're past the
-        // window, mark cancelled and skip the rest.
-        if (createdMs !== null && nowMs - createdMs >= EXPIRY_60D_MS) {
+        // An offer that was never actually delivered to the brokerage must NOT
+        // be auto-expired — that would silently cancel a request that never
+        // reached anyone. These rows are stuck because the initial
+        // notification failed and is being retried via cron_email_failures.
+        // Surface them so they can be re-sent rather than quietly cancelling.
+        if (!notifiedMs) {
+          neverNotified.push(row.id)
+          console.error(
+            `[offer-nudges] offered deal ${row.id} has no brokerage_notified_at — ` +
+            `never delivered, skipping expiry. Check cron_email_failures for a stuck ` +
+            `firm_deal_offer_notification and re-send.`
+          )
+          continue
+        }
+
+        // 60-day expiry takes priority over nudges. The clock runs from the
+        // delivery timestamp (brokerage_notified_at), NOT created_at, so an
+        // offer only ages out once the brokerage has actually been told about
+        // it and had the full window to act. If we're past the window, mark
+        // cancelled and skip the rest.
+        if (nowMs - notifiedMs >= EXPIRY_60D_MS) {
           await supabase
             .from('deals')
             .update({
@@ -124,11 +142,6 @@ export async function GET(request: Request) {
           expired.push(row.id)
           continue
         }
-
-        // Nothing more to do until the initial notification went out. The
-        // acceptance action does this synchronously; only retry-pending
-        // rows (Resend hiccup) sit here without notified_at.
-        if (!notifiedMs) continue
 
         // 4h escalation — only fires once, gated by internal_alert_4h_at.
         if (
@@ -169,6 +182,8 @@ export async function GET(request: Request) {
       nudged_2h: nudged2h,
       escalated_4h: escalated4h,
       expired_60d: expired.length,
+      never_notified: neverNotified.length,
+      never_notified_ids: neverNotified.slice(0, 25),
       errored,
       errors: errors.slice(0, 10),
     })
@@ -179,6 +194,7 @@ export async function GET(request: Request) {
       nudged_2h: nudged2h,
       escalated_4h: escalated4h,
       expired_60d: expired.length,
+      never_notified: neverNotified.length,
       errored,
     })
   } catch (err) {

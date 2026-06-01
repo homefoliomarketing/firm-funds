@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
   AlertTriangle, Clock, DollarSign, Banknote, FileSignature, CheckCircle2,
@@ -187,10 +188,17 @@ export default function CureElectionPage({ params }: PageProps) {
     if (result.success) {
       // Commission assignment: bounce to the failed-deals page so the
       // agent can add their next remediation deal without an extra click.
-      // Cash repayment: stay on this page (the confirmation copy below
-      // explains EFT next steps).
+      // Before redirecting we surface a success toast and hold briefly so the
+      // agent gets an explicit acknowledgement that this legally significant
+      // election was recorded (the cash path keeps them on-page with its own
+      // confirmation copy, so this matches that behaviour).
       if (choice === 'commission_assignment') {
-        router.push(`/agent/failed-deals?dealId=${deal.id}`)
+        toast.success('Commission assignment election recorded', {
+          description: 'We will send your Remediation IDP to sign. Taking you to your failed deals now.',
+        })
+        window.setTimeout(() => {
+          router.push(`/agent/failed-deals?dealId=${deal.id}`)
+        }, 1500)
         return
       }
       setSubmittedChoice(choice)
@@ -384,7 +392,8 @@ export default function CureElectionPage({ params }: PageProps) {
                   <h3 className="font-semibold text-foreground">Cash Repayment</h3>
                 </div>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Pay back the full outstanding balance within 90 days from today.
+                  Repay the full outstanding balance in cash. The repayment window is 90 days from
+                  today (this is separate from the 15-day deadline to make this choice).
                 </p>
                 <div className="rounded-lg bg-status-amber-muted/50 border border-status-amber-border/60 p-3 text-xs text-status-amber">
                   <strong>Note:</strong> Choosing this means you accept personal liability for the full

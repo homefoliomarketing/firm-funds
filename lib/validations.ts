@@ -3,6 +3,7 @@ import {
   MIN_GROSS_COMMISSION,
   MAX_GROSS_COMMISSION,
   MAX_DAYS_UNTIL_CLOSING,
+  calcDaysUntilClosing,
 } from './constants'
 
 /** Schema for deal submission */
@@ -14,19 +15,14 @@ export const DealSubmissionSchema = z.object({
     .trim(),
   closingDate: z
     .string()
-    .refine((val) => {
-      const date = new Date(val + 'T00:00:00')
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      return date > today
-    }, 'Closing date must be in the future')
-    .refine((val) => {
-      const date = new Date(val + 'T00:00:00')
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const diffDays = Math.ceil((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-      return diffDays <= MAX_DAYS_UNTIL_CLOSING
-    }, `Closing date must be within ${MAX_DAYS_UNTIL_CLOSING} days`),
+    // Use the same Toronto-anchored day count as the fee engine
+    // (calcDaysUntilClosing) so the form and the calculation never disagree by
+    // a day across a timezone boundary on a UTC server.
+    .refine((val) => calcDaysUntilClosing(val) >= 1, 'Closing date must be in the future')
+    .refine(
+      (val) => calcDaysUntilClosing(val) <= MAX_DAYS_UNTIL_CLOSING,
+      `Closing date must be within ${MAX_DAYS_UNTIL_CLOSING} days`,
+    ),
   grossCommission: z
     .number()
     .min(MIN_GROSS_COMMISSION, `Gross commission must be at least $${MIN_GROSS_COMMISSION}`)

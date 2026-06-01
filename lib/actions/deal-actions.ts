@@ -707,6 +707,20 @@ export async function updateDealStatus(input: {
       }
     }
 
+    // Block funding if the agent's ID verification (KYC) is not complete.
+    // No advance may be disbursed without verified ID on file.
+    if (input.newStatus === 'funded') {
+      const { data: kycAgent } = await supabase
+        .from('agents')
+        .select('kyc_status')
+        .eq('id', deal.agent_id)
+        .single()
+
+      if (kycAgent?.kyc_status !== 'verified') {
+        return { success: false, error: 'Cannot fund: the agent\'s ID verification (KYC) is not complete. Verify the agent\'s identity before funding this advance.' }
+      }
+    }
+
     // Build update payload
     const updateData: Record<string, unknown> = { status: input.newStatus }
 

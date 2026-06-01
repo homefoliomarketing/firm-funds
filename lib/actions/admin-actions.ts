@@ -2114,12 +2114,41 @@ export async function recordEftTransfer(input: {
     // touches a different table so it can't enforce the status itself.
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, status')
+      .select('id, status, advance_amount')
       .eq('id', input.dealId)
       .single()
 
     if (dealError || !deal) return { success: false, error: 'Deal not found' }
     if (deal.status !== 'funded') return { success: false, error: 'EFT transfers can only be recorded on funded deals' }
+
+    // Reconciliation guardrail: the SUM of transfers for a deal must not exceed
+    // the advance amount (the total cash owed to the agent). $0.005 tolerance
+    // absorbs floating point noise on NUMERIC dollar values.
+    const advanceAmount = Number(deal.advance_amount)
+    if (deal.advance_amount == null || advanceAmount <= 0) {
+      console.warn(
+        `[recordEftTransfer] deal ${input.dealId} has missing/zero advance_amount (${deal.advance_amount}); skipping transfer cap check`,
+      )
+    } else {
+      const { data: existingTransfers, error: existingErr } = await supabase
+        .from('eft_transfers')
+        .select('amount')
+        .eq('deal_id', input.dealId)
+
+      if (existingErr) {
+        return { success: false, error: `Failed to load existing transfers: ${existingErr.message}` }
+      }
+
+      const existingSum = (existingTransfers || []).reduce((s, r) => s + Number(r.amount || 0), 0)
+      const TOLERANCE = 0.005
+      if (existingSum + input.amount > advanceAmount + TOLERANCE) {
+        const remaining = Math.max(0, advanceAmount - existingSum)
+        return {
+          success: false,
+          error: `Recording this $${input.amount.toFixed(2)} transfer would exceed the advance amount. $${existingSum.toFixed(2)} has already been recorded and the advance is $${advanceAmount.toFixed(2)}, so at most $${remaining.toFixed(2)} can still be disbursed.`,
+        }
+      }
+    }
 
     const { data: inserted, error: insertError } = await supabase
       .from('eft_transfers')
@@ -2284,6 +2313,7 @@ export async function recordBrokeragePayment(input: {
   date: string
   reference?: string
   method?: string
+  allowOverpayment?: boolean
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
@@ -2303,6 +2333,41 @@ export async function recordBrokeragePayment(input: {
     }
     if (!deal.brokerage_id) {
       return { success: false, error: 'Deal has no brokerage assigned' }
+    }
+
+    // Reconciliation guardrail: confirmed payments must not exceed the amount
+    // owed by the brokerage unless the admin explicitly overrides. $0.005
+    // tolerance absorbs floating point noise on NUMERIC dollar values.
+    const amountDue = deal.amount_due_from_brokerage == null ? null : Number(deal.amount_due_from_brokerage)
+    let isIntentionalOverpayment = false
+    if (amountDue == null) {
+      console.warn(
+        `[recordBrokeragePayment] deal ${input.dealId} has null amount_due_from_brokerage; skipping overpayment cap check`,
+      )
+    } else {
+      const { data: existingPayments, error: existingErr } = await supabase
+        .from('brokerage_payments')
+        .select('amount, status')
+        .eq('deal_id', input.dealId)
+
+      if (existingErr) {
+        return { success: false, error: `Failed to load existing payments: ${existingErr.message}` }
+      }
+
+      const existingConfirmedTotal = sumConfirmedPayments(existingPayments || [])
+      const TOLERANCE = 0.005
+      const projectedTotal = existingConfirmedTotal + input.amount
+      const exceedsDue = projectedTotal > amountDue + TOLERANCE
+
+      if (exceedsDue && input.allowOverpayment !== true) {
+        const overage = projectedTotal - amountDue
+        return {
+          success: false,
+          error: `Recording this $${input.amount.toFixed(2)} payment would exceed the amount owed. The brokerage owes $${amountDue.toFixed(2)} and $${existingConfirmedTotal.toFixed(2)} has already been recorded, leaving an overage of $${overage.toFixed(2)}. If this overpayment is intentional, re-submit with an explicit override.`,
+        }
+      }
+
+      isIntentionalOverpayment = exceedsDue && input.allowOverpayment === true
     }
 
     const method = ['eft', 'wire', 'cheque', 'cash', 'other'].includes(input.method || '')
@@ -2344,6 +2409,7 @@ export async function recordBrokeragePayment(input: {
         date: input.date,
         new_total: newTotal,
         expected: deal.amount_due_from_brokerage,
+        ...(isIntentionalOverpayment ? { overpayment: true } : {}),
       },
     })
 

@@ -227,6 +227,17 @@ export async function POST(request: Request) {
       console.error('DocuSign webhook: failed to update envelope:', updateErr.message)
     }
 
+    // Tracks whether a recoverable (transient) failure happened while doing
+    // the critical signed-document download/store work below. The status
+    // flips above are idempotent (CAS-guarded) and authoritative on their own,
+    // but losing the signed PDF is not acceptable. If this flips true we
+    // release our dedup claim (DELETE the event row) and return a non-2xx so
+    // DocuSign re-delivers and we get another shot at the download. A missing
+    // auth token, a failed DocuSign document fetch, or a failed storage upload
+    // are all transient. Genuinely bad/duplicate events never set this and
+    // still return 200.
+    let transientFailure = false
+
     // ================================================================
     // SIGNED — Download docs, store them, link to checklist, check off
     // ================================================================
@@ -274,15 +285,18 @@ export async function POST(request: Request) {
 
               if (uploadErr) {
                 console.error('DocuSign webhook: failed to upload BCA to storage:', uploadErr.message)
+                transientFailure = true
               } else {
                 console.log(`DocuSign webhook: stored signed BCA at ${storagePath}`)
               }
             } else {
               console.error(`DocuSign webhook: failed to download BCA doc: ${docRes.status}`)
+              transientFailure = true
             }
           } catch (docErr: unknown) {
             const message = docErr instanceof Error ? docErr.message : 'unknown'
             console.error('DocuSign webhook: error processing BCA document:', message)
+            transientFailure = true
           }
 
           // 3. Update bca_signed_at on the brokerage record
@@ -298,6 +312,9 @@ export async function POST(request: Request) {
           }
         } else {
           console.error(`DocuSign webhook: no valid auth token — cannot download signed BCA for brokerage ${brokerageId}`)
+          // No token is a recoverable condition (token refresh / re-auth).
+          // Force a redelivery so we capture the signed BCA on retry.
+          transientFailure = true
         }
 
         console.log(`DocuSign webhook: completed BCA processing for brokerage ${brokerageId}`)
@@ -352,19 +369,26 @@ export async function POST(request: Request) {
                 if (uploadErr) {
                   console.error('DocuSign webhook: failed to upload Remediation IDP to storage:', uploadErr.message)
                   storagePath = null
+                  transientFailure = true
                 } else {
                   console.log(`DocuSign webhook: stored signed Remediation IDP at ${storagePath}`)
                   pdfStored = true
                 }
               } else {
                 console.error(`DocuSign webhook: failed to download Remediation IDP doc: ${docRes.status}`)
+                transientFailure = true
               }
             } catch (docErr: unknown) {
               const message = docErr instanceof Error ? docErr.message : 'unknown'
               console.error('DocuSign webhook: error processing Remediation IDP document:', message)
+              transientFailure = true
             }
           } else {
             console.error(`DocuSign webhook: no valid auth token — cannot download signed Remediation IDP for remediation_deal ${remediationDealId}. Admin must re-authorize DocuSign and re-trigger.`)
+            // Recoverable: force a redelivery so the signed PDF is captured
+            // once the token is restored. The status flip below is CAS-guarded
+            // and idempotent on re-arrival.
+            transientFailure = true
           }
 
           // 3. Flip the remediation_deals row to idp_signed regardless of
@@ -468,6 +492,7 @@ export async function POST(request: Request) {
 
               if (!docRes.ok) {
                 console.error(`DocuSign webhook: failed to download ${docType} doc: ${docRes.status}`)
+                transientFailure = true
                 continue
               }
 
@@ -491,6 +516,7 @@ export async function POST(request: Request) {
 
               if (uploadErr) {
                 console.error(`DocuSign webhook: failed to upload ${docType} to storage:`, uploadErr.message)
+                transientFailure = true
                 continue
               }
 
@@ -514,6 +540,7 @@ export async function POST(request: Request) {
 
               if (insertErr || !docRecord) {
                 console.error(`DocuSign webhook: failed to insert ${docType} document record:`, insertErr?.message)
+                transientFailure = true
                 continue
               }
 
@@ -553,16 +580,49 @@ export async function POST(request: Request) {
             } catch (docErr: unknown) {
               const message = docErr instanceof Error ? docErr.message : 'unknown'
               console.error(`DocuSign webhook: error processing ${docType} document:`, message)
-              // Continue with the next document — don't fail the whole webhook
+              // Continue with the next document — don't fail the whole webhook,
+              // but flag for redelivery so the missed document is retried.
+              transientFailure = true
             }
           }
         } else {
           // No auth token — can't download the signed docs, so do NOT check off the items.
           console.error(`DocuSign webhook: no valid auth token — cannot download signed docs for deal ${envelopes[0].deal_id}. Checklist items NOT checked. Admin must re-authorize DocuSign.`)
+          // Recoverable: release the dedup claim and ask DocuSign to redeliver
+          // so we capture the signed docs once the token is restored.
+          transientFailure = true
         }
 
         console.log(`DocuSign webhook: completed processing for deal ${envelopes[0].deal_id}`)
       }
+    }
+
+    // If the critical document-download/store work hit a recoverable failure,
+    // release our dedup claim and ask DocuSign to redeliver. We DELETE the
+    // dedup row (rather than leaving a "claimed" marker) so the next delivery
+    // re-runs the full download path; the status flips already applied are
+    // idempotent (CAS-guarded) and safe to re-apply. Returning a non-2xx makes
+    // DocuSign Connect retry with backoff. A true duplicate never reaches here
+    // (it 200s at the 23505 branch), and malformed/permanently-bad events
+    // return 200 above, so this only triggers a retry for genuine transients.
+    if (transientFailure) {
+      const { error: delErr } = await supabase
+        .from('docusign_webhook_events')
+        .delete()
+        .eq('event_id', eventId)
+      if (delErr) {
+        // Couldn't release the claim. Still return non-2xx so DocuSign retries;
+        // the stale dedup row would otherwise suppress the retry, but on
+        // redelivery the INSERT will collide (23505) and 200 — so log loudly.
+        console.error(
+          `DocuSign webhook: failed to release dedup claim for event ${eventId} after transient error:`,
+          delErr.message
+        )
+      }
+      console.error(
+        `DocuSign webhook: transient processing failure for envelope ${redactEnvelopeId(envelopeId)} — released dedup claim, returning 503 for DocuSign retry`
+      )
+      return new Response('Transient processing failure - please retry', { status: 503 })
     }
 
     // Mark dedup row as successfully processed for observability/audit.
