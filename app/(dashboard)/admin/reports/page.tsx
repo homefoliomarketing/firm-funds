@@ -8,7 +8,7 @@ import {
   BarChart3, TrendingUp, DollarSign, Clock, ArrowLeft, Download, FileText,
   Building2, Percent, Calendar, Activity, ChevronDown, ChevronUp, ChevronRight,
 } from 'lucide-react'
-import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
+import { getStatusBadgeClass, formatStatusLabel, DEAL_STATUSES } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
@@ -266,6 +266,8 @@ export default function ReportsPage() {
   const [dateRange, setDateRange] = useState<DateRange>('all')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [brokerageFilter, setBrokerageFilter] = useState('')
   const [showCustomPicker, setShowCustomPicker] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [brokerageExpanded, setBrokerageExpanded] = useState(true)
@@ -280,16 +282,36 @@ export default function ReportsPage() {
     router.push('/login')
   }
 
-  const loadMetrics = useCallback(async (range: DateRange, startDate?: string, endDate?: string) => {
+  // Stable, full list of brokerages for the filter dropdown. Captured from an
+  // unfiltered fetch so selecting one brokerage (which narrows the metrics
+  // payload) does not empty out the dropdown options.
+  const [brokerageOptions, setBrokerageOptions] = useState<{ id: string; name: string }[]>([])
+
+  const loadMetrics = useCallback(async (
+    range: DateRange,
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    brokerageId?: string,
+  ) => {
     setLoading(true)
     setError(null)
     const result = await fetchReportMetrics({
       dateRange: range,
       customStart: startDate,
       customEnd: endDate,
+      status: status || undefined,
+      brokerageId: brokerageId || undefined,
     })
     if (result.success && result.data) {
       setMetrics(result.data)
+      // Only refresh the dropdown option list from an unfiltered-by-brokerage
+      // result, so the full set of brokerages stays selectable.
+      if (!brokerageId) {
+        setBrokerageOptions(
+          result.data.brokeragePerformance.map(b => ({ id: b.id, name: b.name })),
+        )
+      }
     } else {
       setError(result.error || 'Failed to load report data')
     }
@@ -327,13 +349,40 @@ export default function ReportsPage() {
   const handleDateChange = (range: DateRange) => {
     setDateRange(range)
     setShowCustomPicker(false)
-    loadMetrics(range)
+    loadMetrics(range, undefined, undefined, statusFilter, brokerageFilter)
   }
 
   const handleCustomDateApply = () => {
     if (!customStart || !customEnd) return
     setDateRange('custom')
-    loadMetrics('custom', customStart, customEnd)
+    loadMetrics('custom', customStart, customEnd, statusFilter, brokerageFilter)
+  }
+
+  const handleStatusChange = (status: string) => {
+    setStatusFilter(status)
+    loadMetrics(dateRange, customStart, customEnd, status, brokerageFilter)
+  }
+
+  const handleBrokerageChange = (brokerageId: string) => {
+    setBrokerageFilter(brokerageId)
+    loadMetrics(dateRange, customStart, customEnd, statusFilter, brokerageId)
+  }
+
+  // Escape a single CSV cell. Two concerns, in order:
+  //  1. Formula injection: a spreadsheet treats a cell starting with =, +, -,
+  //     @, tab, or carriage return as a formula. Prefix those with a single
+  //     quote so they are imported as plain text.
+  //  2. Delimiter safety: wrap any value containing a comma, double quote, or
+  //     newline in double quotes, doubling any embedded quotes.
+  const csvCell = (value: string | number): string => {
+    let s = String(value)
+    if (/^[=+\-@\t\r]/.test(s)) {
+      s = `'${s}`
+    }
+    if (/[",\n\r]/.test(s)) {
+      s = `"${s.replace(/"/g, '""')}"`
+    }
+    return s
   }
 
   const handleExportCSV = () => {
@@ -347,10 +396,10 @@ export default function ReportsPage() {
     ]
 
     const rows = metrics.exportDeals.map(d => [
-      `"${d.property_address.replace(/"/g, '""')}"`,
+      d.property_address,
       d.status,
-      `"${d.agent_name}"`,
-      `"${d.brokerage_name}"`,
+      d.agent_name,
+      d.brokerage_name,
       d.gross_commission.toFixed(2),
       d.brokerage_split_pct.toFixed(1),
       d.net_commission.toFixed(2),
@@ -363,7 +412,10 @@ export default function ReportsPage() {
       new Date(d.created_at).toLocaleDateString('en-CA'),
     ])
 
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const csv = [
+      headers.map(csvCell).join(','),
+      ...rows.map(r => r.map(csvCell).join(',')),
+    ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -560,6 +612,40 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Status + Brokerage Filters */}
+        <Card className="mb-6">
+          <CardContent className="p-4 flex flex-wrap items-end gap-4">
+            <div>
+              <label htmlFor="report-status-filter" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Deal Status</label>
+              <select
+                id="report-status-filter"
+                value={statusFilter}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark]"
+              >
+                <option value="">All Statuses</option>
+                {Object.values(DEAL_STATUSES).map(status => (
+                  <option key={status} value={status}>{formatStatusLabel(status)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="report-brokerage-filter" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Brokerage</label>
+              <select
+                id="report-brokerage-filter"
+                value={brokerageFilter}
+                onChange={(e) => handleBrokerageChange(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark]"
+              >
+                <option value="">All Brokerages</option>
+                {brokerageOptions.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* KPI Cards Row 1 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">

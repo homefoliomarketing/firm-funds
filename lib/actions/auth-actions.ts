@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { checkLoginRateLimit } from '@/lib/rate-limit'
+import { checkLoginRateLimit, checkLoginEmailRateLimit } from '@/lib/rate-limit'
 import {
   getAgentStatusError,
   getBrokerageStatusError,
@@ -138,8 +138,18 @@ export async function loginWithPassword(input: {
   }
 
   const headerStore = await headers()
-  const limit = await checkLoginRateLimit(getClientIp(headerStore))
-  if (!limit.allowed) {
+  // Throttle per IP (existing) AND per account email. The email is already
+  // normalized (trim + lowercase) above, so checkLoginEmailRateLimit re-normalizes
+  // a no-op value. The email limiter runs regardless of whether the account
+  // exists, so it cannot be used to probe account existence.
+  const [ipLimit, emailLimit] = await Promise.all([
+    checkLoginRateLimit(getClientIp(headerStore)),
+    checkLoginEmailRateLimit(email),
+  ])
+  if (!ipLimit.allowed || !emailLimit.allowed) {
+    // Same generic message for either trigger, so we never reveal which check
+    // tripped (and therefore never reveal whether the email is targeted).
+    const limit = !ipLimit.allowed ? ipLimit : emailLimit
     return {
       success: false,
       error: `Too many login attempts. Please try again in ${Math.max(1, Math.ceil(limit.resetInSeconds / 60))} minute${limit.resetInSeconds > 60 ? 's' : ''}.`,

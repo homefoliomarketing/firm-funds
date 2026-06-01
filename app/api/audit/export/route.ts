@@ -49,6 +49,9 @@ export async function GET(request: Request) {
   const entityType = url.searchParams.get('entityType')
   const entityId = url.searchParams.get('entityId')
   const action = url.searchParams.get('action')
+  // Repeated actionIn params -> match any one of an explicit action set.
+  // Mirrors the "Money & compliance" preset's filters.actionIn path.
+  const actionIn = url.searchParams.getAll('actionIn')
   const severity = url.searchParams.get('severity')
   const actorEmail = url.searchParams.get('actorEmail')
   const search = url.searchParams.get('search')
@@ -66,6 +69,7 @@ export async function GET(request: Request) {
   if (entityType) query = query.eq('entity_type', entityType)
   if (entityId) query = query.eq('entity_id', entityId)
   if (action) query = query.eq('action', action)
+  if (actionIn.length > 0) query = query.in('action', actionIn)
   if (severity) query = query.eq('severity', severity)
   if (actorEmail) query = query.ilike('actor_email', `%${actorEmail}%`)
   if (dateFrom) query = query.gte('created_at', dateFrom)
@@ -114,7 +118,14 @@ export async function GET(request: Request) {
 
   const escapeCSV = (val: string | null | undefined): string => {
     if (val === null || val === undefined) return ''
-    const str = String(val)
+    let str = String(val)
+    // Formula-injection guard: a cell that opens with =, +, -, @, tab, or
+    // carriage return can be executed as a formula when the CSV is opened in
+    // Excel / Sheets. Prefix with a single quote so the spreadsheet treats it
+    // as literal text. Done before quoting so the leading quote is preserved.
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = `'${str}`
+    }
     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
       return `"${str.replace(/"/g, '""')}"`
     }

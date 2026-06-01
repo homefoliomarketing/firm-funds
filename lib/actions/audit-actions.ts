@@ -37,12 +37,56 @@ export interface AuditQueryFilters {
   entityType?: string
   entityId?: string
   action?: string
+  // Match any one of an explicit set of action strings (PostgREST .in()).
+  // Used by the "Money & compliance" preset, which spans many action names
+  // that a single `action` equality or one `search` ilike cannot express.
+  actionIn?: string[]
   severity?: AuditSeverity
   actorEmail?: string
   search?: string
   dateFrom?: string
   dateTo?: string
 }
+
+// ============================================================================
+// Preset action sets
+// ============================================================================
+
+/**
+ * Every audit action that records a dollar moving or a compliance decision.
+ * Strings here are verified against logAuditEvent / logAuditEventServiceRole
+ * calls in the codebase — do not add an action name that is not actually
+ * emitted somewhere. Powers the "Money & compliance" preset in the audit page.
+ */
+export const MONEY_AND_COMPLIANCE_ACTIONS = [
+  // Manual and automatic balance movements
+  'account.manual_adjustment',
+  'account.adjustment',
+  'account.balance_deduction',
+  'account.late_payment_interest',
+  'deal.balance_deduction_reversed',
+  // Funding lifecycle (status_change carries approved -> funded -> completed)
+  'deal.status_change',
+  'deal.early_closing_recorded',
+  // EFT transfers
+  'eft.record',
+  'eft.confirm',
+  'eft.remove',
+  // Brokerage payments
+  'brokerage_payment.record',
+  'brokerage_payment.remove',
+  'brokerage_payment.claim_submitted',
+  // Brokerage late strikes
+  'brokerage.late_strike_recorded',
+  'brokerage.late_strikes_reset',
+  // Remediation remittance
+  'remediation_deal.remitted',
+  // KYC compliance decisions
+  'agent.kyc_verify',
+  'agent.kyc_reject',
+  'brokerage.kyc_verify',
+  'brokerage.kyc_revoke',
+] as const
 
 export interface AuditQueryResult {
   data: AuditLogRow[]
@@ -154,6 +198,10 @@ export async function queryAuditLogs(
       countQuery = countQuery.eq('action', filters.action)
       dataQuery = dataQuery.eq('action', filters.action)
     }
+    if (filters.actionIn && filters.actionIn.length > 0) {
+      countQuery = countQuery.in('action', filters.actionIn)
+      dataQuery = dataQuery.in('action', filters.actionIn)
+    }
     if (filters.severity) {
       countQuery = countQuery.eq('severity', filters.severity)
       dataQuery = dataQuery.eq('severity', filters.severity)
@@ -227,6 +275,7 @@ export async function exportAuditLogs(
     if (filters.entityType) query = query.eq('entity_type', filters.entityType)
     if (filters.entityId) query = query.eq('entity_id', filters.entityId)
     if (filters.action) query = query.eq('action', filters.action)
+    if (filters.actionIn && filters.actionIn.length > 0) query = query.in('action', filters.actionIn)
     if (filters.severity) query = query.eq('severity', filters.severity)
     if (filters.actorEmail) query = query.ilike('actor_email', `%${filters.actorEmail}%`)
     if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom)

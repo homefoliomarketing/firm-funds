@@ -172,6 +172,7 @@ export interface Deal {
   version: number
   // Assignment for routing/ownership (migration 083)
   assigned_to_user_id: string | null
+  assigned_at: string | null // migration 100: when an underwriter was assigned
   // EFT funding failure tracking (migration 084)
   funding_failure_reason: string | null
   funding_failed_at: string | null

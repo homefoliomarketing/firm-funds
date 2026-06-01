@@ -12,12 +12,10 @@
 // optimistic-locked on deals.version so two admins clicking "Assign" at the
 // same time don't silently overwrite each other.
 //
-// Overdue note: there is no dedicated `assigned_at` column yet — `updated_at`
-// is used as a proxy for "how long has this deal been sitting." This works in
-// practice because the most-recent edit to an under-review deal IS almost
-// always the assignment (or a status touch that resets the clock). When/if a
-// dedicated assigned_at column lands, getOverdueAssignments should be
-// switched to that.
+// Overdue tracking uses the dedicated `deals.assigned_at` column (migration
+// 100): assignDealToUnderwriter stamps it on assign and clears it on unassign,
+// so an unrelated edit to the deal no longer resets the "how long has this been
+// sitting" clock.
 // ============================================================================
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
@@ -44,6 +42,7 @@ const ASSIGNMENT_DEAL_SELECT = `
   agent_id,
   brokerage_id,
   assigned_to_user_id,
+  assigned_at,
   version,
   created_at,
   updated_at,
@@ -108,7 +107,12 @@ export async function assignDealToUnderwriter(input: {
     // expectedVersion we still write atomically but skip the conflict check.
     let updateQ = serviceClient
       .from('deals')
-      .update({ assigned_to_user_id: input.underwriterUserId })
+      .update({
+        assigned_to_user_id: input.underwriterUserId,
+        // Stamp the assignment time so overdue tracking is not reset by an
+        // unrelated edit. Cleared on unassign.
+        assigned_at: input.underwriterUserId ? new Date().toISOString() : null,
+      })
       .eq('id', input.dealId)
 
     if (typeof input.expectedVersion === 'number') {
@@ -217,16 +221,15 @@ export async function getMyAssignedDeals(): Promise<ActionResult<Deal[]>> {
 // ============================================================================
 // getOverdueAssignments — deals stuck in under_review for too long.
 //
-// NOTE: there's no dedicated assigned_at column yet. We approximate
-// "assigned more than N days ago" via updated_at. Two cases:
+// Two cases, surfaced together as one combined "needs attention" list:
 //   (a) assigned_to_user_id IS NULL and the deal has been in under_review
-//       for > thresholdDays — nobody picked it up.
-//   (b) assigned_to_user_id IS NOT NULL and updated_at is older than
-//       thresholdDays — the assignee touched it last more than N days ago
-//       and the status hasn't progressed past under_review.
+//       since submission (created_at) for > thresholdDays — nobody picked it up.
+//   (b) assigned_to_user_id IS NOT NULL and assigned_at is older than
+//       thresholdDays — the assignee has owned it for more than N days and the
+//       status hasn't progressed past under_review.
 //
-// Both are surfaced together so the admin dashboard can show one combined
-// "needs attention" list.
+// Case (b) uses the dedicated assigned_at column (migration 100), so an
+// unrelated edit to the deal no longer resets the overdue clock.
 // ============================================================================
 export async function getOverdueAssignments(
   thresholdDays = 7,
@@ -243,15 +246,36 @@ export async function getOverdueAssignments(
     const cutoffMs = Date.now() - thresholdDays * 24 * 60 * 60 * 1000
     const cutoffIso = new Date(cutoffMs).toISOString()
 
-    const { data, error } = await serviceClient
+    // (a) Unassigned and sitting since submission.
+    const { data: unassigned, error: unassignedErr } = await serviceClient
       .from('deals')
       .select(ASSIGNMENT_DEAL_SELECT)
       .eq('status', 'under_review')
-      .lt('updated_at', cutoffIso)
-      .order('updated_at', { ascending: true })
+      .is('assigned_to_user_id', null)
+      .lt('created_at', cutoffIso)
 
-    if (error) return { success: false, error: error.message }
-    return { success: true, data: (data || []) as unknown as Deal[] }
+    if (unassignedErr) return { success: false, error: unassignedErr.message }
+
+    // (b) Assigned more than thresholdDays ago and still under review.
+    const { data: assignedStale, error: assignedErr } = await serviceClient
+      .from('deals')
+      .select(ASSIGNMENT_DEAL_SELECT)
+      .eq('status', 'under_review')
+      .not('assigned_to_user_id', 'is', null)
+      .lt('assigned_at', cutoffIso)
+
+    if (assignedErr) return { success: false, error: assignedErr.message }
+
+    const merged = [
+      ...((unassigned || []) as unknown as Deal[]),
+      ...((assignedStale || []) as unknown as Deal[]),
+    ].sort(
+      (a, b) =>
+        new Date(a.created_at as string).getTime() -
+        new Date(b.created_at as string).getTime(),
+    )
+
+    return { success: true, data: merged }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('getOverdueAssignments error:', _msg)

@@ -52,6 +52,29 @@ function getLoginLimiter(): Ratelimit | null {
   return loginLimiter
 }
 
+/**
+ * Login per-EMAIL: 10 attempts per 15 minutes per account.
+ * Sits alongside the per-IP login limiter to throttle distributed
+ * credential-stuffing (many IPs, one target email). Chosen tighter than the
+ * relaxed per-IP limit (20) since a single human only ever drives one email,
+ * but loose enough to survive a handful of legitimate typos plus the
+ * multi-account testing the per-IP comment references. Keyed by normalized
+ * email under a distinct prefix so it never collides with the IP buckets.
+ */
+let loginEmailLimiter: Ratelimit | null = null
+function getLoginEmailLimiter(): Ratelimit | null {
+  const r = getRedis()
+  if (!r) return null
+  if (!loginEmailLimiter) {
+    loginEmailLimiter = new Ratelimit({
+      redis: r,
+      limiter: Ratelimit.slidingWindow(10, '15 m'),
+      prefix: 'rl:login:email',
+    })
+  }
+  return loginEmailLimiter
+}
+
 /** Password change: 3 attempts per 15 minutes per IP */
 let passwordLimiter: Ratelimit | null = null
 function getPasswordLimiter(): Ratelimit | null {
@@ -161,6 +184,17 @@ async function checkLimit(
 /** Check login rate limit (5 per 15 min) */
 export async function checkLoginRateLimit(ip: string): Promise<RateLimitResult> {
   return checkLimit(getLoginLimiter(), ip)
+}
+
+/**
+ * Check login rate limit per EMAIL (10 per 15 min). Normalizes the email
+ * (trim + lowercase) before keying so 'A@B.com ' and 'a@b.com' share a
+ * bucket. Always check this even for emails with no matching account, so it
+ * cannot be used to probe account existence.
+ */
+export async function checkLoginEmailRateLimit(email: string): Promise<RateLimitResult> {
+  const normalized = email.trim().toLowerCase()
+  return checkLimit(getLoginEmailLimiter(), normalized)
 }
 
 /** Check password change rate limit (3 per 15 min) */

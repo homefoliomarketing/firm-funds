@@ -87,6 +87,8 @@ export async function fetchReportMetrics(input: {
   dateRange: 'last_7' | 'last_30' | 'last_90' | 'ytd' | 'all' | 'custom'
   customStart?: string  // ISO date string
   customEnd?: string    // ISO date string
+  status?: string       // optional: restrict to a single deal status
+  brokerageId?: string  // optional: restrict to one brokerage
 }): Promise<ActionResult<ReportMetrics>> {
   const { error: authErr, supabase } = await getAuthenticatedAdmin()
   if (authErr || !supabase) return { success: false, error: authErr || 'Authentication failed' }
@@ -158,6 +160,15 @@ export async function fetchReportMetrics(input: {
     }
     if (dateFilterEnd) {
       query = query.lte('created_at', dateFilterEnd)
+    }
+    // Optional filters: when provided, narrow the deals query. When absent,
+    // behavior is unchanged. Only the rows fetched are filtered; every metric
+    // below is still computed exactly the same way over the returned rows.
+    if (input.status) {
+      query = query.eq('status', input.status)
+    }
+    if (input.brokerageId) {
+      query = query.eq('brokerage_id', input.brokerageId)
     }
 
     const [

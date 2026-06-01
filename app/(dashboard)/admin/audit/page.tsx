@@ -6,13 +6,14 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Shield, Search, X, ChevronLeft, ChevronRight, Download, Filter,
-  Clock, ArrowLeft, ChevronDown, ChevronUp, ArrowRight, Zap
+  Clock, ArrowLeft, ChevronDown, ChevronUp, ArrowRight, Zap, DollarSign
 } from 'lucide-react'
 import { getActionLabel } from '@/lib/audit-labels'
 import {
   queryAuditLogs,
   getDistinctAuditActions,
   getDistinctEntityTypes,
+  MONEY_AND_COMPLIANCE_ACTIONS,
   type AuditLogRow,
   type AuditQueryFilters,
 } from '@/lib/actions/audit-actions'
@@ -104,6 +105,7 @@ interface PresetFilter {
     dateTo: string
     action: string
     actionContains: string
+    actionIn: string[]
     severity: string
   }>
 }
@@ -148,6 +150,16 @@ const QUICK_PRESETS: PresetFilter[] = [
     icon: Zap,
     apply: () => ({ actionContains: 'status_change' }),
   },
+  {
+    key: 'money_compliance',
+    label: 'Money & compliance',
+    icon: DollarSign,
+    // Filters to the explicit set of actions that move a dollar or record a
+    // compliance decision (balance adjustments, funding, EFT, brokerage
+    // payments, late strikes, remediation remittance, KYC verify/reject).
+    // Uses actionIn (PostgREST .in()) since these span many action names.
+    apply: () => ({ actionIn: [...MONEY_AND_COMPLIANCE_ACTIONS] }),
+  },
 ]
 
 // ============================================================================
@@ -188,6 +200,10 @@ function AuditExplorerInner() {
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') ?? '')
   const [severity, setSeverity] = useState(searchParams.get('severity') ?? '')
   const [actionFilter, setActionFilter] = useState(searchParams.get('action') ?? '')
+  // Set of action strings to match (used by the "Money & compliance" preset).
+  // Empty array means "not applied". Driven by presets only, not the manual
+  // filter panel, so it has no URL seed.
+  const [actionInFilter, setActionInFilter] = useState<string[]>([])
   const [entityTypeFilter, setEntityTypeFilter] = useState(searchParams.get('entityType') ?? '')
   const [actorEmailFilter, setActorEmailFilter] = useState(searchParams.get('actorEmail') ?? '')
   const [dateFrom, setDateFrom] = useState(searchParams.get('dateFrom') ?? '')
@@ -249,6 +265,7 @@ function AuditExplorerInner() {
     if (searchQuery.trim()) filters.search = searchQuery.trim()
     if (severity) filters.severity = severity as AuditQueryFilters['severity']
     if (actionFilter) filters.action = actionFilter
+    if (actionInFilter.length > 0) filters.actionIn = actionInFilter
     if (entityTypeFilter) filters.entityType = entityTypeFilter
     if (actorEmailFilter.trim()) filters.actorEmail = actorEmailFilter.trim()
     if (dateFrom) filters.dateFrom = dateFrom
@@ -262,7 +279,7 @@ function AuditExplorerInner() {
       setTotal(result.total)
     }
     setLoading(false)
-  }, [user, searchQuery, severity, actionFilter, entityTypeFilter, actorEmailFilter, dateFrom, dateTo, page])
+  }, [user, searchQuery, severity, actionFilter, actionInFilter, entityTypeFilter, actorEmailFilter, dateFrom, dateTo, page])
 
   useEffect(() => {
     loadData()
@@ -270,7 +287,7 @@ function AuditExplorerInner() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, severity, actionFilter, entityTypeFilter, actorEmailFilter, dateFrom, dateTo])
+  }, [searchQuery, severity, actionFilter, actionInFilter, entityTypeFilter, actorEmailFilter, dateFrom, dateTo])
 
   const handleExport = async (format: 'csv' | 'json') => {
     setExporting(true)
@@ -280,6 +297,9 @@ function AuditExplorerInner() {
       if (searchQuery.trim()) params.set('search', searchQuery.trim())
       if (severity) params.set('severity', severity)
       if (actionFilter) params.set('action', actionFilter)
+      // Pass each action in the set as a repeated actionIn param so the
+      // export route can rebuild the same .in() filter.
+      actionInFilter.forEach(a => params.append('actionIn', a))
       if (entityTypeFilter) params.set('entityType', entityTypeFilter)
       if (actorEmailFilter.trim()) params.set('actorEmail', actorEmailFilter.trim())
       if (dateFrom) params.set('dateFrom', dateFrom)
@@ -317,6 +337,7 @@ function AuditExplorerInner() {
     setSearchQuery('')
     setSeverity('')
     setActionFilter('')
+    setActionInFilter([])
     setEntityTypeFilter('')
     setActorEmailFilter('')
     setDateFrom('')
@@ -332,6 +353,7 @@ function AuditExplorerInner() {
     setSearchQuery(next.actionContains ?? '')
     setSeverity(next.severity ?? '')
     setActionFilter(next.action ?? '')
+    setActionInFilter(next.actionIn ?? [])
     setEntityTypeFilter('')
     setActorEmailFilter('')
     setDateFrom(next.dateFrom ?? '')
@@ -340,7 +362,7 @@ function AuditExplorerInner() {
     setPage(1)
   }
 
-  const hasActiveFilters = searchQuery || severity || actionFilter || entityTypeFilter || actorEmailFilter || dateFrom || dateTo
+  const hasActiveFilters = searchQuery || severity || actionFilter || actionInFilter.length > 0 || entityTypeFilter || actorEmailFilter || dateFrom || dateTo
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   const navigateToEntity = (entityType: string, entityId: string | null) => {
