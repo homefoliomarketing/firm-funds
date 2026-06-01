@@ -39,14 +39,14 @@ describe('calculateDeal — documented worked examples', () => {
     })
 
     expect(result.netCommission).toBe(47_500.0)
-    expect(result.effectiveDays).toBe(29)
-    expect(result.discountFee).toBe(1_102.0)
+    expect(result.effectiveDays).toBe(30)
+    expect(result.discountFee).toBe(1_140.0)
     expect(result.settlementPeriodFee).toBe(266.0)
-    expect(result.totalFees).toBe(1_368.0)
-    expect(result.advanceAmount).toBe(46_132.0)
-    expect(result.brokerageReferralFee).toBe(273.6)
-    expect(result.firmFundsProfit).toBe(1_094.4)
-    expect(result.amountDueFromBrokerage).toBe(47_226.4)
+    expect(result.totalFees).toBe(1_406.0)
+    expect(result.advanceAmount).toBe(46_094.0)
+    expect(result.brokerageReferralFee).toBe(281.2)
+    expect(result.firmFundsProfit).toBe(1_124.8)
+    expect(result.amountDueFromBrokerage).toBe(47_218.8)
   })
 
   it('Worked example B: same gross, 2-day timeline', () => {
@@ -59,11 +59,11 @@ describe('calculateDeal — documented worked examples', () => {
       settlementPeriodDays: 7,
     })
 
-    expect(result.effectiveDays).toBe(1)
-    expect(result.discountFee).toBe(38.0)
+    expect(result.effectiveDays).toBe(2)
+    expect(result.discountFee).toBe(76.0)
     expect(result.settlementPeriodFee).toBe(266.0)
-    expect(result.totalFees).toBe(304.0)
-    expect(result.advanceAmount).toBe(47_196.0)
+    expect(result.totalFees).toBe(342.0)
+    expect(result.advanceAmount).toBe(47_158.0)
   })
 })
 
@@ -135,11 +135,12 @@ describe('calculateDeal — input boundaries', () => {
 })
 
 describe('getChargeDays', () => {
-  // Rule: Math.max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
+  // Rule: Math.max(1, daysUntilClosing + RETURN_PROCESSING_DAYS).
+  // Funding day not charged (funds arrive next day); closing day IS charged.
   it('matches documented examples (RETURN_PROCESSING_DAYS=0)', () => {
     expect(RETURN_PROCESSING_DAYS).toBe(0) // pin the assumption the examples rely on
-    expect(getChargeDays(30)).toBe(29)
-    expect(getChargeDays(2)).toBe(1)
+    expect(getChargeDays(30)).toBe(30)
+    expect(getChargeDays(2)).toBe(2)
   })
 
   it('clamps to a minimum of 1', () => {
@@ -148,8 +149,8 @@ describe('getChargeDays', () => {
     expect(getChargeDays(-5)).toBe(1)
   })
 
-  it('large value yields n-1 (+ processing days)', () => {
-    expect(getChargeDays(120)).toBe(120 - 1 + RETURN_PROCESSING_DAYS)
+  it('large value yields n (+ processing days)', () => {
+    expect(getChargeDays(120)).toBe(120 + RETURN_PROCESSING_DAYS)
   })
 })
 

@@ -97,7 +97,9 @@ export function estimateAdvanceFromGross(
   daysUntilClosing: number
 ): number {
   if (!Number.isFinite(grossCommission) || grossCommission <= 0) return 0
-  const effectiveDays = Math.max(1, Math.floor(daysUntilClosing) - 1)
+  // Funding day not charged (funds arrive next day); closing day IS charged.
+  // Mirrors getChargeDays in lib/calculations.ts.
+  const effectiveDays = Math.max(1, Math.floor(daysUntilClosing))
   const discountFee = grossCommission * (RATE_PER_1000_PER_DAY / 1000) * effectiveDays
   const settlementFee = grossCommission * (RATE_PER_1000_PER_DAY / 1000) * DEFAULT_SETTLEMENT_DAYS
   return Math.max(0, Math.round(grossCommission - discountFee - settlementFee))

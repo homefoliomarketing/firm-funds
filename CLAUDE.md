@@ -44,7 +44,7 @@ You don't need to ask permission to push to git. Just send it if we are completi
 
 ## Financial Rules
 
-- Discount rate: $0.80 per $1,000 per day. Effective chargeable days = days_until_closing - 1 via `getChargeDays()` in `lib/calculations.ts` (closing day not charged)
+- Discount rate: $0.80 per $1,000 per day. Effective chargeable days = days_until_closing via `getChargeDays()` in `lib/calculations.ts` (funding day not charged since funds arrive the next day; closing day IS charged since repayment is not received that day)
 - Late payment interest: 24% per annum **true APR**, compounded daily as `(1.24)^(1/365) - 1`, accrual starts day 31 after closing (30-day grace)
 - Settlement window: 7 days standard, snapshotted at submission into `deals.settlement_days_at_funding`. Auto-bumps to 14 days after 5 manual strikes on a brokerage.
 - Deal status flow: `under_review → approved → funded → completed`. Failed deals: `funded → failed_to_close → cured` (after remediation IDP fully paid).

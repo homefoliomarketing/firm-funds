@@ -319,15 +319,15 @@ Full Q+A drafts are below. Plain language, no em dashes, no jargon.
 **Q1. How is my advance calculated?**
 We start with your net commission, which is the gross commission minus
 your brokerage's split. We charge a discount fee of $0.80 per $1,000
-per day for every day from funding through the day before closing.
-We also charge a settlement period fee at the same daily rate for the
-standard 7-day window after closing. Your advance is the net
+per day for every day from the day after funding through and including
+the closing day. We also charge a settlement period fee at the same daily
+rate for the standard 7-day window after closing. Your advance is the net
 commission minus those two fees. The math lives in `lib/calculations.ts`.
 
-**Q2. Why is the closing day not charged?**
-Closing day is the day you repay us, not a day we are still carrying
-the money. The math charges from funding up to and including the day
-before closing. So a 30-day deal carries 29 charge days, not 30.
+**Q2. Which days are charged?**
+Your funds arrive the day after we fund the deal, so the funding day is not
+charged. Closing day is charged, because that is not the day we are repaid:
+your brokerage remits afterward. So a 30-day deal carries 30 charge days.
 
 **Q3. What happens if my deal falls through?**
 We move the deal to `failed_to_close` and email you within minutes.

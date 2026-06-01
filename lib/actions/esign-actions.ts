@@ -165,10 +165,10 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{TOTAL_FEES}}': formatCurrency((deal.discount_fee || 0) + (deal.settlement_period_fee || 0)),
       // The CPA's printed discount calculation must reconcile with what is
       // actually charged. effectiveDays = getChargeDays(days_until_closing) =
-      // days_until_closing - 1 + RETURN_PROCESSING_DAYS. Article 3.2's text
+      // days_until_closing + RETURN_PROCESSING_DAYS. Article 3.2's text
       // describes the period as "from the day following the Funding Date to
-      // the day before the Expected Closing Date" so the count matches the
-      // charged days (closing day itself is not charged).
+      // and including the Expected Closing Date" so the count matches the
+      // charged days (funding day not charged; closing day IS charged).
       '{{NUMBER_OF_DAYS}}': deal.days_until_closing
         ? getChargeDays(deal.days_until_closing).toString()
         : 'N/A',

@@ -37,15 +37,16 @@ function Body() {
         <strong className="text-primary">
           ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)} per $1,000 per day
         </strong>
-        , charged against the net commission. Closing day itself is not
-        charged because that is the day we get repaid, not a day we are still
-        carrying the money. So a deal scheduled to close in 30 days has 29
-        chargeable days, not 30.
+        , charged against the net commission. The funding day itself is not
+        charged, because your funds arrive the day after we fund the deal.
+        Closing day is charged, because that is not the day we are repaid: your
+        brokerage remits to us within the settlement window after closing. So a
+        deal scheduled to close in 30 days has 30 chargeable days.
       </p>
       <p>
-        On a $47,500 net commission for 29 chargeable days, the discount fee
-        is $47,500 times 0.0008 times 29, which is{' '}
-        <strong className="text-primary">$1,102.00</strong>.
+        On a $47,500 net commission for 30 chargeable days, the discount fee
+        is $47,500 times 0.0008 times 30, which is{' '}
+        <strong className="text-primary">$1,140.00</strong>.
       </p>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">
@@ -66,10 +67,10 @@ function Body() {
         Step 4: Subtract fees from the net to get the advance
       </h2>
       <p>
-        Add the two fees together: $1,102.00 plus $266.00 is $1,368.00 in
+        Add the two fees together: $1,140.00 plus $266.00 is $1,406.00 in
         total fees. Take that off the net commission and the advance you
         receive is{' '}
-        <strong className="text-primary">$46,132.00</strong>. That is the
+        <strong className="text-primary">$46,094.00</strong>. That is the
         amount that lands in your account; the brokerage settles the full net
         commission with us within the settlement window after closing.
       </p>
@@ -84,15 +85,16 @@ function Body() {
       </HelpCallout>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">
-        Why the closing day is not charged
+        Which days are charged
       </h2>
       <p>
-        Funds arrive in your account the day after we fund the deal, and
-        closing day is the day the brokerage remits to us. So the charge
-        period runs from the day you receive funds up to and including the
-        day before closing. The math always uses days until closing minus 1,
-        with a minimum of 1 day so very short deals still pay at least one
-        day of carry.
+        Funds arrive in your account the day after we fund the deal, so the
+        funding day itself is not charged. Closing day is charged, because that
+        is not the day we are repaid: your brokerage remits to us within the
+        settlement window after closing. So the charge period runs from the day
+        you receive funds up to and including the closing day. The math uses
+        days until closing, with a minimum of 1 day so very short deals still
+        pay at least one day of carry.
       </p>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">

@@ -46,21 +46,21 @@ Both conventions are enforced by validation in `validateDealInputs()`.
 ## 3. Chargeable days: `getChargeDays()`
 
 ```
-getChargeDays(daysUntilClosing) = max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
+getChargeDays(daysUntilClosing) = max(1, daysUntilClosing + RETURN_PROCESSING_DAYS)
 ```
 
-The discount fee is charged per day, but not for every calendar day until closing. Two days are conceptually removed:
+The discount fee is charged for each day the advance is outstanding, which runs from the day after funding through and including the closing day:
 
-- The agent receives the funds the day **after** funding.
-- The closing day itself is the repayment day and is not charged.
+- The **funding day** is not charged, because the agent receives the funds the day **after** funding.
+- The **closing day** is charged, because repayment is not received on the closing day (the brokerage remits afterward).
 
-With `RETURN_PROCESSING_DAYS = 0`, the effective chargeable days equal `daysUntilClosing - 1`. The `max(1, ...)` floor guarantees at least one chargeable day so a same-week deal never produces a zero or negative fee.
+The chargeable period from the day after funding through the closing day inclusive equals `daysUntilClosing`. With `RETURN_PROCESSING_DAYS = 0`, the effective chargeable days equal `daysUntilClosing`. The `max(1, ...)` floor guarantees at least one chargeable day so a same-week deal never produces a zero or negative fee.
 
 | `daysUntilClosing` | Effective chargeable days |
 | --- | --- |
-| 30 | 29 |
-| 7 | 6 |
-| 2 (minimum) | 1 |
+| 30 | 30 |
+| 7 | 7 |
+| 2 (minimum) | 2 |
 
 ## 4. The full deal calculation: `calculateDeal()`
 
@@ -111,14 +111,14 @@ Inputs: gross commission $50,000, split 5%, 30 days until closing, default rate 
 | Step | Calculation | Result |
 | --- | --- | --- |
 | Net commission | 50,000 x (1 - 0.05) | $47,500.00 |
-| Effective days | max(1, 30 - 1) | 29 |
-| Discount fee | 47,500 x 0.0008 x 29 | $1,102.00 |
+| Effective days | max(1, 30) | 30 |
+| Discount fee | 47,500 x 0.0008 x 30 | $1,140.00 |
 | Settlement period fee | 47,500 x 0.0008 x 7 | $266.00 |
-| Total fees | 1,102.00 + 266.00 | $1,368.00 |
-| Advance amount | 47,500 - 1,368 | $46,132.00 |
-| Brokerage referral fee | 1,368 x 0.20 | $273.60 |
-| Firm Funds profit | 1,368 - 273.60 | $1,094.40 |
-| Amount due from brokerage | 47,500 - 273.60 | $47,226.40 |
+| Total fees | 1,140.00 + 266.00 | $1,406.00 |
+| Advance amount | 47,500 - 1,406 | $46,094.00 |
+| Brokerage referral fee | 1,406 x 0.20 | $281.20 |
+| Firm Funds profit | 1,406 - 281.20 | $1,124.80 |
+| Amount due from brokerage | 47,500 - 281.20 | $47,218.80 |
 
 ### Worked example B: same gross, but only 2 days until closing
 

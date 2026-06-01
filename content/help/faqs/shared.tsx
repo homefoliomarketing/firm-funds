@@ -21,8 +21,9 @@ function HowIsAdvanceCalculated() {
         <span className="text-primary">
           ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)} per $1,000 per day
         </span>{' '}
-        for every day from funding through the day before closing. We also
-        charge a settlement period fee at the same daily rate for the standard{' '}
+        for every day from the day after funding through and including the
+        closing day. We also charge a settlement period fee at the same daily
+        rate for the standard{' '}
         {SETTLEMENT_PERIOD_DAYS}-day window after closing. Your advance is the
         net commission minus those two fees.
       </p>
@@ -41,18 +42,19 @@ function HowIsAdvanceCalculated() {
   )
 }
 
-function WhyIsClosingDayNotCharged() {
+function WhichDaysAreCharged() {
   return (
     <>
       <p className="text-foreground">
-        Closing day is the day you repay us, not a day we are still carrying
-        the money. The math charges from funding up to and including the day
-        before closing.
+        We charge for every day the advance is in your hands. Your funds arrive
+        the day after we fund the deal, so the funding day is not charged.
+        Closing day is charged, because that is not the day we are repaid: your
+        brokerage remits to us within the settlement window after closing.
       </p>
       <p className="text-muted-foreground">
-        So a 30-day deal carries 29 charge days, not 30. The helper{' '}
-        <code>getChargeDays()</code> in <code>lib/calculations.ts</code>{' '}
-        subtracts one from the days until closing.
+        So a 30-day deal carries 30 charge days. The helper{' '}
+        <code>getChargeDays()</code> in <code>lib/calculations.ts</code> counts
+        from the day after funding through and including the closing day.
       </p>
     </>
   )
@@ -251,13 +253,13 @@ export const sharedFaqs: HelpFaq[] = [
     updatedAt: '2026-05-29',
   },
   {
-    id: 'why-is-closing-day-not-charged',
+    id: 'which-days-are-charged',
     role: 'shared',
     category: 'money-and-policy',
-    question: 'Why is the closing day not charged?',
-    Answer: WhyIsClosingDayNotCharged,
+    question: 'Which days are charged?',
+    Answer: WhichDaysAreCharged,
     related: ['how-the-advance-is-calculated'],
-    updatedAt: '2026-05-29',
+    updatedAt: '2026-06-01',
   },
   {
     id: 'what-happens-if-deal-falls-through',

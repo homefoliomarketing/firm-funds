@@ -110,17 +110,20 @@ function roundToCents(value: number): number {
 
 /**
  * Returns the number of chargeable days used for the discount fee, given
- * days-until-closing. Funds arrive the day AFTER funding and closing day
- * itself isn't charged, so effective days = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS.
+ * days-until-closing. The agent receives the funds the day AFTER the Funding
+ * Date, so the Funding Date itself is not charged. The Closing Date IS charged,
+ * because repayment is not received until after closing. The chargeable period
+ * therefore runs from the day after funding through and including the closing
+ * day, which equals daysUntilClosing (+ RETURN_PROCESSING_DAYS).
  * Minimum of 1 to prevent zero/negative charges.
  *
  * Worked example: daysUntilClosing = 30, RETURN_PROCESSING_DAYS = 0
- *   → chargeDays = max(1, 30 - 1 + 0) = 29 days.
+ *   → chargeDays = max(1, 30 + 0) = 30 days.
  * Worked example: daysUntilClosing = 2 (minimum), RETURN_PROCESSING_DAYS = 0
- *   → chargeDays = max(1, 2 - 1 + 0) = 1 day.
+ *   → chargeDays = max(1, 2 + 0) = 2 days.
  */
 export function getChargeDays(daysUntilClosing: number): number {
-  return Math.max(1, daysUntilClosing - 1 + RETURN_PROCESSING_DAYS)
+  return Math.max(1, daysUntilClosing + RETURN_PROCESSING_DAYS)
 }
 
 /** Validate deal calculation inputs. Throws if invalid. */
@@ -152,20 +155,20 @@ function validateDealInputs(input: DealCalculation): void {
  *   grossCommission $50,000, brokerageSplitPct = 5 (5%), daysUntilClosing = 30,
  *   rate = $0.80/$1,000/day, referralPct = 0.20, settlementPeriodDays = 7.
  *   netCommission = 50,000 × (1 - 0.05) = $47,500.00
- *   effectiveDays = max(1, 30 - 1) = 29
- *   discountFee = 47,500 × 0.0008 × 29 = $1,102.00
+ *   effectiveDays = max(1, 30) = 30
+ *   discountFee = 47,500 × 0.0008 × 30 = $1,140.00
  *   settlementPeriodFee = 47,500 × 0.0008 × 7 = $266.00
- *   totalFees = $1,368.00; advanceAmount = 47,500 - 1,368 = $46,132.00
- *   brokerageReferralFee = 1,368 × 0.20 = $273.60
- *   firmFundsProfit = 1,368 - 273.60 = $1,094.40
- *   amountDueFromBrokerage = 47,500 - 273.60 = $47,226.40
+ *   totalFees = $1,406.00; advanceAmount = 47,500 - 1,406 = $46,094.00
+ *   brokerageReferralFee = 1,406 × 0.20 = $281.20
+ *   firmFundsProfit = 1,406 - 281.20 = $1,124.80
+ *   amountDueFromBrokerage = 47,500 - 281.20 = $47,218.80
  *
  * Worked example B — same gross, MUCH shorter timeline:
  *   grossCommission $50,000, brokerageSplitPct = 5, daysUntilClosing = 2.
- *   effectiveDays = max(1, 2 - 1) = 1
- *   discountFee = 47,500 × 0.0008 × 1 = $38.00
- *   settlementPeriodFee unchanged = $266.00; totalFees = $304.00.
- *   advanceAmount = $47,196.00 (much higher payout — small carrying cost).
+ *   effectiveDays = max(1, 2) = 2
+ *   discountFee = 47,500 × 0.0008 × 2 = $76.00
+ *   settlementPeriodFee unchanged = $266.00; totalFees = $342.00.
+ *   advanceAmount = $47,158.00 (much higher payout — small carrying cost).
  */
 export function calculateDeal(input: DealCalculation): DealResult {
   // Validate inputs
@@ -175,8 +178,9 @@ export function calculateDeal(input: DealCalculation): DealResult {
   const referralPct = input.brokerageReferralPct ?? DEFAULT_BROKERAGE_REFERRAL_PCT
   const settlementDays = input.settlementPeriodDays ?? SETTLEMENT_PERIOD_DAYS
 
-  // -1 because: agent receives funds day AFTER funding, and closing day is repayment (not charged)
-  // So: days charged = daysUntilClosing - 1 + RETURN_PROCESSING_DAYS (see getChargeDays)
+  // Funding day is not charged (agent receives funds the next day); the closing
+  // day IS charged (repayment is not received until after closing). So days
+  // charged = daysUntilClosing + RETURN_PROCESSING_DAYS (see getChargeDays).
   const effectiveDays = getChargeDays(input.daysUntilClosing)
 
   // Round in dependency order so the returned cent values satisfy the
