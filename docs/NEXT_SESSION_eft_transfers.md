@@ -11,7 +11,7 @@ before we migrated that to a real table:
 the JSONB array, mutate it in JavaScript, and write the whole array back.
 Two admins (or one admin with two browser tabs) recording transfers
 concurrently both read `[a, b]`, both compute `[a, b, c]` vs `[a, b, d]`,
-and the last writer wins — one transfer disappears silently. Worse,
+and the last writer wins, one transfer disappears silently. Worse,
 `confirmEftTransfer` and `removeEftTransfer` index into the array by
 integer position, so a concurrent insert + confirm at the same time can
 confirm or delete a row the admin did not intend.
@@ -64,18 +64,18 @@ CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.eft_transfers, '[]'::jsonb)) 
 ```
 
 Rename the JSONB column to `eft_transfers_legacy_jsonb` (rollback safety
-net — same pattern session 7 used for `brokerage_payments`). Don't drop it.
+net, same pattern session 7 used for `brokerage_payments`). Don't drop it.
 
 Enable RLS and add an admin-only policy mirroring the
 `brokerage_payments_admin_select` / `brokerage_payments_admin_insert` /
 `brokerage_payments_admin_update` / `brokerage_payments_admin_delete`
-pattern from migration 055. EFT transfers are admin-only — no agent or
+pattern from migration 055. EFT transfers are admin-only, no agent or
 brokerage RLS needed.
 
 `pg_dump`-friendly tip: this migration has multiple statements, so it
 cannot run via `npx supabase db query -f file.sql`. Use the pg client
 pattern documented in `docs/REMEDIATION_PLAN.md` (or `scripts/backup-db.mjs`
-as a starting point) — open a connection, `BEGIN`, run the SQL, `COMMIT`.
+as a starting point), open a connection, `BEGIN`, run the SQL, `COMMIT`.
 
 ### 2. Rewrite the three actions in `lib/actions/admin-actions.ts`
 
@@ -121,7 +121,7 @@ messages, but mirror it in the DB CHECK constraint as belt-and-suspenders
 
 - Reconciliation drift = 0 against agents (run the SQL in `CLAUDE.md`).
 - `npx tsc --noEmit` clean.
-- `next build` clean (Netlify TS is stricter than tsc — careful with
+- `next build` clean (Netlify TS is stricter than tsc, careful with
   null checks on the new embed).
 - Manually confirm via the admin UI: record an EFT, confirm it, remove
   it. Each step should round-trip correctly and show in the audit log.
@@ -132,7 +132,7 @@ messages, but mirror it in the DB CHECK constraint as belt-and-suspenders
 ### 5. Pre-session housekeeping
 
 ```bash
-# Take a snapshot first — financial code, take no chances.
+# Take a snapshot first, financial code, take no chances.
 node scripts/backup-db.mjs --label pre-session-N-eft-transfers
 ```
 
@@ -143,7 +143,7 @@ existing branch pattern: `claude/<some-name>` is fine.
 
 EFT transfers are how Bud actually moves money to the agent. If a confirm
 race silently flips the wrong transfer's `confirmed` flag, an unconfirmed
-transfer reads as paid in admin UIs — Bud thinks he sent the wire when he
+transfer reads as paid in admin UIs, Bud thinks he sent the wire when he
 didn't. Or vice versa: a confirmed transfer reads as unsent and gets sent
 twice. Either is a real-money loss.
 
@@ -155,7 +155,7 @@ admins it's a guaranteed disaster within a month.
 
 - Don't touch the funded-deal amendment fee math. Session 9 already
   rewrote that.
-- Don't drop the `eft_transfers_legacy_jsonb` column — leave it as
+- Don't drop the `eft_transfers_legacy_jsonb` column, leave it as
   rollback safety net. A separate migration can drop it after we've
   verified the table is the source of truth in production for a few
   weeks.
