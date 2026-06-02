@@ -1,6 +1,6 @@
 # Authentication and Authorization
 
-_Last updated: 2026-06-01_
+_Last updated: 2026-06-02_
 
 This document explains how Firm Funds authenticates users, how it determines a user's role and access, how the request proxy gates routes, and how Row Level Security and the service-role client divide security responsibilities.
 
@@ -97,6 +97,65 @@ Read-only actions keep `getAuthenticatedAdmin()` (every internal tier holds the 
 ### Route gating
 
 `ADMIN_ROUTE_CAPABILITIES` in `lib/access.ts` lists `/admin` sub-paths that need more than read access (`/admin/balance-adjustment` and `/admin/payments` need `money.write`; `/admin/audit` needs `audit.read`). The proxy bounces a staffer lacking the capability back to `/admin` (not signed out). The pages re-check as defense in depth, and the admin dashboard hides nav links a tier cannot use. Assigning tiers and inviting new staff is the Owner-only `/admin/staff` page (`roles.manage`), backed by `lib/actions/staff-role-actions.ts`.
+
+## Impersonation (view as user)
+
+_Added 2026-06-02 (migration 103)._
+
+"View as user" lets an Owner view the app **as** a specific agent or brokerage user to diagnose problems ("I can't see my deal", "the form won't submit"). It carries four guarantees:
+
+- **Look-only.** Every write is blocked while a view-as is active. The Owner can see exactly what the target sees, but cannot change anything on their behalf.
+- **Owner-only.** Gated by the `impersonate` capability (migration 102), which only the Owner tier holds.
+- **Time-limited.** A hard 30-minute cap (`IMPERSONATION_MAX_DURATION_MS` in `lib/constants.ts`). The on-screen banner counts down to it and auto-exits at zero.
+- **Fully audited.** Start, stop, and any blocked action are written to the audit log, always attributed to the real staffer.
+
+Crucially, the Owner's real Supabase auth cookie is **never touched**, so the staffer stays the actor and audit subject everywhere automatically. The target's credentials are never read or changed.
+
+### Source of truth
+
+A view-as is "on" when there is an **active** row in `impersonation_sessions` (migration 103): `ended_at IS NULL` and `expires_at` in the future, keyed by the real (JWT-verified) user id. A partial unique index (`real_user_id WHERE ended_at IS NULL`) guarantees at most one active session per staffer, so "am I viewing as someone?" is simply "is there an active, unexpired row for `auth.uid()`?". There is nothing to forge: the state lives entirely in this table, written only by the service-role client.
+
+### Gating
+
+Starting a session requires the `impersonate` capability (Owner only). The start endpoint (`app/api/impersonation/start/route.ts`) uses `getAuthenticatedCapable('impersonate')`, and `resolveActiveImpersonation` re-checks the capability on every read. Because only Owners can hold the capability, only Owners ever incur the per-request session lookup; for every normal user the impersonation resolution short-circuits to a no-op with no database hit.
+
+### Read path: the identity swap
+
+Server-side, `getAuthenticatedUser()` (`lib/auth-helpers.ts`) swaps the returned `user` + `profile` to the **target** when a session is active, so server components and read actions return the target's data. It also sets `isImpersonating` and carries the actual staffer in `realUser` / `realProfile`. Client-side, the browser Supabase factory (`lib/supabase/client.ts`) overrides `auth.getUser()` to report the target when the non-httpOnly `ff_view_as` hint cookie is present, so the client-rendered dashboards (which resolve their own identity in the browser) render the target's world without each page needing to know about impersonation.
+
+This identity swap is **UI-only**, not a security boundary. RLS is still evaluated on the **real** `auth.uid()` (an Owner is a `super_admin`, who can already read everything), and the dashboards' explicit `agent_id` / `brokerage_id` filters scope the visible data to the target. A forged or hand-edited `ff_view_as` cookie therefore cannot widen what the real user is allowed to read: the worst it can do is point the UI's filters at a different id the Owner could already query directly.
+
+### Write block: look-only
+
+The block lives at the **action layer**, not the transport, because Server Actions are POST whether they read or write (the dashboards read their data via Server Action POSTs, so blocking POST at the proxy would break the faithful view that impersonation exists to provide). Three mechanisms enforce look-only:
+
+- **Self-service writes.** Agent and brokerage WRITE actions use `getAuthenticatedWriter` instead of `getAuthenticatedUser`; it returns a look-only error when `isImpersonating` is set. Reads keep using `getAuthenticatedUser` so the target's world still renders.
+- **Admin / money / destructive actions** are blocked automatically: the swapped target holds no admin role or capability, so `getAuthenticatedAdmin` / `getAuthenticatedCapable` deny (the swapped identity is a non-privileged agent or brokerage user, and `getAuthenticatedUser` returns an error rather than swapping when the caller asks for a role the target does not hold).
+- **Credential changes** (`changePassword` / `updateEmail`) operate on the cookie session, which is always the real Owner, never the target.
+
+The proxy adds a coarse safety net on top: while a view-as is active it blocks every state-changing `/api/*` request (allowlist: `/api/impersonation/stop` and `/api/session-heartbeat`), confines the Owner to the target's role routes (a `POST` to `/admin/*` and the like is redirected to the target's dashboard, which also prevents admin Server Actions from running), and softens an internal-admin route-role mismatch to a redirect to `/admin` instead of a sign-out (so an expired view-as bounces the Owner home rather than logging them out).
+
+### Banner and time limit
+
+`components/ImpersonationBanner.tsx` is mounted once in `app/(dashboard)/layout.tsx` via `getViewContext()`, so it appears on every dashboard page during a view-as. It shows "Viewing as <name>", a live countdown to the hard expiry (`IMPERSONATION_MAX_DURATION_MS` = 30 minutes), and an Exit button. The countdown auto-fires Exit at zero; Exit ends the session server-side and hard-reloads to `/admin` so the browser drops the view-as identity entirely.
+
+### Logout ends it
+
+The `/api/session-heartbeat` DELETE handler (fired just before logout) ends any active session (`ended_reason = 'logout'`) and clears the hint cookie, so a view-as never silently resumes on the staffer's next login (the session is keyed to the real user id, which is stable across logins).
+
+### Audit
+
+Three actions are emitted, always attributed to the **real** staffer (the actor columns `user_id` / `actor_email` / `actor_role` stay the Owner):
+
+- `impersonation.start` (critical), on start.
+- `impersonation.stop` (warning), on Exit, logout, or expiry-driven end.
+- `impersonation.blocked` (warning), when a state-changing request is blocked by the proxy.
+
+The target is recorded separately in `audit_log.impersonated_target_id` (migration 103), so a reviewer can filter the log to "everything that happened while viewing as X".
+
+### Entry point
+
+The only way to start a view-as today is an Owner-only "View as this agent" button (`components/admin/ViewAsAgentButton`) on the admin deal detail page (`app/(dashboard)/admin/deals/[id]/page.tsx`), which targets the deal's agent. The button is gated by a `hasCapability(profile, 'impersonate')` check.
 
 ## Request proxy: route gating
 

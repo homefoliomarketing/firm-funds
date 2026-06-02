@@ -11,6 +11,7 @@ import {
   INTERNAL_ADMIN_ROLES,
   type Capability,
 } from '@/lib/access'
+import { resolveActiveImpersonation } from '@/lib/impersonation'
 import type { AgentStatus, BrokerageStatus, UserProfile, UserRole } from '@/types/database'
 
 // ============================================================================
@@ -22,6 +23,14 @@ interface AuthResult {
   user: User | null
   profile: UserProfile | null
   supabase: SupabaseClient
+  // Impersonation ("view as user"). When an Owner is viewing-as another user,
+  // `user`/`profile` are swapped to the TARGET so read paths render the
+  // target's data, `isImpersonating` is true, and `realUser`/`realProfile`
+  // carry the actual signed-in staffer (who remains the audit actor). For
+  // normal requests these are false/undefined and behavior is unchanged.
+  isImpersonating?: boolean
+  realUser?: User | null
+  realProfile?: UserProfile | null
 }
 
 interface AgentAccessRecord {
@@ -77,6 +86,29 @@ export async function getAuthenticatedCapable(capability: Capability): Promise<A
 }
 
 /**
+ * Like getAuthenticatedUser, but for MUTATIONS. Refuses while the caller is
+ * viewing-as another user (impersonation is look-only). Use this in agent /
+ * brokerage self-service WRITE actions so an Owner who is "viewing as" the user
+ * cannot change the target's data. Reads keep using getAuthenticatedUser so
+ * dashboards still render the target's world.
+ *
+ * Admin/money/destructive actions do not need this: they go through
+ * getAuthenticatedAdmin / getAuthenticatedCapable, which already deny during a
+ * view-as (the resolved target holds no admin role / capabilities).
+ */
+export async function getAuthenticatedWriter(requiredRoles?: readonly UserRole[]): Promise<AuthResult> {
+  const result = await getAuthenticatedUser(requiredRoles)
+  if (result.error) return result
+  if (result.isImpersonating) {
+    return {
+      ...result,
+      error: 'You are viewing as another user (look-only) and cannot make changes. Exit view-as first.',
+    }
+  }
+  return result
+}
+
+/**
  * Get the current authenticated user with optional role check.
  * If requiredRoles is provided, verifies the user has one of those roles.
  */
@@ -104,11 +136,56 @@ export async function getAuthenticatedUser(requiredRoles?: readonly UserRole[]):
     return { error: statusError, user, profile, supabase }
   }
 
+  // Reconcile the REAL identity's email before any impersonation swap, so the
+  // cross-device safety net never runs against the target's profile.
+  await maybeReconcileEmail(user, profile)
+
+  // Impersonation ("view as user"). Only Owners can have an active session
+  // (resolveActiveImpersonation returns null otherwise without a DB hit), so
+  // this is a no-op for every normal user and preserves existing behavior.
+  const impersonation = await resolveActiveImpersonation(profile)
+  if (impersonation) {
+    const targetProfile = impersonation.targetProfile
+
+    // Admin/elevated callers (requiredRoles the target does NOT hold, e.g.
+    // getAuthenticatedAdmin / getAuthenticatedCapable) are BLOCKED while
+    // viewing-as: the staffer is "being" a non-privileged user and must Exit
+    // first. This is the code-level half of the look-only guarantee (the proxy
+    // blocks the transport). Read paths that the target legitimately holds
+    // (e.g. an agent page calling getAuthenticatedUser(['agent'])) fall through
+    // and render the target's data.
+    if (requiredRoles && !requiredRoles.includes(targetProfile.role)) {
+      return {
+        error: 'This action is not available while you are viewing as another user. Exit view-as first.',
+        user,
+        profile,
+        supabase,
+        isImpersonating: true,
+        realUser: user,
+        realProfile: profile,
+      }
+    }
+
+    // Swap the effective identity to the target for reads. The supabase client
+    // is left as the real staffer's (super_admin RLS = read-all), and the
+    // explicit agent_id/brokerage_id filters in the dashboards scope it to the
+    // target. Writes never reach here — the proxy blocks all state-changing
+    // requests while a view-as session is active.
+    const effectiveUser = { ...user, id: targetProfile.id, email: targetProfile.email ?? user.email } as User
+    return {
+      error: null,
+      user: effectiveUser,
+      profile: targetProfile,
+      supabase,
+      isImpersonating: true,
+      realUser: user,
+      realProfile: profile,
+    }
+  }
+
   if (requiredRoles && !requiredRoles.includes(profile.role)) {
     return { error: 'Insufficient permissions', user, profile, supabase }
   }
-
-  await maybeReconcileEmail(user, profile)
 
   return { error: null, user, profile, supabase }
 }

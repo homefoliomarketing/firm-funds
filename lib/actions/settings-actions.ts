@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedWriter } from '@/lib/auth-helpers'
 import { checkPasswordRateLimit } from '@/lib/rate-limit'
 import { logAuditEventServiceRole } from '@/lib/audit'
 
@@ -74,7 +74,7 @@ export async function changePassword(data: {
 // ============================================================================
 
 export async function updateDisplayName(newName: string) {
-  const { error: authError, user } = await getAuthenticatedUser()
+  const { error: authError, user } = await getAuthenticatedWriter()
   if (authError || !user) return { success: false, error: authError || 'Not authenticated' }
 
   if (!newName.trim() || newName.trim().length < 2) {
@@ -182,7 +182,7 @@ const ALLOWED_PREF_KEYS = [
 ] as const
 
 export async function updateNotificationPreferences(prefs: Record<string, boolean>) {
-  const { error: authError, user } = await getAuthenticatedUser()
+  const { error: authError, user } = await getAuthenticatedWriter()
   if (authError || !user) return { success: false, error: authError || 'Not authenticated' }
 
   // Filter to allowlisted keys with boolean values; drop everything else.
@@ -221,7 +221,7 @@ function getDefaultPrefs() {
 // ============================================================================
 
 export async function updateBrokerageContactEmail(newEmail: string) {
-  const { error: authError, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authError, user, profile } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authError || !user || !profile) return { success: false, error: authError || 'Not authorized' }
   if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 

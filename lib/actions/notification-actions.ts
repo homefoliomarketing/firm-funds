@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable } from '@/lib/auth-helpers'
 
 // ============================================================================
 // Types
@@ -317,7 +317,7 @@ export async function markDealMessagesRead(input: {
   agentId: string
   dealId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
   if (profile?.agent_id !== input.agentId) return { success: false, error: 'Access denied' }
 
@@ -356,7 +356,7 @@ export async function sendAgentReply(input: {
   fileSize?: number | null
   fileType?: string | null
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (typeof input.message !== 'string' || input.message.trim().length === 0) {
@@ -483,7 +483,7 @@ export async function autoResolvePendingReturns(input: {
   dealId: string
   newDocumentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -791,7 +791,7 @@ export async function sendBrokerageMessage(input: {
   fileSize?: number | null
   fileType?: string | null
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (typeof input.message !== 'string' || input.message.trim().length === 0) {
@@ -1011,7 +1011,7 @@ export async function getBrokerageNotificationCounts(brokerageId: string): Promi
 // ============================================================================
 
 export async function markBrokerageMessagesRead(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()

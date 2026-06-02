@@ -52,41 +52,9 @@ export interface AuditQueryFilters {
 // Preset action sets
 // ============================================================================
 
-/**
- * Every audit action that records a dollar moving or a compliance decision.
- * Strings here are verified against logAuditEvent / logAuditEventServiceRole
- * calls in the codebase — do not add an action name that is not actually
- * emitted somewhere. Powers the "Money & compliance" preset in the audit page.
- */
-export const MONEY_AND_COMPLIANCE_ACTIONS = [
-  // Manual and automatic balance movements
-  'account.manual_adjustment',
-  'account.adjustment',
-  'account.balance_deduction',
-  'account.late_payment_interest',
-  'deal.balance_deduction_reversed',
-  // Funding lifecycle (status_change carries approved -> funded -> completed)
-  'deal.status_change',
-  'deal.early_closing_recorded',
-  // EFT transfers
-  'eft.record',
-  'eft.confirm',
-  'eft.remove',
-  // Brokerage payments
-  'brokerage_payment.record',
-  'brokerage_payment.remove',
-  'brokerage_payment.claim_submitted',
-  // Brokerage late strikes
-  'brokerage.late_strike_recorded',
-  'brokerage.late_strikes_reset',
-  // Remediation remittance
-  'remediation_deal.remitted',
-  // KYC compliance decisions
-  'agent.kyc_verify',
-  'agent.kyc_reject',
-  'brokerage.kyc_verify',
-  'brokerage.kyc_revoke',
-] as const
+// MONEY_AND_COMPLIANCE_ACTIONS moved to lib/audit-labels.ts: a 'use server'
+// file may only export async functions, so a runtime const here is a violation
+// the Turbopack dev compiler rejects. Import it from '@/lib/audit-labels'.
 
 export interface AuditQueryResult {
   data: AuditLogRow[]

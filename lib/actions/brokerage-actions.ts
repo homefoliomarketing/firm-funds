@@ -2,7 +2,7 @@
 
 import crypto from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedWriter } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification, sendPaymentClaimSubmittedNotification } from '@/lib/email'
 import { CreateAgentSchema } from '@/lib/validations'
@@ -34,7 +34,7 @@ export async function addAgentAsBrokerage(input: {
   phone?: string
   recoNumber?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
   if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 
@@ -169,7 +169,7 @@ export async function brokerageUpdateAgentContact(input: {
   phone?: string | null
   recoNumber?: string | null
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
   if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 
@@ -235,7 +235,7 @@ export async function toggleAgentBrokerageFlag(input: {
   agentId: string
   flagged: boolean
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
   if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 
@@ -290,7 +290,7 @@ export async function toggleAgentBrokerageFlag(input: {
 // ============================================================================
 
 export async function brokerageResendWelcomeEmail(input: { agentId: string }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
   if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 
@@ -404,7 +404,7 @@ export async function submitBrokeragePaymentClaim(input: {
   method?: typeof PAYMENT_METHODS[number]
   notes?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
   if (!profile.brokerage_id) return { success: false, error: 'Your account is not linked to a brokerage' }
 

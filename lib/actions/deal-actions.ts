@@ -23,7 +23,7 @@ import {
   sendDocumentRequestNotification,
   sendFailedToCloseElectionEmail,
 } from '@/lib/email'
-import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { hasCapability } from '@/lib/access'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
 
@@ -135,7 +135,7 @@ export async function submitDeal(formData: {
   // is queryable from the new deal.
   revisedFromDealId?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   // Validate inputs with Zod
@@ -391,7 +391,7 @@ export async function submitDealAsBrokerage(formData: {
   // is queryable from the new deal.
   revisedFromDealId?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!profile.brokerage_id) {
@@ -1401,7 +1401,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
   // internal staff upload on anyone's deal. Access is row-scoped by role below,
   // so this stays a role gate (NOT capability-gated). All internal staff hold
   // documents.write anyway, so behavior is unchanged for them.
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent', 'brokerage_admin', 'super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent', 'brokerage_admin', 'super_admin', 'firm_funds_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1590,7 +1590,7 @@ export async function updateDealDetails(input: {
   brokerageSplitPct: number
   notes?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1696,7 +1696,7 @@ export async function updateDealDetails(input: {
 // ============================================================================
 
 export async function cancelDeal(input: { dealId: string }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2462,7 +2462,7 @@ export async function submitCureElection(input: {
   dealId: string
   election: 'cash_repayment' | 'commission_assignment'
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   if (input.election !== 'cash_repayment' && input.election !== 'commission_assignment') {
@@ -2765,7 +2765,7 @@ export async function retryFundingAfterFailure(input: {
 export async function createRevisedDealFromDenied(input: {
   originalDealId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent', 'brokerage_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent', 'brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {

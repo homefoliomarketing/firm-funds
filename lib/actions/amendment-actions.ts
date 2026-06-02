@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { calculateDeal } from '@/lib/calculations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
@@ -61,7 +61,7 @@ function computeFundedAmendmentDelta(
 // ============================================================================
 
 export async function submitClosingDateAmendment(formData: FormData): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -291,7 +291,7 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
 // ============================================================================
 
 export async function submitClosingDateAmendmentAsBrokerage(formData: FormData): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['brokerage_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['brokerage_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
   if (!profile.brokerage_id) return { success: false, error: 'Brokerage profile not configured' }
 

@@ -354,3 +354,28 @@ export interface NotificationLog {
   sent_at: string
   status: 'sent' | 'failed' | 'pending'
 }
+
+// Look-only "view as user" session (migration 103). One ACTIVE row
+// (ended_at IS NULL, expires_at in the future) per real_user_id means that
+// Owner is currently viewing the app as target_user_id. The real staffer's
+// auth cookie is never touched; this row is the only source of truth for
+// impersonation. See lib/impersonation.ts.
+export interface ImpersonationSession {
+  id: string
+  real_user_id: string
+  real_email: string | null
+  real_role: string | null
+  target_user_id: string
+  target_email: string | null
+  target_role: UserRole
+  target_agent_id: string | null
+  target_brokerage_id: string | null
+  reason: string | null
+  started_at: string
+  expires_at: string
+  ended_at: string | null
+  ended_reason: 'manual' | 'expired' | 'logout' | 'switched' | 'revoked' | null
+  ip_address: string | null
+  user_agent: string | null
+  created_at: string
+}

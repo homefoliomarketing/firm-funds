@@ -1,6 +1,6 @@
 # Firm Funds Database Architecture
 
-_Last updated: 2026-06-01_
+_Last updated: 2026-06-02_
 
 This document describes the Supabase Postgres data layer for Firm Funds: the tables, status enums, stored procedures, Row Level Security model, and the full migration history that produced the schema.
 
@@ -22,7 +22,7 @@ The numbering groups roughly into feature batches:
 | 070 to 079 | Concurrency uniqueness constraints, cron idempotency log, DocuSign linkage, atomic admin-note append, firm-deal detection pipeline |
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
 
-There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `099_remediation_signed_at.sql`.
+There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `103_impersonation.sql`.
 
 **Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
@@ -393,10 +393,34 @@ Base table (predates migration tracking). The `document_type` CHECK constraint i
 | action | TEXT | e.g. `deal.status_change`, `document.upload` |
 | entity_type / entity_id | TEXT / UUID | Affected entity |
 | metadata | JSONB | Context (old/new status, etc.) |
+| impersonated_target_id | UUID (nullable) | When set, the row was written while the actor was viewing-as this target (migration 103). The actor columns (`user_id` / `actor_email` / `actor_role`) always stay the real staffer; this is the only place the target is recorded. Partial index `WHERE impersonated_target_id IS NOT NULL` |
 | ip_address | INET | Request IP |
 | created_at | TIMESTAMPTZ | Time |
 
 Immutable: only admins can SELECT, authenticated users can INSERT, and there are no UPDATE/DELETE policies. INSERT hardened in migration 064.
+
+### impersonation_sessions (migration 103)
+
+Look-only "view as user" sessions. An Owner views the app as a specific agent or brokerage user; this table is the source of truth for "is someone being viewed-as right now?". An active row (`ended_at IS NULL` and `expires_at` in the future) keyed by `real_user_id` means that Owner is currently viewing as `target_user_id`. See [authentication.md](./authentication.md#impersonation-view-as-user) and `lib/impersonation.ts`.
+
+| Column | Type | Purpose |
+| --- | --- | --- |
+| id | UUID PK | Session id |
+| real_user_id | UUID FK auth.users | The Owner doing the viewing; bound to the verified auth user (ON DELETE CASCADE) |
+| real_email / real_role | TEXT (nullable) | Snapshot of the real staffer at start |
+| target_user_id | UUID FK auth.users | The user being viewed (ON DELETE CASCADE) |
+| target_email | TEXT (nullable) | Target email snapshot |
+| target_role | TEXT NOT NULL | `agent` or `brokerage_admin` |
+| target_agent_id / target_brokerage_id | UUID (nullable) | Denormalized for reporting |
+| reason | TEXT (nullable) | Optional free-text note |
+| started_at | TIMESTAMPTZ | Session start (default now) |
+| expires_at | TIMESTAMPTZ | Hard cap; the on-screen banner counts down to it (30 min, `IMPERSONATION_MAX_DURATION_MS`) |
+| ended_at | TIMESTAMPTZ (nullable) | NULL while active |
+| ended_reason | TEXT (nullable) | `manual`, `expired`, `logout`, `switched`, or `revoked` |
+| ip_address / user_agent | INET / TEXT (nullable) | Request context at start |
+| created_at | TIMESTAMPTZ | Row creation |
+
+A partial **UNIQUE** index on `real_user_id WHERE ended_at IS NULL` enforces at most one active session per staffer (starting a new view-as ends the previous one first, and the index guards the invariant under a race). A second index on `target_user_id` powers "everything done while viewing target X". RLS is enabled with a single SELECT policy (`real_user_id = auth.uid() OR is_admin()`) so the owning staffer and any internal admin can read sessions; there are **no** user-scoped INSERT/UPDATE/DELETE policies, because every write goes through the service-role client, so even the Owner cannot fabricate or tamper with a session via the anon client. The migration is additive and idempotent (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`); it changes no existing table's RLS, so RLS stays the real boundary and is still evaluated on the real `auth.uid()`.
 
 ### Operational and supporting tables
 
@@ -647,5 +671,6 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 100_deals_assigned_at.sql | `deals.assigned_at` timestamp for underwriter assignment |
 | 101_agent_kyc_bucket_limits.sql | Size/type limits on the agent KYC storage bucket |
 | 102_staff_roles.sql | `user_profiles.staff_role` (owner/manager/staff) for least-privilege internal staff roles; no RLS change |
+| 103_impersonation.sql | `impersonation_sessions` table (look-only "view as user"); `audit_log.impersonated_target_id` column. Additive and idempotent; no existing RLS policy changed |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

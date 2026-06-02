@@ -38,6 +38,8 @@ import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/l
 import RemediationDealsPanel from './RemediationDealsPanel'
 import { MarkFundingFailedButton, FundingFailedBanner } from '@/components/admin/FundingFailureActions'
 import { EarlyClosingButton } from '@/components/admin/EarlyClosingActions'
+import ViewAsAgentButton from '@/components/admin/ViewAsAgentButton'
+import { hasCapability } from '@/lib/access'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
 import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
@@ -680,6 +682,8 @@ export default function DealDetailPage() {
   const [lateInterestSaving, setLateInterestSaving] = useState(false)
   // Agent account balance
   const [agentBalance, setAgentBalance] = useState<number>(0)
+  // Owner-only: can this staffer start a look-only "view as this agent" session?
+  const [canImpersonate, setCanImpersonate] = useState(false)
   // Collapsible sections
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [messagesExpanded, setMessagesExpanded] = useState(false)
@@ -745,6 +749,9 @@ export default function DealDetailPage() {
     if (!user) { router.push('/login'); return }
     const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
     if (!profile || (profile.role !== 'super_admin' && profile.role !== 'firm_funds_admin')) { router.push('/login'); return }
+    // Owner tier only — gates the "view as this agent" button (the start
+    // endpoint re-checks the capability server-side).
+    setCanImpersonate(hasCapability(profile, 'impersonate'))
     const { data: dealData, error: dealError } = await supabase
       .from('deals')
       .select('*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role), eft_transfers(id, amount, transfer_date, confirmed, reference)')
@@ -2107,6 +2114,12 @@ export default function DealDetailPage() {
                   <Badge variant="outline" className="text-[10px] py-0 h-4 border-destructive/40 text-destructive bg-destructive/10">Recovery: {formatCurrency(agent.outstanding_recovery)}</Badge>
                 )}
               </div>
+              {canImpersonate && (
+                <ViewAsAgentButton
+                  agentId={agent.id}
+                  agentName={`${agent.first_name} ${agent.last_name}`}
+                />
+              )}
             </div>
           </div>
           <div className="flex-1 px-4 py-3 flex items-start gap-3">

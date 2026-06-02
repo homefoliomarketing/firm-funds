@@ -1,6 +1,6 @@
 # Coding Conventions and Gotchas
 
-_Last updated: 2026-06-01_
+_Last updated: 2026-06-02_
 
 Project-specific rules and known traps. Read this before writing code, because several conventions here override defaults you might assume from older Next.js or Supabase versions.
 
@@ -12,6 +12,18 @@ This version has breaking changes from older releases. When in doubt, read the r
 - `'use server'` files can only export async functions.
 - `useSearchParams()` requires a `<Suspense>` boundary.
 - The project uses the App Router with route groups. Server components and server actions are the default.
+
+## A `'use server'` file may only export async functions
+
+This is stricter than it looks, and the production build will not warn you. A runtime `export const` (an object or array) in a `'use server'` module is tolerated by the production webpack build but **rejected by a cold Turbopack dev compile** with:
+
+```
+A "use server" file can only export async functions, found object
+```
+
+So a constant can ride along undetected until the next clean `next dev` start, then break it. Keep shared constants and types in a plain (non-`'use server'`) module instead, and import them into the action file.
+
+Concrete example found and fixed during the impersonation work: `MONEY_AND_COMPLIANCE_ACTIONS` (the array powering the audit page's "Money & compliance" preset) was exported from `lib/actions/audit-actions.ts` (a `'use server'` file). It now lives in `lib/audit-labels.ts` (a plain, client-safe module), and the admin audit page (`app/(dashboard)/admin/audit/page.tsx`) imports it from there.
 
 ## Supabase and Row Level Security
 

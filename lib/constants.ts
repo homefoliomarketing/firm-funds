@@ -145,6 +145,27 @@ export const ADMIN_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000
 /** Session inactivity timeout for agent users (ms) — 30 minutes */
 export const AGENT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000
 
+/**
+ * Hard cap on a single "view as user" (impersonation) session — 30 minutes.
+ * This is independent of the inactivity timeout above: even with constant
+ * activity, a view-as session auto-expires this long after it started, and the
+ * on-screen banner counts down to it. Enforced server-side via
+ * impersonation_sessions.expires_at (migration 103) and surfaced in the banner.
+ */
+export const IMPERSONATION_MAX_DURATION_MS = 30 * 60 * 1000
+
+/**
+ * Browser-readable hint cookie set while a view-as session is active. It tells
+ * the client-side dashboards (which resolve their own identity in the browser)
+ * to show the TARGET user instead of the signed-in Owner. It is a UI hint only,
+ * NOT a security token: the real boundary is RLS (still evaluated on the real
+ * auth.uid()) plus the server-side impersonation_sessions row. Forging this
+ * cookie cannot widen what the real user is allowed to read. Not httpOnly by
+ * design — the browser data layer must read it. Kept in sync with the DB
+ * session row by the start/stop endpoints.
+ */
+export const IMPERSONATION_HINT_COOKIE = 'ff_view_as'
+
 /** User roles */
 export const ROLES = {
   SUPER_ADMIN: 'super_admin',

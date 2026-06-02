@@ -8,12 +8,11 @@ import {
   Shield, Search, X, ChevronLeft, ChevronRight, Download, Filter,
   Clock, ArrowLeft, ChevronDown, ChevronUp, ArrowRight, Zap, DollarSign
 } from 'lucide-react'
-import { getActionLabel } from '@/lib/audit-labels'
+import { getActionLabel, MONEY_AND_COMPLIANCE_ACTIONS } from '@/lib/audit-labels'
 import {
   queryAuditLogs,
   getDistinctAuditActions,
   getDistinctEntityTypes,
-  MONEY_AND_COMPLIANCE_ACTIONS,
   type AuditLogRow,
   type AuditQueryFilters,
 } from '@/lib/actions/audit-actions'

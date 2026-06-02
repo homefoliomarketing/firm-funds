@@ -1,6 +1,6 @@
 # REST Endpoints
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-02_
 
 This document describes every request-driven HTTP route under `app/api/` (excluding the scheduled cron routes and inbound webhooks, which are documented separately in `cron-jobs.md` and `webhooks.md`).
 
@@ -43,6 +43,19 @@ Source files: `app/api/rate-limit/route.ts`, `app/api/session-heartbeat/route.ts
 | PUT | `/api/magic-link` | Public (allowlisted) | Set the user's password using the invite token. Enforces password strength (min 12 chars, upper, lower, number, special). Atomically claims the token (`used_at` compare-and-swap) to prevent concurrent reuse, then sets the password via the Supabase admin API and clears `must_reset_password`. | JSON body `{ token, password }` | `{ success: true }` on success; `{ success: false, error }` for weak password, used/expired token, or failure. |
 
 Source file: `app/api/magic-link/route.ts`.
+
+---
+
+## Impersonation (view as user)
+
+These two routes drive the look-only "view as user" feature (migration 103): an Owner views the app as a specific agent or brokerage user to diagnose problems. Neither is a public path; both require an authenticated session and are same-origin (CSRF) enforced. Full design, including the look-only / Owner-only / 30-minute / audited guarantees, is in [authentication.md](../architecture/authentication.md#impersonation-view-as-user).
+
+| Method | Path | Who can call | Purpose | Request | Returns / effect |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/api/impersonation/start` | Session, Owner only (`impersonate` capability via `getAuthenticatedCapable`) | Begin a view-as session. Validates the target is an agent or brokerage_admin, is not the caller, and has a login. Ends any existing active session for the caller, inserts a new one (30-minute expiry), sets the `ff_view_as` hint cookie, and writes an `impersonation.start` audit row. The caller's real auth cookie is never touched. | JSON body `{ targetUserId }` (a `user_profiles.id`) **or** `{ agentId }` (an `agents.id`, resolved to that agent's login); optional `{ reason }` free-text note (truncated to 500 chars) | `{ success: true, redirectTo, target: { id, name, role }, expiresAt }`. `403` if the caller lacks the capability or the target is not an agent/brokerage user; `400` if no id is supplied or the target is the caller; `404` if no login exists for the target; `500` on failure. |
+| POST | `/api/impersonation/stop` | Session | End the caller's active view-as session (the banner's Exit button). Clears the `ff_view_as` hint cookie and writes an `impersonation.stop` audit row. Uses the real auth cookie directly (never the impersonation swap), so it ends the session keyed to the actual signed-in staffer. Idempotent: a no-op if no session is active. Allowlisted in the proxy so it works while a look-only session is active. | None (empty JSON body) | `{ success: true, redirectTo: '/admin' }`. `401` if not authenticated. |
+
+Source files: `app/api/impersonation/start/route.ts`, `app/api/impersonation/stop/route.ts`.
 
 ---
 

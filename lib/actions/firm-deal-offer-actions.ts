@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedWriter } from '@/lib/auth-helpers'
 import {
   sendBrokerageOfferNotification,
   sendBrokerageOfferNudge2h,
@@ -192,7 +192,7 @@ export async function acceptFirmDealOffer(
     return { success: false, error: 'Invalid event id.' }
   }
 
-  const auth = await getAuthenticatedUser(['agent'])
+  const auth = await getAuthenticatedWriter(['agent'])
   if (auth.error || !auth.profile?.agent_id) {
     return { success: false, error: auth.error ?? 'Not an agent.' }
   }
@@ -550,7 +550,7 @@ export async function declineFirmDealOffer(
     return { success: false, error: 'Reason is too long (max 500 chars).' }
   }
 
-  const auth = await getAuthenticatedUser(['brokerage_admin'])
+  const auth = await getAuthenticatedWriter(['brokerage_admin'])
   if (auth.error || !auth.profile?.brokerage_id) {
     return { success: false, error: auth.error ?? 'Not a brokerage admin.' }
   }
@@ -708,7 +708,7 @@ export async function remindBrokerageOfPendingOffer(
     return { success: false, error: 'Invalid deal id.' }
   }
 
-  const auth = await getAuthenticatedUser(['agent'])
+  const auth = await getAuthenticatedWriter(['agent'])
   if (auth.error || !auth.profile?.agent_id) {
     return { success: false, error: auth.error ?? 'Not an agent.' }
   }

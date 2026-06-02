@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { validateOrigin } from '@/lib/csrf'
 import { checkApiRateLimit } from '@/lib/rate-limit'
 import { logAuditEventServiceRole, extractRequestContext } from '@/lib/audit'
+import { endActiveImpersonation, clearImpersonationHintCookie } from '@/lib/impersonation'
 
 /**
  * Session Heartbeat API Route
@@ -121,6 +122,24 @@ export async function DELETE(request: Request) {
       },
       ctx
     )
+
+    // Logging out must end any active "view as" session, otherwise it would
+    // silently resume on the staffer's next login (the session is keyed to the
+    // real user id). Best-effort; never blocks logout.
+    if (user) {
+      try {
+        await endActiveImpersonation({
+          realUserId: user.id,
+          realEmail: actorEmail ?? null,
+          realRole: actorRole ?? null,
+          reason: 'logout',
+          context: ctx,
+        })
+        await clearImpersonationHintCookie()
+      } catch (impErr: unknown) {
+        console.warn('[SESSION HEARTBEAT] failed to end impersonation on logout:', impErr instanceof Error ? impErr.message : impErr)
+      }
+    }
 
     return NextResponse.json({ ok: true })
   } catch (err: unknown) {

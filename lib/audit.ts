@@ -25,6 +25,10 @@ export interface AuditEntry {
   severity?: AuditSeverity  // Defaults to 'info'
   oldValue?: Record<string, unknown>  // Previous state (for changes)
   newValue?: Record<string, unknown>  // New state (for changes)
+  // Set when this row is written while the actor was viewing-as (impersonating)
+  // another user. The actor columns stay the REAL staffer; this records the
+  // target. See migration 103 / lib/impersonation.ts.
+  impersonatedTargetId?: string
 }
 
 /**
@@ -95,6 +99,11 @@ const ACTION_SEVERITY: Record<string, AuditSeverity> = {
   'auth.login':               'info',
   'auth.logout':              'info',
   'auth.session_timeout':     'warning',
+  // Access changes — "view as user" lifecycle. Starting is critical (a staffer
+  // is now seeing another user's screens); stop/blocked are warnings.
+  'impersonation.start':      'critical',
+  'impersonation.stop':       'warning',
+  'impersonation.blocked':    'warning',
   'invoice.create':           'info',
   'invoice.sent':             'info',
   'message.sent':             'info',
@@ -171,6 +180,7 @@ export async function logAuditEvent(
       ip_address: context?.ipAddress || null,
       user_agent: context?.userAgent || null,
       session_id: context?.sessionId || null,
+      impersonated_target_id: entry.impersonatedTargetId || null,
     })
 
     if (error) {
@@ -216,6 +226,7 @@ export async function logAuditEventServiceRole(
       ip_address: context?.ipAddress || null,
       user_agent: context?.userAgent || null,
       session_id: context?.sessionId || null,
+      impersonated_target_id: entry.impersonatedTargetId || null,
     })
 
     if (error) {

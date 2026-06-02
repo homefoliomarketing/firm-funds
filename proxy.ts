@@ -1,7 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { isAllowedOrigin } from '@/lib/csrf'
-import { getAgentStatusError, getProfileStatusError, isActiveBrokerageStatus, hasCapability, ADMIN_ROUTE_CAPABILITIES } from '@/lib/access'
+import { getAgentStatusError, getProfileStatusError, isActiveBrokerageStatus, hasCapability, isOwner, isInternalAdminRole, ADMIN_ROUTE_CAPABILITIES } from '@/lib/access'
+import { isImpersonationWriteBlocked, isSessionActive, dashboardPathForRole } from '@/lib/impersonation-core'
+import { logBlockedImpersonationAction } from '@/lib/impersonation-proxy'
 import type { AgentStatus, BrokerageStatus, UserProfile, UserRole } from '@/types/database'
 
 // Role-to-route mapping for authorization
@@ -246,6 +248,61 @@ export async function proxy(request: NextRequest) {
       return redirectWithCsp(request, csp)
     }
 
+    // ------------------------------------------------------------------
+    // Impersonation ("view as user") gate.
+    //
+    // Source of truth is the impersonation_sessions row keyed by the real
+    // (JWT-verified) user id. Only the Owner tier can have one, so we only pay
+    // the lookup for Owners. When active, this request is rendering the
+    // TARGET's world: (1) every state-changing request is blocked (look-only),
+    // and (2) the route gate below uses the target's role so the Owner can
+    // reach the target's dashboard. The real auth cookie is untouched, so the
+    // staffer stays the actor / audit subject everywhere.
+    // ------------------------------------------------------------------
+    let impersonationTargetRole: UserRole | null = null
+    let impersonationTargetUserId: string | null = null
+    if (profile && isOwner(profile)) {
+      const { data: impRow } = await supabase
+        .from('impersonation_sessions')
+        .select('target_user_id, target_role, expires_at, ended_at')
+        .eq('real_user_id', user.id)
+        .is('ended_at', null)
+        .maybeSingle()
+      const row = impRow as { target_user_id: string; target_role: UserRole; expires_at: string; ended_at: string | null } | null
+      if (row && isSessionActive(row, Date.now())) {
+        impersonationTargetRole = row.target_role
+        impersonationTargetUserId = row.target_user_id
+      }
+    }
+    const isImpersonating = !!impersonationTargetRole
+
+    // Look-only enforcement: block every state-changing request (POST/PUT/
+    // PATCH/DELETE) while viewing-as, except the Exit + heartbeat allowlist.
+    // Server Actions are always POST, so this covers all of them without
+    // touching individual action files.
+    if (isImpersonating && isImpersonationWriteBlocked(request.method, pathname)) {
+      await logBlockedImpersonationAction({
+        realUserId: user.id,
+        realEmail: profile?.email,
+        realRole: profile?.role,
+        targetUserId: impersonationTargetUserId as string,
+        method: request.method,
+        pathname,
+        ipAddress:
+          request.headers.get('x-nf-client-connection-ip') ||
+          request.headers.get('x-real-ip') ||
+          undefined,
+        userAgent: request.headers.get('user-agent') || undefined,
+      })
+      return withCsp(
+        NextResponse.json(
+          { error: 'You are viewing as another user (look-only). Exit view-as to make changes.' },
+          { status: 403 },
+        ),
+        csp,
+      )
+    }
+
     // Check if user must reset their password (first login after invite).
     // Skip if user already changed password (metadata flag set client-side).
     //
@@ -346,9 +403,23 @@ export async function proxy(request: NextRequest) {
     // firm-deal magic link (under /agent/firm-deal) gets signed out before
     // the route handler ever runs.
     if (!isPublic) {
+      // While viewing-as, the route gate enforces the TARGET's role so the
+      // Owner can reach the target's dashboard; otherwise the user's own role.
+      const effectiveRole: UserRole | null = impersonationTargetRole ?? profile?.role ?? null
       for (const [routePrefix, allowedRoles] of Object.entries(ROUTE_ROLES)) {
         if (pathname.startsWith(routePrefix)) {
-          if (!profile || !allowedRoles.includes(profile.role)) {
+          if (!profile || !effectiveRole || !allowedRoles.includes(effectiveRole)) {
+            if (isImpersonating && impersonationTargetRole) {
+              // Confine the staffer to the target's section instead of signing
+              // the Owner out. To leave they use the banner's Exit (which ends
+              // the session); then they're a normal admin again.
+              return redirectWithCsp(request, csp, dashboardPathForRole(impersonationTargetRole))
+            }
+            if (profile && isInternalAdminRole(profile.role)) {
+              // An internal admin on a non-admin role route (e.g. a view-as that
+              // just expired). Bounce to their admin home, don't sign them out.
+              return redirectWithCsp(request, csp, '/admin')
+            }
             // User doesn't have the right role or no profile — sign out and redirect to login
             await supabase.auth.signOut()
             return redirectWithCsp(request, csp)
@@ -363,8 +434,10 @@ export async function proxy(request: NextRequest) {
       // staffer who lacks it is bounced to /admin — NOT signed out, since they
       // are legitimately inside the admin area, just not on this page. The
       // server actions behind each page enforce the same capability, so this is
-      // a UX guard layered on top of the real boundary.
-      if (profile) {
+      // a UX guard layered on top of the real boundary. Skipped while
+      // viewing-as: the Owner is confined out of /admin above and holds no
+      // target capabilities anyway.
+      if (profile && !isImpersonating) {
         for (const [routePrefix, capability] of ADMIN_ROUTE_CAPABILITIES) {
           if (
             (pathname === routePrefix || pathname.startsWith(routePrefix + '/')) &&
