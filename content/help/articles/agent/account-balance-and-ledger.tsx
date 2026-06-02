@@ -34,8 +34,8 @@ function Body() {
       </ul>
 
       <HelpCallout variant="money" title="Balances are deducted from future advances">
-        If you have $500 owing and submit a new $20,000 advance request, your bank
-        receives $19,500 and the $500 is cleared from your ledger. The deal page
+        If you have $500 owing and submit a new $10,000 advance request, your bank
+        receives $9,500 and the $500 is cleared from your ledger. The deal page
         preview shows this deduction before you submit.
       </HelpCallout>
 

@@ -108,19 +108,6 @@ function Body() {
           we had heard about them on day 5 instead of day 50.
         </p>
       </HelpCallout>
-
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        Where this lives in the code
-      </h2>
-      <p>
-        The math is in <code>lib/calculations.ts</code>, function{' '}
-        <code>calculateCompoundDailyInterest</code>. The annual rate and grace
-        period come from <code>LATE_INTEREST_RATE_PER_ANNUM</code> and{' '}
-        <code>LATE_INTEREST_GRACE_DAYS_FROM_CLOSING</code> in{' '}
-        <code>lib/constants.ts</code>. If those numbers ever change in the
-        contract, they change in those files first, and this article picks
-        them up automatically because it imports the same constants.
-      </p>
     </div>
   )
 }

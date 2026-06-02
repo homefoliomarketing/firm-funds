@@ -20,12 +20,10 @@ function Body() {
       <h2>How a strike is recorded</h2>
       <p>
         Each time a Firm Funds admin manually flags a missed settlement, a
-        strike is added to your brokerage record. The write happens through
-        a database routine (the <code className="px-1 mx-0.5 rounded bg-muted text-foreground text-xs">record_brokerage_late_strike</code> RPC),
-        which increments the count, stamps the date, and (if you cross the
-        threshold) flips the auto-bump flag in a single transaction. We never
-        increment by reading the count and writing it back, so concurrent
-        strikes cannot stomp on each other.
+        strike is recorded automatically against your brokerage. The system
+        adds the strike, stamps the date, and (if you cross the threshold)
+        switches on the longer settlement window all at once, so strikes
+        logged close together can never overwrite each other.
       </p>
 
       <h2>The 5-strike threshold</h2>
@@ -38,11 +36,11 @@ function Body() {
         on settling a funded deal for how the snapshot works).
       </p>
       <p>
-        New deals from that point forward get
-        <code className="px-1 mx-0.5 rounded bg-muted text-foreground text-xs">settlement_days_at_funding = {BROKERAGE_BUMPED_SETTLEMENT_DAYS}</code>
-        stored on the deal at submission. The brokerage referral fee tied to
-        the settlement period rises proportionally because the settlement
-        period fee covers a longer window.
+        For new deals from that point forward, your settlement window is set
+        to {BROKERAGE_BUMPED_SETTLEMENT_DAYS} days at the moment the deal is
+        submitted. The brokerage referral fee tied to the settlement period
+        rises proportionally because the settlement period fee covers a longer
+        window.
       </p>
 
       <HelpCallout variant="warning" title="Why the bump matters">

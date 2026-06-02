@@ -42,8 +42,7 @@ function TransactionTypesOnLedger() {
       <dl className="space-y-3 text-foreground">
         <div>
           <dt className="text-primary">
-            <code>late_closing_interest</code> and{' '}
-            <code>late_payment_interest</code>
+            Late Closing Interest and Late Payment Interest
           </dt>
           <dd className="text-muted-foreground">
             Interest while a funded deal is overdue.
@@ -51,7 +50,7 @@ function TransactionTypesOnLedger() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>failed_deal_balance</code>
+            Failed Deal Balance
           </dt>
           <dd className="text-muted-foreground">
             Original unpaid principal when a deal fails to close.
@@ -59,7 +58,7 @@ function TransactionTypesOnLedger() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>failed_deal_interest</code>
+            Failed Deal Interest
           </dt>
           <dd className="text-muted-foreground">
             Monthly compounded interest posted to your ledger.
@@ -67,7 +66,7 @@ function TransactionTypesOnLedger() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>balance_deduction</code> and <code>invoice_payment</code>
+            Balance Deduction and Invoice Payment
           </dt>
           <dd className="text-muted-foreground">
             Money we pulled to settle a charge.
@@ -75,7 +74,7 @@ function TransactionTypesOnLedger() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>credit</code>
+            Credit
           </dt>
           <dd className="text-muted-foreground">
             Money we applied (typically from a Remediation remittance).
@@ -83,7 +82,7 @@ function TransactionTypesOnLedger() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>adjustment</code>
+            Adjustment
           </dt>
           <dd className="text-muted-foreground">
             A manual one-off, always with a note from Firm Funds.
@@ -111,7 +110,7 @@ function Missed15DayCureDeadline() {
   return (
     <>
       <p className="text-foreground">
-        The deal stays in <code>failed_to_close</code> and Firm Funds reaches
+        The deal stays in failed to close and Firm Funds reaches
         out directly.
       </p>
       <p className="text-muted-foreground">
@@ -127,8 +126,7 @@ function SignupWithoutEmail() {
     <>
       <p className="text-foreground">
         Most agents have an email, but a small number of brokerages keep their
-        roster phone-only. The <code>agents.email</code> column is
-        intentionally nullable.
+        roster phone-only. The agent&apos;s email on file is optional.
       </p>
       <p className="text-muted-foreground">
         We will route notifications through your brokerage admin until an

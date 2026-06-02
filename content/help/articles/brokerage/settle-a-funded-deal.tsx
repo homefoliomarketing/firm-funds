@@ -15,7 +15,7 @@ function Body() {
 
       <h2>What you owe</h2>
       <p>
-        On every funded deal we calculate <strong>amount_due_from_brokerage</strong>,
+        On every funded deal we calculate the <strong>amount due from brokerage</strong>,
         which is the agent&apos;s net commission minus your share of the
         brokerage referral fee. You can see it on the row in the Settlements
         tab, on the deal detail expansion, and in the Record Payment modal.
@@ -38,9 +38,8 @@ function Body() {
       <h2>Why your window is frozen on each deal</h2>
       <p>
         At the moment a deal funds we snapshot your effective settlement
-        window into the deal record (the
-        <code className="px-1 mx-0.5 rounded bg-muted text-foreground text-xs">deals.settlement_days_at_funding</code> column).
-        That snapshot is what controls when this particular deal goes late.
+        window onto that deal. That snapshot is what controls when this
+        particular deal goes late.
         If Firm Funds bumps your window later or restores it later, those
         changes only apply to deals funded after the change. The deals you
         already have keep whatever window was in place the day they funded.
@@ -48,13 +47,13 @@ function Body() {
 
       <HelpCallout variant="money" title="Worked example">
         <p>
-          Gross commission $50,000. Brokerage split 5 percent. Net commission
-          to the agent: $47,500. Brokerage referral fee at the default 20
-          percent of total fees: $273.60.
+          Gross commission $10,000. Brokerage split 30 percent. Net commission
+          to the agent: $7,000. Brokerage referral fee at the default 20
+          percent of total fees: $41.44.
         </p>
         <p>
-          Amount due from brokerage at closing: $47,500 minus $273.60 equals
-          <strong> $47,226.40</strong>.
+          Amount due from brokerage at closing: $7,000 minus $41.44 equals
+          <strong> $6,958.56</strong>.
         </p>
         <p>
           Closing date Monday, May 4. Standard 7-day window means full payment

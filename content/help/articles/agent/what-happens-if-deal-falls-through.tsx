@@ -71,8 +71,8 @@ function Body() {
         Day 60 (one month of accrual): about $178 of interest, for a total
         outstanding of $10,178.
         <br />
-        Day 120 (90 days past grace): about $556 of interest, for a total
-        outstanding of $10,556.
+        Day 120 (90 days past grace): about $544.73 of interest, for a total
+        outstanding of $10,544.73.
         <br />
         Clear the balance and the meter stops the same day.
       </HelpCallout>

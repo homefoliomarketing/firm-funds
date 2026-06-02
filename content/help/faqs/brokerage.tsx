@@ -9,10 +9,10 @@ function HowDoIAddTeamAdmin() {
       </p>
       <ul className="ml-6 list-disc space-y-1 text-foreground">
         <li>
-          <code>brokerage_admin</code>: submit deals and manage agents.
+          Admin: submit deals and manage agents.
         </li>
         <li>
-          <code>brokerage_manager</code>: everything except changing the
+          Manager: everything except changing the
           Broker of Record.
         </li>
       </ul>
@@ -29,7 +29,7 @@ function DifferenceBetweenBrokerageAdminRoles() {
       <dl className="space-y-3 text-foreground">
         <div>
           <dt className="text-primary">
-            <code>broker_of_record</code>
+            Broker of Record
           </dt>
           <dd className="text-muted-foreground">
             The regulatory signatory. Only Firm Funds can change who fills
@@ -38,7 +38,7 @@ function DifferenceBetweenBrokerageAdminRoles() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>brokerage_manager</code>
+            Manager
           </dt>
           <dd className="text-muted-foreground">
             Day-to-day owner of the portal. Can invite or remove other
@@ -47,7 +47,7 @@ function DifferenceBetweenBrokerageAdminRoles() {
         </div>
         <div>
           <dt className="text-primary">
-            <code>brokerage_admin</code>
+            Admin
           </dt>
           <dd className="text-muted-foreground">
             Can submit deals and manage agents but cannot manage other
@@ -127,8 +127,8 @@ function CanWeOptOutOfEmail() {
     <>
       <p className="text-foreground">
         Yes. Every Firm Funds email has a one-click unsubscribe link (RFC
-        8058). We honor unsubscribes by flipping{' '}
-        <code>brokerages.email_notifications_enabled</code> to false.
+        8058). We honor unsubscribes by turning off email notifications for
+        your brokerage.
       </p>
       <p className="text-muted-foreground">
         Transactional messages (account and security) still go out.

@@ -25,7 +25,7 @@ function Body() {
           {
             title: 'Open the new-deal form',
             expected: 'Click Submit a new deal from the Deals tab. The new-deal page loads with an agent picker, a property address field, and a fee preview card on the right.',
-            fallback: 'If you do not see the button, refresh the page. Plain brokerage_admin and brokerage_manager accounts both have submit access; if you are signed in as a Broker of Record viewer with a different brokerage, the button stays hidden.',
+            fallback: 'If you do not see the button, refresh the page. Admin and Manager accounts both have submit access; if you are signed in as a Broker of Record viewer with a different brokerage, the button stays hidden.',
           },
           {
             title: 'Pick the agent',

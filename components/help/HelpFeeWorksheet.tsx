@@ -34,8 +34,8 @@ interface WorksheetState {
  * we surface the error message in place instead of crashing the article.
  */
 export default function HelpFeeWorksheet({
-  defaultGross = 50000,
-  defaultSplitPct = 5,
+  defaultGross = 10000,
+  defaultSplitPct = 30,
   defaultDaysUntilClosing = 30,
 }: HelpFeeWorksheetProps) {
   const grossId = useId()

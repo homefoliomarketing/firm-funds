@@ -1,6 +1,6 @@
 # Financial Model
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-02_
 
 This document explains exactly how Firm Funds turns a pending real estate commission into an advance amount, what fees are charged, how the brokerage gets paid, and how late interest accrues, with worked numeric examples tied to the real code.
 
@@ -106,19 +106,19 @@ Note that both fees are computed against the **unrounded** net commission for ac
 
 ### Worked example A: a standard 30-day deal
 
-Inputs: gross commission $50,000, split 5%, 30 days until closing, default rate and referral, 7-day settlement window.
+Inputs: gross commission $10,000, split 30%, 30 days until closing, default rate and referral, 7-day settlement window.
 
 | Step | Calculation | Result |
 | --- | --- | --- |
-| Net commission | 50,000 x (1 - 0.05) | $47,500.00 |
+| Net commission | 10,000 x (1 - 0.30) | $7,000.00 |
 | Effective days | max(1, 30) | 30 |
-| Discount fee | 47,500 x 0.0008 x 30 | $1,140.00 |
-| Settlement period fee | 47,500 x 0.0008 x 7 | $266.00 |
-| Total fees | 1,140.00 + 266.00 | $1,406.00 |
-| Advance amount | 47,500 - 1,406 | $46,094.00 |
-| Brokerage referral fee | 1,406 x 0.20 | $281.20 |
-| Firm Funds profit | 1,406 - 281.20 | $1,124.80 |
-| Amount due from brokerage | 47,500 - 281.20 | $47,218.80 |
+| Discount fee | 7,000 x 0.0008 x 30 | $168.00 |
+| Settlement period fee | 7,000 x 0.0008 x 7 | $39.20 |
+| Total fees | 168.00 + 39.20 | $207.20 |
+| Advance amount | 7,000 - 207.20 | $6,792.80 |
+| Brokerage referral fee | 207.20 x 0.20 | $41.44 |
+| Firm Funds profit | 207.20 - 41.44 | $165.76 |
+| Amount due from brokerage | 7,000 - 41.44 | $6,958.56 |
 
 ### Worked example B: same gross, but only 2 days until closing
 
@@ -126,27 +126,27 @@ The discount fee shrinks dramatically because the money is only out the door for
 
 | Step | Calculation | Result |
 | --- | --- | --- |
-| Net commission | 50,000 x 0.95 | $47,500.00 |
-| Effective days | max(1, 2 - 1) | 1 |
-| Discount fee | 47,500 x 0.0008 x 1 | $38.00 |
-| Settlement period fee | 47,500 x 0.0008 x 7 | $266.00 |
-| Total fees | 38.00 + 266.00 | $304.00 |
-| Advance amount | 47,500 - 304 | $47,196.00 |
+| Net commission | 10,000 x 0.70 | $7,000.00 |
+| Effective days | max(1, 2) | 2 |
+| Discount fee | 7,000 x 0.0008 x 2 | $11.20 |
+| Settlement period fee | 7,000 x 0.0008 x 7 | $39.20 |
+| Total fees | 11.20 + 39.20 | $50.40 |
+| Advance amount | 7,000 - 50.40 | $6,949.60 |
 
-### Worked example C: a larger split
+### Worked example C: a bigger deal
 
 Inputs: gross commission $20,000, split 20%, 45 days until closing.
 
 | Step | Calculation | Result |
 | --- | --- | --- |
 | Net commission | 20,000 x (1 - 0.20) | $16,000.00 |
-| Effective days | max(1, 45 - 1) | 44 |
-| Discount fee | 16,000 x 0.0008 x 44 | $563.20 |
+| Effective days | max(1, 45) | 45 |
+| Discount fee | 16,000 x 0.0008 x 45 | $576.00 |
 | Settlement period fee | 16,000 x 0.0008 x 7 | $89.60 |
-| Total fees | 563.20 + 89.60 | $652.80 |
-| Advance amount | 16,000 - 652.80 | $15,347.20 |
-| Brokerage referral fee | 652.80 x 0.20 | $130.56 |
-| Firm Funds profit | 652.80 - 130.56 | $522.24 |
+| Total fees | 576.00 + 89.60 | $665.60 |
+| Advance amount | 16,000 - 665.60 | $15,334.40 |
+| Brokerage referral fee | 665.60 x 0.20 | $133.12 |
+| Firm Funds profit | 665.60 - 133.12 | $532.48 |
 
 ## 5. Brokerage split mechanics (whole-number percentages)
 
@@ -154,7 +154,7 @@ The brokerage split is the slice of the gross commission the brokerage keeps bef
 
 `netCommission = grossCommission * (1 - brokerageSplitPct / 100)`
 
-So a gross commission of $50,000 with a 5% split leaves a $47,500 net commission. Everything downstream (fees, advance, referral) is computed off the net commission, never the gross. This is separate from the **brokerage referral fee**, which is the partner brokerage's cut of Firm Funds' fees and uses the 0 to 1 decimal convention.
+So a gross commission of $10,000 with a 30% split leaves a $7,000 net commission. Everything downstream (fees, advance, referral) is computed off the net commission, never the gross. This is separate from the **brokerage referral fee**, which is the partner brokerage's cut of Firm Funds' fees and uses the 0 to 1 decimal convention.
 
 ## 6. Late payment interest
 

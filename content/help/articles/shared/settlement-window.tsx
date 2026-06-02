@@ -77,10 +77,10 @@ function Body() {
         </li>
       </ol>
       <p>
-        At submission, the resolved number is snapshotted into the
-        deal&apos;s <code>settlement_days_at_funding</code> column. From that
+        At submission, the resolved number is locked in as the settlement
+        window that was in place when the deal funded. From that
         point on, every fee, due-date, and strike check for that specific
-        deal uses the snapshotted value, not the current brokerage setting.
+        deal uses that locked-in value, not the current brokerage setting.
         That snapshot is the legal commitment.
       </p>
 
@@ -109,17 +109,6 @@ function Body() {
         the actual bank receipt date.
       </p>
 
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        Where this lives in the code
-      </h2>
-      <p>
-        The resolver is <code>effectiveSettlementDays</code> in{' '}
-        <code>lib/calculations.ts</code>. The two numbers come from{' '}
-        <code>SETTLEMENT_PERIOD_DAYS</code> and{' '}
-        <code>BROKERAGE_BUMPED_SETTLEMENT_DAYS</code> in{' '}
-        <code>lib/constants.ts</code>, and the strike threshold comes from{' '}
-        <code>BROKERAGE_LATE_STRIKE_THRESHOLD</code>.
-      </p>
     </div>
   )
 }

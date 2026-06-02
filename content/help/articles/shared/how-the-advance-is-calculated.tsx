@@ -23,9 +23,9 @@ function Body() {
       <p>
         Gross commission is the full commission the brokerage receives on the
         sale. Net commission is what is left after the brokerage&apos;s split.
-        We advance against the net, not the gross. If the deal is a $50,000
-        gross commission and your brokerage takes a 5 percent split, your net
-        commission is $50,000 times (1 minus 0.05), or $47,500.
+        We advance against the net, not the gross. If the deal is a $10,000
+        gross commission and your brokerage takes a 30 percent split, your net
+        commission is $10,000 times (1 minus 0.30), or $7,000.
       </p>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">
@@ -44,9 +44,9 @@ function Body() {
         deal scheduled to close in 30 days has 30 chargeable days.
       </p>
       <p>
-        On a $47,500 net commission for 30 chargeable days, the discount fee
-        is $47,500 times 0.0008 times 30, which is{' '}
-        <strong className="text-primary">$1,140.00</strong>.
+        On a $7,000 net commission for 30 chargeable days, the discount fee
+        is $7,000 times 0.0008 times 30, which is{' '}
+        <strong className="text-primary">$168.00</strong>.
       </p>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">
@@ -58,19 +58,19 @@ function Body() {
         window is{' '}
         <strong className="text-primary">{SETTLEMENT_PERIOD_DAYS} days</strong>
         , and we charge the same daily rate during that window. On the same
-        $47,500 net commission, that is $47,500 times 0.0008 times{' '}
+        $7,000 net commission, that is $7,000 times 0.0008 times{' '}
         {SETTLEMENT_PERIOD_DAYS}, or{' '}
-        <strong className="text-primary">$266.00</strong>.
+        <strong className="text-primary">$39.20</strong>.
       </p>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">
         Step 4: Subtract fees from the net to get the advance
       </h2>
       <p>
-        Add the two fees together: $1,140.00 plus $266.00 is $1,406.00 in
+        Add the two fees together: $168.00 plus $39.20 is $207.20 in
         total fees. Take that off the net commission and the advance you
         receive is{' '}
-        <strong className="text-primary">$46,094.00</strong>. That is the
+        <strong className="text-primary">$6,792.80</strong>. That is the
         amount that lands in your account; the brokerage settles the full net
         commission with us within the settlement window after closing.
       </p>

@@ -28,8 +28,7 @@ function HowIsAdvanceCalculated() {
         net commission minus those two fees.
       </p>
       <p className="text-muted-foreground">
-        The math lives in <code>lib/calculations.ts</code>, and a worked
-        example is in{' '}
+        A worked example is in{' '}
         <Link
           href="/help/shared/how-the-advance-is-calculated"
           className="text-primary hover:underline"
@@ -52,8 +51,7 @@ function WhichDaysAreCharged() {
         brokerage remits to us within the settlement window after closing.
       </p>
       <p className="text-muted-foreground">
-        So a 30-day deal carries 30 charge days. The helper{' '}
-        <code>getChargeDays()</code> in <code>lib/calculations.ts</code> counts
+        So a 30-day deal carries 30 charge days. We count the chargeable days
         from the day after funding through and including the closing day.
       </p>
     </>
@@ -64,7 +62,7 @@ function WhatHappensIfDealFallsThrough() {
   return (
     <>
       <p className="text-foreground">
-        We move the deal to <code>failed_to_close</code> and email you within
+        We move the deal to failed to close and email you within
         minutes. You then have 15 days to elect a cure path:
       </p>
       <ul className="ml-6 list-disc space-y-1 text-foreground">
@@ -197,13 +195,13 @@ function CanICancelAnAdvance() {
   return (
     <>
       <p className="text-foreground">
-        While the deal is in <code>under_review</code> you can withdraw it
-        by messaging Firm Funds. Once it moves to <code>approved</code> the
+        While the deal is under review you can withdraw it
+        by messaging Firm Funds. Once it moves to approved the
         documents are out for signature; you can still walk away until the
         IDP is countersigned.
       </p>
       <p className="text-muted-foreground">
-        After <code>funded</code> the money has moved. If the deal then
+        After it is funded the money has moved. If the deal then
         fails to close, the failed-to-close path applies.
       </p>
     </>
@@ -229,7 +227,7 @@ function WhyIsMyApprovalTakingSoLong() {
     <>
       <p className="text-foreground">
         Most advances are reviewed the same business day. If your deal sits
-        in <code>under_review</code> more than 24 business hours, we are
+        under review more than 24 business hours, we are
         usually waiting on a document such as a trust receipt, a signed
         agreement of purchase and sale, or the MLS firm record. Your KYC
         may also have flagged for manual review.
