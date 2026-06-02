@@ -130,6 +130,7 @@ This identity swap is **UI-only**, not a security boundary. RLS is still evaluat
 The block lives at the **action layer**, not the transport, because Server Actions are POST whether they read or write (the dashboards read their data via Server Action POSTs, so blocking POST at the proxy would break the faithful view that impersonation exists to provide). Three mechanisms enforce look-only:
 
 - **Self-service writes.** Agent and brokerage WRITE actions use `getAuthenticatedWriter` instead of `getAuthenticatedUser`; it returns a look-only error when `isImpersonating` is set. Reads keep using `getAuthenticatedUser` so the target's world still renders.
+- **Brokerage team management.** The brokerage admin invite/remove/resend actions (`lib/actions/brokerage-admin-actions.ts`) authorize through `authorizeAdminManager`, not `getAuthenticatedWriter`. Its Firm Funds branch already denies during a view-as (the swapped target is not an internal admin, so `getAuthenticatedAdmin` errors), but its brokerage-side fallback path *swaps* to the target when the viewed user is a Broker of Record or Manager - which would otherwise authorize a write as them - so it rejects explicitly when `isImpersonating` is set. This matters because those actions are reachable from the brokerage portal's own `/brokerage/admins` page, a `/brokerage` route the proxy allows during a brokerage view-as.
 - **Admin / money / destructive actions** are blocked automatically: the swapped target holds no admin role or capability, so `getAuthenticatedAdmin` / `getAuthenticatedCapable` deny (the swapped identity is a non-privileged agent or brokerage user, and `getAuthenticatedUser` returns an error rather than swapping when the caller asks for a role the target does not hold).
 - **Credential changes** (`changePassword` / `updateEmail`) operate on the cookie session, which is always the real Owner, never the target.
 
@@ -153,9 +154,14 @@ Three actions are emitted, always attributed to the **real** staffer (the actor 
 
 The target is recorded separately in `audit_log.impersonated_target_id` (migration 103), so a reviewer can filter the log to "everything that happened while viewing as X".
 
-### Entry point
+### Entry points
 
-The only way to start a view-as today is an Owner-only "View as this agent" button (`components/admin/ViewAsAgentButton`) on the admin deal detail page (`app/(dashboard)/admin/deals/[id]/page.tsx`), which targets the deal's agent. The button is gated by a `hasCapability(profile, 'impersonate')` check.
+A view-as is started from an Owner-only "View as" button, a single shared component (`components/admin/ViewAsUserButton`) that accepts either an `agentId` (resolved to that agent's login server-side) or a `targetUserId` (a `user_profiles.id`, used for brokerage users). There are two entry points today:
+
+- **Agent** - a "View as this agent" button on the admin deal detail page (`app/(dashboard)/admin/deals/[id]/page.tsx`), targeting the deal's agent.
+- **Brokerage user** - a "View as" button on each row of the brokerage admins panel (`components/admin/BrokerageAdminsPanel`), shown on the brokerage detail page (`app/(dashboard)/admin/brokerages/[id]/page.tsx`). It is hidden for an invited-but-not-accepted admin (no `user_id`, so there is no login to view).
+
+Both are gated client-side by `hasCapability(profile, 'impersonate')` (the brokerage detail page selects `staff_role` and passes a `canImpersonate` prop into the panel), and the start endpoint re-checks the capability server-side regardless. The endpoint accepts an `agent` or `brokerage_admin` target only.
 
 ## Request proxy: route gating
 

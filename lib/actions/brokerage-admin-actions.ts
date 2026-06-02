@@ -96,6 +96,20 @@ async function authorizeAdminManager(brokerageId: string): Promise<AuthorizeResu
     return { ok: false, error: callerAttempt.error || 'Authentication failed' }
   }
 
+  // Look-only: team-management is a WRITE, so refuse it during a "view as user"
+  // session. The Firm Funds branch above is already blocked (getAuthenticatedAdmin
+  // errors while impersonating), but this brokerage-side path swaps to the target
+  // when the viewed user is a BoR/Manager, which would otherwise authorize an
+  // invite/remove as them. Mirrors getAuthenticatedWriter. (The proxy also
+  // confines a brokerage view-as to /brokerage routes; this is defense in depth.)
+  if (callerAttempt.isImpersonating) {
+    return {
+      ok: false,
+      error:
+        'You are viewing as another user (look-only) and cannot make changes. Exit view-as first.',
+    }
+  }
+
   const profile = callerAttempt.profile
   if (profile.role === 'super_admin' || profile.role === 'firm_funds_admin') {
     if (!hasCapability(profile, 'brokerage.manage')) {

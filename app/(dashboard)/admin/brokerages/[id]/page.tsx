@@ -11,6 +11,7 @@ import {
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { BrokerageAdminsPanel } from '@/components/admin/BrokerageAdminsPanel'
 import { Card, CardContent } from '@/components/ui/card'
+import { hasCapability } from '@/lib/access'
 
 export const metadata = {
   title: 'Brokerage detail | Firm Funds Admin',
@@ -34,7 +35,7 @@ export default async function BrokerageDetailPage({ params }: PageProps) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, is_active')
+    .select('role, is_active, staff_role')
     .eq('id', user.id)
     .single()
 
@@ -45,6 +46,10 @@ export default async function BrokerageDetailPage({ params }: PageProps) {
   ) {
     redirect('/login')
   }
+
+  // Owner-only: can this staffer start a look-only "view as" session for a
+  // brokerage user? The start endpoint re-checks the capability server-side.
+  const canImpersonate = hasCapability(profile, 'impersonate')
 
   // Load the brokerage via service role — admins should see archived as well
   // so the page never 404s when navigating from an old audit row.
@@ -171,6 +176,7 @@ export default async function BrokerageDetailPage({ params }: PageProps) {
         <BrokerageAdminsPanel
           brokerageId={brokerage.id}
           brokerageName={brokerage.name}
+          canImpersonate={canImpersonate}
         />
       </main>
     </div>

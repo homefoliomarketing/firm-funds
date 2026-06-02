@@ -38,7 +38,7 @@ import { sendForSignature, getDealSignatureStatus, voidDealEnvelopes } from '@/l
 import RemediationDealsPanel from './RemediationDealsPanel'
 import { MarkFundingFailedButton, FundingFailedBanner } from '@/components/admin/FundingFailureActions'
 import { EarlyClosingButton } from '@/components/admin/EarlyClosingActions'
-import ViewAsAgentButton from '@/components/admin/ViewAsAgentButton'
+import ViewAsUserButton from '@/components/admin/ViewAsUserButton'
 import { hasCapability } from '@/lib/access'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
@@ -2115,9 +2115,10 @@ export default function DealDetailPage() {
                 )}
               </div>
               {canImpersonate && (
-                <ViewAsAgentButton
+                <ViewAsUserButton
                   agentId={agent.id}
-                  agentName={`${agent.first_name} ${agent.last_name}`}
+                  name={`${agent.first_name} ${agent.last_name}`}
+                  label="View as this agent"
                 />
               )}
             </div>

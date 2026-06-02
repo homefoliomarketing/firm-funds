@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { EmptyState } from '@/components/ui/empty-state'
+import ViewAsUserButton from '@/components/admin/ViewAsUserButton'
 import { formatDate } from '@/lib/formatting'
 import { cn } from '@/lib/utils'
 import {
@@ -171,9 +172,12 @@ export interface BrokerageAdminRow {
 export function BrokerageAdminsPanel({
   brokerageId,
   brokerageName,
+  canImpersonate = false,
 }: {
   brokerageId: string
   brokerageName: string
+  /** Owner-only: show a look-only "View as" control per brokerage user. */
+  canImpersonate?: boolean
 }) {
   const router = useRouter()
   const [admins, setAdmins] = useState<BrokerageAdminRow[]>([])
@@ -391,27 +395,38 @@ export function BrokerageAdminsPanel({
                         : ''}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setRemoveTarget(admin)}
-                  disabled={removingUserId === admin.user_id}
-                  className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
-                  aria-label={`Remove ${admin.full_name ?? admin.email ?? 'admin'}`}
-                >
-                  {removingUserId === admin.user_id ? (
-                    <>
-                      <LoadingSpinner label="" />
-                      Removing...
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 size={14} aria-hidden="true" />
-                      Remove
-                    </>
-                  )}
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Owner-only look-only "view as" (hidden when the admin has
+                      no login yet — an unaccepted invite has nothing to view). */}
+                  {canImpersonate && admin.user_id ? (
+                    <ViewAsUserButton
+                      targetUserId={admin.user_id}
+                      name={admin.full_name || admin.email || 'this user'}
+                      compact
+                    />
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setRemoveTarget(admin)}
+                    disabled={removingUserId === admin.user_id}
+                    className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                    aria-label={`Remove ${admin.full_name ?? admin.email ?? 'admin'}`}
+                  >
+                    {removingUserId === admin.user_id ? (
+                      <>
+                        <LoadingSpinner label="" />
+                        Removing...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={14} aria-hidden="true" />
+                        Remove
+                      </>
+                    )}
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
