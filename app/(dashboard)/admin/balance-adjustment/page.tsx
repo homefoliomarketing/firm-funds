@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ArrowLeft, Shield } from 'lucide-react'
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { hasCapability } from '@/lib/access'
 import {
   BalanceAdjustmentForm,
   type BalanceAdjustmentAgent,
@@ -27,7 +28,7 @@ export default async function BalanceAdjustmentPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, is_active')
+    .select('role, staff_role, is_active')
     .eq('id', user.id)
     .single()
 
@@ -37,6 +38,10 @@ export default async function BalanceAdjustmentPage() {
     !['super_admin', 'firm_funds_admin'].includes(profile.role)
   ) {
     redirect('/login')
+  }
+  // Least-privilege: only Owner (money.write) may adjust agent balances.
+  if (!hasCapability(profile, 'money.write')) {
+    redirect('/admin')
   }
 
   // Use the service-role client because soft-deleted brokerages still own

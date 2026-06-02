@@ -13,6 +13,7 @@ import {
   BROKERAGE_LATE_STRIKE_THRESHOLD,
   BROKERAGE_BUMPED_SETTLEMENT_DAYS,
 } from '@/lib/constants'
+import { hasCapability, type Capability } from '@/lib/access'
 
 // Callers consume specific shapes via assertion; using any preserves call-site compatibility
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,7 +25,7 @@ type ActionResult = { success: boolean; error?: string; data?: any }
 
 import type { User, SupabaseClient } from '@supabase/supabase-js'
 
-async function getAuthenticatedAdmin(): Promise<{ error?: string; user?: User; supabase: SupabaseClient }> {
+async function getAuthenticatedAdmin(requiredCapability?: Capability): Promise<{ error?: string; user?: User; supabase: SupabaseClient }> {
   const { createClient } = await import('@/lib/supabase/server')
   const supabase = await createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
@@ -33,12 +34,16 @@ async function getAuthenticatedAdmin(): Promise<{ error?: string; user?: User; s
   const serviceClient = createServiceRoleClient()
   const { data: profile } = await serviceClient
     .from('user_profiles')
-    .select('role')
+    .select('role, staff_role')
     .eq('id', user.id)
     .single()
 
   if (!profile || !['firm_funds_admin', 'super_admin'].includes(profile.role)) {
     return { error: 'Unauthorized — admin only', supabase }
+  }
+
+  if (requiredCapability && !hasCapability(profile, requiredCapability)) {
+    return { error: 'You do not have permission to perform this action.', supabase }
   }
 
   return { user, supabase: serviceClient }
@@ -77,7 +82,7 @@ export async function getDocuSignStatus(): Promise<{ connected: boolean; consent
 // ============================================================================
 
 export async function sendForSignature(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -355,7 +360,7 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
 // ============================================================================
 
 export async function voidDealEnvelopes(dealId: string, reason: string): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -489,7 +494,7 @@ export async function getDealSignatureStatus(dealId: string): Promise<ActionResu
 // ============================================================================
 
 export async function sendBcaForSignature(brokerageId: string): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -653,7 +658,7 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
 // ============================================================================
 
 export async function voidBcaEnvelope(brokerageId: string, reason: string): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -775,7 +780,7 @@ export async function getBcaSignatureStatus(brokerageId: string): Promise<Action
 
 export async function sendAmendedCpaForSignature(dealId: string, amendmentId: string): Promise<ActionResult> {
   // Finding 29: gate this server action behind admin auth like its peers.
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -951,7 +956,7 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
 export async function sendRemediationIdpForSignature(input: {
   remediationDealId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {

@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
 
 // ============================================================================
 // Types
@@ -649,7 +649,7 @@ export async function getAdminInbox(): Promise<ActionResult> {
 // ============================================================================
 
 export async function dismissDealMessages(dealId: string): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('comms')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -705,7 +705,7 @@ export async function sendAdminMessage(input: {
   fileSize?: number | null
   fileType?: string | null
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedCapable('comms')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (typeof input.message !== 'string' || input.message.trim().length === 0) {

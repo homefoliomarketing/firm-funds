@@ -402,7 +402,7 @@ Immutable: only admins can SELECT, authenticated users can INSERT, and there are
 
 | Table | Migration | Purpose |
 | --- | --- | --- |
-| user_profiles | base + 015, 026, 036 | Identity row; `role`, `agent_id`, `brokerage_id`, `must_reset_password`, `staff_title`, `notification_preferences` JSONB |
+| user_profiles | base + 015, 026, 036, 102 | Identity row; `role`, `agent_id`, `brokerage_id`, `must_reset_password`, `staff_title`, `staff_role` (owner/manager/staff least-privilege tier, migration 102), `notification_preferences` JSONB |
 | underwriting_checklist | base + 008/009/012/016/017/022/023/027 | 12-item, 3-category underwriting checklist; rows auto-created by `create_underwriting_checklist()` trigger function |
 | brokerage_documents | 008 | Brokerage-level documents (cooperation/white-label agreements, business KYC) |
 | kyc_upload_tokens | 013 (RLS in 040, 065) | One-time mobile KYC upload tokens |
@@ -644,5 +644,8 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 097_firm_deal_co_agent_split.sql | `firm_deal_events.co_agent_split` flag for delimiter-separated co-agent cells |
 | 098_brokerage_admin_sub_roles.sql | Expand `brokerage_admins.role` to broker_of_record / brokerage_manager / brokerage_admin |
 | 099_remediation_signed_at.sql | `remediation_deals.signed_at` for Remediation IDP signed flip |
+| 100_deals_assigned_at.sql | `deals.assigned_at` timestamp for underwriter assignment |
+| 101_agent_kyc_bucket_limits.sql | Size/type limits on the agent KYC storage bucket |
+| 102_staff_roles.sql | `user_profiles.staff_role` (owner/manager/staff) for least-privilege internal staff roles; no RLS change |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

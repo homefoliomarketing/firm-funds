@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { calculateDeal } from '@/lib/calculations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
@@ -533,7 +533,7 @@ export async function getBrokeragePendingAmendments(): Promise<ActionResult> {
 export async function approveClosingDateAmendment(input: {
   amendmentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -824,7 +824,7 @@ export async function rejectClosingDateAmendment(input: {
   reason?: string
   rejectionReason?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const reason = (input.rejectionReason ?? input.reason ?? '').trim()

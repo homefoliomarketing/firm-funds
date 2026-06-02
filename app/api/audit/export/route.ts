@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { validateOrigin } from '@/lib/csrf'
 import { checkApiRateLimit } from '@/lib/rate-limit'
+import { hasCapability } from '@/lib/access'
 
 // ============================================================================
 // GET /api/audit/export — Export audit logs as CSV
@@ -36,11 +37,16 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, staff_role')
     .eq('id', user.id)
     .single()
 
   if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
+  }
+  // Least-privilege: audit export is Manager and up (audit.read). General Staff
+  // are blocked here just as they are on the /admin/audit page.
+  if (!hasCapability(profile, 'audit.read')) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
   }
 

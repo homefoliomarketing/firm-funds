@@ -6,6 +6,11 @@ import {
   getAgentStatusError,
   isActiveBrokerageStatus,
   getBrokerageStatusError,
+  resolveStaffRole,
+  getCapabilities,
+  hasCapability,
+  isOwner,
+  ALL_CAPABILITIES,
 } from './access'
 
 describe('isInternalAdminRole', () => {
@@ -108,5 +113,142 @@ describe('getBrokerageStatusError', () => {
     expect(getBrokerageStatusError('inactive', 'agent')).toBe(
       'Your brokerage is not active. Please contact Firm Funds support.',
     )
+  })
+})
+
+// ============================================================================
+// Internal staff capabilities (migration 102)
+// ============================================================================
+
+const OWNER = { role: 'super_admin', staff_role: 'owner' } as const
+const MANAGER = { role: 'firm_funds_admin', staff_role: 'manager' } as const
+const STAFF = { role: 'firm_funds_admin', staff_role: 'staff' } as const
+
+describe('resolveStaffRole', () => {
+  it('super_admin is ALWAYS owner, regardless of the staff_role column', () => {
+    expect(resolveStaffRole({ role: 'super_admin', staff_role: 'owner' })).toBe('owner')
+    expect(resolveStaffRole({ role: 'super_admin', staff_role: null })).toBe('owner')
+    expect(resolveStaffRole({ role: 'super_admin', staff_role: 'staff' })).toBe('owner')
+  })
+
+  it('firm_funds_admin uses its staff_role, defaulting to manager when unset', () => {
+    expect(resolveStaffRole({ role: 'firm_funds_admin', staff_role: 'manager' })).toBe('manager')
+    expect(resolveStaffRole({ role: 'firm_funds_admin', staff_role: 'staff' })).toBe('staff')
+    expect(resolveStaffRole({ role: 'firm_funds_admin', staff_role: 'owner' })).toBe('owner')
+    expect(resolveStaffRole({ role: 'firm_funds_admin', staff_role: null })).toBe('manager')
+    expect(resolveStaffRole({ role: 'firm_funds_admin', staff_role: undefined })).toBe('manager')
+  })
+
+  it('non-internal roles and falsy inputs have no tier', () => {
+    expect(resolveStaffRole({ role: 'agent', staff_role: null })).toBeNull()
+    expect(resolveStaffRole({ role: 'brokerage_admin', staff_role: null })).toBeNull()
+    expect(resolveStaffRole(null)).toBeNull()
+    expect(resolveStaffRole(undefined)).toBeNull()
+  })
+})
+
+describe('hasCapability — Owner', () => {
+  it('holds every capability', () => {
+    for (const cap of ALL_CAPABILITIES) {
+      expect(hasCapability(OWNER, cap)).toBe(true)
+    }
+    expect(getCapabilities(OWNER).size).toBe(ALL_CAPABILITIES.length)
+  })
+})
+
+describe('hasCapability — Manager', () => {
+  it('can run day-to-day operations', () => {
+    for (const cap of [
+      'read', 'comms', 'documents.write', 'documents.delete', 'deal.underwrite',
+      'kyc.verify', 'pii.identity', 'audit.read', 'audit.export', 'agent.invite',
+      'account.archive', 'esign.deal', 'pipe.config', 'firmdeal.review',
+    ] as const) {
+      expect(hasCapability(MANAGER, cap)).toBe(true)
+    }
+  })
+
+  it('CANNOT do the owner-only things', () => {
+    for (const cap of [
+      'money.write', 'deal.delete', 'brokerage.manage', 'users.credentials',
+      'account.delete', 'pii.banking', 'roles.manage', 'impersonate',
+    ] as const) {
+      expect(hasCapability(MANAGER, cap)).toBe(false)
+    }
+  })
+})
+
+describe('hasCapability — General Staff', () => {
+  it('can only read, communicate, and handle documents', () => {
+    expect(hasCapability(STAFF, 'read')).toBe(true)
+    expect(hasCapability(STAFF, 'comms')).toBe(true)
+    expect(hasCapability(STAFF, 'documents.write')).toBe(true)
+    expect(getCapabilities(STAFF).size).toBe(3)
+  })
+
+  it('cannot do anything sensitive', () => {
+    for (const cap of [
+      'money.write', 'deal.underwrite', 'kyc.verify', 'pii.identity', 'pii.banking',
+      'documents.delete', 'audit.read', 'agent.invite', 'brokerage.manage',
+      'account.archive', 'account.delete', 'impersonate',
+    ] as const) {
+      expect(hasCapability(STAFF, cap)).toBe(false)
+    }
+  })
+})
+
+describe('hasCapability — non-internal users hold nothing', () => {
+  it('agents, brokerage admins, and falsy profiles have no capabilities', () => {
+    expect(hasCapability({ role: 'agent', staff_role: null }, 'read')).toBe(false)
+    expect(hasCapability({ role: 'brokerage_admin', staff_role: null }, 'read')).toBe(false)
+    expect(hasCapability(null, 'read')).toBe(false)
+    expect(hasCapability(undefined, 'money.write')).toBe(false)
+  })
+})
+
+describe('isOwner', () => {
+  it('true only for the owner tier', () => {
+    expect(isOwner(OWNER)).toBe(true)
+    expect(isOwner({ role: 'firm_funds_admin', staff_role: 'owner' })).toBe(true)
+    expect(isOwner(MANAGER)).toBe(false)
+    expect(isOwner(STAFF)).toBe(false)
+    expect(isOwner({ role: 'agent', staff_role: null })).toBe(false)
+  })
+})
+
+// Locks in the exact split Bud signed off on. If anyone widens a tier later,
+// these break loudly.
+describe('Bud-approved policy (regression guards)', () => {
+  it('moving money and funding deals is OWNER ONLY', () => {
+    expect(hasCapability(OWNER, 'money.write')).toBe(true)
+    expect(hasCapability(MANAGER, 'money.write')).toBe(false)
+    expect(hasCapability(STAFF, 'money.write')).toBe(false)
+  })
+
+  it('brokerage onboarding is OWNER ONLY', () => {
+    expect(hasCapability(OWNER, 'brokerage.manage')).toBe(true)
+    expect(hasCapability(MANAGER, 'brokerage.manage')).toBe(false)
+    expect(hasCapability(STAFF, 'brokerage.manage')).toBe(false)
+  })
+
+  it('inviting individual agents stays with Manager (not General Staff)', () => {
+    expect(hasCapability(MANAGER, 'agent.invite')).toBe(true)
+    expect(hasCapability(STAFF, 'agent.invite')).toBe(false)
+  })
+
+  it('deletes, credential resets, role management, and view-as are OWNER ONLY', () => {
+    for (const cap of [
+      'account.delete', 'deal.delete', 'users.credentials', 'roles.manage', 'impersonate',
+    ] as const) {
+      expect(hasCapability(OWNER, cap)).toBe(true)
+      expect(hasCapability(MANAGER, cap)).toBe(false)
+      expect(hasCapability(STAFF, cap)).toBe(false)
+    }
+  })
+
+  it('Manager can underwrite and verify KYC; General Staff cannot', () => {
+    expect(hasCapability(MANAGER, 'deal.underwrite')).toBe(true)
+    expect(hasCapability(MANAGER, 'kyc.verify')).toBe(true)
+    expect(hasCapability(STAFF, 'deal.underwrite')).toBe(false)
+    expect(hasCapability(STAFF, 'kyc.verify')).toBe(false)
   })
 })

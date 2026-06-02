@@ -10,7 +10,7 @@ import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
   CreditCard, Eye, EyeOff, ClipboardList, TimerReset, Inbox,
-  TrendingUp,
+  TrendingUp, UserCog,
 } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
@@ -18,6 +18,7 @@ import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-a
 import { getAgentPreauthFormSignedUrl, getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/formatting'
+import { hasCapability } from '@/lib/access'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -416,15 +417,19 @@ export default function AdminDashboard() {
           </div>
           <nav aria-label="Admin quick links" className="flex items-center gap-2 flex-wrap">
             {[
-              { label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount },
-              { label: 'Firm Deal Review', icon: Inbox, path: '/admin/firm-deal-review', badge: stats.firmDealPending },
-              { label: 'Assignments', icon: ClipboardList, path: '/admin/assignments', badge: stats.unassignedCount + stats.overdueAssignedCount },
-              { label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' },
+              // Each link is shown only to tiers that can actually use the page,
+              // so nobody clicks into a screen that just bounces them back.
+              ...(hasCapability(profile, 'kyc.verify') ? [{ label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount }] : []),
+              ...(hasCapability(profile, 'firmdeal.review') ? [{ label: 'Firm Deal Review', icon: Inbox, path: '/admin/firm-deal-review', badge: stats.firmDealPending }] : []),
+              ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Assignments', icon: ClipboardList, path: '/admin/assignments', badge: stats.unassignedCount + stats.overdueAssignedCount }] : []),
+              ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' }] : []),
               { label: 'Portfolio', icon: TrendingUp, path: '/admin/portfolio' },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
-              { label: 'Payments', icon: DollarSign, path: '/admin/payments' },
-              { label: 'Audit Trail', icon: Shield, path: '/admin/audit' },
+              ...(hasCapability(profile, 'money.write') ? [{ label: 'Payments', icon: DollarSign, path: '/admin/payments' }] : []),
+              ...(hasCapability(profile, 'audit.read') ? [{ label: 'Audit Trail', icon: Shield, path: '/admin/audit' }] : []),
               { label: 'Messages', icon: MessageSquare, path: '/admin/messages', badge: stats.unreadAgentMessages },
+              // Owner-only: assign internal staff tiers + invite new staff.
+              ...(hasCapability(profile, 'roles.manage') ? [{ label: 'Staff & Roles', icon: UserCog, path: '/admin/staff' }] : []),
             ].map(link => (
               <Button
                 key={link.label}

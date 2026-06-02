@@ -19,7 +19,7 @@
 // ============================================================================
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedAdmin, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import type { Deal } from '@/types/database'
 
@@ -63,7 +63,7 @@ export async function assignDealToUnderwriter(input: {
   underwriterUserId: string | null // null to unassign
   expectedVersion?: number
 }): Promise<ActionResult<{ assigned_to_user_id: string | null; version: number }>> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.dealId) return { success: false, error: 'dealId is required' }

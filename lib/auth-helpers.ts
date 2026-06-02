@@ -7,7 +7,9 @@ import {
   getAgentStatusError,
   getBrokerageStatusError,
   getProfileStatusError,
+  hasCapability,
   INTERNAL_ADMIN_ROLES,
+  type Capability,
 } from '@/lib/access'
 import type { AgentStatus, BrokerageStatus, UserProfile, UserRole } from '@/types/database'
 
@@ -44,6 +46,34 @@ interface BrokerageAccessRecord {
  */
 export async function getAuthenticatedAdmin(): Promise<AuthResult> {
   return getAuthenticatedUser(INTERNAL_ADMIN_ROLES)
+}
+
+/**
+ * Get the current authenticated internal staffer AND verify they hold a
+ * specific capability (least-privilege roles — migration 102).
+ *
+ * Drop-in replacement for getAuthenticatedAdmin() in any server action that is
+ * more sensitive than baseline read access. Returns the same AuthResult shape;
+ * on a missing capability it returns a permission error while still including
+ * the resolved profile so the caller can audit the denial if it wants.
+ *
+ * super_admin holds every capability; firm_funds_admin holds the subset for
+ * its staff_role (owner / manager / staff). See lib/access.ts.
+ */
+export async function getAuthenticatedCapable(capability: Capability): Promise<AuthResult> {
+  const result = await getAuthenticatedUser(INTERNAL_ADMIN_ROLES)
+  if (result.error) return result
+
+  if (!hasCapability(result.profile, capability)) {
+    return {
+      error: 'You do not have permission to perform this action.',
+      user: result.user,
+      profile: result.profile,
+      supabase: result.supabase,
+    }
+  }
+
+  return result
 }
 
 /**

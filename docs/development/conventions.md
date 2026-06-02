@@ -1,6 +1,6 @@
 # Coding Conventions and Gotchas
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-01_
 
 Project-specific rules and known traps. Read this before writing code, because several conventions here override defaults you might assume from older Next.js or Supabase versions.
 
@@ -23,6 +23,18 @@ RLS is the number one source of bugs. The rules:
 - All agent balance writes must go through the `apply_agent_balance_delta` RPC (migration 052). Never read-modify-write a balance directly. The same rule applies to `record_brokerage_late_strike` and `apply_remediation_remittance`.
 
 See [docs/architecture/database.md](../architecture/database.md) and [docs/architecture/authentication.md](../architecture/authentication.md).
+
+## Internal staff capabilities (least-privilege roles)
+
+`super_admin` / `firm_funds_admin` are split into Owner / Manager / General Staff tiers via `user_profiles.staff_role` (migration 102). When you add or touch an admin server action, gate it by capability, not by role:
+
+- Sensitive action: use `getAuthenticatedCapable('<capability>')` (a drop-in for `getAuthenticatedAdmin()`). Money writes use `money.write`, KYC uses `kyc.verify`, deletes use `account.delete` / `deal.delete`, brokerage onboarding uses `brokerage.manage`.
+- Read-only action: keep `getAuthenticatedAdmin()` (all internal tiers hold the read baseline).
+- Payload-dependent sensitivity: gate at the baseline, then branch on `hasCapability(profile, ...)` (see `updateDealStatus`, `updateAgent`).
+- Inline role checks (no helper): select `role, staff_role` and call `hasCapability(profile, cap)` directly (see the banking actions in `profile-actions.ts`).
+- New restricted `/admin` page: add it to `ADMIN_ROUTE_CAPABILITIES` in `lib/access.ts`, gate the page server-side, and hide its nav link in `app/(dashboard)/admin/page.tsx`.
+
+Bundles live in `lib/access.ts` and are unit-tested in `lib/access.test.ts`. Do NOT add new values to `user_profiles.role` or its CHECK constraint to express a tier; use `staff_role`. Full reference: [authentication.md](../architecture/authentication.md).
 
 ## Middleware allowlist
 

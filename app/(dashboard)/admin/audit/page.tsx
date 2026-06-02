@@ -18,6 +18,7 @@ import {
   type AuditQueryFilters,
 } from '@/lib/actions/audit-actions'
 import { formatDateTime } from '@/lib/formatting'
+import { hasCapability } from '@/lib/access'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -225,12 +226,18 @@ function AuditExplorerInner() {
 
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('role')
+        .select('role, staff_role')
         .eq('id', user.id)
         .single()
 
       if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
         router.push('/login')
+        return
+      }
+      // Least-privilege: the audit log is Manager and up (audit.read). General
+      // Staff are bounced back to the dashboard.
+      if (!hasCapability(profile, 'audit.read')) {
+        router.push('/admin')
         return
       }
 

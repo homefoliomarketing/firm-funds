@@ -18,7 +18,7 @@
 // ============================================================================
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 
 interface ActionResult<T = unknown> {
@@ -54,7 +54,7 @@ export async function adjustAgentBalance(input: {
   notes: string // required, ≥10 chars
   referenceId?: string
 }): Promise<ActionResult<{ new_balance: number }>> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   // Basic shape checks

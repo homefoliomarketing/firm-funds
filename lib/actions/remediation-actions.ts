@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedAdmin, getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import { liveFailedDealInterestOwed } from '@/lib/calculations'
 import { isInternalAdminRole } from '@/lib/access'
@@ -345,7 +345,7 @@ export async function markRemediationDealRemitted(input: {
   // FF admin only. This records that money actually arrived at Firm Funds,
   // not a submission step. Brokerage admins and agents can create / update /
   // cancel remediation deals, but only FF marks them remitted.
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!Number.isFinite(input.remittedAmount) || input.remittedAmount <= 0) {

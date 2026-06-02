@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedAdmin, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { dispatchFirmDealNotification } from '@/lib/firm-deal-detection/dispatch-notification'
 import { processFirmDealEvent } from '@/lib/firm-deal-detection/process-event'
 import type { ParsedFirmDeal } from '@/lib/firm-deal-detection/parse-event'
@@ -181,7 +181,7 @@ export async function getFirmDealReviewQueue(): Promise<ActionResult<ReviewQueue
 // Approve + dispatch (in-line, no cron wait)
 // ============================================================================
 export async function approveAndSendFirmDealOffer(eventId: string): Promise<ActionResult<{ sent: boolean }>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('firmdeal.review')
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
 
@@ -246,7 +246,7 @@ export async function approveAndSendFirmDealOffer(eventId: string): Promise<Acti
 // Reject — admin says "don't send"
 // ============================================================================
 export async function rejectFirmDealOffer(eventId: string): Promise<ActionResult> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('firmdeal.review')
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
 
@@ -313,7 +313,7 @@ export interface ResolveUnmatchedInput {
 export async function resolveUnmatchedFirmDealEvent(
   input: ResolveUnmatchedInput
 ): Promise<ActionResult> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('firmdeal.review')
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
 
@@ -520,7 +520,7 @@ export async function resolveUnmatchedFirmDealEvent(
 export async function rerunFirmDealMatch(
   eventId: string
 ): Promise<ActionResult<{ outcome: string; message?: string }>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('firmdeal.review')
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
 

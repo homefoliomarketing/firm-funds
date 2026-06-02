@@ -1,6 +1,7 @@
 'use server'
 
 import { createServiceRoleClient, createClient } from '@/lib/supabase/server'
+import { hasCapability } from '@/lib/access'
 import crypto from 'crypto'
 import {
   sendBankingSubmittedNotification,
@@ -559,11 +560,15 @@ export async function updateAgentBanking(data: {
   // Verify admin role
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, staff_role')
     .eq('id', user.id)
     .single()
 
   if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return { success: false, error: 'Not authorized' }
+  }
+  // Least-privilege: entering agent banking is Manager and up (kyc.verify).
+  if (!hasCapability(profile, 'kyc.verify')) {
     return { success: false, error: 'Not authorized' }
   }
 
@@ -765,11 +770,16 @@ export async function approveAgentBanking(data: { agentId: string }) {
   // Verify admin role
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, staff_role')
     .eq('id', user.id)
     .single()
 
   if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return { success: false, error: 'Not authorized' }
+  }
+  // Least-privilege: approving agent banking is Manager and up (kyc.verify).
+  // The actual disbursement (funding) stays Owner-only (money.write).
+  if (!hasCapability(profile, 'kyc.verify')) {
     return { success: false, error: 'Not authorized' }
   }
 
@@ -854,11 +864,15 @@ export async function rejectAgentBanking(data: { agentId: string; reason: string
   // Verify admin role
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, staff_role')
     .eq('id', user.id)
     .single()
 
   if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
+    return { success: false, error: 'Not authorized' }
+  }
+  // Least-privilege: rejecting agent banking is Manager and up (kyc.verify).
+  if (!hasCapability(profile, 'kyc.verify')) {
     return { success: false, error: 'Not authorized' }
   }
 

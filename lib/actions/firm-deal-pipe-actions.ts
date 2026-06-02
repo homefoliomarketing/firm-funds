@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedAdmin, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { listTabs, readAllTabValues } from '@/lib/firm-deal-detection/sheets-client'
 import { logAuditEvent } from '@/lib/audit'
 
@@ -67,7 +67,7 @@ export async function parseSheetIdInput(input: string): Promise<ActionResult<{ s
 export async function testSheetAccess(input: {
   sheetId: string
 }): Promise<ActionResult<{ tabs: string[]; serviceAccountEmail: string }>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('pipe.config')
   if (auth.error) return { success: false, error: auth.error }
   if (!input.sheetId) return { success: false, error: 'Missing sheet ID.' }
 
@@ -115,7 +115,7 @@ export async function fetchTabPreview(input: {
   tab: string
   limit?: number
 }): Promise<ActionResult<{ rows: string[][] }>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('pipe.config')
   if (auth.error) return { success: false, error: auth.error }
   if (!input.sheetId || !input.tab) return { success: false, error: 'Missing sheet ID or tab.' }
   const limit = Math.max(2, Math.min(20, input.limit ?? 6))
@@ -452,7 +452,7 @@ export async function setPipeNotificationRecipients(input: {
    */
   ffInboxOverride?: string | null
 }): Promise<ActionResult<NotificationRecipientsConfig>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('pipe.config')
   if (auth.error) return { success: false, error: auth.error }
   if (!input.pipeId) return { success: false, error: 'Missing pipe id.' }
 
@@ -555,7 +555,7 @@ export async function setPipeAutoFire(input: {
   pipeId: string
   enabled: boolean
 }): Promise<ActionResult<{ auto_fire_enabled: boolean }>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('pipe.config')
   if (auth.error) return { success: false, error: auth.error }
   if (!input.pipeId) return { success: false, error: 'Missing pipe id.' }
 
@@ -601,7 +601,7 @@ export async function setPipeAutoFire(input: {
 export async function createBrokeragePipe(
   input: CreatePipeInput
 ): Promise<ActionResult<{ pipeId: string }>> {
-  const auth = await getAuthenticatedAdmin()
+  const auth = await getAuthenticatedCapable('pipe.config')
   if (auth.error) return { success: false, error: auth.error }
   const supabase = createServiceRoleClient()
 

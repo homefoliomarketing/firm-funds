@@ -1,6 +1,6 @@
 # Authentication and Authorization
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-01_
 
 This document explains how Firm Funds authenticates users, how it determines a user's role and access, how the request proxy gates routes, and how Row Level Security and the service-role client divide security responsibilities.
 
@@ -54,6 +54,49 @@ This composite check is implemented twice for defense in depth, using the same h
 The shared helpers in `lib/access.ts` include `getProfileStatusError`, `getAgentStatusError`, `isActiveBrokerageStatus`, `getBrokerageStatusError`, and `isInternalAdminRole` (true for `super_admin` and `firm_funds_admin`). `INTERNAL_ADMIN_ROLES` is the canonical admin role list.
 
 There is also a finer-grained permission for commercially sensitive data: `canViewBrokerageReferralFees()` limits referral-fee visibility to brokerage staff whose `staff_title` is "Broker of Record" or "Brokerage Manager".
+
+## Internal staff capabilities (least-privilege roles)
+
+_Added 2026-06-01 (migration 102)._
+
+`super_admin` and `firm_funds_admin` historically shared one all-powerful admin surface. Internal staff are now split into three least-privilege tiers so help can be hired without handing over money movement, deletes, or PII:
+
+- **Owner** - everything, including money, brokerage onboarding, permanent deletes, credential resets, role assignment, and impersonation.
+- **Manager** - runs day-to-day operations: deals, KYC, audit, agent invites, paperwork. No money movement, no brokerage onboarding, no deletes, no role management.
+- **General Staff** - read dashboards, message users, handle document requests. Nothing sensitive.
+
+### Where the tier lives
+
+A nullable column `user_profiles.staff_role` (`owner | manager | staff`, migration 102) holds the tier. It is deliberately **separate** from `role`:
+
+- `role` stays the coarse identity (`agent | brokerage_admin | firm_funds_admin | super_admin`) and remains the only thing RLS and the proxy route-prefix gate read. **No RLS policy changed**, so no internal user loses read access on day one.
+- `staff_role` drives the capability layer in application code. `super_admin` is always treated as `owner` regardless of the column; a `firm_funds_admin` with no `staff_role` defaults to `manager`.
+
+This works because **every mutation uses `createServiceRoleClient()`, which bypasses RLS** - so the real write boundary is the server action's own check, not RLS. The capability layer lives exactly there.
+
+### The capability model (`lib/access.ts`)
+
+- `Capability` - the fine-grained verbs (`money.write`, `deal.underwrite`, `kyc.verify`, `pii.identity`, `pii.banking`, `account.delete`, `brokerage.manage`, `users.credentials`, `audit.read`, `audit.export`, `roles.manage`, `impersonate`, and more).
+- `resolveStaffRole(profile)` - maps a profile to `owner | manager | staff | null`.
+- `getCapabilities(profile)` / `hasCapability(profile, cap)` - the tier's capability set / a single check.
+- `STAFF_ROLE_CAPABILITIES` - the owner/manager/staff bundles. Owner = every capability; Manager = operations minus the dangerous/structural keys; General Staff = `read`, `comms`, `documents.write`.
+
+Unit-tested in `lib/access.test.ts`, including regression guards for the exact policy (money and brokerage onboarding Owner-only, agent invites Manager and up, deletes/credentials/role-management/view-as Owner-only).
+
+### How a server action is gated
+
+Use `getAuthenticatedCapable(capability)` from `lib/auth-helpers.ts` - a drop-in replacement for `getAuthenticatedAdmin()` that returns the same `{ error, user, profile, supabase }` shape and sets `error` when the caller lacks the capability:
+
+```ts
+const { error, profile, supabase } = await getAuthenticatedCapable('money.write')
+if (error) return { success: false, error }
+```
+
+Read-only actions keep `getAuthenticatedAdmin()` (every internal tier holds the read baseline). For actions whose sensitivity depends on the payload (e.g. `updateDealStatus` funding vs underwriting, `updateAgent` touching `outstanding_recovery`), gate at the baseline then branch on `hasCapability(profile, ...)`. Actions that use inline role checks instead of the helpers (e.g. the banking actions in `profile-actions.ts`, `app/api/audit/export`) select `role, staff_role` and call `hasCapability` directly.
+
+### Route gating
+
+`ADMIN_ROUTE_CAPABILITIES` in `lib/access.ts` lists `/admin` sub-paths that need more than read access (`/admin/balance-adjustment` and `/admin/payments` need `money.write`; `/admin/audit` needs `audit.read`). The proxy bounces a staffer lacking the capability back to `/admin` (not signed out). The pages re-check as defense in depth, and the admin dashboard hides nav links a tier cannot use. Assigning tiers and inviting new staff is the Owner-only `/admin/staff` page (`roles.manage`), backed by `lib/actions/staff-role-actions.ts`.
 
 ## Request proxy: route gating
 

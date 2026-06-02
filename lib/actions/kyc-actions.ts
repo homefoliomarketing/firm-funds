@@ -5,7 +5,7 @@ import { logAuditEvent } from '@/lib/audit'
 import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
 import { sendKycMobileUploadLink, sendKycApprovedNotification } from '@/lib/email'
 import { randomBytes } from 'crypto'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedCapable } from '@/lib/auth-helpers'
 
 // ============================================================================
 // Types
@@ -28,7 +28,7 @@ export async function verifyBrokerageKyc(input: {
   recoRegistrationNumber: string
   verificationNotes: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedCapable('kyc.verify')
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -78,7 +78,7 @@ export async function verifyBrokerageKyc(input: {
 export async function revokeBrokerageKyc(input: {
   brokerageId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedCapable('kyc.verify')
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -220,7 +220,7 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
 export async function verifyAgentKyc(input: {
   agentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedCapable('kyc.verify')
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -376,7 +376,7 @@ export async function rejectAgentKyc(input: {
   agentId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedCapable('kyc.verify')
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -438,7 +438,7 @@ export async function rejectAgentKyc(input: {
 export async function getAgentKycDocumentUrl(input: {
   agentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('pii.identity')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {

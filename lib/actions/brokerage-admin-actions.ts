@@ -28,6 +28,7 @@
 import crypto from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedAdmin, getAuthenticatedUser } from '@/lib/auth-helpers'
+import { hasCapability } from '@/lib/access'
 import { logAuditEvent } from '@/lib/audit'
 import { sendBrokerageInviteNotification } from '@/lib/email'
 
@@ -69,6 +70,12 @@ async function authorizeAdminManager(brokerageId: string): Promise<AuthorizeResu
   // checks required.
   const ffAttempt = await getAuthenticatedAdmin()
   if (!ffAttempt.error && ffAttempt.user) {
+    // Internal staff need brokerage.manage (Owner only) to manage a brokerage's
+    // admin team. The brokerage's own Broker of Record / Manager path below is
+    // unaffected (that is brokerage self-service, not internal staff).
+    if (!hasCapability(ffAttempt.profile, 'brokerage.manage')) {
+      return { ok: false, error: 'You do not have permission to manage brokerage admins.' }
+    }
     return {
       ok: true,
       callerUserId: ffAttempt.user.id,
@@ -91,6 +98,9 @@ async function authorizeAdminManager(brokerageId: string): Promise<AuthorizeResu
 
   const profile = callerAttempt.profile
   if (profile.role === 'super_admin' || profile.role === 'firm_funds_admin') {
+    if (!hasCapability(profile, 'brokerage.manage')) {
+      return { ok: false, error: 'You do not have permission to manage brokerage admins.' }
+    }
     return {
       ok: true,
       callerUserId: callerAttempt.user.id,

@@ -17,6 +17,12 @@ export type DealStatus =
 
 export type UserRole = 'agent' | 'brokerage_admin' | 'firm_funds_admin' | 'super_admin'
 
+// Least-privilege internal staff tier (migration 102). NULL for non-internal
+// users (agents, brokerage admins). super_admin is always treated as 'owner'
+// in code regardless of this column. Drives the capability layer in
+// lib/access.ts.
+export type StaffRole = 'owner' | 'manager' | 'staff'
+
 export type DocumentType =
   | 'aps'
   | 'amendment'
@@ -308,6 +314,9 @@ export interface UserProfile {
   // lib/access.ts.
   staff_title?: string | null
   last_active_at?: string | null
+  // Internal staff tier (migration 102): owner | manager | staff. NULL for
+  // non-internal users. super_admin is always treated as owner in code.
+  staff_role?: StaffRole | null
 }
 
 export type EsignatureStatus = 'sent' | 'delivered' | 'signed' | 'declined' | 'voided'

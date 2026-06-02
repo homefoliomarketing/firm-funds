@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { isAllowedOrigin } from '@/lib/csrf'
-import { getAgentStatusError, getProfileStatusError, isActiveBrokerageStatus } from '@/lib/access'
+import { getAgentStatusError, getProfileStatusError, isActiveBrokerageStatus, hasCapability, ADMIN_ROUTE_CAPABILITIES } from '@/lib/access'
 import type { AgentStatus, BrokerageStatus, UserProfile, UserRole } from '@/types/database'
 
 // Role-to-route mapping for authorization
@@ -354,6 +354,24 @@ export async function proxy(request: NextRequest) {
             return redirectWithCsp(request, csp)
           }
           break
+        }
+      }
+
+      // Capability sub-gating for sensitive /admin pages (least-privilege staff
+      // roles). The role gate above lets ALL internal staff into /admin; these
+      // specific pages need a capability (e.g. money.write, audit.read). A
+      // staffer who lacks it is bounced to /admin — NOT signed out, since they
+      // are legitimately inside the admin area, just not on this page. The
+      // server actions behind each page enforce the same capability, so this is
+      // a UX guard layered on top of the real boundary.
+      if (profile) {
+        for (const [routePrefix, capability] of ADMIN_ROUTE_CAPABILITIES) {
+          if (
+            (pathname === routePrefix || pathname.startsWith(routePrefix + '/')) &&
+            !hasCapability(profile, capability)
+          ) {
+            return redirectWithCsp(request, csp, '/admin')
+          }
         }
       }
     }

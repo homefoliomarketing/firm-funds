@@ -1,6 +1,6 @@
 'use server'
 
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedCapable } from '@/lib/auth-helpers'
 import type { AuditSeverity } from '@/lib/audit-labels'
 
 // Strip characters with special meaning to PostgREST's or() mini-DSL
@@ -108,7 +108,7 @@ export async function getEntityAuditTimeline(
   entityId: string,
   limit = 100
 ): Promise<AuditQueryResult> {
-  const { error: authError, supabase } = await getAuthenticatedAdmin()
+  const { error: authError, supabase } = await getAuthenticatedCapable('audit.read')
   if (authError) return { data: [], total: 0, error: authError }
 
   try {
@@ -169,7 +169,7 @@ export async function queryAuditLogs(
   page = 1,
   pageSize = 50
 ): Promise<AuditQueryResult> {
-  const { error: authError, supabase } = await getAuthenticatedAdmin()
+  const { error: authError, supabase } = await getAuthenticatedCapable('audit.read')
   if (authError) return { data: [], total: 0, error: authError }
 
   try {
@@ -261,7 +261,7 @@ export async function queryAuditLogs(
 export async function exportAuditLogs(
   filters: AuditQueryFilters
 ): Promise<{ data: AuditLogRow[]; error: string | null }> {
-  const { error: authError, supabase } = await getAuthenticatedAdmin()
+  const { error: authError, supabase } = await getAuthenticatedCapable('audit.export')
   if (authError) return { data: [], error: authError }
 
   try {
@@ -310,7 +310,7 @@ export async function exportAuditLogs(
  * Fetch distinct action types for the filter dropdown.
  */
 export async function getDistinctAuditActions(): Promise<string[]> {
-  const { error: authError, supabase } = await getAuthenticatedAdmin()
+  const { error: authError, supabase } = await getAuthenticatedCapable('audit.read')
   if (authError) return []
 
   const { data } = await supabase
@@ -329,7 +329,7 @@ export async function getDistinctAuditActions(): Promise<string[]> {
  * Fetch distinct entity types for the filter dropdown.
  */
 export async function getDistinctEntityTypes(): Promise<string[]> {
-  const { error: authError, supabase } = await getAuthenticatedAdmin()
+  const { error: authError, supabase } = await getAuthenticatedCapable('audit.read')
   if (authError) return []
 
   const { data } = await supabase

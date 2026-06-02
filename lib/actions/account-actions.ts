@@ -1,7 +1,7 @@
 'use server'
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { logAuditEvent } from '@/lib/audit'
 import {
   calculateLateInterest,
@@ -42,7 +42,7 @@ export async function chargeLatePaymentInterest(input: {
   dealId: string
   throughDate: string // calculate interest through this date
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -363,7 +363,7 @@ export async function deductBalanceFromAdvance(input: {
   agentId: string
   amount: number
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -413,7 +413,7 @@ export async function adjustAgentBalance(input: {
   dealId?: string
   idempotencyKey?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -489,7 +489,7 @@ export async function generateInvoice(input: {
   dueDate: string
   notes?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -569,7 +569,7 @@ export async function generateInvoice(input: {
 export async function sendInvoiceEmail(input: {
   invoiceId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -618,7 +618,7 @@ export async function markInvoicePaid(input: {
   invoiceId: string
   paidAmount?: number
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -680,7 +680,7 @@ export async function sendDealMessage(input: {
   dealId: string
   message: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedCapable('comms')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -763,7 +763,7 @@ export async function returnDocument(input: {
   documentId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('documents.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()
@@ -927,7 +927,7 @@ export async function resolveDocumentReturn(input: {
   returnId: string
   newDocumentId?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin', 'agent'])
+  const { error: authErr, user } = await getAuthenticatedCapable('documents.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const serviceClient = createServiceRoleClient()

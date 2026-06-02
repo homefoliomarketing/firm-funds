@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { confirmBrokeragePaymentClaim, rejectBrokeragePaymentClaim } from '@/lib/actions/admin-actions'
+import { hasCapability } from '@/lib/access'
 
 interface PaymentEntry {
   id: string
@@ -75,10 +76,12 @@ export default function AdminPaymentsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
 
-    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+    const { data: profile } = await supabase.from('user_profiles').select('role, staff_role').eq('id', user.id).single()
     if (!profile || !['super_admin', 'firm_funds_admin'].includes(profile.role)) {
       router.push('/login'); return
     }
+    // Least-privilege: only Owner (money.write) may confirm brokerage payments.
+    if (!hasCapability(profile, 'money.write')) { router.push('/admin'); return }
 
     const { data: deals } = await supabase
       .from('deals')

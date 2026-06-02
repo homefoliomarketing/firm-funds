@@ -4,7 +4,8 @@ import crypto from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
 import { sendAgentInviteNotification, sendBrokerageInviteNotification, sendPasswordResetNotification, sendEmailChangeNotification } from '@/lib/email'
-import { getAuthenticatedAdmin } from '@/lib/auth-helpers'
+import { getAuthenticatedAdmin, getAuthenticatedCapable } from '@/lib/auth-helpers'
+import { hasCapability } from '@/lib/access'
 import {
   CreateBrokerageSchema,
   UpdateBrokerageSchema,
@@ -42,7 +43,7 @@ export async function recordLateStrike(input: {
   dealId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const reason = (input.reason || '').trim()
@@ -305,7 +306,7 @@ export async function createBrokerage(input: {
   isWhiteLabelPartner?: boolean
   profitSharePct?: number
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -403,7 +404,7 @@ export async function updateBrokerage(input: {
   profitSharePct?: number
   status: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -515,7 +516,7 @@ export async function createAgent(input: {
   phone?: string
   recoNumber?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('agent.invite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -735,7 +736,7 @@ function rowsToBulkAgents(rows: string[][]): { agents: BulkAgentRow[]; error?: s
 }
 
 export async function bulkImportAgentsCsv(formData: FormData): Promise<BulkImportResult> {
-  const { error: authErr } = await getAuthenticatedAdmin()
+  const { error: authErr } = await getAuthenticatedCapable('agent.invite')
   if (authErr) return { success: false, error: authErr }
 
   const brokerageId = String(formData.get('brokerageId') || '')
@@ -759,7 +760,7 @@ export async function bulkImportAgents(input: {
   brokerageId: string
   agents: BulkAgentRow[]
 }): Promise<BulkImportResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('agent.invite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -876,8 +877,11 @@ export async function updateAgent(input: {
   flaggedByBrokerage: boolean
   outstandingRecovery: number
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  // Editing an agent's profile is agent.invite (Manager and up). This form also
+  // carries outstanding_recovery, a money field; changing it is a money write,
+  // so that specific change is guarded to money.write (Owner only) below.
+  const { error: authErr, user, profile } = await getAuthenticatedCapable('agent.invite')
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
     const parsed = UpdateAgentSchema.safeParse(input)
@@ -887,6 +891,26 @@ export async function updateAgent(input: {
     const v = parsed.data
 
     const serviceClient = createServiceRoleClient()
+
+    // Money guard: only an Owner (money.write) may change outstanding_recovery.
+    // A Manager can edit everything else on the agent but not this balance field.
+    if (!hasCapability(profile, 'money.write')) {
+      const { data: existing, error: existingErr } = await serviceClient
+        .from('agents')
+        .select('outstanding_recovery')
+        .eq('id', v.id)
+        .single()
+      if (existingErr || !existing) {
+        return { success: false, error: 'Agent not found' }
+      }
+      if (Number(existing.outstanding_recovery) !== Number(v.outstandingRecovery)) {
+        return {
+          success: false,
+          error: 'Only an Owner can change an agent\'s outstanding recovery balance.',
+        }
+      }
+    }
+
     const { data: agent, error: updateError } = await serviceClient
       .from('agents')
       .update({
@@ -936,7 +960,10 @@ export async function createUserAccount(input: {
   agentId?: string
   brokerageId?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  // Creating an agent login is agent.invite (Manager and up); creating a
+  // brokerage admin login is brokerage onboarding -> brokerage.manage (Owner only).
+  const requiredCapability = input.role === 'brokerage_admin' ? 'brokerage.manage' : 'agent.invite'
+  const { error: authErr, user } = await getAuthenticatedCapable(requiredCapability)
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1004,7 +1031,7 @@ export async function createUserAccount(input: {
 export async function archiveAgent(input: {
   agentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('account.archive')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1084,7 +1111,7 @@ export async function softDeleteAgent(input: {
   agentId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('account.delete')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const reason = (input.reason || '').trim()
@@ -1142,7 +1169,7 @@ export async function softDeleteAgent(input: {
 export async function permanentlyDeleteAgent(input: {
   agentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('account.delete')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1236,7 +1263,7 @@ export async function permanentlyDeleteAgent(input: {
 export async function archiveBrokerage(input: {
   brokerageId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('account.archive')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1331,7 +1358,7 @@ export async function softDeleteBrokerage(input: {
   brokerageId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('account.delete')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const reason = (input.reason || '').trim()
@@ -1409,7 +1436,7 @@ export async function softDeleteBrokerage(input: {
 export async function permanentlyDeleteBrokerage(input: {
   brokerageId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('account.delete')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1550,7 +1577,7 @@ export async function inviteAgent(input: {
   recoNumber?: string
   skipEmail?: boolean
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('agent.invite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1789,7 +1816,7 @@ export async function inviteAgent(input: {
 export async function resendAgentWelcomeEmail(input: {
   agentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('users.credentials')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1932,7 +1959,7 @@ export async function resendAgentWelcomeEmail(input: {
 export async function sendWelcomeToAllBrokerageAgents(input: {
   brokerageId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('agent.invite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2103,7 +2130,7 @@ export async function recordEftTransfer(input: {
   date: string
   reference?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2192,7 +2219,7 @@ export async function recordEftTransfer(input: {
 export async function confirmEftTransfer(input: {
   transferId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.transferId) return { success: false, error: 'Transfer id is required' }
@@ -2242,7 +2269,7 @@ export async function confirmEftTransfer(input: {
 export async function removeEftTransfer(input: {
   transferId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.transferId) return { success: false, error: 'Transfer id is required' }
@@ -2315,7 +2342,7 @@ export async function recordBrokeragePayment(input: {
   method?: string
   allowOverpayment?: boolean
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2428,7 +2455,7 @@ export async function removeBrokeragePayment(input: {
   dealId: string
   paymentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedAdmin()
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.paymentId) return { success: false, error: 'Payment id is required' }
@@ -2511,7 +2538,7 @@ export async function confirmBrokeragePaymentClaim(input: {
   dealId: string
   paymentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
   if (!input.paymentId) return { success: false, error: 'Payment id is required' }
   return reviewBrokeragePaymentClaim(
@@ -2528,7 +2555,7 @@ export async function rejectBrokeragePaymentClaim(input: {
   paymentId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
   if (!input.paymentId) return { success: false, error: 'Payment id is required' }
   const reason = (input.reason || '').trim()
@@ -2553,7 +2580,7 @@ export async function resetBrokerageLateStrikes(input: {
   clearAutoBump: boolean
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const reason = (input.reason || '').trim()
@@ -2611,7 +2638,7 @@ export async function adminResetUserPassword(input: {
   userId?: string   // user_profiles.id (auth user id) — use for brokerage admins
   agentId?: string  // agents.id — use for agents (looks up user_profiles.id from agent_id)
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('users.credentials')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2727,7 +2754,7 @@ export async function adminChangeUserEmail(input: {
   agentId?: string  // agents.id — for agents
   newEmail: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('users.credentials')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2884,7 +2911,7 @@ export async function inviteBrokerageAdmin(input: {
    */
   staffTitle?: string | null
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -3145,7 +3172,7 @@ export async function inviteBrokerageOnboardingContacts(input: {
   brokerageId: string
   contacts: OnboardingContactInput[]
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   let sent = 0
@@ -3188,7 +3215,7 @@ export async function inviteBrokerageOnboardingContacts(input: {
 export async function resendBrokerageSetupLink(input: {
   userId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -3282,7 +3309,7 @@ const BROKERAGE_DOCUMENT_TYPES = [
 ] as const
 
 export async function uploadBrokerageDocument(formData: FormData): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -3382,7 +3409,7 @@ export async function uploadBrokerageDocument(formData: FormData): Promise<Actio
 export async function deleteBrokerageDocument(input: {
   documentId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.documentId) return { success: false, error: 'Document id is required' }
@@ -3442,7 +3469,10 @@ export async function deleteBrokerageDocument(input: {
 export async function getBrokerageDocumentSignedUrl(input: {
   documentId: string
 }): Promise<ActionResult> {
-  const { error: authErr } = await getAuthenticatedAdmin()
+  // Brokerage documents include banking details and the BCA contract, so gate
+  // viewing to Owner (pii.banking), consistent with the agent banking pre-auth
+  // form. Managers verify brokerage KYC status without opening the raw files.
+  const { error: authErr } = await getAuthenticatedCapable('pii.banking')
   if (authErr) return { success: false, error: authErr }
   if (!input.documentId) return { success: false, error: 'Document id is required' }
 
@@ -3488,7 +3518,7 @@ export async function getBrokerageDocumentSignedUrl(input: {
 export async function getAgentPreauthFormSignedUrl(input: {
   agentId: string
 }): Promise<ActionResult> {
-  const { error: authErr } = await getAuthenticatedAdmin()
+  const { error: authErr } = await getAuthenticatedCapable('pii.banking')
   if (authErr) return { success: false, error: authErr }
   if (!input.agentId) return { success: false, error: 'Agent id is required' }
 
@@ -3553,7 +3583,7 @@ export async function recordEarlyClosing(input: {
   actualClosingDate: string  // YYYY-MM-DD
   expectedVersion?: number   // Optimistic lock — pass deals.version read by caller
 }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedAdmin()
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.dealId) return { success: false, error: 'Deal ID is required' }

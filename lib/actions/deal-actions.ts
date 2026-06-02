@@ -23,7 +23,8 @@ import {
   sendDocumentRequestNotification,
   sendFailedToCloseElectionEmail,
 } from '@/lib/email'
-import { getAuthenticatedUser } from '@/lib/auth-helpers'
+import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helpers'
+import { hasCapability } from '@/lib/access'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
 
 // ============================================================================
@@ -632,8 +633,12 @@ export async function updateDealStatus(input: {
   repaymentAmount?: number
   brokerageReferralPct?: number // per-deal override (0-1 decimal)
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+  // Baseline internal-staff gate (needed to read the deal first). The real
+  // capability check happens below, once we know which transition is requested:
+  // moving/settling money requires money.write (Owner only); a pure underwriting
+  // transition requires deal.underwrite (Manager+).
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   // dealId / denialReason still go through Zod, but `newStatus` is validated
   // manually below because the canonical schema in lib/validations.ts predates
@@ -665,6 +670,18 @@ export async function updateDealStatus(input: {
 
     if (dealError || !deal) {
       return { success: false, error: 'Deal not found' }
+    }
+
+    // Capability split (least-privilege roles). Any transition INTO or OUT OF a
+    // money-active state (funded / completed / cured) moves or settles money and
+    // requires money.write (Owner only). Every other transition is underwriting
+    // and requires deal.underwrite (Manager and up).
+    const MONEY_ACTIVE_STATUSES = new Set(['funded', 'completed', 'cured'])
+    const movesMoney =
+      MONEY_ACTIVE_STATUSES.has(input.newStatus) || MONEY_ACTIVE_STATUSES.has(deal.status)
+    const requiredCapability = movesMoney ? 'money.write' : 'deal.underwrite'
+    if (!hasCapability(profile, requiredCapability)) {
+      return { success: false, error: 'You do not have permission to perform this action.' }
     }
 
     // Validate status transition (includes backward transitions). Extended in
@@ -1082,7 +1099,7 @@ export async function toggleChecklistItem(input: {
   itemId: string
   isChecked: boolean
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1152,7 +1169,7 @@ export async function toggleChecklistItemNA(input: {
   itemId: string
   isNA: boolean
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1193,7 +1210,7 @@ export async function linkDocumentToChecklist(input: {
   checklistItemId: string
   documentId: string | null  // null = unlink
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1242,7 +1259,7 @@ export async function linkDocumentToChecklist(input: {
 export async function deleteDocument(input: {
   documentId: string
 }): Promise<ActionResult> {
-  const { error: authErr } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr } = await getAuthenticatedCapable('documents.delete')
   if (authErr) return { success: false, error: authErr }
 
   try {
@@ -1380,6 +1397,10 @@ export async function getDocumentSignedUrl(input: {
 // ============================================================================
 
 export async function uploadDocument(formData: FormData): Promise<ActionResult> {
+  // Multi-role by design: agents and brokerage admins upload to their own deals;
+  // internal staff upload on anyone's deal. Access is row-scoped by role below,
+  // so this stays a role gate (NOT capability-gated). All internal staff hold
+  // documents.write anyway, so behavior is unchanged for them.
   const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['agent', 'brokerage_admin', 'super_admin', 'firm_funds_admin'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
@@ -1783,7 +1804,7 @@ export async function cancelDeal(input: { dealId: string }): Promise<ActionResul
 const DELETABLE_DEAL_STATUSES = ['under_review', 'cancelled', 'denied'] as const
 
 export async function deleteDeal(input: { dealId: string }): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user } = await getAuthenticatedCapable('deal.delete')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   // Mutations use the service-role client so we don't depend on admin RLS
@@ -1887,7 +1908,7 @@ export async function requestDocument(input: {
   documentType: string
   message?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('documents.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -1971,7 +1992,7 @@ export async function fulfillDocumentRequest(input: {
   requestId: string
   documentId?: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('documents.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2025,7 +2046,7 @@ export async function fulfillDocumentRequest(input: {
 export async function cancelDocumentRequest(input: {
   requestId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('documents.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2065,7 +2086,7 @@ export async function cancelDocumentRequest(input: {
 // ============================================================================
 
 export async function saveAdminNotes(input: { dealId: string; adminNotes: string }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('comms')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2099,7 +2120,7 @@ export async function saveAdminNotes(input: { dealId: string; adminNotes: string
 // ============================================================================
 
 export async function addAdminNote(input: { dealId: string; note: string }): Promise<ActionResult> {
-  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile } = await getAuthenticatedCapable('comms')
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   const noteText = input.note.trim()
@@ -2154,7 +2175,7 @@ export async function updateClosingDate(input: {
   dealId: string
   newClosingDate: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, profile, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, profile, supabase } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
@@ -2281,7 +2302,7 @@ export async function markDealFailedToClose(input: {
   outstandingAmount: number
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   if (!input.reason?.trim()) {
@@ -2529,7 +2550,7 @@ export async function markFundingFailed(input: {
   dealId: string
   reason: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   const reason = (input.reason || '').trim()
@@ -2657,7 +2678,7 @@ export async function markFundingFailed(input: {
 export async function retryFundingAfterFailure(input: {
   dealId: string
 }): Promise<ActionResult> {
-  const { error: authErr, user, supabase } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('money.write')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
