@@ -4,21 +4,14 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowDownLeft, ArrowUpRight, Receipt, Clock, AlertTriangle, DollarSign, ArrowRight } from 'lucide-react'
-import { formatCurrency, formatDate } from '@/lib/formatting'
+import { AlertTriangle, DollarSign, ArrowRight } from 'lucide-react'
+import { formatCurrency } from '@/lib/formatting'
 import { getAgentTransactions } from '@/lib/actions/account-actions'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
+import AgentLedger from '@/components/AgentLedger'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import type { AgentAccountTransaction, UserProfile } from '@/types/database'
 
 interface PendingElection {
@@ -32,17 +25,6 @@ interface PendingElection {
 interface AgentForHeader {
   id: string
   brokerages?: { name: string | null; logo_url: string | null;  logo_includes_tagline?: boolean | null} | null
-}
-
-const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof ArrowUpRight }> = {
-  late_closing_interest: { label: 'Late Closing Interest', color: 'text-status-amber', icon: Clock },
-  late_payment_interest: { label: 'Late Payment Interest', color: 'text-status-amber', icon: Clock },
-  balance_deduction: { label: 'Balance Deduction', color: 'text-status-teal', icon: ArrowDownLeft },
-  invoice_payment: { label: 'Invoice Payment', color: 'text-status-teal', icon: Receipt },
-  adjustment: { label: 'Adjustment', color: 'text-muted-foreground', icon: DollarSign },
-  credit: { label: 'Credit', color: 'text-status-teal', icon: ArrowDownLeft },
-  failed_deal_balance: { label: 'Failed Deal Balance', color: 'text-status-red', icon: AlertTriangle },
-  failed_deal_interest: { label: 'Failed Deal Interest', color: 'text-status-amber', icon: Clock },
 }
 
 export default function AgentAccountPage() {
@@ -242,107 +224,7 @@ export default function AgentAccountPage() {
         </section>
 
         {/* Transaction Ledger */}
-        <section aria-label="Transaction history">
-          <Card className="overflow-hidden border-border/40 shadow-lg shadow-black/20">
-            <div className="px-5 sm:px-6 py-4 border-b border-border/40">
-              <h2 className="text-base font-bold text-foreground">Transaction History</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
-              </p>
-            </div>
-
-            {transactions.length === 0 ? (
-              <div className="px-6 py-16 text-center">
-                <div className="w-12 h-12 rounded-xl bg-secondary/80 flex items-center justify-center mx-auto mb-4">
-                  <Receipt className="text-muted-foreground/50" size={20} />
-                </div>
-                <p className="text-sm font-semibold text-foreground mb-1">No transactions yet</p>
-                <p className="text-xs text-muted-foreground">Your account activity will appear here.</p>
-              </div>
-            ) : (
-              <>
-                {/* Desktop table */}
-                <div className="hidden sm:block">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-border/30">
-                        <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Date</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Type</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Description</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground/70 text-right">Amount</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground/70 text-right">Balance</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transactions.map((tx) => {
-                        const config = TRANSACTION_TYPE_CONFIG[tx.type] || {
-                          label: tx.type,
-                          color: 'text-muted-foreground',
-                          icon: DollarSign,
-                        }
-                        const Icon = config.icon
-                        const isDebit = tx.amount > 0
-                        return (
-                          <TableRow key={tx.id} className="border-border/20">
-                            <TableCell className="text-xs text-muted-foreground tabular-nums">
-                              {formatDate(tx.created_at)}
-                            </TableCell>
-                            <TableCell>
-                              <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${config.color}`}>
-                                <Icon size={12} />
-                                {config.label}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-xs text-foreground max-w-[300px] truncate">
-                              {tx.description}
-                            </TableCell>
-                            <TableCell className={`text-xs font-semibold text-right tabular-nums ${isDebit ? 'text-status-amber' : 'text-status-teal'}`}>
-                              {isDebit ? '+' : ''}{formatCurrency(tx.amount)}
-                            </TableCell>
-                            <TableCell className="text-xs font-medium text-right tabular-nums text-foreground">
-                              {formatCurrency(tx.running_balance)}
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {/* Mobile cards */}
-                <div className="sm:hidden divide-y divide-border/20">
-                  {transactions.map((tx) => {
-                    const config = TRANSACTION_TYPE_CONFIG[tx.type] || {
-                      label: tx.type,
-                      color: 'text-muted-foreground',
-                      icon: DollarSign,
-                    }
-                    const Icon = config.icon
-                    const isDebit = tx.amount > 0
-                    return (
-                      <div key={tx.id} className="px-5 py-3.5">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${config.color}`}>
-                            <Icon size={12} />
-                            {config.label}
-                          </span>
-                          <span className={`text-sm font-semibold tabular-nums ${isDebit ? 'text-status-amber' : 'text-status-teal'}`}>
-                            {isDebit ? '+' : ''}{formatCurrency(tx.amount)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-foreground/80 truncate">{tx.description}</p>
-                        <div className="flex items-center justify-between mt-1">
-                          <span className="text-[11px] text-muted-foreground/60 tabular-nums">{formatDate(tx.created_at)}</span>
-                          <span className="text-[11px] text-muted-foreground/60 tabular-nums">Bal: {formatCurrency(tx.running_balance)}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-          </Card>
-        </section>
+        <AgentLedger transactions={transactions} emptyHint="Your account activity will appear here." />
       </main>
     </div>
   )

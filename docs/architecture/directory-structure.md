@@ -1,6 +1,6 @@
 # Directory Structure
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-02_
 
 This document is an annotated map of the important directories in the Firm Funds repository, so you can find where any given piece of behavior lives.
 
@@ -62,7 +62,7 @@ Under `app/(dashboard)/`:
 
 | Segment | Route prefix | Allowed roles | Highlights |
 | --- | --- | --- | --- |
-| `admin/` | `/admin` | `super_admin`, `firm_funds_admin` | Deal review (`deals/[id]`), portfolio, payments, brokerages and their firm-deal pipes, assignments, balance adjustment, firm-deal review, pending elections, reports, audit, settings. |
+| `admin/` | `/admin` | `super_admin`, `firm_funds_admin` | Deal review (`deals/[id]`), agent profile with ledger (`agents/[id]`, read-only, linked from the agent name on a deal), portfolio, payments, brokerages and their firm-deal pipes, assignments, balance adjustment, firm-deal review, pending elections, reports, audit, settings. |
 | `agent/` | `/agent` | `agent` | New deal, deal detail (`deals/[id]`), failed deals, cure election, account and ledger, profile, settings, setup, messages. |
 | `brokerage/` | `/brokerage` | `brokerage_admin` | Submit deal on behalf of agents (`deals/new`), agents, brokerage admins, amendments, failed deals, settings. |
 | `help/` | `/help` | all authenticated | Role-aware Help Center: sidebar IA, FAQ, dynamic `[role]/[slug]` articles, live fee worksheet. |

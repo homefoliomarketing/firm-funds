@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
 import {
   ArrowLeft, CheckCircle2, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
-  ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
+  ChevronRight, ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
   StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap, FileSignature
 } from 'lucide-react'
 import {
@@ -1609,7 +1610,6 @@ export default function DealDetailPage() {
             })
             const chargeDays = getChargeDays(daysUntilClosing)
             const today = new Date()
-            const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
             const closingDate = new Date(deal.closing_date + 'T00:00:00')
             // Due date = closing + the deal's effective settlement window (matches server)
             const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
@@ -1628,10 +1628,6 @@ export default function DealDetailPage() {
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Funding Date</td>
                           <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(today)}</td>
-                        </tr>
-                        <tr>
-                          <td className="py-1.5 text-muted-foreground">Charges Start</td>
-                          <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(tomorrow)}</td>
                         </tr>
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Closing Date</td>
@@ -1666,10 +1662,6 @@ export default function DealDetailPage() {
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Settlement Period Fee ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d × ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1k)</td>
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.settlementPeriodFee)}</td>
-                        </tr>
-                        <tr>
-                          <td className="py-1.5 font-semibold text-foreground">Gross Advance</td>
-                          <td className="py-1.5 text-right font-mono font-semibold text-foreground">{formatCurrency(calc.advanceAmount)}</td>
                         </tr>
                         {agentBalance > 0 && (() => {
                           const deduction = Math.min(agentBalance, calc.advanceAmount)
@@ -2099,7 +2091,14 @@ export default function DealDetailPage() {
               <User className="w-4 h-4 text-primary" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground leading-tight">{agent.first_name} {agent.last_name}</p>
+              <Link
+                href={`/admin/agents/${agent.id}`}
+                className="group inline-flex items-center gap-0.5 text-sm font-semibold text-foreground leading-tight hover:text-primary transition-colors"
+                title="View agent profile and ledger"
+              >
+                <span className="group-hover:underline underline-offset-2">{agent.first_name} {agent.last_name}</span>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/60 group-hover:text-primary transition-colors" aria-hidden="true" />
+              </Link>
               <p className="text-xs text-muted-foreground mt-0.5">{agent.email || 'No email'}{agent.phone ? ` · ${agent.phone}` : ''}</p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {agent.reco_number && <span className="text-[10px] text-muted-foreground/60">RECO {agent.reco_number}</span>}
