@@ -3,22 +3,6 @@ import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
 
 const LATE_RATE_PCT = Math.round(LATE_INTEREST_RATE_PER_ANNUM * 100)
 
-function HowDoIUpdateBankingInfo() {
-  return (
-    <>
-      <p className="text-foreground">
-        Open the Profile page from the header, scroll to Banking Information,
-        edit the fields, and click Save.
-      </p>
-      <p className="text-muted-foreground">
-        Firm Funds verifies new banking details before they are used for
-        funding, so allow one business day. If you have a closing inside 48
-        hours, message us as soon as you change anything so we can prioritize.
-      </p>
-    </>
-  )
-}
-
 function HowDoISeeWhatIOwe() {
   return (
     <>
@@ -31,64 +15,6 @@ function HowDoISeeWhatIOwe() {
         remittances, and adjustments are all there. A positive balance means
         you owe us.
       </p>
-    </>
-  )
-}
-
-function TransactionTypesOnLedger() {
-  return (
-    <>
-      <p className="text-foreground">Here is what each row type means:</p>
-      <dl className="space-y-3 text-foreground">
-        <div>
-          <dt className="text-primary">
-            Late Closing Interest and Late Payment Interest
-          </dt>
-          <dd className="text-muted-foreground">
-            Interest while a funded deal is overdue.
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Failed Deal Balance
-          </dt>
-          <dd className="text-muted-foreground">
-            Original unpaid principal when a deal fails to close.
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Failed Deal Interest
-          </dt>
-          <dd className="text-muted-foreground">
-            Monthly compounded interest posted to your ledger.
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Balance Deduction and Invoice Payment
-          </dt>
-          <dd className="text-muted-foreground">
-            Money we pulled to settle a charge.
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Credit
-          </dt>
-          <dd className="text-muted-foreground">
-            Money we applied (typically from a Remediation remittance).
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Adjustment
-          </dt>
-          <dd className="text-muted-foreground">
-            A manual one-off, always with a note from Firm Funds.
-          </dd>
-        </div>
-      </dl>
     </>
   )
 }
@@ -116,21 +42,6 @@ function Missed15DayCureDeadline() {
       <p className="text-muted-foreground">
         Interest continues to accrue at {LATE_RATE_PCT} percent APR regardless.
         Get in touch right away if you missed the window.
-      </p>
-    </>
-  )
-}
-
-function SignupWithoutEmail() {
-  return (
-    <>
-      <p className="text-foreground">
-        Most agents have an email, but a small number of brokerages keep their
-        roster phone-only. The agent&apos;s email on file is optional.
-      </p>
-      <p className="text-muted-foreground">
-        We will route notifications through your brokerage admin until an
-        email is added.
       </p>
     </>
   )
@@ -175,29 +86,11 @@ function EmailAddressFirmFundsUses() {
 
 export const agentFaqs: HelpFaq[] = [
   {
-    id: 'how-do-i-update-banking-info',
-    role: 'agent',
-    category: 'kyc-and-banking',
-    question: 'How do I update my banking info?',
-    Answer: HowDoIUpdateBankingInfo,
-    related: ['update-banking-info'],
-    updatedAt: '2026-05-29',
-  },
-  {
     id: 'how-do-i-see-what-i-owe',
     role: 'agent',
     category: 'money-and-policy',
     question: 'How do I see what I owe Firm Funds right now?',
     Answer: HowDoISeeWhatIOwe,
-    related: ['account-balance-and-ledger'],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'transaction-types-on-ledger',
-    role: 'agent',
-    category: 'money-and-policy',
-    question: 'What does each transaction type on the ledger mean?',
-    Answer: TransactionTypesOnLedger,
     related: ['account-balance-and-ledger'],
     updatedAt: '2026-05-29',
   },
@@ -220,15 +113,6 @@ export const agentFaqs: HelpFaq[] = [
       'what-happens-if-deal-falls-through',
       'late-interest-rules',
     ],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'signup-without-email',
-    role: 'agent',
-    category: 'getting-started',
-    question: 'Can I sign up without an email address on file?',
-    Answer: SignupWithoutEmail,
-    related: ['first-time-signing-in'],
     updatedAt: '2026-05-29',
   },
   {

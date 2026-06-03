@@ -1,104 +1,11 @@
-import Link from 'next/link'
 import type { HelpFaq } from '../types'
 import {
-  DISCOUNT_RATE_PER_1000_PER_DAY,
-  SETTLEMENT_PERIOD_DAYS,
   BROKERAGE_BUMPED_SETTLEMENT_DAYS,
   BROKERAGE_LATE_STRIKE_THRESHOLD,
   LATE_INTEREST_RATE_PER_ANNUM,
-  LATE_INTEREST_GRACE_DAYS_FROM_CLOSING,
 } from '@/lib/constants'
 
 const LATE_RATE_PCT = Math.round(LATE_INTEREST_RATE_PER_ANNUM * 100)
-const ACCRUAL_START_DAY = LATE_INTEREST_GRACE_DAYS_FROM_CLOSING + 1
-
-function HowIsAdvanceCalculated() {
-  return (
-    <>
-      <p className="text-foreground">
-        We start with your net commission, which is the gross commission minus
-        your brokerage&apos;s split. We charge a discount fee of{' '}
-        <span className="text-primary">
-          ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)} per $1,000 per day
-        </span>{' '}
-        for every day from the day after funding through and including the
-        closing day. We also charge a settlement period fee at the same daily
-        rate for the standard{' '}
-        {SETTLEMENT_PERIOD_DAYS}-day window after closing. Your advance is the
-        net commission minus those two fees.
-      </p>
-      <p className="text-muted-foreground">
-        A worked example is in{' '}
-        <Link
-          href="/help/shared/how-the-advance-is-calculated"
-          className="text-primary hover:underline"
-        >
-          How the advance is calculated
-        </Link>
-        .
-      </p>
-    </>
-  )
-}
-
-function WhichDaysAreCharged() {
-  return (
-    <>
-      <p className="text-foreground">
-        We charge for every day the advance is in your hands. Your funds arrive
-        the day after we fund the deal, so the funding day is not charged.
-        Closing day is charged, because that is not the day we are repaid: your
-        brokerage remits to us within the settlement window after closing.
-      </p>
-      <p className="text-muted-foreground">
-        So a 30-day deal carries 30 charge days. We count the chargeable days
-        from the day after funding through and including the closing day.
-      </p>
-    </>
-  )
-}
-
-function WhatHappensIfDealFallsThrough() {
-  return (
-    <>
-      <p className="text-foreground">
-        We move the deal to failed to close and email you within
-        minutes. You then have 15 days to elect a cure path:
-      </p>
-      <ul className="ml-6 list-disc space-y-1 text-foreground">
-        <li>
-          <span className="text-primary">Cash repayment</span> of the
-          outstanding balance, or
-        </li>
-        <li>
-          <span className="text-primary">Commission assignment</span>, where
-          we redirect a future commission to Firm Funds via a Remediation
-          Irrevocable Direction to Pay.
-        </li>
-      </ul>
-      <p className="text-muted-foreground">
-        Either way, late interest at {LATE_RATE_PCT}% per year compounded
-        daily starts on day {ACCRUAL_START_DAY} after the closing date.
-      </p>
-    </>
-  )
-}
-
-function WhatIsARemediationIdp() {
-  return (
-    <>
-      <p className="text-foreground">
-        An Irrevocable Direction to Pay (IDP) is a one-page document signed
-        by you and your brokerage that redirects a specific upcoming
-        commission to Firm Funds.
-      </p>
-      <p className="text-muted-foreground">
-        We use it when a previously advanced deal fails to close and you
-        elect commission assignment as your cure path.
-      </p>
-    </>
-  )
-}
 
 function WhatDoesLateInterestCostPerDay() {
   // (1 + LATE_INTEREST_RATE_PER_ANNUM)^(1/365) - 1
@@ -122,23 +29,6 @@ function WhatDoesLateInterestCostPerDay() {
   )
 }
 
-function WhyDoesBrokerageHaveSettlementWindow() {
-  return (
-    <>
-      <p className="text-foreground">
-        Closing day is when your commission lands in your brokerage&apos;s
-        trust account. Your brokerage needs a few business days to clear
-        funds and remit our portion.
-      </p>
-      <p className="text-muted-foreground">
-        The standard window is {SETTLEMENT_PERIOD_DAYS} calendar days after
-        closing. We snapshot that window into the deal at funding, so later
-        amendments do not move the goalposts on that specific deal.
-      </p>
-    </>
-  )
-}
-
 function WhyDidSettlementWindowJumpTo14() {
   return (
     <>
@@ -152,24 +42,6 @@ function WhyDidSettlementWindowJumpTo14() {
         Existing funded deals keep whatever window was snapshotted at
         funding. Ship every payment on time for a full quarter and Firm
         Funds will manually clear the bump.
-      </p>
-    </>
-  )
-}
-
-function IsMyInformationSecure() {
-  return (
-    <>
-      <p className="text-foreground">
-        Yes. We use Postgres with row-level security, so every database
-        query is filtered by your account ID before any data leaves the
-        database.
-      </p>
-      <p className="text-muted-foreground">
-        Sensitive endpoints use a strict Content Security Policy, CSRF
-        protection, and same-origin checks. KYC documents live in an
-        ownership-scoped storage bucket and are not visible to other
-        brokerages.
       </p>
     </>
   )
@@ -242,46 +114,6 @@ function WhyIsMyApprovalTakingSoLong() {
 
 export const sharedFaqs: HelpFaq[] = [
   {
-    id: 'how-is-advance-calculated',
-    role: 'shared',
-    category: 'money-and-policy',
-    question: 'How is my advance calculated?',
-    Answer: HowIsAdvanceCalculated,
-    related: ['how-the-advance-is-calculated'],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'which-days-are-charged',
-    role: 'shared',
-    category: 'money-and-policy',
-    question: 'Which days are charged?',
-    Answer: WhichDaysAreCharged,
-    related: ['how-the-advance-is-calculated'],
-    updatedAt: '2026-06-01',
-  },
-  {
-    id: 'what-happens-if-deal-falls-through',
-    role: 'shared',
-    category: 'failed-deals',
-    question: 'What happens if my deal falls through?',
-    Answer: WhatHappensIfDealFallsThrough,
-    related: [
-      'what-happens-if-deal-falls-through',
-      'what-a-remediation-idp-is',
-      'late-interest-rules',
-    ],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'what-is-a-remediation-idp',
-    role: 'shared',
-    category: 'failed-deals',
-    question: 'What is a Remediation IDP?',
-    Answer: WhatIsARemediationIdp,
-    related: ['what-a-remediation-idp-is', 'pay-remediation-idp'],
-    updatedAt: '2026-05-29',
-  },
-  {
     id: 'what-does-late-interest-cost-per-day',
     role: 'shared',
     category: 'failed-deals',
@@ -291,30 +123,12 @@ export const sharedFaqs: HelpFaq[] = [
     updatedAt: '2026-05-29',
   },
   {
-    id: 'why-does-brokerage-have-settlement-window',
-    role: 'shared',
-    category: 'settlements',
-    question: 'Why does my brokerage have a settlement window?',
-    Answer: WhyDoesBrokerageHaveSettlementWindow,
-    related: ['settlement-window'],
-    updatedAt: '2026-05-29',
-  },
-  {
     id: 'why-did-settlement-window-jump-to-14',
     role: 'shared',
-    category: 'settlements',
+    category: 'deals',
     question: 'Why did our brokerage settlement window jump from 7 to 14 days?',
     Answer: WhyDidSettlementWindowJumpTo14,
-    related: ['settlement-window', 'late-strikes-and-the-14-day-bump'],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'is-my-information-secure',
-    role: 'shared',
-    category: 'support',
-    question: 'Is my information secure?',
-    Answer: IsMyInformationSecure,
-    related: ['security-and-data'],
+    related: ['settlement-window'],
     updatedAt: '2026-05-29',
   },
   {

@@ -1,6 +1,5 @@
 import type { HelpArticle } from '../../types'
 import HelpCallout from '@/components/help/HelpCallout'
-import HelpStatusFlowDiagram from '@/components/help/HelpStatusFlowDiagram'
 
 function Body() {
   return (
@@ -20,7 +19,17 @@ function Body() {
         the happy path from left to right:
       </p>
 
-      <HelpStatusFlowDiagram />
+      <ol>
+        <li>Under review</li>
+        <li>Approved</li>
+        <li>Funded</li>
+        <li>Completed</li>
+      </ol>
+
+      <p>
+        There is also a failed branch. If a funded deal does not close, it moves to
+        Failed to close. Once you have made Firm Funds whole, it becomes Cured.
+      </p>
 
       <p>
         <strong>Offered</strong> means Firm Funds detected your firm deal and your

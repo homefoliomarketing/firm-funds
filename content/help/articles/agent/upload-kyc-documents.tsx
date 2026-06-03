@@ -84,7 +84,7 @@ const article: HelpArticle = {
     title: 'Upload KYC documents',
     summary: 'What we need, how to send it from your phone, what verified means.',
     role: 'agent',
-    category: 'kyc-and-banking',
+    category: 'getting-started',
     order: 30,
     updatedAt: '2026-05-29',
   },

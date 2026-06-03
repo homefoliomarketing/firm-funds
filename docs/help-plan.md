@@ -159,7 +159,6 @@ content/help/
       accept-or-decline-firm-offer.tsx
       settle-a-funded-deal.tsx
       record-a-payment.tsx
-      late-strikes-and-the-14-day-bump.tsx
       pay-remediation-remittance.tsx
       manage-team-admins.tsx
       brokerage-dashboard-tour.tsx
@@ -260,7 +259,6 @@ facts.
 | `accept-or-decline-firm-offer` | Reviewing a firm-deal offer | `components/brokerage/OfferedDealsBanner.tsx`, `lib/actions/firm-deal-offer-actions.ts` | Yes |
 | `settle-a-funded-deal` | Settle a funded deal | `lib/calculations.ts` (`effectiveSettlementDays`), `lib/constants.ts` | Yes |
 | `record-a-payment` | Record a payment | `components/brokerage/RecordPaymentModal.tsx`, `lib/actions/brokerage-actions.ts` | Yes |
-| `late-strikes-and-the-14-day-bump` | Late strikes and the 14-day bump | `lib/calculations.ts`, `lib/constants.ts` | No |
 | `pay-remediation-remittance` | Pay a Remediation remittance | `app/(dashboard)/brokerage/failed-deals/page.tsx`, `lib/actions/remediation-actions.ts` | Optional |
 | `manage-team-admins` | Manage team admins | `app/(dashboard)/brokerage/admins/page.tsx`, `lib/brokerage-admin-roles.ts` | Optional |
 

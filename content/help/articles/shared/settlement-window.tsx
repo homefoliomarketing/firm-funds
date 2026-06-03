@@ -52,6 +52,21 @@ function Body() {
         already on the road.
       </p>
 
+      <HelpCallout
+        variant="warning"
+        title="A bump means smaller agent payouts"
+      >
+        <p>
+          The settlement period fee is charged on the length of the window, so
+          a brokerage on the {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day window pays
+          that fee on {BROKERAGE_BUMPED_SETTLEMENT_DAYS} days instead of{' '}
+          {SETTLEMENT_PERIOD_DAYS}, which is roughly double. That fee comes out
+          of the agent&apos;s advance, so on a bumped brokerage the agent
+          receives a smaller payout per deal. Clearing the bump restores
+          payouts to the standard amount.
+        </p>
+      </HelpCallout>
+
       <h2 className="text-lg font-semibold text-foreground mt-6">
         How the effective window is resolved
       </h2>
@@ -98,15 +113,25 @@ function Body() {
       </HelpCallout>
 
       <h2 className="text-lg font-semibold text-foreground mt-6">
-        Getting the bump removed
+        Clearing the bump
       </h2>
       <p>
-        The {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day bump is not permanent. If
-        a bumped brokerage clears every settlement on time for a full quarter,
-        Firm Funds will manually drop the flag and new deals go back to{' '}
-        {SETTLEMENT_PERIOD_DAYS} days. Message us from the brokerage portal if
-        you believe a strike was logged in error and we will reconcile against
-        the actual bank receipt date.
+        The {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day bump is not permanent, but
+        there is no button to remove it in the portal. If a bumped brokerage
+        clears every settlement on time for a full quarter, Firm Funds drops
+        the flag manually and new deals go back to {SETTLEMENT_PERIOD_DAYS}{' '}
+        days.
+      </p>
+
+      <h2 className="text-lg font-semibold text-foreground mt-6">
+        Disputing a strike
+      </h2>
+      <p>
+        If a strike looks wrong, reply in the message thread for that deal, or
+        message Firm Funds, with the date the payment was sent and a bank
+        reference. Strikes are reviewed against the actual bank deposit, not
+        against the date the amount lands on Firm Funds books, so a payment
+        that was sent on time gets the strike reversed.
       </p>
 
     </div>

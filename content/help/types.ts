@@ -13,11 +13,8 @@ export type HelpRole = 'agent' | 'brokerage' | 'shared'
 export type HelpCategory =
   | 'getting-started'
   | 'deals'
-  | 'kyc-and-banking'
   | 'money-and-policy'
-  | 'team'
   | 'failed-deals'
-  | 'settlements'
   | 'support'
 
 export interface HelpArticleMeta {
@@ -75,11 +72,8 @@ export interface HelpSearchEntry {
 /** Human-readable category labels for the sidebar group headings. */
 export const HELP_CATEGORY_LABELS: Record<HelpCategory, string> = {
   'getting-started': 'Getting started',
-  'deals': 'Deals',
-  'kyc-and-banking': 'KYC and banking',
+  'deals': 'Deals and settlements',
   'money-and-policy': 'Money and policy',
-  'team': 'Team',
   'failed-deals': 'Failed deals',
-  'settlements': 'Settlements',
-  'support': 'Support',
+  'support': 'Account and support',
 }

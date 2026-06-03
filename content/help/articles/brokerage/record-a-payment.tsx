@@ -92,7 +92,7 @@ const article: HelpArticle = {
     title: 'Record a payment',
     summary: 'Modal walkthrough, methods, references, and what pending vs confirmed means.',
     role: 'brokerage',
-    category: 'settlements',
+    category: 'deals',
     order: 50,
     updatedAt: '2026-05-29',
   },

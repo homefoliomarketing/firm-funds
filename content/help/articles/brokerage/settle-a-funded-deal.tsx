@@ -32,17 +32,13 @@ function Body() {
       <p>
         If your brokerage has been bumped after repeated late payments, your
         window stretches to <strong>{BROKERAGE_BUMPED_SETTLEMENT_DAYS} calendar days</strong>.
-        See the article on late strikes for how the bump works and how to clear it.
+        See The settlement window for how the bump works and how to clear it.
       </p>
 
-      <h2>Why your window is frozen on each deal</h2>
       <p>
-        At the moment a deal funds we snapshot your effective settlement
-        window onto that deal. That snapshot is what controls when this
-        particular deal goes late.
-        If Firm Funds bumps your window later or restores it later, those
-        changes only apply to deals funded after the change. The deals you
-        already have keep whatever window was in place the day they funded.
+        Your window is locked onto each deal at funding, so a later change to
+        your brokerage window does not affect deals that have already funded.
+        The settlement window explainer covers how that snapshot works.
       </p>
 
       <HelpCallout variant="money" title="Worked example">
@@ -87,7 +83,7 @@ const article: HelpArticle = {
     title: 'Settle a funded deal',
     summary: 'What you owe Firm Funds at closing and the 7-day standard window.',
     role: 'brokerage',
-    category: 'settlements',
+    category: 'deals',
     order: 40,
     updatedAt: '2026-05-29',
   },

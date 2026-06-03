@@ -11,7 +11,9 @@ function Body() {
         brokerage. Once both parties sign the Irrevocable Direction to Pay
         (IDP), you take on the obligation to remit the directed amount to
         Firm Funds when that underlying commission lands at your trust
-        account. This article covers your side of the workflow.
+        account. This article covers your side of the workflow. See What a
+        Remediation IDP is for what the document contains and why it cannot be
+        cancelled.
       </p>
 
       <h2>How it starts</h2>
@@ -70,7 +72,8 @@ function Body() {
           paid. The directed amount on each new IDP reflects the live balance
           at signing time. If the named commission is months away, the next
           IDP we send may be larger than the previous one to cover accrued
-          interest.
+          interest. See the article Late payment interest rules for the full
+          breakdown.
         </p>
       </HelpCallout>
     </>

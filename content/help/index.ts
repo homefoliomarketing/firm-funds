@@ -33,7 +33,6 @@ import readingYourDashboard from './articles/agent/reading-your-dashboard'
 import accountBalanceAndLedger from './articles/agent/account-balance-and-ledger'
 import updateBankingInfo from './articles/agent/update-banking-info'
 import whatHappensIfDealFallsThrough from './articles/agent/what-happens-if-deal-falls-through'
-import payRemediationIdp from './articles/agent/pay-remediation-idp'
 
 // --- Brokerage articles ---
 import brokerageDashboardTour from './articles/brokerage/brokerage-dashboard-tour'
@@ -41,7 +40,6 @@ import submitOnBehalfOfAgent from './articles/brokerage/submit-on-behalf-of-agen
 import acceptOrDeclineFirmOffer from './articles/brokerage/accept-or-decline-firm-offer'
 import settleAFundedDeal from './articles/brokerage/settle-a-funded-deal'
 import recordAPayment from './articles/brokerage/record-a-payment'
-import lateStrikesAndTheFourteenDayBump from './articles/brokerage/late-strikes-and-the-14-day-bump'
 import payRemediationRemittance from './articles/brokerage/pay-remediation-remittance'
 import manageTeamAdmins from './articles/brokerage/manage-team-admins'
 
@@ -67,14 +65,12 @@ export const ALL_ARTICLES: HelpArticle[] = [
   accountBalanceAndLedger,
   updateBankingInfo,
   whatHappensIfDealFallsThrough,
-  payRemediationIdp,
   // Brokerage
   brokerageDashboardTour,
   submitOnBehalfOfAgent,
   acceptOrDeclineFirmOffer,
   settleAFundedDeal,
   recordAPayment,
-  lateStrikesAndTheFourteenDayBump,
   payRemediationRemittance,
   manageTeamAdmins,
   // Shared

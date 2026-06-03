@@ -1,64 +1,5 @@
 import type { HelpFaq } from '../types'
 
-function HowDoIAddTeamAdmin() {
-  return (
-    <>
-      <p className="text-foreground">
-        Open the Team page. Click Invite admin, enter their name and email,
-        and pick a role:
-      </p>
-      <ul className="ml-6 list-disc space-y-1 text-foreground">
-        <li>
-          Admin: submit deals and manage agents.
-        </li>
-        <li>
-          Manager: everything except changing the
-          Broker of Record.
-        </li>
-      </ul>
-      <p className="text-muted-foreground">
-        The invitee gets a magic-link email.
-      </p>
-    </>
-  )
-}
-
-function DifferenceBetweenBrokerageAdminRoles() {
-  return (
-    <>
-      <dl className="space-y-3 text-foreground">
-        <div>
-          <dt className="text-primary">
-            Broker of Record
-          </dt>
-          <dd className="text-muted-foreground">
-            The regulatory signatory. Only Firm Funds can change who fills
-            that slot.
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Manager
-          </dt>
-          <dd className="text-muted-foreground">
-            Day-to-day owner of the portal. Can invite or remove other
-            admins.
-          </dd>
-        </div>
-        <div>
-          <dt className="text-primary">
-            Admin
-          </dt>
-          <dd className="text-muted-foreground">
-            Can submit deals and manage agents but cannot manage other
-            admins.
-          </dd>
-        </div>
-      </dl>
-    </>
-  )
-}
-
 function HowToDisputeLateStrike() {
   return (
     <>
@@ -85,21 +26,6 @@ function RoleInAgentCure() {
         Once both parties sign the Remediation IDP, you receive a copy. When
         that underlying commission is paid to your trust account, remit the
         directed amount to Firm Funds.
-      </p>
-    </>
-  )
-}
-
-function CantFindTeamInviteEmail() {
-  return (
-    <>
-      <p className="text-foreground">
-        The Team page has a Resend action on the pending invite row.
-      </p>
-      <p className="text-muted-foreground">
-        If resends do not arrive, check the email address for typos and that
-        the recipient&apos;s inbox is not blocking{' '}
-        <code>notifications@firmfunds.ca</code>.
       </p>
     </>
   )
@@ -153,30 +79,12 @@ function DoWePayBeforeClosing() {
 
 export const brokerageFaqs: HelpFaq[] = [
   {
-    id: 'how-do-i-add-team-admin',
-    role: 'brokerage',
-    category: 'team',
-    question: 'How do I add a team admin?',
-    Answer: HowDoIAddTeamAdmin,
-    related: ['manage-team-admins'],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'difference-between-brokerage-admin-roles',
-    role: 'brokerage',
-    category: 'team',
-    question: 'What is the difference between the three brokerage admin roles?',
-    Answer: DifferenceBetweenBrokerageAdminRoles,
-    related: ['manage-team-admins'],
-    updatedAt: '2026-05-29',
-  },
-  {
     id: 'how-to-dispute-late-strike',
     role: 'brokerage',
-    category: 'settlements',
+    category: 'deals',
     question: 'How do I dispute a late strike?',
     Answer: HowToDisputeLateStrike,
-    related: ['late-strikes-and-the-14-day-bump'],
+    related: ['settlement-window'],
     updatedAt: '2026-05-29',
   },
   {
@@ -186,15 +94,6 @@ export const brokerageFaqs: HelpFaq[] = [
     question: 'One of our agents had a deal fail. What is our role in the cure?',
     Answer: RoleInAgentCure,
     related: ['pay-remediation-remittance', 'what-a-remediation-idp-is'],
-    updatedAt: '2026-05-29',
-  },
-  {
-    id: 'cant-find-team-invite-email',
-    role: 'brokerage',
-    category: 'team',
-    question: "We can't find the invite email for a new admin we just sent. What now?",
-    Answer: CantFindTeamInviteEmail,
-    related: ['manage-team-admins'],
     updatedAt: '2026-05-29',
   },
   {
@@ -218,7 +117,7 @@ export const brokerageFaqs: HelpFaq[] = [
   {
     id: 'do-we-pay-before-closing',
     role: 'brokerage',
-    category: 'settlements',
+    category: 'deals',
     question: 'Do we ever pay Firm Funds before closing?',
     Answer: DoWePayBeforeClosing,
     related: ['settle-a-funded-deal'],

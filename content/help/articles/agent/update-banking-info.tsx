@@ -78,7 +78,7 @@ const article: HelpArticle = {
     title: 'Update your banking information',
     summary: 'Edit your account on file, plus what happens between save and active.',
     role: 'agent',
-    category: 'kyc-and-banking',
+    category: 'getting-started',
     order: 60,
     updatedAt: '2026-05-29',
   },

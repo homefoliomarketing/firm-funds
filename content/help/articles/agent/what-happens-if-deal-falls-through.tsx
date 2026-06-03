@@ -1,14 +1,12 @@
 import type { HelpArticle } from '../../types'
 import HelpCallout from '@/components/help/HelpCallout'
+import HelpStepList from '@/components/help/HelpStepList'
 import {
   LATE_INTEREST_RATE_PER_ANNUM,
   LATE_INTEREST_GRACE_DAYS_FROM_CLOSING,
 } from '@/lib/constants'
 
 function Body() {
-  // Live daily compounding rate from the same formula the app uses.
-  const dailyRate = Math.pow(1 + LATE_INTEREST_RATE_PER_ANNUM, 1 / 365) - 1
-  const dailyPct = (dailyRate * 100).toFixed(4)
   const annualPct = (LATE_INTEREST_RATE_PER_ANNUM * 100).toFixed(0)
 
   return (
@@ -45,7 +43,9 @@ function Body() {
         your brokerage a Remediation Irrevocable Direction to Pay (Remediation IDP)
         for the next deal you have closing. When that deal closes, your brokerage
         pays the directed amount straight to Firm Funds out of your commission
-        before the rest comes to you. No money out of pocket today.
+        before the rest comes to you. No money out of pocket today. For exactly
+        what the document contains and why it cannot be cancelled, see the article
+        What a Remediation IDP is.
       </p>
 
       <h2>How the {annualPct}% interest actually works</h2>
@@ -58,9 +58,8 @@ function Body() {
         that has already accrued.
       </p>
       <p>
-        The exact daily rate is calculated as (1 + 0.{annualPct})^(1/365) minus 1,
-        which works out to about {dailyPct}% per day. Compounded over a full year,
-        that is exactly {annualPct}% APR.
+        For exactly how the daily rate is calculated, see the article Late
+        payment interest rules.
       </p>
 
       <HelpCallout variant="money" title="Worked example on a $10,000 balance">
@@ -76,6 +75,56 @@ function Body() {
         <br />
         Clear the balance and the meter stops the same day.
       </HelpCallout>
+
+      <h2>How to sign and track your Remediation IDP</h2>
+      <p>
+        If you pick commission assignment, here is the path from naming the
+        future deal to seeing the credit land on your ledger.
+      </p>
+      <HelpStepList steps={[
+        {
+          title: 'Add the future deal in your Failed Deals workspace',
+          expected: 'From your dashboard, click into Failed Deals, find the failed deal, and add the upcoming commission you want to assign. You enter the property address, expected closing, and the amount being directed.',
+          fallback: 'If you do not have an upcoming deal yet, that is fine. Come back and add it once you have one. The cure-election deadline only requires you to pick a path, not to have the next deal lined up immediately.',
+        },
+        {
+          title: 'Wait for Firm Funds to send the envelope',
+          expected: 'A Firm Funds admin reviews the upcoming deal and sends a DocuSign envelope to you and your brokerage. You get an email titled "Please sign your Remediation IDP".',
+        },
+        {
+          title: 'Open the email and sign in DocuSign',
+          expected: 'Click the link, follow the DocuSign prompts, and sign. This usually takes under a minute. DocuSign emails you a copy of the signed document for your records.',
+          fallback: 'If you do not see the email, check spam. If it is still missing after 24 hours, message Firm Funds and we will resend.',
+        },
+        {
+          title: 'Watch the status flip',
+          expected: 'On your failed-deals page, the row for the remediation deal shows the envelope status. It goes from "sent" to "agent signed" to "fully signed" as signatures come in.',
+        },
+        {
+          title: 'Watch for the ledger credit',
+          expected: 'When that future deal closes and your brokerage remits the directed amount to Firm Funds, we apply the payment to your ledger as a Credit line item. Your outstanding balance drops by that amount, and if the credit covers the whole balance, the failed deal status moves to Cured.',
+        },
+      ]} />
+
+      <h3>If the assigned deal also falls through</h3>
+      <p>
+        Real estate is real estate. If the deal you assigned does not close, the
+        Remediation IDP for that deal just expires unfulfilled. Add a new upcoming
+        deal in the Failed Deals workspace and we will issue a fresh Remediation IDP
+        for the next one. The original balance and any accrued interest stay on
+        your ledger until something pays them off.
+      </p>
+
+      <h3>If something does not work</h3>
+      <ul>
+        <li>DocuSign envelope expired? Message us and we will resend. Envelopes
+          have a finite validity window.</li>
+        <li>Signed but the status did not update? Refresh the Failed Deals page.
+          The webhook usually catches the signature within a minute, but a refresh
+          forces a re-read.</li>
+        <li>Brokerage tells you they remitted but no credit on your ledger? Send
+          us the date and the bank reference and we will reconcile.</li>
+      </ul>
 
       <h2>What you see on your dashboard</h2>
       <p>

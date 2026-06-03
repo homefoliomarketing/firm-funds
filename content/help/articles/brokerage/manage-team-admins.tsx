@@ -109,7 +109,7 @@ const article: HelpArticle = {
     title: 'Manage team admins',
     summary: 'Three role types, invite flow, who can remove whom.',
     role: 'brokerage',
-    category: 'team',
+    category: 'support',
     order: 80,
     updatedAt: '2026-05-29',
   },

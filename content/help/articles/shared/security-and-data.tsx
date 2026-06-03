@@ -12,127 +12,64 @@ function Body() {
   return (
     <div className="space-y-4 text-sm leading-relaxed text-foreground/90">
       <p>
-        We hold financial records and FINTRAC-required identification for
-        every agent who signs up. We take that seriously. This article
-        explains the controls that keep your data separated from other
-        brokerages and outside the reach of anyone who is not signed in to
-        your account.
+        We hold your financial records and the photo ID we are required to
+        collect. We take that seriously. Here is what keeps your information
+        private, in plain terms.
       </p>
 
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        How your data is isolated
-      </h2>
-      <p>
-        Firm Funds runs on Postgres with row-level security turned on for
-        every table that holds account data. In plain terms, every database
-        query is filtered server-side by your account before any rows leave
-        the database. An agent at one brokerage cannot run a request that
-        returns data belonging to an agent at another brokerage, because the
-        database will refuse to hand those rows back.
-      </p>
-      <p>
-        On top of the database rules, every request that touches the portal
-        first re-validates your session against the auth provider. There is
-        no path where a stale cookie or a copied URL lets someone read data
-        without a live, valid session.
-      </p>
-
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        Browser-side protections
-      </h2>
-      <ul className="list-disc pl-6 space-y-1.5">
+      <ul className="list-disc pl-6 space-y-3">
         <li>
-          <strong>Strict Content Security Policy.</strong> The portal only
-          loads scripts and styles from a small allowlist of origins. Any
-          attempt to inject an outside script into a page is blocked by the
-          browser before it runs.
+          <strong>You only see your own deals and money.</strong> Your
+          account shows you your information and nobody else&apos;s. Agents
+          and staff at other brokerages cannot see your deals, your agents,
+          or your financials.
         </li>
         <li>
-          <strong>CSRF protection.</strong> Every state-changing request to
-          our API is rejected unless it comes from a same-origin browser
-          context with an Origin or Referer header we recognize.
+          <strong>Only you can get into your account.</strong> The portal
+          checks that you are properly signed in on every page. An old saved
+          link or a leftover browser session will not let anyone open your
+          account and read your information.
         </li>
         <li>
-          <strong>Same-origin checks.</strong> Requests for sensitive endpoints
-          are validated against the portal&apos;s own origin, so a page
-          opened on another domain cannot trigger an action in your account
-          even if you happen to be signed in.
-        </li>
-      </ul>
-
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        KYC documents and bank details
-      </h2>
-      <p>
-        Government ID, void cheques, and any other KYC documents are stored
-        in an ownership-scoped storage bucket. Files are tagged at upload
-        with the agent or brokerage that owns them, and the storage policy
-        only releases a file to a signed-in session that matches that owner.
-        Other brokerages on the platform cannot see, list, or download your
-        documents. Firm Funds admins can read what is needed to verify
-        identity under FINTRAC; we do not share those files outside the
-        company.
-      </p>
-
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        Session timeouts
-      </h2>
-      <p>
-        Sessions time out after a period of inactivity so a left-open laptop
-        does not become a vulnerability. The cut-offs are:
-      </p>
-      <ul className="list-disc pl-6 space-y-1.5">
-        <li>
-          <strong>Firm Funds admins:</strong> {ADMIN_TIMEOUT_MINUTES} minutes.
+          <strong>Your ID and banking documents stay locked to you.</strong>{' '}
+          Things like your government ID and void cheque are only released to
+          you. Other brokerages cannot see, list, or download them. Our own
+          team looks only at what we need to confirm your identity, and we do
+          not share those files outside the company.
         </li>
         <li>
-          <strong>Agents and brokerage admins:</strong>{' '}
-          {AGENT_TIMEOUT_MINUTES} minutes.
+          <strong>A left-open laptop logs itself out.</strong> If you step
+          away and your account sits unused, it signs you out on its own so
+          nobody can walk up and use it. Firm Funds staff are logged out after{' '}
+          {ADMIN_TIMEOUT_MINUTES} minutes of sitting idle, and agents and
+          brokerage staff after {AGENT_TIMEOUT_MINUTES} minutes. You just sign
+          back in to pick up where you left off.
+        </li>
+        <li>
+          <strong>Other websites cannot reach into your account.</strong>{' '}
+          Even if you are signed in to the portal, another website you have
+          open in your browser cannot read your information or do anything in
+          your account.
+        </li>
+        <li>
+          <strong>We never sell or rent out your information.</strong> We do
+          not sell your data, your deal history, or your contact details, and
+          we do not hand them to advertisers, marketing companies, or anyone
+          who trades in personal data. We also do not plant hidden advertising
+          trackers in the portal.
         </li>
       </ul>
-      <p>
-        When a session times out, you are sent back to the sign-in screen
-        and any unsent form input is dropped. Signing back in starts a fresh
-        session; we never extend an idle one in the background.
-      </p>
 
-      <HelpCallout variant="success" title="What we never do">
-        <ul className="list-disc pl-6 space-y-1">
-          <li>
-            We do not sell your data, your deal history, or your contact
-            details to anyone.
-          </li>
-          <li>
-            We do not share your information with marketing partners,
-            advertising networks, or data brokers.
-          </li>
-          <li>
-            We do not embed third-party tracking pixels or behavioural
-            advertising trackers inside the portal.
-          </li>
-          <li>
-            We do not let other brokerages on the platform see your agents,
-            your deals, or your financials.
-          </li>
-        </ul>
+      <HelpCallout variant="success" title="If something looks wrong, tell us">
+        <p>
+          If you spot anything that seems off, like an email claiming to be
+          from Firm Funds that you do not trust, or a page that shows
+          information that is not yours, write to{' '}
+          <a href="mailto:bud@firmfunds.ca">bud@firmfunds.ca</a> right away.
+          Add screenshots if you can. We treat these as priority and will look
+          into it.
+        </p>
       </HelpCallout>
-
-      <h2 className="text-lg font-semibold text-foreground mt-6">
-        Where to report a concern
-      </h2>
-      <p>
-        If you notice something that looks like a security issue, including a
-        suspicious email claiming to be from Firm Funds or a portal page that
-        seems to show data that does not belong to you, write to{' '}
-        <a
-          href="mailto:bud@firmfunds.ca"
-          className="text-primary underline underline-offset-2 hover:text-foreground"
-        >
-          bud@firmfunds.ca
-        </a>{' '}
-        right away. Include screenshots if you can. We treat these reports
-        as priority work.
-      </p>
     </div>
   )
 }
@@ -141,11 +78,11 @@ const article: HelpArticle = {
   meta: {
     slug: 'security-and-data',
     title: 'How we keep your data safe',
-    summary: 'Row-level security, KYC storage, sessions, no third-party sharing.',
+    summary: 'How your deals, ID, and money stay private, in plain terms.',
     role: 'shared',
     category: 'support',
     order: 50,
-    updatedAt: '2026-05-29',
+    updatedAt: '2026-06-02',
   },
   Body,
 }

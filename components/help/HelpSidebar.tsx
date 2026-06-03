@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { HelpCircle, Search } from 'lucide-react'
+import { useMemo } from 'react'
+import { HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getArticlesByRole } from '@/content/help/index'
 import {
@@ -12,23 +12,20 @@ import {
   type HelpRole,
   type HelpArticle,
 } from '@/content/help/types'
-import HelpSearchPalette from './HelpSearchPalette'
 
 interface HelpSidebarProps {
   role: HelpRole
 }
 
 /**
- * Client component sidebar. Lists role-filtered articles grouped by category,
- * highlights the active route, and exposes a Search button + ctrl/cmd+K
- * shortcut to open the search palette.
+ * Client component sidebar. Lists role-filtered articles grouped by category
+ * and highlights the active route.
  *
  * The article list is module-level. `getArticlesByRole` is a pure filter, so
  * re-reading it on every render is cheap.
  */
 export default function HelpSidebar({ role }: HelpSidebarProps) {
   const pathname = usePathname()
-  const [paletteOpen, setPaletteOpen] = useState(false)
 
   // Group the role's articles by category, preserving category-order via the
   // article's `order` field within each group.
@@ -47,38 +44,9 @@ export default function HelpSidebar({ role }: HelpSidebarProps) {
     return Array.from(byCategory.entries())
   }, [role])
 
-  // Cmd/Ctrl+K opens the palette anywhere on the page.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        setPaletteOpen(open => !open)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-
-  const openPalette = useCallback(() => setPaletteOpen(true), [])
-
   return (
     <nav aria-label="Help topics" className="text-sm">
       <div className="flex flex-col gap-2 mb-4">
-        <button
-          type="button"
-          onClick={openPalette}
-          aria-label="Search help (Ctrl+K)"
-          className="inline-flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-card/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="inline-flex items-center gap-2">
-            <Search size={14} aria-hidden="true" />
-            Search help
-          </span>
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            Ctrl K
-          </kbd>
-        </button>
-
         <Link
           href="/help/faq"
           className={cn(
@@ -124,8 +92,6 @@ export default function HelpSidebar({ role }: HelpSidebarProps) {
           </section>
         ))}
       </div>
-
-      <HelpSearchPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </nav>
   )
 }
