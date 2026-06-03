@@ -203,8 +203,8 @@ export default function AgentHeader({
                     height={80}
                     unoptimized
                     className={brokerageLogoIncludesTagline
-                      ? 'h-20 sm:h-28 md:h-32 w-auto object-contain'
-                      : 'h-12 sm:h-16 md:h-20 w-auto object-contain'}
+                      ? 'h-20 sm:h-28 md:h-32 w-36 sm:w-48 md:w-56 shrink-0 object-contain'
+                      : 'h-12 sm:h-16 md:h-20 w-32 sm:w-44 md:w-52 shrink-0 object-contain'}
                   />
                   {/* Skip the separate FF wordmark when the logo already
                       contains "Powered by Firm Funds" (generated logos —
