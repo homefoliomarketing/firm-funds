@@ -77,3 +77,13 @@ export const HELP_CATEGORY_LABELS: Record<HelpCategory, string> = {
   'failed-deals': 'Failed deals',
   'support': 'Account and support',
 }
+
+/**
+ * Category heading for a given viewer role. Most labels are the same for
+ * everyone, but a few read better when adjusted: agents have no settlement
+ * how-tos, so they see "Deals" while brokerages see "Deals and settlements".
+ */
+export function helpCategoryLabel(category: HelpCategory, role: HelpRole): string {
+  if (category === 'deals' && role === 'agent') return 'Deals'
+  return HELP_CATEGORY_LABELS[category]
+}

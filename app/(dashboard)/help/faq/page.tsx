@@ -38,7 +38,7 @@ export default async function HelpFaqPage() {
           Quick answers to the things we hear most often. Type to filter.
         </p>
       </header>
-      <HelpFaqList faqs={faqs} />
+      <HelpFaqList faqs={faqs} role={role} />
     </div>
   )
 }

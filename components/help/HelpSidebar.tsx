@@ -7,7 +7,7 @@ import { HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getArticlesByRole } from '@/content/help/index'
 import {
-  HELP_CATEGORY_LABELS,
+  helpCategoryLabel,
   type HelpCategory,
   type HelpRole,
   type HelpArticle,
@@ -65,7 +65,7 @@ export default function HelpSidebar({ role }: HelpSidebarProps) {
         {groups.map(([category, list]) => (
           <section key={category}>
             <h2 className="px-2 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {HELP_CATEGORY_LABELS[category]}
+              {helpCategoryLabel(category, role)}
             </h2>
             <ul className="flex flex-col gap-0.5">
               {list.map(article => {

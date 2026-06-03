@@ -1,13 +1,15 @@
 import { ChevronDown } from 'lucide-react'
 import {
-  HELP_CATEGORY_LABELS,
+  helpCategoryLabel,
   type HelpCategory,
   type HelpFaq,
+  type HelpRole,
 } from '@/content/help/types'
 import HelpFaqFilter from './HelpFaqFilter'
 
 interface HelpFaqListProps {
   faqs: HelpFaq[]
+  role: HelpRole
 }
 
 /**
@@ -20,7 +22,7 @@ interface HelpFaqListProps {
  * Client Components" boundary error we hit when FAQs (which carry
  * `Answer: ComponentType`) were passed into a client component as props.
  */
-export default function HelpFaqList({ faqs }: HelpFaqListProps) {
+export default function HelpFaqList({ faqs, role }: HelpFaqListProps) {
   const byCategory = new Map<HelpCategory, HelpFaq[]>()
   for (const f of faqs) {
     const list = byCategory.get(f.category) ?? []
@@ -52,7 +54,7 @@ export default function HelpFaqList({ faqs }: HelpFaqListProps) {
               id={`faq-cat-${category}`}
               className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              {HELP_CATEGORY_LABELS[category]}
+              {helpCategoryLabel(category, role)}
             </h2>
             <ul className="flex flex-col gap-2">
               {list.map((faq) => {

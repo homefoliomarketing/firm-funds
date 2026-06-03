@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { ArrowRight, BookOpen, HelpCircle, Shield } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { getArticlesByRole } from '@/content/help/index'
-import { HELP_CATEGORY_LABELS } from '@/content/help/types'
+import { helpCategoryLabel, type HelpCategory } from '@/content/help/types'
 import type { HelpRole } from '@/content/help/types'
 import { createClient } from '@/lib/supabase/server'
 
@@ -94,7 +94,7 @@ export default async function HelpLanding() {
           ).map(([category, list]) => (
             <div key={category}>
               <p className="text-xs font-semibold text-muted-foreground mb-1">
-                {HELP_CATEGORY_LABELS[category as keyof typeof HELP_CATEGORY_LABELS] ?? category}
+                {helpCategoryLabel(category as HelpCategory, role)}
               </p>
               <ul className="space-y-1">
                 {list.map(a => (
