@@ -3573,9 +3573,11 @@ export async function getAgentPreauthFormSignedUrl(input: {
 //   refund_total    = days_saved * refund_per_day
 //
 // The refund credits the agent's balance via apply_agent_balance_delta (negative
-// delta = credit) and the deal is moved to 'completed'. Optimistic-lock on
-// deals.version (migration 083) so two concurrent recordEarlyClosing calls
-// can't both apply the credit.
+// delta = credit). The deal STAYS 'funded' — recording an early closing does NOT
+// complete the deal. A deal only completes once the brokerage's payment has been
+// recorded (see updateDealStatus), so this just trues-up the prepaid discount fee
+// and records the actual closing date. Optimistic-lock on deals.version
+// (migration 083) so two concurrent recordEarlyClosing calls can't both apply the credit.
 // ============================================================================
 
 export async function recordEarlyClosing(input: {
@@ -3645,13 +3647,14 @@ export async function recordEarlyClosing(input: {
 
     // Optimistic lock + claim. CAS on (id, version, actual_closing_date IS NULL,
     // status='funded') so two concurrent calls can't both pass the precheck and
-    // both apply the credit.
+    // both apply the credit. NOTE: we do NOT set status here — the deal stays
+    // 'funded' and only completes once the brokerage payment is recorded. The
+    // status='funded' clause is the claim guard, not a transition.
     let claimQuery = serviceClient
       .from('deals')
       .update({
         actual_closing_date: actualStr,
         discount_refund_amount: refundTotal,
-        status: 'completed',
       })
       .eq('id', deal.id)
       .eq('status', 'funded')
@@ -3677,9 +3680,9 @@ export async function recordEarlyClosing(input: {
     }
 
     // Credit the agent via the atomic RPC. Negative delta = credit (reduces
-    // what the agent owes). Failure here leaves the deal flagged 'completed'
-    // with the refund column set but no ledger entry — admin can re-run the
-    // balance adjustment manually via the manual-adjustment flow if so.
+    // what the agent owes). Failure here leaves the deal with actual_closing_date
+    // + the refund column set but no ledger entry — admin can re-run the balance
+    // adjustment manually via the manual-adjustment flow if so.
     const { error: rpcErr } = await serviceClient.rpc('apply_agent_balance_delta', {
       p_agent_id: deal.agent_id,
       p_delta: -refundTotal,
@@ -3696,7 +3699,7 @@ export async function recordEarlyClosing(input: {
       // truth that we owe the agent. Surface the error so admin can retry.
       return {
         success: false,
-        error: `Deal marked completed but credit failed: ${rpcErr.message}. Apply the credit manually.`,
+        error: `Early closing recorded but credit failed: ${rpcErr.message}. Apply the credit manually.`,
       }
     }
 

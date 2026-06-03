@@ -1446,8 +1446,10 @@ export default function DealDetailPage() {
               )}
 
               {/* Record Early Closing — refunds discount fee when closing
-                  date arrived sooner than scheduled */}
-              {deal.status === 'funded' && (
+                  date arrived sooner than scheduled. Hidden once recorded
+                  (the deal stays funded; recording early closing does not
+                  complete it). */}
+              {deal.status === 'funded' && !deal.actual_closing_date && (
                 <EarlyClosingButton
                   dealId={deal.id}
                   scheduledClosingDate={deal.closing_date}

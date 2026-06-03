@@ -26,6 +26,7 @@ import {
 import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable } from '@/lib/auth-helpers'
 import { hasCapability } from '@/lib/access'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
+import { sumConfirmedPayments } from '@/lib/brokerage-payments'
 
 // ============================================================================
 // Types
@@ -735,6 +736,37 @@ export async function updateDealStatus(input: {
 
       if (kycAgent?.kyc_status !== 'verified') {
         return { success: false, error: 'Cannot fund: the agent\'s ID verification (KYC) is not complete. Verify the agent\'s identity before funding this advance.' }
+      }
+    }
+
+    // Money-integrity invariant: a deal must NOT complete unless the brokerage's
+    // payment has actually been recorded AND confirmed to cover what they owe.
+    // The "Mark Completed" button is gated in the UI too, but that is not
+    // authoritative — enforce it server-side so no code path can complete a deal
+    // with money still outstanding.
+    if (input.newStatus === 'completed') {
+      const { data: pmts, error: pmtErr } = await supabase
+        .from('brokerage_payments')
+        .select('amount, status')
+        .eq('deal_id', deal.id)
+      if (pmtErr) {
+        return { success: false, error: `Could not verify brokerage payments: ${pmtErr.message}` }
+      }
+      const confirmedTotal = sumConfirmedPayments(pmts || [])
+      const amountDue = deal.amount_due_from_brokerage == null ? null : Number(deal.amount_due_from_brokerage)
+      // When the amount owed is known, confirmed payments must cover it (cent
+      // tolerance for NUMERIC noise). When unknown (legacy/null), require at least
+      // one confirmed payment so a deal never completes with nothing recorded.
+      const covered =
+        amountDue != null && amountDue > 0
+          ? confirmedTotal >= amountDue - 0.01
+          : confirmedTotal > 0
+      if (!covered) {
+        const dueStr = amountDue != null && amountDue > 0 ? `$${amountDue.toFixed(2)}` : 'the amount owed'
+        return {
+          success: false,
+          error: `Cannot mark this deal completed: confirmed brokerage payments total $${confirmedTotal.toFixed(2)}, which does not cover ${dueStr}. Record the brokerage's payment first.`,
+        }
       }
     }
 

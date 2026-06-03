@@ -1,6 +1,6 @@
 # Deal Lifecycle
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-02_
 
 This document describes the full state machine a commission advance moves through, who can trigger each transition, the underwriting checklist, the settlement window and late-strike behavior, and the failed-deal cure path.
 
@@ -71,7 +71,8 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | `under_review` | `approved` / `denied` / `cancelled` | Firm Funds admin | `updateDealStatus` (approval blocked until agent banking is verified) |
 | `approved` | `funded` | Firm Funds admin | Marks the deal funded after the EFT is sent |
 | `approved` | `denied` / `cancelled` / `under_review` | Firm Funds admin | `updateDealStatus` |
-| `funded` | `completed` | Firm Funds admin | Records the actual closing date and discount refund |
+| `funded` | `completed` | Firm Funds admin | Marks the deal repaid. **Requires confirmed brokerage payment(s) covering `amount_due_from_brokerage`** — enforced server-side in `updateDealStatus`, not just by the UI button. |
+| `funded` | `funded` (no status change) | Firm Funds admin | "Record Early Closing" (`recordEarlyClosing`): when the property closes before the scheduled date, refunds the prepaid discount fee for the days saved and credits the agent. Sets `actual_closing_date` + `discount_refund_amount` but does **not** complete the deal — completion still requires the brokerage payment. |
 | `funded` | `funding_failed` | Firm Funds admin | EFT-bounce action (reverses agent balance) |
 | `funding_failed` | `approved` (via retry) / `cancelled` | Firm Funds admin | "Retry funding" reverts to `approved` to re-run the funding path; or cancel. (`STATUS_FLOW` also permits a direct `-> funded` manual correction.) |
 | `failed_to_close` | `cured` | System | Set when remediation remittance fully clears the balance |
