@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upload, FileText, X, AlertCircle, Shield, Save, Loader2 } from 'lucide-react'
-import { submitDeal, calculateDealPreview, uploadDocument, createRevisedDealFromDenied } from '@/lib/actions/deal-actions'
+import { submitDeal, calculateDealPreview, uploadDocument, createRevisedDealFromDenied, getDealSubmissionGate } from '@/lib/actions/deal-actions'
 import { formatCurrency } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import { KYC_STATUSES, DISCOUNT_RATE_PER_1000_PER_DAY, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
@@ -82,6 +82,9 @@ function NewDealPageInner() {
   /** Submitted deal id, retained for per-file retry after submit completes. */
   const [submittedDealId, setSubmittedDealId] = useState<string | null>(null)
   const [isFirstAdvance, setIsFirstAdvance] = useState(true)
+  // Set when the agent has an uncovered failed-to-close balance — blocks new
+  // submissions until approved advances cover it (server-enforced in submitDeal).
+  const [submissionBlock, setSubmissionBlock] = useState<{ owed: number; coverage: number } | null>(null)
 
   // Autosave draft state
   const DRAFT_KEY = 'firm_funds_deal_draft'
@@ -221,6 +224,13 @@ function NewDealPageInner() {
         setAgent(agentData as AgentForNewDeal | null)
         const { count } = await supabase.from('deals').select('*', { count: 'exact', head: true }).eq('agent_id', profileData.agent_id).in('status', ['funded', 'completed'])
         setIsFirstAdvance(!count || count === 0)
+
+        // Failed-deal gate: warn up front (and disable submit) if an uncovered
+        // failed-to-close balance is outstanding.
+        const gate = await getDealSubmissionGate(profileData.agent_id)
+        if (gate.success && gate.data?.blocked) {
+          setSubmissionBlock({ owed: gate.data.owed, coverage: gate.data.coverage })
+        }
       }
       setLoading(false)
     }
@@ -535,6 +545,22 @@ function NewDealPageInner() {
           <div className="mb-4 flex items-center gap-1.5">
             <Save size={11} className="text-muted-foreground/50" />
             <span className="text-[10px] text-muted-foreground/50">Draft saved at {draftSavedAt}</span>
+          </div>
+        )}
+
+        {/* Failed-deal block — shown up front so the agent isn't surprised at
+            submit time. Submission is also enforced server-side. */}
+        {submissionBlock && (
+          <div role="alert" className="mb-6 px-4 py-3 rounded-lg bg-destructive/10 border border-destructive/30">
+            <p className="text-sm font-semibold text-destructive flex items-center gap-1.5">
+              <AlertCircle size={15} aria-hidden="true" /> Outstanding balance from a failed deal
+            </p>
+            <p className="text-xs text-foreground/80 mt-1">
+              You have an outstanding balance of <span className="font-semibold">{formatCurrency(submissionBlock.owed)}</span> from a deal that failed to close.
+              You can&apos;t submit a new advance request until approved advances covering that balance are in place
+              {submissionBlock.coverage > 0 ? <> (currently approved: {formatCurrency(submissionBlock.coverage)})</> : null}.
+              Please contact Firm Funds to resolve this.
+            </p>
           </div>
         )}
 
@@ -895,10 +921,11 @@ function NewDealPageInner() {
               reason right next to the button so the agent isn't left guessing
               why they can't continue. */}
           {(() => {
-            const submitDisabled = !preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0)
+            const submitDisabled = !preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0) || !!submissionBlock
             let disabledReason: string | null = null
             if (!submitting) {
-              if (!isFirm) disabledReason = 'Confirm the deal is firm above to submit.'
+              if (submissionBlock) disabledReason = 'Submission is locked until your outstanding failed-deal balance is covered (see notice above).'
+              else if (!isFirm) disabledReason = 'Confirm the deal is firm above to submit.'
               else if (docSlots.aps.length === 0) disabledReason = 'Attach the Agreement of Purchase & Sale to submit.'
               else if (isFirstAdvance && docSlots.banking_info.length === 0) disabledReason = 'Attach your banking information to submit your first advance.'
               else if (!preview) disabledReason = 'Complete the required deal details to submit.'

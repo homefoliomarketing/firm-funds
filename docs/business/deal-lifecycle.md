@@ -65,7 +65,7 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | From | To | Triggered by | How |
 | --- | --- | --- | --- |
 | (new) | `offered` | Agent | Accepts a firm-deal offer (`acceptFirmDealOffer`) |
-| (new) | `under_review` | Agent or brokerage admin | Submits an advance request |
+| (new) | `under_review` | Agent or brokerage admin | Submits an advance request (blocked while the agent has an uncovered failed-to-close balance — see §6, "Submission gate") |
 | `offered` | `under_review` | Brokerage admin | Submits the offered deal on the agent's behalf |
 | `offered` | `cancelled` | Brokerage admin or system cron | Declines, or the 60-day expiry cron fires |
 | `under_review` | `approved` / `denied` / `cancelled` | Firm Funds admin | `updateDealStatus` (approval blocked until agent banking is verified) |
@@ -154,3 +154,14 @@ Importantly, a Remediation IDP is **not a new advance**: no discount fee, settle
 When the remediation remittance fully clears the outstanding balance, the failed deal is moved to `cured` (the write happens in `lib/actions/remediation-actions.ts`, CAS-guarded on the prior values). `cured` is terminal. The recently-cured list keys off `failed_deal_interest_calculated_at` as the effective cure timestamp.
 
 A `remediation-overdue-escalation` cron (`app/api/cron/remediation-overdue-escalation/route.ts`) keeps overdue remediations on the radar.
+
+### Submission gate (new advances blocked while a failed-deal balance is uncovered)
+
+An agent who has any `failed_to_close` deal with a remaining `outstanding_balance` cannot have a **new** advance submitted until approved advances already in the pipeline cover what they owe. The rule (`evaluateFailedDealGate` in `lib/actions/deal-actions.ts`):
+
+- **Trigger** — the agent has at least one `failed_to_close` deal with `outstanding_balance > 0`.
+- **Owed** — the agent's full current `account_balance` (everything they owe Firm Funds, including posted interest).
+- **Coverage** — the combined `advance_amount` of the agent's `approved` (not-yet-funded) deals. When those fund, the balance-deduction at funding pays the debt down.
+- **Blocked** — coverage does not reach owed (cent tolerance).
+
+Enforced server-side in both `submitDeal` (agent self-serve) and `submitDealAsBrokerage` (brokerage on behalf), so neither entry point can bypass it. The agent and brokerage new-deal pages also call `getDealSubmissionGate` to warn up front and disable the submit button, but the server check is authoritative.

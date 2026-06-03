@@ -27,6 +27,7 @@ import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable }
 import { hasCapability } from '@/lib/access'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
 import { sumConfirmedPayments } from '@/lib/brokerage-payments'
+import { formatCurrency } from '@/lib/formatting'
 
 // ============================================================================
 // Types
@@ -121,6 +122,88 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
 }
 
 // ============================================================================
+// Failed-deal submission gate
+//
+// Policy (Bud, 2026-06-02): an agent who has a deal that failed to close and
+// still owes a balance may NOT submit a new advance request unless approved
+// (not-yet-funded) advances already in the pipeline fully cover what they owe.
+// When those approved deals fund, the balance-deduction at funding clears the
+// debt — so a covered pipeline means the debt is on track to be repaid.
+//
+//   trigger  = agent has any failed_to_close deal with outstanding_balance > 0
+//   owed     = the agent's full current account_balance (everything they owe)
+//   coverage = combined advance_amount of the agent's 'approved' deals
+//   blocked  = coverage does not reach owed
+//
+// Uses a service-role client so the gate always sees the true state regardless
+// of who is submitting (agent self-serve or brokerage admin on their behalf).
+// ============================================================================
+
+async function evaluateFailedDealGate(
+  agentId: string,
+): Promise<{ blocked: boolean; owed: number; coverage: number }> {
+  const client = createServiceRoleClient()
+
+  // Trigger: any failed-to-close deal still carrying a balance.
+  const { data: failed } = await client
+    .from('deals')
+    .select('id')
+    .eq('agent_id', agentId)
+    .eq('status', 'failed_to_close')
+    .gt('outstanding_balance', 0)
+    .limit(1)
+  if (!failed || failed.length === 0) return { blocked: false, owed: 0, coverage: 0 }
+
+  // Owed = everything the agent owes Firm Funds right now.
+  const { data: agentRow } = await client
+    .from('agents')
+    .select('account_balance')
+    .eq('id', agentId)
+    .single()
+  const owed = Number(agentRow?.account_balance) || 0
+  if (owed <= 0) return { blocked: false, owed, coverage: 0 }
+
+  // Coverage = combined advance of the agent's approved (not-yet-funded) deals.
+  const { data: approved } = await client
+    .from('deals')
+    .select('advance_amount')
+    .eq('agent_id', agentId)
+    .eq('status', 'approved')
+  const coverage = (approved ?? []).reduce((s, d) => s + (Number(d.advance_amount) || 0), 0)
+
+  // Cent tolerance so floating-point noise on NUMERIC dollars can't false-block.
+  return { blocked: coverage + 0.01 < owed, owed, coverage }
+}
+
+// ============================================================================
+// Server Action: Read-only submission-gate status for the new-deal pages.
+// Lets the agent and brokerage forms warn up front (and disable submit) instead
+// of letting someone fill out the whole form only to be blocked on submit. The
+// authoritative enforcement still lives in submitDeal / submitDealAsBrokerage.
+// ============================================================================
+
+export async function getDealSubmissionGate(agentId: string): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser([
+    'agent', 'brokerage_admin', 'super_admin', 'firm_funds_admin',
+  ])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+
+  // Agents may only check themselves.
+  if (profile.role === 'agent' && profile.agent_id !== agentId) {
+    return { success: false, error: 'Access denied' }
+  }
+  // Brokerage admins may only check agents in their own brokerage.
+  if (profile.role === 'brokerage_admin') {
+    const svc = createServiceRoleClient()
+    const { data: a } = await svc.from('agents').select('brokerage_id').eq('id', agentId).single()
+    if (!a || a.brokerage_id !== profile.brokerage_id) return { success: false, error: 'Access denied' }
+  }
+
+  const gate = await evaluateFailedDealGate(agentId)
+  return { success: true, data: gate }
+}
+
+// ============================================================================
 // Server Action: Submit a new deal
 // ============================================================================
 
@@ -178,6 +261,16 @@ export async function submitDeal(formData: {
 
     if (referralPct === null || referralPct === undefined) {
       return { success: false, error: 'Brokerage referral fee percentage is not configured. Please contact your brokerage admin.' }
+    }
+
+    // Failed-deal gate: block new submissions while an uncovered failed-to-close
+    // balance is outstanding (see evaluateFailedDealGate).
+    const gate = await evaluateFailedDealGate(agentData.id)
+    if (gate.blocked) {
+      return {
+        success: false,
+        error: `You have an outstanding balance of ${formatCurrency(gate.owed)} from a deal that failed to close. You can't submit a new advance request until approved advances covering that balance are in place (currently approved: ${formatCurrency(gate.coverage)}). Please contact Firm Funds to resolve this.`,
+      }
     }
 
     // Calculate days until closing (Eastern Time)
@@ -430,6 +523,16 @@ export async function submitDealAsBrokerage(formData: {
     const referralPct = brokerage?.referral_fee_percentage
     if (referralPct === null || referralPct === undefined) {
       return { success: false, error: 'Brokerage referral fee not configured.' }
+    }
+
+    // Failed-deal gate: block submissions on behalf of an agent who has an
+    // uncovered failed-to-close balance (see evaluateFailedDealGate).
+    const gate = await evaluateFailedDealGate(agentData.id)
+    if (gate.blocked) {
+      return {
+        success: false,
+        error: `${agentData.first_name} ${agentData.last_name} has an outstanding balance of ${formatCurrency(gate.owed)} from a deal that failed to close. You can't submit a new advance on their behalf until approved advances covering that balance are in place (currently approved: ${formatCurrency(gate.coverage)}).`,
+      }
     }
 
     const daysUntilClosing = calcDaysUntilClosing(formData.closingDate)

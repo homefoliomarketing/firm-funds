@@ -7,7 +7,7 @@ import {
   ArrowLeft, Calculator, Send, DollarSign, MapPin,
   Upload, FileText, X, Loader2, User as UserIcon,
 } from 'lucide-react'
-import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument, createRevisedDealFromDenied } from '@/lib/actions/deal-actions'
+import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument, createRevisedDealFromDenied, getDealSubmissionGate } from '@/lib/actions/deal-actions'
 import { resendAgentWelcomeEmail } from '@/lib/actions/admin-actions'
 import { formatCurrency } from '@/lib/formatting'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
@@ -94,6 +94,9 @@ function NewBrokerageDealPageInner() {
     estimatedBalanceDeduction: number
   } | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  // Set when the selected agent has an uncovered failed-to-close balance —
+  // blocks submitting on their behalf (server-enforced in submitDealAsBrokerage).
+  const [submissionBlock, setSubmissionBlock] = useState<{ owed: number; coverage: number } | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -237,6 +240,24 @@ function NewBrokerageDealPageInner() {
     }, 400)
     return () => { clearTimeout(t); cancelled = true }
   }, [agentId, grossCommission, brokerageSplitPct, closingDate])
+
+  // Failed-deal gate: when an agent is selected, check whether they have an
+  // uncovered failed-to-close balance and warn up front (submission is also
+  // enforced server-side in submitDealAsBrokerage).
+  useEffect(() => {
+    if (!agentId) { setSubmissionBlock(null); return }
+    let cancelled = false
+    ;(async () => {
+      const gate = await getDealSubmissionGate(agentId)
+      if (cancelled) return
+      if (gate.success && gate.data?.blocked) {
+        setSubmissionBlock({ owed: gate.data.owed, coverage: gate.data.coverage })
+      } else {
+        setSubmissionBlock(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [agentId])
 
   const selectedAgent = agents.find(a => a.id === agentId) || null
   const agentActivated = !!selectedAgent?.account_activated_at
@@ -536,6 +557,21 @@ function NewBrokerageDealPageInner() {
             </CardContent>
           </Card>
 
+          {/* Failed-deal block — shown right under the agent picker so the
+              admin knows before filling the form. Also enforced server-side. */}
+          {submissionBlock && (
+            <div role="alert" className="px-4 py-3 rounded-lg bg-destructive/10 border border-destructive/30">
+              <p className="text-sm font-semibold text-destructive flex items-center gap-1.5">
+                <UserIcon size={15} aria-hidden="true" /> Outstanding balance from a failed deal
+              </p>
+              <p className="text-xs text-foreground/80 mt-1">
+                {selectedAgent ? `${selectedAgent.first_name} ${selectedAgent.last_name}` : 'This agent'} has an outstanding balance of <span className="font-semibold">{formatCurrency(submissionBlock.owed)}</span> from a deal that failed to close.
+                You can&apos;t submit a new advance on their behalf until approved advances covering that balance are in place
+                {submissionBlock.coverage > 0 ? <> (currently approved: {formatCurrency(submissionBlock.coverage)})</> : null}.
+              </p>
+            </div>
+          )}
+
           {/* Property */}
           <Card>
             <CardHeader><CardTitle className="text-base flex items-center gap-2"><MapPin size={16} /> Property</CardTitle></CardHeader>
@@ -707,7 +743,7 @@ function NewBrokerageDealPageInner() {
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => router.push('/brokerage')}>Cancel</Button>
-            <Button type="submit" disabled={submitting || uploadingDocs || !preview || !agentActivated || missing.length > 0} className="bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button type="submit" disabled={submitting || uploadingDocs || !preview || !agentActivated || missing.length > 0 || !!submissionBlock} className="bg-primary text-primary-foreground hover:bg-primary/90">
               {submitting ? 'Submitting…' : uploadingDocs ? 'Uploading docs…' : <>Submit deal <Send size={14} className="ml-1" /></>}
             </Button>
           </div>
