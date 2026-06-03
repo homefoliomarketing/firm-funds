@@ -366,18 +366,6 @@ export default function AdminDashboard() {
   const page = Math.min(currentPage, totalPages)
   const paged = filtered.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
 
-  // Overdue/attention alerts
-  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-  const todayMs = new Date(todayStr + 'T00:00:00').getTime()
-  const threeDaysAgo = todayMs - (3 * 24 * 60 * 60 * 1000)
-  const overdueClosings = allDeals.filter(d => d.status === 'funded' && new Date(d.closing_date + 'T00:00:00').getTime() < todayMs)
-  const staleReviews = allDeals.filter(d => d.status === 'under_review' && new Date(d.created_at).getTime() < threeDaysAgo)
-  const approvedNoFunding = allDeals.filter(d => {
-    if (d.status !== 'approved') return false
-    return (todayMs - new Date(d.created_at).getTime()) / (24 * 60 * 60 * 1000) > 5
-  })
-  const totalAlerts = overdueClosings.length + staleReviews.length + approvedNoFunding.length
-
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -734,67 +722,6 @@ export default function AdminDashboard() {
                 ))}
               </CardContent>
             </Card>
-          </section>
-        )}
-
-        {/* Attention Alerts */}
-        {totalAlerts > 0 && (
-          <section aria-label="Deals needing attention">
-          <Card className="mb-6 border-red-500/30 bg-red-500/5">
-            <CardHeader className="py-2.5 px-4 border-b border-red-500/20">
-              <CardTitle className="text-xs font-semibold flex items-center gap-2 text-red-400">
-                <AlertTriangle size={14} />
-                {totalAlerts} deal{totalAlerts !== 1 ? 's' : ''} need{totalAlerts === 1 ? 's' : ''} attention
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 space-y-1">
-              {overdueClosings.map(deal => (
-                <button
-                  key={`overdue-${deal.id}`}
-                  className="flex items-center justify-between gap-2 w-full py-2 px-3 rounded-md bg-red-500/5 hover:bg-red-500/10 transition-colors text-left"
-                  onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                >
-                  <span className="flex items-center gap-2 min-w-0 flex-1">
-                    <Clock size={11} className="text-red-400 shrink-0" />
-                    <span className="text-xs text-red-300 truncate">
-                      <strong>Overdue:</strong> {deal.property_address}, closing was {new Date(deal.closing_date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
-                    </span>
-                  </span>
-                  <ChevronRight size={12} className="text-red-400 shrink-0" />
-                </button>
-              ))}
-              {staleReviews.map(deal => (
-                <button
-                  key={`stale-${deal.id}`}
-                  className="flex items-center justify-between gap-2 w-full py-2 px-3 rounded-md bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left"
-                  onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                >
-                  <span className="flex items-center gap-2 min-w-0 flex-1">
-                    <Clock size={11} className="text-amber-400 shrink-0" />
-                    <span className="text-xs text-amber-300 truncate">
-                      <strong>Stale review:</strong> {deal.property_address}, {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days
-                    </span>
-                  </span>
-                  <ChevronRight size={12} className="text-amber-400 shrink-0" />
-                </button>
-              ))}
-              {approvedNoFunding.map(deal => (
-                <button
-                  key={`nofund-${deal.id}`}
-                  className="flex items-center justify-between gap-2 w-full py-2 px-3 rounded-md bg-blue-500/5 hover:bg-blue-500/10 transition-colors text-left"
-                  onClick={() => router.push(`/admin/deals/${deal.id}`)}
-                >
-                  <span className="flex items-center gap-2 min-w-0 flex-1">
-                    <Clock size={11} className="text-blue-400 shrink-0" />
-                    <span className="text-xs text-blue-300 truncate">
-                      <strong>Pending funding:</strong> {deal.property_address}, approved {Math.floor((todayMs - new Date(deal.created_at).getTime()) / (24 * 60 * 60 * 1000))} days ago
-                    </span>
-                  </span>
-                  <ChevronRight size={12} className="text-blue-400 shrink-0" />
-                </button>
-              ))}
-            </CardContent>
-          </Card>
           </section>
         )}
 

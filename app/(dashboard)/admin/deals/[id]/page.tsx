@@ -1638,7 +1638,7 @@ export default function DealDetailPage() {
                           <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(closingDate)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 text-muted-foreground">Payment Due Date <span className="text-[10px] text-muted-foreground/70">(+14d)</span></td>
+                          <td className="py-1.5 text-muted-foreground">Payment Due Date <span className="text-[10px] text-muted-foreground/70">(+{settlementDays}d)</span></td>
                           <td className="py-1.5 text-right font-medium text-foreground">{fmtDate(dueDate)}</td>
                         </tr>
                         <tr>
@@ -1725,10 +1725,6 @@ export default function DealDetailPage() {
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Amount Due from Brokerage</td>
                           <td className="py-1.5 text-right font-mono text-foreground">{formatCurrency(calc.amountDueFromBrokerage)}</td>
-                        </tr>
-                        <tr>
-                          <td className="py-1.5 text-muted-foreground">EFT Transfer Days</td>
-                          <td className="py-1.5 text-right font-mono text-foreground">{calc.eftTransferDays} day{calc.eftTransferDays !== 1 ? 's' : ''}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -2360,7 +2356,9 @@ export default function DealDetailPage() {
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
                 { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
                 { label: `Settlement Period Fee (${deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d)`, value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
+                { label: 'Total Cost to Agent', value: formatCurrency((Number(deal.discount_fee) || 0) + (Number(deal.settlement_period_fee) || 0)), bold: true },
                 { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
+                { label: 'Deal Profit', value: formatCurrency(((Number(deal.discount_fee) || 0) + (Number(deal.settlement_period_fee) || 0)) - (Number(deal.brokerage_referral_fee) || 0)), bold: true, color: 'text-primary' },
               ] as { label: string; value: string; bold?: boolean; color?: string }[]).map((row) => (
                 <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
                   <span className="text-muted-foreground">{row.label}</span>

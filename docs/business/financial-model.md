@@ -91,12 +91,12 @@ The chargeable period from the day after funding through the closing day inclusi
    where `effectiveDays = getChargeDays(daysUntilClosing)`.
 3. **Settlement period fee** (a flat fee covering the post-closing remittance window):
    `settlementPeriodFee = netCommission * (rate / 1000) * settlementPeriodDays`
-4. **Total fees:** `discountFee + settlementPeriodFee`
+4. **Total fees:** `discountFee + settlementPeriodFee` (shown in the admin deal Financial Breakdown as **Total Cost to Agent**)
 5. **Advance amount** (what the agent actually receives):
    `advanceAmount = netCommission - totalFees`
 6. **Brokerage referral fee** (the white-label partner's cut of the fees):
    `brokerageReferralFee = totalFees * referralPct`
-7. **Firm Funds profit:** `firmFundsProfit = totalFees - brokerageReferralFee`
+7. **Firm Funds profit:** `firmFundsProfit = totalFees - brokerageReferralFee` (shown in the admin deal Financial Breakdown as **Deal Profit**)
 8. **Amount due from brokerage** (what the brokerage wires to Firm Funds at closing):
    `amountDueFromBrokerage = netCommission - brokerageReferralFee`
 9. **EFT transfer days** (how many days of transfers are needed given the daily cap):
