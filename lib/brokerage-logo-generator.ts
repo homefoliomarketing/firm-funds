@@ -23,7 +23,17 @@ export interface BrokerageLogoOptions {
   background?: LogoBackground
   /** Max width in px for wrap/font-size calculations. Default 480. */
   maxWidth?: number
+  /**
+   * Big Shoulders Display weight for the brokerage wordmark. Default
+   * NAME_FONT_WEIGHT. Lower = thinner strokes. Exposed so callers can override
+   * the weight (e.g. to render side-by-side comparisons) without editing here.
+   */
+  nameFontWeight?: number
 }
+
+// Wordmark stroke weight. History: started at 900, narrowed to 700, then to
+// 500 (Bud still found 700 too thick). Big Shoulders Display supports 100-900.
+export const NAME_FONT_WEIGHT = 500
 
 // ============================================================================
 // Color palette (matches Firm Funds brand: see public/brand/svg file.svg and
@@ -36,12 +46,13 @@ const FF_GREY_DARK = '#636361'  // tagline on light backgrounds (matches origina
 const FF_GREY_LIGHT = '#d4d4d4' // F-mark + tagline on dark backgrounds
 
 // ============================================================================
-// Character-width approximation for Big Shoulders Display 700
+// Character-width approximation for Big Shoulders Display
 // ============================================================================
-// Measured empirically from rendered samples at weight 700. Returns width in
-// em units (multiply by font-size to get pixel width). Weight 700 is a touch
-// narrower than 900, so the table is shaved ~6% versus the original 900
-// numbers to keep the wrap algorithm honest.
+// Measured empirically from rendered samples. Returns width in em units
+// (multiply by font-size to get pixel width). Lighter weights are slightly
+// narrower, so at weight 500 this table marginally overestimates width — which
+// is the safe direction (it errs toward a smaller font / earlier wrap, never an
+// overflow). Kept stable so wrap behavior doesn't shift between weights.
 
 function charWidthEm(ch: string): number {
   if (ch === ' ') return 0.25
@@ -142,6 +153,7 @@ export function generateBrokerageLogoSvg(
 ): string {
   const background: LogoBackground = opts.background ?? 'dark'
   const maxWidth = opts.maxWidth ?? 480
+  const nameFontWeight = opts.nameFontWeight ?? NAME_FONT_WEIGHT
 
   // Colors per background
   const fMarkColor = background === 'light' ? FF_BLACK : FF_GREY_LIGHT
@@ -206,8 +218,8 @@ export function generateBrokerageLogoSvg(
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}" role="img" aria-label="${escapeXml(brokerageName)}, Powered by Firm Funds">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700&amp;family=Inter:wght@500;800&amp;display=swap');
-    .ff-name { font-family: 'Big Shoulders Display', Impact, 'Arial Black', sans-serif; font-weight: 700; }
+    @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@${nameFontWeight}&amp;family=Inter:wght@500;800&amp;display=swap');
+    .ff-name { font-family: 'Big Shoulders Display', Impact, 'Arial Black', sans-serif; font-weight: ${nameFontWeight}; }
     .ff-tagline { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-weight: 500; letter-spacing: 0.32em; }
     .ff-tagline-bold { font-weight: 800; letter-spacing: 0.22em; }
   </style>
