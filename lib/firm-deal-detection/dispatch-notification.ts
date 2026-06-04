@@ -582,3 +582,42 @@ async function errorResult(
     message,
   }
 }
+
+/**
+ * Dispatch every status='approved' firm-deal event (safety-net sweep). The
+ * primary send path is inline from the admin "Send" server action; this catches
+ * retries and the auto-fire path. Used by the firm-deal-poller (inline, after
+ * processing) and by the standalone firm-deal-dispatcher route. Never throws on
+ * a single event — per-event errors are collected and counted.
+ */
+export async function dispatchApprovedEvents(
+  supabase: SupabaseClient,
+  limit = 50
+): Promise<{ dispatched: number; errored: number; skipped: number; errors: Array<{ id: string; message?: string }> }> {
+  const { data: pending, error } = await supabase
+    .from('firm_deal_events')
+    .select('id')
+    .eq('status', 'approved')
+    .order('received_at', { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(`Load approved events: ${error.message}`)
+
+  let dispatched = 0
+  let errored = 0
+  let skipped = 0
+  const errors: Array<{ id: string; message?: string }> = []
+
+  for (const row of pending ?? []) {
+    try {
+      const r = await dispatchFirmDealNotification(row.id, supabase)
+      if (r.outcome === 'offer_sent') dispatched++
+      else if (r.outcome === 'errored') { errored++; errors.push({ id: row.id, message: r.message }) }
+      else skipped++
+    } catch (err) {
+      errored++
+      errors.push({ id: row.id, message: err instanceof Error ? err.message : 'unknown error' })
+    }
+  }
+
+  return { dispatched, errored, skipped, errors }
+}

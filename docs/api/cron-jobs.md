@@ -1,6 +1,6 @@
 # Cron Jobs
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-03_
 
 This document describes every scheduled `/api/cron/*` endpoint: what it processes, how it is authenticated, and the recommended firing cadence.
 
@@ -27,9 +27,9 @@ Every cron claims a `(job_name, period)` row in `cron_run_log` at the start of t
 | --- | --- | --- | --- |
 | `/api/cron/closing-date-alerts` | Daily deal-lifecycle sweep: closing-date alerts, settlement reminders, late-payment interest, failed-deal interest, overdue flagging. | Once per day (morning ET) | Toronto-local day |
 | `/api/cron/monthly-broker-statements` | Email profit-share statements to white-label partner brokerages. | Last day of each month, ~18:00 ET | `YYYY-MM` month |
-| `/api/cron/firm-deal-poller` | Read brokerage Google Sheets, diff against last state, insert detected firm-deal events. | Every 15 minutes | 15-minute bucket |
-| `/api/cron/firm-deal-processor` | Parse, dedup, and agent-match new firm-deal events. | Every 1-2 minutes | 1-minute bucket |
-| `/api/cron/firm-deal-dispatcher` | Send the email + SMS pair for approved firm-deal events. | Every 1-2 minutes | 1-minute bucket |
+| `/api/cron/firm-deal-poller` | Read brokerage Google Sheets and insert detected events, then parse+match new events and dispatch approved ones — the whole pipeline in one job. | Every 15 minutes | 15-minute bucket |
+| `/api/cron/firm-deal-processor` | Parse, dedup, and agent-match new firm-deal events. **Folded into the poller**; route kept for manual trigger, its cron is retired. | inline in poller | 1-minute bucket |
+| `/api/cron/firm-deal-dispatcher` | Send the email + SMS pair for approved firm-deal events. **Folded into the poller**; route kept for manual trigger, its cron is retired. | inline in poller | 1-minute bucket |
 | `/api/cron/firm-deal-offer-nudges` | Nudge brokerages on offered deals (2h), escalate internally (4h), expire after 60 days. | Hourly | Hour bucket |
 | `/api/cron/remediation-overdue-escalation` | Bump escalation level and email a digest for overdue remediation deals. | Once per day (mid-morning ET) | Toronto-local day |
 | `/api/cron/retry-failed-emails` | Drain the dead-letter email queue and retry failed sends. | Every 15 minutes | 1-minute bucket |
@@ -58,15 +58,15 @@ Replay safety: an optional `?period=YYYY-MM` overrides the default (current mont
 
 ### `/api/cron/firm-deal-poller`
 
-Loads every enabled `brokerage_pipes` row of `pipe_type='spreadsheet'`, reads the configured tabs from each brokerage's Google Sheet (read-only), diffs against `last_poll_state`, and inserts a `firm_deal_events` row (`status='new'`) for each detected trigger. Detection and persistence only; parsing and matching happen downstream. Source: `app/api/cron/firm-deal-poller/route.ts`.
+Loads every enabled `brokerage_pipes` row of `pipe_type='spreadsheet'`, reads the configured tabs from each brokerage's Google Sheet (read-only), diffs against `last_poll_state`, and inserts a `firm_deal_events` row (`status='new'`) for each detected trigger. It then runs the rest of the pipeline inline: `processAllNewEvents` (parse + agent-match every `new` event) followed by `dispatchApprovedEvents` (send any `approved` events). Polling persists `last_poll_state` first, so a slow parse can't lose a detection — leftovers retry next run. This single 15-minute job replaced the former every-2-minute processor + dispatcher crons, which kept tripping request timeouts and being auto-disabled by cron-job.org. Source: `app/api/cron/firm-deal-poller/route.ts`.
 
 ### `/api/cron/firm-deal-processor`
 
-Picks up `firm_deal_events` rows in `status='new'` (grouped by brokerage) and runs the full pipeline: parse with Claude Haiku, dedup, agent-match, and transition status. Deliberately separate from the poller so a slow model call cannot block sheet reads. Source: `app/api/cron/firm-deal-processor/route.ts`.
+Picks up `firm_deal_events` rows in `status='new'` (grouped by brokerage) and runs parse with Claude Haiku, dedup, agent-match, and transition status (via `processAllNewEvents`). **This logic now runs inline in the poller** (see above); the standalone route is retained for manual/debug triggering and its cron-job.org schedule is retired. Source: `app/api/cron/firm-deal-processor/route.ts`.
 
 ### `/api/cron/firm-deal-dispatcher`
 
-Picks up `firm_deal_events` in `status='approved'` (set either by a manual review-queue send or by auto-fire) and sends the email + SMS notification pair via `dispatchFirmDealNotification`. Acts mainly as a retry safety net since manual sends also dispatch inline. Caps at 50 rows per run. Source: `app/api/cron/firm-deal-dispatcher/route.ts`.
+Picks up `firm_deal_events` in `status='approved'` (set either by a manual review-queue send or by auto-fire) and sends the email + SMS notification pair via `dispatchFirmDealNotification` (batched by `dispatchApprovedEvents`, 50 rows/run). Acts mainly as a retry safety net since manual sends also dispatch inline. **This now runs inline in the poller**; the standalone route is retained for manual triggering and its cron-job.org schedule is retired. Source: `app/api/cron/firm-deal-dispatcher/route.ts`.
 
 ### `/api/cron/firm-deal-offer-nudges`
 

@@ -374,3 +374,46 @@ export async function processNewEventsForBrokerage(
   }
   return results
 }
+
+/**
+ * Process every brokerage that has status='new' events waiting: parse, match,
+ * and transition each, aggregating per-brokerage outcome counts. A fatal error
+ * for one brokerage is recorded in the summary and counted (errored++) so the
+ * remaining brokerages still process. Used by the firm-deal-poller (inline,
+ * right after polling) and by the standalone firm-deal-processor route.
+ */
+export async function processAllNewEvents(
+  supabase: SupabaseClient
+): Promise<{ processed: number; errored: number; brokerages: number; summary: Record<string, Record<string, number>> }> {
+  const { data: pending, error } = await supabase
+    .from('firm_deal_events')
+    .select('brokerage_id')
+    .eq('status', 'new')
+    .order('received_at', { ascending: true })
+  if (error) throw new Error(`Load pending events: ${error.message}`)
+
+  const brokerageIds = Array.from(new Set((pending ?? []).map(r => r.brokerage_id as string)))
+  const summary: Record<string, Record<string, number>> = {}
+  let processed = 0
+  let errored = 0
+
+  for (const brokerageId of brokerageIds) {
+    try {
+      const results = await processNewEventsForBrokerage(brokerageId, supabase)
+      const counts: Record<string, number> = {}
+      for (const r of results) {
+        counts[r.outcome] = (counts[r.outcome] ?? 0) + 1
+        processed++
+        if (r.outcome === 'errored') errored++
+      }
+      summary[brokerageId] = counts
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'unknown error'
+      summary[brokerageId] = { fatal_error: 1 }
+      errored++
+      console.error(`[process-event] brokerage ${brokerageId} fatal:`, msg)
+    }
+  }
+
+  return { processed, errored, brokerages: brokerageIds.length, summary }
+}
