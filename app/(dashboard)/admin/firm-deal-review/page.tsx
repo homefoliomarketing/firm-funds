@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { formatCurrency } from '@/lib/formatting'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -691,6 +692,42 @@ function EventRow({
           coAgent={sellingCoAgent}
           outsideMark={sellingOutside}
         />
+      </div>
+
+      {/* Commission collected from the spreadsheet row, so the admin can verify
+          what was pulled (and roughly what the offer would be) before anything
+          is sent. Falls back to a clear "none" when the row carried no figures. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 pb-2 text-xs text-muted-foreground">
+        <span className="uppercase tracking-wider">Commission (from sheet)</span>
+        {parsed?.listing_agent_commission_amount != null && (
+          <span>
+            Listing{' '}
+            <span className="font-medium text-foreground tabular-nums">
+              {formatCurrency(parsed.listing_agent_commission_amount)}
+            </span>
+          </span>
+        )}
+        {parsed?.selling_agent_commission_amount != null && (
+          <span>
+            Selling{' '}
+            <span className="font-medium text-foreground tabular-nums">
+              {formatCurrency(parsed.selling_agent_commission_amount)}
+            </span>
+          </span>
+        )}
+        {parsed?.sale_price != null && (
+          <span>
+            Sale price{' '}
+            <span className="font-medium text-foreground tabular-nums">
+              {formatCurrency(parsed.sale_price)}
+            </span>
+          </span>
+        )}
+        {parsed?.listing_agent_commission_amount == null &&
+          parsed?.selling_agent_commission_amount == null &&
+          parsed?.sale_price == null && (
+            <span className="italic">none pulled from this row</span>
+          )}
       </div>
 
       {/* Resolver panel — shown when row needs review, or when expanded */}
