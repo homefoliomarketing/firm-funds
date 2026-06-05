@@ -117,7 +117,11 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
       ? formatMoney(input.advance_estimate)
       : null
     const advanceLine = advanceStr
-      ? `<p style="font-size:14px; color:#222; margin:8px 0 0 0; text-align:center;">Estimated advance today: <span style="font-weight:700; color:#3d8055;">${escapeHtml(advanceStr)}</span> <span style="color:#888; font-weight:400; font-size:12px;">(less brokerage splits)</span></p>`
+      ? `<div style="margin:14px 0 0 0; padding-top:14px; border-top:1px solid #e6ede9;">
+                <p style="font-size:13px; color:#666; margin:0 0 4px 0; text-transform:uppercase; letter-spacing:0.08em;">Estimated advance today</p>
+                <p style="font-size:30px; font-weight:800; color:#3d8055; margin:0; line-height:1.1; letter-spacing:-0.01em;">${escapeHtml(advanceStr)}</p>
+                <p style="font-size:11px; color:#999; margin:4px 0 0 0;">less brokerage splits</p>
+              </div>`
       : ''
     return `
             <div style="background:#fafbfa; border:1px solid #d9e4dd; border-radius:8px; padding:14px 18px; margin:0 0 22px 0; text-align:center;">
