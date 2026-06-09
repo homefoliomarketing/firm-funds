@@ -156,6 +156,12 @@ The brokerage split is the slice of the gross commission the brokerage keeps bef
 
 So a gross commission of $10,000 with a 30% split leaves a $7,000 net commission. Everything downstream (fees, advance, referral) is computed off the net commission, never the gross. This is separate from the **brokerage referral fee**, which is the partner brokerage's cut of Firm Funds' fees and uses the 0 to 1 decimal convention.
 
+### Referral fee vs. profit share — one number, two columns
+
+The partner brokerage's cut of the fees lives in two columns that mean the same thing: `referral_fee_percentage` (0 to 1 decimal, the canonical value used by `calculateDeal()`, the contract, and the Referral Fees report) and `profit_share_pct` (whole number, used by the funding/snapshot and monthly-statement paths, and the white-label welcome-email trigger). At funding, a non-zero `profit_share_pct` is divided by 100 and overrides `referral_fee_percentage` (see `lib/actions/deal-actions.ts`).
+
+The admin brokerage form (`app/(dashboard)/admin/brokerages/page.tsx`) collects this as a **single "Profit Share %" field** (entered as a whole number, e.g. `20`). On save it writes both columns in lockstep — `referral_fee_percentage = value / 100` and `profit_share_pct = value` — so the two can never diverge and the funding payout always matches the submission estimate. Do not reintroduce a separate referral-fee input; that previously let the two columns drift apart.
+
 ## 6. Late payment interest
 
 If a deal closes but the brokerage does not remit on time, the unpaid balance starts accruing interest, but only after a grace period.

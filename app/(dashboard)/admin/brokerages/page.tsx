@@ -857,7 +857,10 @@ export default function BrokeragesPage() {
       city: createFormData.city || undefined, province: createFormData.province || undefined,
       postalCode: createFormData.postalCode || undefined,
       phone: createFormData.phone || undefined,
+      // One "Profit Share %" input drives both fee columns in lockstep.
       referralFeePercentage: parseFloat(createFormData.referralFeePercentage) / 100,
+      profitSharePct: parseFloat(createFormData.referralFeePercentage) || 0,
+      isWhiteLabelPartner: (parseFloat(createFormData.referralFeePercentage) || 0) > 0,
       transactionSystem: createFormData.transactionSystem || undefined, notes: createFormData.notes || undefined,
       brokerOfRecordName: createFormData.brokerOfRecordName || undefined, brokerOfRecordEmail: createFormData.brokerOfRecordEmail || undefined,
       logoUrl: createFormData.logoUrl || undefined, brandColor: createFormData.brandColor || undefined,
@@ -937,7 +940,9 @@ export default function BrokeragesPage() {
     if (!editFormData.name.trim() || !editFormData.email.trim() || !editFormData.referralFeePercentage) {
       setStatusMessage({ type: 'error', text: 'Please fill in all required fields' }); return
     }
-    const profitSharePct = editFormData.profitSharePct ? parseFloat(editFormData.profitSharePct) : 0
+    // One "Profit Share %" input now drives both fee columns; derive the whole-number
+    // profit share from it (referral_fee_percentage stays its 0-1 decimal mirror).
+    const profitSharePct = editFormData.referralFeePercentage ? parseFloat(editFormData.referralFeePercentage) : 0
     if (Number.isNaN(profitSharePct) || profitSharePct < 0 || profitSharePct > 100) {
       setStatusMessage({ type: 'error', text: 'Profit share % must be between 0 and 100' }); return
     }
@@ -978,7 +983,11 @@ export default function BrokeragesPage() {
       brand: brokerage.brand || '', address: brokerage.address || '',
       city: brokerage.city || '', province: brokerage.province || '', postalCode: brokerage.postal_code || '',
       phone: brokerage.phone || '',
-      referralFeePercentage: (brokerage.referral_fee_percentage * 100).toString(),
+      // Single "Profit Share %" field. Prefer the whole-number profit_share_pct when it's
+      // set (it governs funded payouts); otherwise fall back to the legacy referral decimal.
+      referralFeePercentage: (Number(brokerage.profit_share_pct ?? 0) > 0
+        ? Number(brokerage.profit_share_pct)
+        : brokerage.referral_fee_percentage * 100).toString(),
       transactionSystem: brokerage.transaction_system || '', notes: brokerage.notes || '',
       brokerOfRecordName: brokerage.broker_of_record_name || '', brokerOfRecordEmail: brokerage.broker_of_record_email || '',
       logoUrl: brokerage.logo_url || '', logoIncludesTagline: brokerage.logo_includes_tagline ?? false, brandColor: brokerage.brand_color || BRAND_GREEN_HEX,
@@ -1507,7 +1516,7 @@ export default function BrokeragesPage() {
   // ---- Render a form input (DRY helper) ----
   const renderInput = (
     label: string, value: string, onChange: (val: string) => void,
-    opts?: { required?: boolean; placeholder?: string; type?: string; step?: string; min?: string; max?: string }
+    opts?: { required?: boolean; placeholder?: string; type?: string; step?: string; min?: string; max?: string; hint?: string }
   ) => (
     <div>
       <label className="block text-sm font-medium mb-2 text-muted-foreground">
@@ -1523,6 +1532,7 @@ export default function BrokeragesPage() {
         placeholder={opts?.placeholder || ''}
         className={inputCls}
       />
+      {opts?.hint && <p className="text-[11px] mt-1.5 text-muted-foreground/70">{opts.hint}</p>}
     </div>
   )
 
@@ -1643,7 +1653,11 @@ export default function BrokeragesPage() {
                 {renderInput('Name', createFormData.name, (v) => setCreateFormData({ ...createFormData, name: v }), { required: true, placeholder: 'e.g., Acme Realty' })}
                 {renderInput('Email', createFormData.email, (v) => setCreateFormData({ ...createFormData, email: v }), { required: true, placeholder: 'contact@acmerealty.com', type: 'email' })}
                 {renderInput('Brand', createFormData.brand, (v) => setCreateFormData({ ...createFormData, brand: v }), { placeholder: 'e.g., ACME' })}
-                {renderInput('Referral Fee %', createFormData.referralFeePercentage, (v) => setCreateFormData({ ...createFormData, referralFeePercentage: v }), { required: true, placeholder: '20', type: 'number', step: '0.1', min: '0', max: '100' })}
+                {/* Single "Profit Share %" field. Stored canonically in referral_fee_percentage
+                    (0-1 decimal, used by the contract/calc/reports) AND mirrored to
+                    profit_share_pct (whole number, used by the funding + statement paths) so the
+                    two columns can never diverge. Entered as a whole number (e.g. 20 = 20%). */}
+                {renderInput('Profit Share %', createFormData.referralFeePercentage, (v) => setCreateFormData({ ...createFormData, referralFeePercentage: v }), { required: true, placeholder: '20', type: 'number', step: '0.1', min: '0', max: '100' })}
                 {renderInput('Street Address', createFormData.address, (v) => setCreateFormData({ ...createFormData, address: v }), { placeholder: '123 Main St' })}
                 {renderInput('City', createFormData.city, (v) => setCreateFormData({ ...createFormData, city: v }), { placeholder: 'Toronto' })}
                 {renderInput('Province', createFormData.province, (v) => setCreateFormData({ ...createFormData, province: v }), { placeholder: 'ON' })}
@@ -1919,7 +1933,8 @@ export default function BrokeragesPage() {
                                 <option value="inactive">Inactive</option>
                               </select>
                             </div>
-                            {renderInput('Referral Fee %', editFormData.referralFeePercentage, (v) => setEditFormData({ ...editFormData, referralFeePercentage: v }), { required: true, type: 'number', step: '0.1', min: '0', max: '100' })}
+                            {/* Single "Profit Share %" field — see create form for the lockstep note. */}
+                            {renderInput('Profit Share %', editFormData.referralFeePercentage, (v) => setEditFormData({ ...editFormData, referralFeePercentage: v }), { required: true, type: 'number', step: '0.1', min: '0', max: '100', hint: 'The brokerage’s negotiated share of the advance fees (discount + settlement). Snapshotted on each funded deal. Raising this above 0 queues welcome emails to roster agents on save.' })}
                             {renderInput('Street Address', editFormData.address, (v) => setEditFormData({ ...editFormData, address: v }))}
                             {renderInput('City', editFormData.city, (v) => setEditFormData({ ...editFormData, city: v }))}
                             {renderInput('Province', editFormData.province, (v) => setEditFormData({ ...editFormData, province: v }))}
@@ -1964,37 +1979,6 @@ export default function BrokeragesPage() {
                             <label className="block text-sm font-medium mb-2 text-muted-foreground">Notes</label>
                             <textarea value={editFormData.notes} onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
                               rows={3} className="w-full px-4 py-2 rounded-lg text-sm bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary resize-none transition-colors" />
-                          </div>
-
-                          {/* Profit Share - every onboarded brokerage is a white-label partner */}
-                          <div className="border border-border/60 rounded-lg p-4 bg-muted/20 space-y-3">
-                            <div>
-                              <h5 className="text-sm font-semibold text-foreground">Profit Share</h5>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                The brokerage&apos;s negotiated share of the advance fees (discount + settlement period). Submits deals on behalf of its agents.
-                              </p>
-                            </div>
-                            <div className="pt-2 border-t border-border/40">
-                              <label className="block text-sm font-medium mb-2 text-muted-foreground">
-                                Profit Share %
-                              </label>
-                              <input
-                                type="number"
-                                step="0.5"
-                                min="0"
-                                max="100"
-                                value={editFormData.profitSharePct}
-                                onChange={(e) => setEditFormData({ ...editFormData, profitSharePct: e.target.value })}
-                                placeholder="e.g. 20"
-                                className={inputCls}
-                              />
-                              <p className="text-[11px] mt-1.5 text-muted-foreground/70">
-                                Negotiated profit share, e.g. <code>20</code> = 20%. Snapshotted on each funded deal - renegotiations don&apos;t affect closed deals. Set to 0 if there&apos;s no profit-share arrangement.
-                              </p>
-                              <p className="text-[11px] mt-1 text-amber-400/80">
-                                Setting this above 0 (when previously 0) queues welcome emails to roster agents with an email on file.
-                              </p>
-                            </div>
                           </div>
 
                           <div className="flex gap-3 pt-2">

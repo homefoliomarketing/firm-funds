@@ -165,14 +165,14 @@ The central advance record. Base columns predate migration tracking; the columns
 | email | TEXT | Primary contact; default notification recipient |
 | address / city / province / postal_code / phone | TEXT | Contact details (migrations 029, 038) |
 | status | TEXT | `active`, `inactive`, `suspended` |
-| referral_fee_percentage | numeric (0 to 1) | Default referral cut |
+| referral_fee_percentage | numeric (0 to 1) | Brokerage's cut of the fees. Kept in lockstep with `profit_share_pct` by the admin form's single "Profit Share %" field (this = profit_share_pct / 100). See financial-model.md |
 | transaction_system | TEXT | NexOne/other transaction-management system |
 | broker_of_record_name / broker_of_record_email | TEXT | BoR signatory for the BCA (migration 029) |
 | bca_signed_at | timestamptz | Brokerage Cooperation Agreement signed timestamp |
 | kyc_verified / kyc_verified_at / kyc_verified_by | boolean / timestamptz / text | FINTRAC verification (migration 011) |
 | reco_registration_number / reco_verification_date / reco_verification_notes | text / date | RECO public-register check (migration 011) |
 | is_white_label_partner | BOOLEAN | White-label flag (migration 043) |
-| profit_share_pct | NUMERIC(5,2) (0 to 100) | Negotiated profit share, whole number (migration 043) |
+| profit_share_pct | NUMERIC(5,2) (0 to 100) | Negotiated profit share, whole number (migration 043). Mirror of `referral_fee_percentage` (this = referral_fee_percentage x 100); set together by the admin form's single "Profit Share %" field |
 | late_strike_count | integer (default 0) | Running count of missed 7-day settlements (migration 047). Internal: never exposed to the brokerage |
 | auto_bumped_to_14_days_at | timestamptz | Non-null once auto-bumped to 14-day settlement (migration 047). Internal |
 | last_strike_reset_at | timestamptz | Last admin strike reset (migration 047). Internal |
