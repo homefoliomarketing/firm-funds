@@ -185,7 +185,7 @@ export default function AgentHeader({
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-4 sm:py-5">
           {/* Left side */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               type="button"
               onClick={() => router.push('/agent')}
@@ -194,17 +194,21 @@ export default function AgentHeader({
             >
               {brokerageLogo ? (
                 <>
-                  <Image
+                  {/* Plain <img> (not next/image): the generated logos are
+                      SVGs whose aspect ratio fought next/image's fixed
+                      width/height and clipped the wordmark on mobile. Mirrors
+                      BrokerageBrandLogo. Height-driven + w-auto + object-contain
+                      scales cleanly; shrink + min-w-0 lets it give up width so
+                      the header never overflows a phone. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
                     src={brokerageLogo}
                     alt={brokerageLogoIncludesTagline
                       ? `${brokerageName || 'Brokerage'}, Powered by Firm Funds`
                       : `${brokerageName || 'Brokerage'} logo`}
-                    width={160}
-                    height={80}
-                    unoptimized
                     className={brokerageLogoIncludesTagline
-                      ? 'h-20 sm:h-28 md:h-32 w-36 sm:w-48 md:w-56 shrink-0 object-contain'
-                      : 'h-12 sm:h-16 md:h-20 w-32 sm:w-44 md:w-52 shrink-0 object-contain'}
+                      ? 'h-12 sm:h-24 md:h-28 w-auto max-w-[58vw] sm:max-w-none shrink min-w-0 object-contain'
+                      : 'h-9 sm:h-14 md:h-16 w-auto max-w-[52vw] sm:max-w-none shrink min-w-0 object-contain'}
                   />
                   {/* Skip the separate FF wordmark when the logo already
                       contains "Powered by Firm Funds" (generated logos —
@@ -232,7 +236,7 @@ export default function AgentHeader({
                 />
               )}
             </button>
-            <div className="w-px h-10 bg-white/15" />
+            <div className="hidden sm:block w-px h-10 bg-white/15" />
 
             {backHref ? (
               <>
@@ -250,7 +254,7 @@ export default function AgentHeader({
                 </div>
               </>
             ) : (
-              <div className="flex items-center gap-6">
+              <div className="hidden sm:flex items-center gap-6">
                 <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
                   Agent Portal
                 </p>
@@ -289,7 +293,7 @@ export default function AgentHeader({
           </div>
 
           {/* Right side */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {rightContent}
 
             {/* Mobile notification bell (always visible) */}

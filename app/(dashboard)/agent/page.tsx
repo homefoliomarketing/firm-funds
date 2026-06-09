@@ -491,7 +491,7 @@ function AgentDashboardInner() {
         )}
         {firmDealOffer && !firmDealOfferCollapsed && (
           <section aria-label="Firm deal offer">
-            <div className="mb-6 rounded-xl p-5 flex items-start justify-between gap-4 bg-primary/10 border border-primary/30 relative">
+            <div className="mb-6 rounded-xl p-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 bg-primary/10 border border-primary/30 relative">
               <div className="flex items-start gap-3 min-w-0">
                 <Sparkles size={20} className="text-primary shrink-0 mt-0.5" aria-hidden="true" />
                 <div className="min-w-0">
@@ -525,7 +525,7 @@ function AgentDashboardInner() {
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
                 {!firmDealOffer.offer_deal_id && !offerJustAccepted && (
                   <Button
                     onClick={async () => {
@@ -566,7 +566,7 @@ function AgentDashboardInner() {
                     }}
                     disabled={!!kycNotVerified || acceptingOffer}
                     title={kycNotVerified ? 'Complete identity verification first' : 'Notify your brokerage so they can submit on your behalf'}
-                    className="whitespace-nowrap bg-primary text-primary-foreground hover:bg-primary/90"
+                    className="flex-1 sm:flex-initial min-w-0 whitespace-normal sm:whitespace-nowrap h-auto min-h-9 py-2 bg-primary text-primary-foreground hover:bg-primary/90"
                     size="sm"
                   >
                     {acceptingOffer ? 'Sending…' : 'Notify my brokerage I want an advance'}
