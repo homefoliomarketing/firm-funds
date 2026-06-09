@@ -244,3 +244,27 @@ export function generateBrokerageLogoSvg(
 export function svgToFile(svg: string, filename = 'logo.svg'): File {
   return new File([svg], filename, { type: 'image/svg+xml' })
 }
+
+// ============================================================================
+// Convenience: inline data URI for render-time fallback
+// ============================================================================
+// Returns the generated SVG as a `data:image/svg+xml,...` URI usable directly
+// in an <img src> or a CSS background-image. This is the safety net that lets a
+// brokerage's advance-division logo ALWAYS render in the portal even when no
+// logo_url has been saved to the brokerages row yet (e.g. onboarding never
+// clicked "Generate Logo"). Used as a fallback in components/AgentHeader.tsx
+// and components/BrokerageBrandLogo.tsx.
+//
+// Note on fonts: when an SVG is consumed as a data URI via <img>/background-
+// image the browser runs it in "secure static mode" and will NOT load the
+// @import Google Font. The generator already declares a system-font fallback
+// stack (Impact / Arial Black), and the stored (uploaded-to-storage) generated
+// logos render under the exact same restriction, so the inline fallback looks
+// identical to a saved generated logo.
+export function brokerageLogoDataUri(
+  brokerageName: string,
+  opts: BrokerageLogoOptions = {}
+): string {
+  const svg = generateBrokerageLogoSvg(brokerageName, opts)
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}

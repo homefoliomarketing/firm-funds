@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
 import { Bell, MessageSquare, Home, ArrowLeft, User, Settings, Wallet, AlertTriangle, LifeBuoy, Menu, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
+import { brokerageLogoDataUri } from '@/lib/brokerage-logo-generator'
 
 function NotificationBadge({ count }: { count: number }) {
   return (
@@ -62,6 +63,24 @@ export default function AgentHeader({
     ? { color: brokerageBrandColor }
     : undefined
   const accentClass = brokerageBrandColor ? '' : 'text-primary'
+
+  // Guarantee: an agent ALWAYS sees a generated logo for their brokerage's
+  // advance division. If no logo_url was ever saved on the brokerages row
+  // (e.g. onboarding never ran "Generate Logo"), synthesize one on the fly
+  // from the brokerage name. The generated SVG already bakes in the "Powered
+  // by Firm Funds" tagline, so we also force includesTagline=true for the
+  // fallback (suppresses the duplicate FF wordmark + uses the taller sizing).
+  // Only the bare-FF wordmark remains when we have neither a logo nor a name.
+  const effectiveLogo = useMemo(() => {
+    if (brokerageLogo) return brokerageLogo
+    if (brokerageName && brokerageName.trim()) {
+      return brokerageLogoDataUri(brokerageName, { background: 'transparent' })
+    }
+    return null
+  }, [brokerageLogo, brokerageName])
+  const effectiveIncludesTagline = brokerageLogo
+    ? brokerageLogoIncludesTagline
+    : true
 
   const totalNotifications = unreadCount + pendingReturns
   const prevTotalRef = useRef<number>(0)
@@ -192,42 +211,34 @@ export default function AgentHeader({
               className="flex items-center gap-3 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
               aria-label="Go to agent dashboard"
             >
-              {brokerageLogo ? (
+              {effectiveLogo ? (
                 <>
-                  {/* Brokerage logo as a HEIGHT-DRIVEN background image.
-                      Why not the earlier approaches:
-                       - next/image fixed w/h fought the SVG aspect and clipped
-                         the wordmark on mobile.
-                       - A fixed-width box + background-size:contain does not clip
-                         INSIDE the box, but that box was shrink-0, so when the
-                         right-side cluster (bell + hamburger + the full "Sign
-                         out" button, which keeps its text label on mobile) ate
-                         the row, the WHOLE flex row overflowed a ~360px phone and
-                         dragged the left-most logo off the screen edge. That
-                         off-row overflow, not in-box scaling, is what was still
-                         "cut off".
-                      Fix: size the background by HEIGHT (auto width via
-                      bg-[length:auto_100%]) so the stacked F-mark + name +
-                      "POWERED BY FIRM FUNDS" tagline render at full box height
-                      and stay legible (contain into a short box shrank the
-                      tagline to ~3px). The mobile box width (w-24 / w-32) is set
-                      a touch wider than the widest logo renders at that height,
-                      so the full logo always shows; shrink + min-w-0 let it yield
-                      width under flex pressure (e.g. the deal-page title row)
-                      rather than forcing overflow, and overflow-hidden + bg-center
-                      crop the SVG's empty centred canvas margin first, never the
-                      logo. The generated SVG centres its content in a 480-wide
-                      canvas (~5% empty margin per side), so bg-center is correct
-                      for both generated and uploaded logos. */}
-                  <div
-                    role="img"
-                    aria-label={brokerageLogoIncludesTagline
+                  {/* Brokerage logo as an object-contain <img>, NOT a cropped
+                      background box. History: a fixed-width background box with
+                      bg-center cropped the logo to a sliver (just the centred
+                      "K" of a long wordmark) whenever the crowded desktop nav
+                      shrank the box below the logo's natural width. object-contain
+                      never crops — it scales the WHOLE logo down to fit its box,
+                      so under flex pressure the logo gets smaller but stays
+                      complete and legible. Height drives the size; w-auto lets the
+                      width follow the SVG's aspect; the max-w caps keep a wide
+                      logo from pushing the row past the viewport (the mobile cap
+                      is the one that prevented the old off-screen overflow), and
+                      shrink + min-w-0 let it yield width gracefully. The taller
+                      tagline heights keep "POWERED BY FIRM FUNDS" legible (a short
+                      box shrinks the tagline to a few px). */}
+                  {/* User/generated logo URL or inline data URI — a raw <img>
+                      (next/image needs build-time domain config we don't have for
+                      arbitrary brokerage hosts + data URIs). */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={effectiveLogo}
+                    alt={effectiveIncludesTagline
                       ? `${brokerageName || 'Brokerage'}, Powered by Firm Funds`
                       : `${brokerageName || 'Brokerage'} logo`}
-                    style={{ backgroundImage: `url("${brokerageLogo}")` }}
-                    className={brokerageLogoIncludesTagline
-                      ? 'shrink min-w-0 overflow-hidden bg-[length:auto_100%] bg-no-repeat bg-center h-12 w-32 sm:h-28 sm:w-48 md:h-32 md:w-56'
-                      : 'shrink min-w-0 overflow-hidden bg-[length:auto_100%] bg-no-repeat bg-center h-9 w-24 sm:h-16 sm:w-44 md:h-20 md:w-52'}
+                    className={effectiveIncludesTagline
+                      ? 'shrink min-w-0 w-auto object-contain object-left h-12 max-w-[150px] sm:h-20 sm:max-w-[210px] md:h-24 md:max-w-[250px]'
+                      : 'shrink min-w-0 w-auto object-contain object-left h-9 max-w-[120px] sm:h-14 sm:max-w-[170px] md:h-16 md:max-w-[200px]'}
                   />
                   {/* Skip the separate FF wordmark when the logo already
                       contains "Powered by Firm Funds" (generated logos —
@@ -237,7 +248,7 @@ export default function AgentHeader({
                       the screen edge. The wordmark is decorative duplication of
                       branding; dropping it only on mobile keeps the brokerage
                       logo fully visible without overflow. Desktop unchanged. */}
-                  {!brokerageLogoIncludesTagline && (
+                  {!effectiveIncludesTagline && (
                     <>
                       <div className="hidden sm:block w-px h-8 bg-white/15" aria-hidden="true" />
                       <Image
@@ -260,7 +271,14 @@ export default function AgentHeader({
                 />
               )}
             </button>
-            <div className="hidden sm:block w-px h-10 bg-white/15" />
+            {/* Divider sits between the logo and either the back-button (deal
+                pages, room at sm) or the inline nav (dashboard, which now only
+                appears at lg — see the nav below). Gate it to match so it never
+                floats next to an absent nav. */}
+            <div
+              className={`w-px h-10 bg-white/15 ${backHref ? 'hidden sm:block' : 'hidden lg:block'}`}
+              aria-hidden="true"
+            />
 
             {backHref ? (
               <>
@@ -278,15 +296,21 @@ export default function AgentHeader({
                 </div>
               </>
             ) : (
-              <div className="hidden sm:flex items-center gap-6">
-                <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
-                  Agent Portal
-                </p>
+              <div className="hidden lg:flex items-center gap-4 xl:gap-6 min-w-0">
+                {/* "Agent Portal" wordmark is redundant once a brokerage logo is
+                    shown (the logo already brands the portal), and on desktop it
+                    competed with the nav for the room the logo needs. Show it
+                    only when there's no brokerage logo (bare Firm Funds header). */}
+                {!effectiveLogo && (
+                  <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
+                    Agent Portal
+                  </p>
+                )}
                 {/* Nav links (desktop). Failed deals only appears when the
                     agent has one; the amber badge differentiates it from the
                     red Messages badge. Rendered from the shared navLinks
                     model so the mobile menu stays in sync. */}
-                <nav className="hidden sm:flex items-center gap-1" aria-label="Agent">
+                <nav className="flex items-center gap-1" aria-label="Agent">
                   {navLinks.map(({ href, label, icon: Icon, active, badge, badgeTone, ariaLabel }) => (
                     <button
                       key={href}
@@ -320,11 +344,16 @@ export default function AgentHeader({
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {rightContent}
 
-            {/* Mobile notification bell (always visible) */}
+            {/* Compact notification bell, shown whenever the inline nav (which
+                carries its own Messages link) is collapsed. On the dashboard the
+                inline nav appears at lg, so the bell shows below lg; on deal
+                pages there's no inline nav, so the separate desktop bell below
+                takes over at sm and this one hides at sm (avoids a double bell
+                between sm and lg). */}
             <button
               type="button"
               onClick={() => router.push('/agent/messages')}
-              className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={`relative p-2 rounded-lg transition-colors text-white/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${backHref ? 'sm:hidden' : 'lg:hidden'}`}
               aria-label={totalNotifications > 0 ? `Messages: ${totalNotifications} unread` : 'Messages'}
             >
               <Bell size={18} aria-hidden="true" />
@@ -335,13 +364,15 @@ export default function AgentHeader({
               )}
             </button>
 
-            {/* Mobile menu toggle (hamburger). Only shown in the main-nav
-                layout, where the desktop nav is hidden on small screens. */}
+            {/* Menu toggle (hamburger). Shown in the dashboard layout below lg,
+                where the inline nav is collapsed. The inline nav takes over at
+                lg because a 6-7 item text nav plus the brokerage logo doesn't
+                fit the capped header row until then. */}
             {!backHref && (
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(v => !v)}
-                className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative p-2 rounded-lg transition-colors text-white/60 hover:text-white lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                 aria-expanded={mobileMenuOpen}
                 aria-controls="agent-mobile-menu"
@@ -367,23 +398,31 @@ export default function AgentHeader({
               </button>
             )}
 
-            <span
-              className={`text-sm hidden sm:inline ${accentClass}`}
-              style={accentStyle}
-            >
-              {agentName}
-            </span>
+            {/* Agent name label. Shown only on the deal-page (backHref) layout,
+                which has no inline nav and therefore room for it. On the main
+                dashboard layout the 6-7 item nav + brokerage logo already fill
+                the row, and the name is redundant with the "Welcome back, …"
+                heading below, so we drop it here to give the logo + nav the
+                room they need (otherwise the nav overlapped this label). */}
+            {backHref && (
+              <span
+                className={`text-sm hidden sm:inline ${accentClass}`}
+                style={accentStyle}
+              >
+                {agentName}
+              </span>
+            )}
             <SignOutModal onConfirm={handleLogout} />
           </div>
         </div>
 
-        {/* Mobile menu panel. Mirrors the desktop nav from the shared
-            navLinks model. Hidden on sm+ where the inline nav is shown. */}
+        {/* Collapsible menu panel. Mirrors the inline nav from the shared
+            navLinks model. Hidden at lg+ where the inline nav is shown. */}
         {!backHref && mobileMenuOpen && (
           <nav
             id="agent-mobile-menu"
             aria-label="Agent"
-            className="sm:hidden border-t border-border/50 py-2"
+            className="lg:hidden border-t border-border/50 py-2"
           >
             {navLinks.map(({ href, label, icon: Icon, active, badge, badgeTone, ariaLabel }) => (
               <button

@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { brokerageLogoDataUri } from '@/lib/brokerage-logo-generator'
 
 interface BrokerageBrandLogoProps {
   /** Brokerage's logo URL. If null/empty, shows Firm Funds wordmark only. */
@@ -32,20 +33,33 @@ export default function BrokerageBrandLogo({
   className,
   size = 'md',
 }: BrokerageBrandLogoProps) {
+  // Guarantee a brokerage always sees a generated advance-division logo: when
+  // no logo_url is saved on the row, synthesize one on the fly from the name.
+  // The generated SVG bakes in "Powered by Firm Funds", so the fallback also
+  // counts as logoIncludesTagline (suppresses the duplicate FF wordmark and
+  // uses the taller sizing). Mirrors components/AgentHeader.tsx.
+  const effectiveLogo = logoUrl
+    || (brokerageName && brokerageName.trim()
+      ? brokerageLogoDataUri(brokerageName, { background: 'transparent' })
+      : null)
+  const effectiveIncludesTagline = logoUrl ? logoIncludesTagline : true
+
   // Generated logos contain the F-mark + brokerage name + tagline stacked.
   // The whole composition has to render at a height where the smallest piece
   // (the "POWERED BY FIRM FUNDS" tagline) stays legible, so generated logos
   // get roughly twice the vertical space of a plain wordmark. Uploaded logos
   // (which are usually a single horizontal wordmark) use the smaller heights.
-  // Mobile (base) heights are deliberately small, and capped with a mobile
-  // max-width, so the logo always fits inside a phone header row without
-  // forcing the row wider than the viewport. That row-overflow (a wide
-  // generated SVG that refused to shrink in mobile Chrome) is what was
-  // clipping the brokerage wordmark at the screen edge. The sm:/md: heights
-  // restore the full size on wider screens (sm:max-w-none lifts the cap), and
-  // object-contain preserves aspect within the bounds so the artwork is never
-  // cropped.
-  const brokerageLogoClass = logoIncludesTagline
+  // Keyed off the EFFECTIVE tagline flag so the on-the-fly fallback (always a
+  // tagline logo) gets the taller sizing even when the logoIncludesTagline
+  // prop is false/absent. Mobile (base) heights are deliberately small, and
+  // capped with a mobile max-width, so the logo always fits inside a phone
+  // header row without forcing the row wider than the viewport. That row-
+  // overflow (a wide generated SVG that refused to shrink in mobile Chrome) is
+  // what was clipping the brokerage wordmark at the screen edge. The sm:/md:
+  // heights restore the full size on wider screens (sm:max-w-none lifts the
+  // cap), and object-contain preserves aspect within the bounds so the artwork
+  // is never cropped.
+  const brokerageLogoClass = effectiveIncludesTagline
     ? (size === 'lg' ? 'h-12 max-w-[160px] sm:max-w-none sm:h-28 md:h-32 w-auto object-contain'
        : size === 'sm' ? 'h-10 max-w-[150px] sm:max-w-none sm:h-20 w-auto object-contain'
        : 'h-10 max-w-[150px] sm:max-w-none sm:h-24 md:h-28 w-auto object-contain')
@@ -57,21 +71,21 @@ export default function BrokerageBrandLogo({
     : size === 'sm' ? 'h-6 sm:h-8 w-auto'
     : 'h-10 sm:h-12 w-auto'
 
-  if (logoUrl) {
+  if (effectiveLogo) {
     return (
       <div className={`flex items-center gap-3 min-w-0 ${className ?? ''}`}>
         {/* User-supplied URL — next/image without runtime domain config. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={logoUrl}
-          alt={logoIncludesTagline
+          src={effectiveLogo}
+          alt={effectiveIncludesTagline
             ? `${brokerageName || 'Brokerage'}, Powered by Firm Funds`
             : `${brokerageName || 'Brokerage'} logo`}
           className={brokerageLogoClass}
         />
         {/* Skip the separate FF wordmark when the logo already contains
             "Powered by Firm Funds" (generated logos, migration 096). */}
-        {!logoIncludesTagline && (
+        {!effectiveIncludesTagline && (
           <>
             {/* Hidden on phones: the brokerage logo + this divider + the FF
                 wordmark + the page's own header controls overran the row and

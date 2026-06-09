@@ -27,6 +27,45 @@ import {
   reviewPayment,
   sumConfirmedPayments,
 } from '@/lib/brokerage-payments'
+import { generateBrokerageLogoSvg } from '@/lib/brokerage-logo-generator'
+
+// ============================================================================
+// Auto-generate a brokerage's advance-division logo when none was supplied.
+// Generates the SVG from the brokerage name, uploads it to the brokerage-logos
+// bucket, and returns the public URL (with a cache buster). Returns null on
+// any failure so the caller can proceed without a stored logo — the portal
+// still renders a generated logo on the fly (see components/AgentHeader.tsx),
+// this just makes the URL real so EMAIL/OG surfaces (which can only reference a
+// URL) brand correctly too. Mirrors the admin "Generate Logo" button and
+// scripts/regenerate-choice-advances-logo.mts.
+// ============================================================================
+async function generateAndStoreBrokerageLogo(
+  brokerageId: string,
+  brokerageName: string,
+): Promise<string | null> {
+  try {
+    const name = brokerageName.trim()
+    if (!name) return null
+    const svc = createServiceRoleClient()
+    const svg = generateBrokerageLogoSvg(name, { background: 'transparent' })
+    const path = `${brokerageId}/logo-generated.svg`
+    const { error: uploadErr } = await svc.storage
+      .from('brokerage-logos')
+      .upload(path, new Blob([svg], { type: 'image/svg+xml' }), {
+        upsert: true,
+        contentType: 'image/svg+xml',
+      })
+    if (uploadErr) {
+      console.error('Auto-logo upload failed:', uploadErr.message)
+      return null
+    }
+    const { data: { publicUrl } } = svc.storage.from('brokerage-logos').getPublicUrl(path)
+    return `${publicUrl}?t=${Date.now()}`
+  } catch (err) {
+    console.error('Auto-logo generation failed:', err instanceof Error ? err.message : String(err))
+    return null
+  }
+}
 
 // ============================================================================
 // Admin: manually record a Late Settlement Strike against a brokerage for a
@@ -359,6 +398,27 @@ export async function createBrokerage(input: {
     if (insertError) {
       console.error('Brokerage create error:', insertError.message)
       return { success: false, error: `Failed to create brokerage: ${insertError.message}` }
+    }
+
+    // Guarantee every brokerage starts with a generated advance-division logo.
+    // If the admin didn't supply/generate one in the form, synthesize and store
+    // it now so email/OG surfaces brand correctly from day one (the portal
+    // already falls back to an on-the-fly generated logo regardless). Best
+    // effort: a failure here never blocks brokerage creation.
+    if (!v.logoUrl) {
+      const generatedUrl = await generateAndStoreBrokerageLogo(brokerage.id, v.name)
+      if (generatedUrl) {
+        const { error: logoErr } = await supabase
+          .from('brokerages')
+          .update({ logo_url: generatedUrl, logo_includes_tagline: true })
+          .eq('id', brokerage.id)
+        if (logoErr) {
+          console.error('Auto-logo row update failed:', logoErr.message)
+        } else {
+          brokerage.logo_url = generatedUrl
+          brokerage.logo_includes_tagline = true
+        }
+      }
     }
 
     await logAuditEvent({

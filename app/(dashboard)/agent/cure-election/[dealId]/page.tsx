@@ -24,6 +24,7 @@ interface AgentMinimal {
   id: string
   first_name: string
   last_name: string
+  brokerages?: { name: string | null; logo_url: string | null; logo_includes_tagline: boolean | null } | null
 }
 
 interface FailedDeal {
@@ -100,10 +101,10 @@ export default function CureElectionPage({ params }: PageProps) {
 
       const { data: agentData } = await supabase
         .from('agents')
-        .select('id, first_name, last_name')
+        .select('id, first_name, last_name, brokerages(name, logo_url, logo_includes_tagline)')
         .eq('id', profile.agent_id)
         .single()
-      setAgent(agentData)
+      setAgent(agentData as AgentMinimal | null)
 
       const { data: dealData, error: dealErr } = await supabase
         .from('deals')
@@ -247,6 +248,9 @@ export default function CureElectionPage({ params }: PageProps) {
         backHref="/agent"
         title="Cure Election"
         subtitle={deal.property_address}
+        brokerageLogo={agent?.brokerages?.logo_url}
+        brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
+        brokerageName={agent?.brokerages?.name}
       />
 
       <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
