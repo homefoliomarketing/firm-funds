@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, Settings } from 'lucide-react'
+import { Lock, Mail, User, Bell, Eye, EyeOff, Settings } from 'lucide-react'
 import AgentHeader from '@/components/AgentHeader'
 import {
   changePassword,
@@ -12,6 +12,7 @@ import {
   getNotificationPreferences,
   updateNotificationPreferences,
 } from '@/lib/actions/settings-actions'
+import { StatusToast } from '@/components/StatusToast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -99,7 +100,6 @@ export default function AgentSettingsPage() {
 
   const showMsg = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
-    setTimeout(() => setMessage(null), 4000)
   }
 
   const handlePasswordChange = async () => {
@@ -191,16 +191,7 @@ export default function AgentSettingsPage() {
         <h1 className="sr-only">Agent Settings</h1>
 
         {/* Status message */}
-        {message && (
-          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg mb-4 text-sm font-medium border ${
-            message.type === 'success'
-              ? 'bg-primary/10 border-primary/30 text-primary'
-              : 'bg-destructive/10 border-destructive/30 text-destructive'
-          }`}>
-            {message.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-            {message.text}
-          </div>
-        )}
+        <StatusToast message={message} onDismiss={() => setMessage(null)} />
 
         {/* CHANGE PASSWORD */}
         <Card className="mb-4">

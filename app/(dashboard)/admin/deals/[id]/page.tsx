@@ -53,8 +53,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatusToast } from '@/components/StatusToast'
 import {
   Dialog,
   DialogContent,
@@ -1314,13 +1314,7 @@ export default function DealDetailPage() {
       </header>
 
       {/* STATUS MESSAGE TOAST */}
-      {statusMessage && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-          <Alert variant={statusMessage.type === 'error' ? 'destructive' : 'default'} className={statusMessage.type === 'success' ? 'border-primary/50 bg-primary/10 text-primary' : ''}>
-            <AlertDescription>{statusMessage.text}</AlertDescription>
-          </Alert>
-        </div>
-      )}
+      <StatusToast message={statusMessage} onDismiss={() => setStatusMessage(null)} />
 
       {/* FLAGGED AGENT WARNING BANNER */}
       {agent?.flagged_by_brokerage && (

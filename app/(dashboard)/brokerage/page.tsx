@@ -19,6 +19,7 @@ import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
 import OfferedDealsBanner from '@/components/brokerage/OfferedDealsBanner'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import { StatusToast } from '@/components/StatusToast'
 import { canViewBrokerageReferralFees } from '@/lib/access'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
@@ -706,10 +707,9 @@ export default function BrokerageDashboard() {
               <CardContent className="p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">White-Label Partner</p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">Profit Share Earnings</p>
                     <p className="text-sm text-muted-foreground">
-                      Your share of the advance fees (discount + settlement period) on every funded deal:&nbsp;
-                      <span className="text-foreground font-bold">{Number(brokerage?.profit_share_pct ?? 0).toFixed(1)}%</span>
+                      Your earnings from funded deals, tracked in real time.
                     </p>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-right">
@@ -813,19 +813,7 @@ export default function BrokerageDashboard() {
           </div>
 
           {/* Upload Status Message */}
-          {uploadMessage && (
-            <div
-              role="status"
-              aria-live="polite"
-              className={`mx-4 sm:mx-6 mt-4 p-3 rounded-lg text-sm font-medium border ${
-                uploadMessage.type === 'success'
-                  ? 'bg-green-950/50 border-green-800 text-green-400'
-                  : 'bg-red-950/50 border-red-800 text-red-400'
-              }`}
-            >
-              {uploadMessage.text}
-            </div>
-          )}
+          <StatusToast message={uploadMessage} onDismiss={() => setUploadMessage(null)} />
 
           {/* ================================================================ */}
           {/* DEALS TAB                                                        */}
@@ -1975,27 +1963,7 @@ export default function BrokerageDashboard() {
       />
 
       {/* Payment success/error flash */}
-      {paymentStatusMsg && (
-        <div
-          role="status"
-          className={`fixed bottom-6 right-6 z-[60] max-w-sm rounded-lg px-4 py-3 text-sm shadow-lg border ${
-            paymentStatusMsg.type === 'success'
-              ? 'bg-primary/15 border-primary/40 text-primary'
-              : 'bg-destructive/15 border-destructive/40 text-destructive'
-          }`}
-        >
-          <div className="flex items-start gap-2">
-            <span className="flex-1">{paymentStatusMsg.text}</span>
-            <button
-              onClick={() => setPaymentStatusMsg(null)}
-              className="opacity-70 hover:opacity-100"
-              aria-label="Dismiss"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
+      <StatusToast message={paymentStatusMsg} onDismiss={() => setPaymentStatusMsg(null)} />
     </div>
   )
 }

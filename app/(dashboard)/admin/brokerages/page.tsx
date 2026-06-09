@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox, Wand2, Sparkles } from 'lucide-react'
 import { generateBrokerageLogoSvg, svgToFile } from '@/lib/brokerage-logo-generator'
 import { formatCurrency } from '@/lib/formatting'
+import { StatusToast } from '@/components/StatusToast'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
@@ -1593,24 +1594,12 @@ export default function BrokeragesPage() {
         </div>
       </header>
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Status Message */}
-        {statusMessage && (
-          <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 animate-in fade-in border ${
-            statusMessage.type === 'success'
-              ? 'bg-green-950/50 border-green-800'
-              : 'bg-red-950/50 border-red-800'
-          }`}>
-            {statusMessage.type === 'success'
-              ? <CheckCircle size={18} className="text-green-400 flex-shrink-0" />
-              : <AlertCircle size={18} className="text-red-400 flex-shrink-0" />
-            }
-            <p className={statusMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}>
-              {statusMessage.text}
-            </p>
-          </div>
-        )}
+      {/* Floating status toast — fixed to the viewport so feedback shows up
+          wherever you're scrolled, instead of being pinned to the top of the
+          page far from the control you just used. */}
+      <StatusToast message={statusMessage} onDismiss={() => setStatusMessage(null)} />
 
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Title + Search */}
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
           <div>

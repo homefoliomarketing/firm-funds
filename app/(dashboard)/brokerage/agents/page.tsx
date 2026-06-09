@@ -10,6 +10,7 @@ import {
   addAgentAsBrokerage, brokerageResendWelcomeEmail, brokerageUpdateAgentContact,
 } from '@/lib/actions/brokerage-actions'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import { StatusToast } from '@/components/StatusToast'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -112,7 +113,6 @@ export default function BrokerageAgentsPage() {
 
   const flashStatus = (msg: { type: 'success' | 'error'; text: string }) => {
     setStatusMsg(msg)
-    setTimeout(() => setStatusMsg(null), 5000)
   }
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -218,11 +218,7 @@ export default function BrokerageAgentsPage() {
           </Button>
         </div>
 
-        {statusMsg && (
-          <div className={`rounded-lg px-4 py-3 text-sm ${statusMsg.type === 'success' ? 'bg-primary/10 text-primary border border-primary/30' : 'bg-destructive/10 text-destructive border border-destructive/30'}`}>
-            {statusMsg.text}
-          </div>
-        )}
+        <StatusToast message={statusMsg} onDismiss={() => setStatusMsg(null)} />
 
         {showAddForm && (
           <Card>

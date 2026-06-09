@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Upload, Camera, CheckCircle, XCircle, AlertCircle, FileText, Clock, Smartphone } from 'lucide-react'
+import { Upload, Camera, CheckCircle, XCircle, FileText, Clock, Smartphone } from 'lucide-react'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
+import { StatusToast } from '@/components/StatusToast'
 
 type PageStatus = 'loading' | 'valid' | 'used' | 'expired' | 'invalid' | 'uploading' | 'success'
 
@@ -239,6 +240,10 @@ export default function KycMobileUploadPage() {
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground flex flex-col">
+      <StatusToast
+        message={error ? { type: 'error', text: error } : null}
+        onDismiss={() => setError(null)}
+      />
       <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
         {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
         <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
@@ -338,14 +343,6 @@ export default function KycMobileUploadPage() {
               </p>
             )}
           </div>
-
-          {/* Error */}
-          {error && (
-            <div className="flex items-center gap-[10px] px-4 py-3 bg-status-red-muted border border-status-red-border rounded-[10px] mb-[18px]">
-              <AlertCircle size={18} className="text-status-red flex-shrink-0" />
-              <span className="text-status-red text-sm">{error}</span>
-            </div>
-          )}
 
           {/* Submit */}
           <button

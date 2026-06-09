@@ -7,12 +7,13 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertTriangle, FileSignature, Plus, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileSignature, Plus, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
 import AddRemediationDealModal, { type AgentBrokerageDefaults } from '@/components/remediation/AddRemediationDealModal'
+import { StatusToast } from '@/components/StatusToast'
 import {
   getFailedDealsForCaller,
   getRemediationDealsForFailedDeal,
@@ -225,12 +226,7 @@ function AgentFailedDealsPageInner() {
           </button>
         </section>
 
-        {error && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center gap-2">
-            <AlertTriangle size={16} />
-            {error}
-          </div>
-        )}
+        <StatusToast message={error ? { type: 'error', text: error } : null} onDismiss={() => setError(null)} />
 
         {rows.length === 0 ? (
           <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-8 text-center">

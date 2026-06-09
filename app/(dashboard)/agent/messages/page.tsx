@@ -25,6 +25,7 @@ import { uploadDocument } from '@/lib/actions/deal-actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatusToast } from '@/components/StatusToast'
 import type { UserProfile } from '@/types/database'
 
 interface AgentForMessages {
@@ -260,19 +261,7 @@ export default function AgentMessagesPage() {
       <main id="main-content" className="flex-1 overflow-hidden max-w-5xl w-full mx-auto px-2 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-4">
         <h1 className="sr-only">Agent Messages</h1>
 
-        {/* Status message */}
-        {statusMessage && (
-          <div
-            className={`mb-3 p-3 rounded-xl text-sm font-medium cursor-pointer border ${
-              statusMessage.type === 'success'
-                ? 'bg-primary/10 border-primary/30 text-primary'
-                : 'bg-destructive/10 border-destructive/30 text-destructive'
-            }`}
-            onClick={() => setStatusMessage(null)}
-          >
-            {statusMessage.text}
-          </div>
-        )}
+        <StatusToast message={statusMessage} onDismiss={() => setStatusMessage(null)} />
 
         {inbox.length === 0 ? (
           <div className="rounded-xl p-12 text-center flex flex-col items-center justify-center h-full bg-card border border-border">

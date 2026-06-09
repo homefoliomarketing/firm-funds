@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import AddRemediationDealModal from '@/components/remediation/AddRemediationDealModal'
+import { StatusToast } from '@/components/StatusToast'
 
 interface RemediationDealRow {
   id: string
@@ -242,11 +243,7 @@ export default function RemediationDealsPanel({
         </div>
       </header>
 
-      {topLevelMessage && (
-        <div className={`px-5 py-3 border-b border-border/40 ${topLevelMessage.type === 'success' ? 'bg-emerald-950/20 text-emerald-300' : 'bg-destructive/10 text-destructive'}`} role="status">
-          <p className="text-xs font-medium">{topLevelMessage.text}</p>
-        </div>
-      )}
+      <StatusToast message={topLevelMessage} onDismiss={() => setTopLevelMessage(null)} />
 
       <div className="p-5">
         {loading ? (

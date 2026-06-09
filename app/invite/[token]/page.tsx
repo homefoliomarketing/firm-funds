@@ -6,8 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent } from '@/components/ui/card'
+import { StatusToast } from '@/components/StatusToast'
 
 export default function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -185,6 +185,10 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
 
   return (
     <div className={bgClass}>
+      <StatusToast
+        message={error ? { type: 'error', text: error } : null}
+        onDismiss={() => setError(null)}
+      />
       <div className="absolute top-0 right-0 w-96 h-96 opacity-5 rounded-full bg-primary blur-[80px] pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 opacity-5 rounded-full bg-primary blur-[60px] pointer-events-none" />
 
@@ -214,12 +218,6 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
             </div>
 
             <form onSubmit={handleSetPassword} className="space-y-5">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider">
                   Password

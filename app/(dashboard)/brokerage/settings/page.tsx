@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, Building2, Users, UserPlus, Shield } from 'lucide-react'
+import { Lock, Mail, User, Bell, Eye, EyeOff, ArrowLeft, Building2, Users, UserPlus, Shield } from 'lucide-react'
+import { StatusToast } from '@/components/StatusToast'
 import SignOutModal from '@/components/SignOutModal'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Button } from '@/components/ui/button'
@@ -137,7 +138,6 @@ export default function BrokerageSettingsPage() {
 
   const showMsg = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
-    setTimeout(() => setMessage(null), 4000)
   }
 
   const handlePasswordChange = async () => {
@@ -249,16 +249,7 @@ export default function BrokerageSettingsPage() {
         <h1 className="sr-only">Brokerage Settings</h1>
 
         {/* Status message */}
-        {message && (
-          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border ${
-            message.type === 'success'
-              ? 'bg-green-950/50 border-green-800 text-green-400'
-              : 'bg-red-950/50 border-red-800 text-red-400'
-          }`}>
-            {message.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-            {message.text}
-          </div>
-        )}
+        <StatusToast message={message} onDismiss={() => setMessage(null)} />
 
         {/* CHANGE PASSWORD */}
         <Card>

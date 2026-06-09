@@ -19,6 +19,7 @@ import {
 import { formatDateTime } from '@/lib/formatting'
 import { hasCapability } from '@/lib/access'
 import SignOutModal from '@/components/SignOutModal'
+import { StatusToast } from '@/components/StatusToast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -603,11 +604,10 @@ function AuditExplorerInner() {
         </div>
 
         {/* Error */}
-        {error && (
-          <div className="rounded-lg p-3 mb-4 bg-red-950/50 border border-red-800">
-            <p className="text-sm text-red-400">{error}</p>
-          </div>
-        )}
+        <StatusToast
+          message={error ? { type: 'error', text: error } : null}
+          onDismiss={() => setError(null)}
+        />
 
         {/* Results Table */}
         <div className="rounded-xl overflow-hidden bg-card border border-border/40 ff-card-elevated">

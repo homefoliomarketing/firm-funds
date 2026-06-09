@@ -21,6 +21,7 @@ import {
 import { updateDealDetails, cancelDeal, uploadDocument, getDocumentSignedUrl } from '@/lib/actions/deal-actions'
 import { remindBrokerageOfPendingOffer, agentTakeOverOffer, agentHandBackOffer } from '@/lib/actions/firm-deal-offer-actions'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
+import { StatusToast } from '@/components/StatusToast'
 import { getChargeDays } from '@/lib/calculations'
 import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
 import { submitClosingDateAmendment, getDealAmendments } from '@/lib/actions/amendment-actions'
@@ -857,15 +858,7 @@ export default function AgentDealDetailPage() {
 
       <main id="main-content" className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Status Message */}
-        {statusMessage && (
-          <div className={`mb-6 p-4 rounded-xl text-sm font-medium border ${
-            statusMessage.type === 'success'
-              ? 'bg-primary/10 border-primary/30 text-primary'
-              : 'bg-destructive/10 border-destructive/30 text-destructive'
-          }`}>
-            {statusMessage.text}
-          </div>
-        )}
+        <StatusToast message={statusMessage} onDismiss={() => setStatusMessage(null)} />
 
         {/* Document Requests Banner */}
         {docRequests.length > 0 && (

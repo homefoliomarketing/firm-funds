@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
+import { StatusToast } from '@/components/StatusToast'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import {
@@ -237,12 +238,10 @@ export default function PendingCureElectionsPage() {
           </p>
         </section>
 
-        {error && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center gap-2">
-            <AlertTriangle size={16} />
-            {error}
-          </div>
-        )}
+        <StatusToast
+          message={error ? { type: 'error', text: error } : null}
+          onDismiss={() => setError(null)}
+        />
 
         {/* KPI cards */}
         <section aria-label="Cure election summary" className="grid grid-cols-2 lg:grid-cols-4 gap-3">

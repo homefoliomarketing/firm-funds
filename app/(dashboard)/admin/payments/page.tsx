@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { confirmBrokeragePaymentClaim, rejectBrokeragePaymentClaim } from '@/lib/actions/admin-actions'
 import { hasCapability } from '@/lib/access'
+import { StatusToast } from '@/components/StatusToast'
 
 interface PaymentEntry {
   id: string
@@ -331,18 +332,7 @@ export default function AdminPaymentsPage() {
         <h1 className="sr-only">Payments</h1>
 
         {/* Review flash message */}
-        {reviewMsg && (
-          <div
-            role="status"
-            className={`mb-4 rounded-lg px-4 py-3 text-sm border ${
-              reviewMsg.type === 'success'
-                ? 'bg-primary/10 border-primary/30 text-primary'
-                : 'bg-destructive/10 border-destructive/30 text-destructive'
-            }`}
-          >
-            {reviewMsg.text}
-          </div>
-        )}
+        <StatusToast message={reviewMsg} onDismiss={() => setReviewMsg(null)} />
 
         {/* Pending claims banner (brokerage-submitted, awaiting confirmation) */}
         {pendingClaims.length > 0 && (
