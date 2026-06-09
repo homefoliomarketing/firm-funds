@@ -37,13 +37,21 @@ export default function BrokerageBrandLogo({
   // (the "POWERED BY FIRM FUNDS" tagline) stays legible, so generated logos
   // get roughly twice the vertical space of a plain wordmark. Uploaded logos
   // (which are usually a single horizontal wordmark) use the smaller heights.
+  // Mobile (base) heights are deliberately small, and capped with a mobile
+  // max-width, so the logo always fits inside a phone header row without
+  // forcing the row wider than the viewport. That row-overflow (a wide
+  // generated SVG that refused to shrink in mobile Chrome) is what was
+  // clipping the brokerage wordmark at the screen edge. The sm:/md: heights
+  // restore the full size on wider screens (sm:max-w-none lifts the cap), and
+  // object-contain preserves aspect within the bounds so the artwork is never
+  // cropped.
   const brokerageLogoClass = logoIncludesTagline
-    ? (size === 'lg' ? 'h-24 sm:h-28 md:h-32 w-auto object-contain'
-       : size === 'sm' ? 'h-16 sm:h-20 w-auto object-contain'
-       : 'h-20 sm:h-24 md:h-28 w-auto object-contain')
-    : (size === 'lg' ? 'h-12 sm:h-16 w-auto object-contain'
-       : size === 'sm' ? 'h-8 sm:h-10 w-auto object-contain'
-       : 'h-10 sm:h-12 w-auto object-contain')
+    ? (size === 'lg' ? 'h-12 max-w-[160px] sm:max-w-none sm:h-28 md:h-32 w-auto object-contain'
+       : size === 'sm' ? 'h-10 max-w-[150px] sm:max-w-none sm:h-20 w-auto object-contain'
+       : 'h-10 max-w-[150px] sm:max-w-none sm:h-24 md:h-28 w-auto object-contain')
+    : (size === 'lg' ? 'h-9 max-w-[150px] sm:max-w-none sm:h-16 w-auto object-contain'
+       : size === 'sm' ? 'h-8 max-w-[120px] sm:max-w-none sm:h-10 w-auto object-contain'
+       : 'h-9 max-w-[130px] sm:max-w-none sm:h-12 w-auto object-contain')
   const ffWordmarkClass =
     size === 'lg' ? 'h-10 sm:h-12 w-auto'
     : size === 'sm' ? 'h-6 sm:h-8 w-auto'
@@ -51,7 +59,7 @@ export default function BrokerageBrandLogo({
 
   if (logoUrl) {
     return (
-      <div className={`flex items-center gap-3 ${className ?? ''}`}>
+      <div className={`flex items-center gap-3 min-w-0 ${className ?? ''}`}>
         {/* User-supplied URL — next/image without runtime domain config. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -65,13 +73,18 @@ export default function BrokerageBrandLogo({
             "Powered by Firm Funds" (generated logos, migration 096). */}
         {!logoIncludesTagline && (
           <>
-            <div className="w-px h-8 bg-white/15" aria-hidden="true" />
+            {/* Hidden on phones: the brokerage logo + this divider + the FF
+                wordmark + the page's own header controls overran the row and
+                clipped the brokerage logo at the screen edge. The wordmark is
+                decorative brand duplication, so dropping it on mobile keeps the
+                brokerage logo fully visible. Restored at sm+. */}
+            <div className="hidden sm:block w-px h-8 bg-white/15" aria-hidden="true" />
             <Image
               src="/brand/white.png"
               alt="Firm Funds"
               width={120}
               height={40}
-              className={`${ffWordmarkClass} opacity-60`}
+              className={`hidden sm:block ${ffWordmarkClass} opacity-60`}
             />
           </>
         )}

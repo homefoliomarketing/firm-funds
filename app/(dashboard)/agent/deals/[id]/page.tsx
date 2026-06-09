@@ -577,18 +577,19 @@ export default function AgentDealDetailPage() {
     // state and the "Remind my brokerage" nudge is hidden (issue 3).
     const selfSubmitting = !!deal.agent_self_submit_at
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background overflow-x-clip">
         <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <BrokerageBrandLogo
                   size="sm"
+                  className="shrink-0"
                   logoUrl={brokerageBrand?.logo_url}
                   brokerageName={brokerageBrand?.name}
                   logoIncludesTagline={brokerageBrand?.logo_includes_tagline}
                 />
-                <div className="w-px h-6 bg-border" />
+                <div className="hidden sm:block w-px h-6 bg-border" />
                 <button
                   onClick={() => router.push('/agent')}
                   className="flex items-center gap-1.5 text-sm transition-colors text-muted-foreground hover:text-foreground"
@@ -816,19 +817,20 @@ export default function AgentDealDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-clip">
       {/* Header */}
       <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <BrokerageBrandLogo
                 size="sm"
+                className="shrink-0"
                 logoUrl={brokerageBrand?.logo_url}
                 brokerageName={brokerageBrand?.name}
                 logoIncludesTagline={brokerageBrand?.logo_includes_tagline}
               />
-              <div className="w-px h-6 bg-border" />
+              <div className="hidden sm:block w-px h-6 bg-border" />
               <button
                 onClick={() => router.push('/agent')}
                 className="flex items-center gap-1.5 text-sm transition-colors text-muted-foreground hover:text-foreground"

@@ -100,28 +100,42 @@ column (already run against the live DB).
   buttons both open the portal, the congratulations line and "a few steps away"
   wording are there, and there is no "instead of waiting weeks."
 
-### 6. White-label logo cut off on mobile in the agent portal
-- **Was:** on a phone, the brokerage logo in the top header was clipped. The
-  previous attempt did not fix it.
-- **Root cause found:** the whole header row was wider than a phone screen
-  (the "Sign out" button keeps its full text on mobile, and the logo box would
-  not shrink), which pushed the left-most logo off the screen edge.
-- **Now:** on mobile the logo box shrinks instead of forcing overflow, the
-  redundant grey Firm Funds wordmark beside uploaded logos is hidden on phones
-  (still shown on desktop), and the logo renders at full height so the tagline
-  stays legible. Desktop is unchanged.
-- **File:** `components/AgentHeader.tsx`
-- **How to test (VISUAL — needs your real phone):** open the agent dashboard on
-  your phone (or Chrome dev tools at 360px and 390px wide). The Choice logo
-  should show fully with nothing clipped at the left edge and no sideways
-  scroll. Test both a logo with the "Powered by Firm Funds" tagline baked in and
-  a plain uploaded logo. Note: if a logo ever clips again after future header
-  changes, the next lever is making the "Sign out" button icon-only on mobile.
+### 6. White-label logo cut off on mobile (FIXED PROPERLY + verified this time)
+- **Was:** on a phone, the brokerage logo in the top header was clipped at the
+  left edge. Four prior attempts over two sessions did not fix it.
+- **Real root cause (finally found, with the actual numbers):** the generated
+  brokerage logo is a wide image (480 x 195, so ~2.5 times wider than tall). On
+  the deal page and the "New Advance Request" page, the header rendered it at a
+  tall height (~157px wide) inside a cramped single row (logo + divider + back
+  arrow + title + Sign out). Mobile Chrome refused to shrink that image, so the
+  row grew wider than the phone screen and the logo got pushed off the left
+  edge. (Earlier fixes only touched `AgentHeader`, but these two pages use their
+  own header, which is why it kept coming back.)
+- **Now:** the logo is pinned to a small, fixed, fully-visible size on phones
+  (about 98px wide) so the row fits without relying on any shrinking, the
+  divider is hidden on mobile, the page title shrinks/truncates, and any stray
+  horizontal overflow is clipped so the sticky header can't slide. Desktop is
+  unchanged (full-size logo + divider return at tablet/desktop widths).
+- **Files:** `components/BrokerageBrandLogo.tsx`,
+  `app/(dashboard)/agent/new-deal/page.tsx`,
+  `app/(dashboard)/agent/deals/[id]/page.tsx`
+- **Verified:** I rendered the real header geometry in a browser and measured it
+  at 320px, 360px, and 412px wide (your phone is ~412px). At every width the
+  logo sits fully on screen (left edge >= 0, right edge within the viewport)
+  with zero horizontal overflow, and at desktop width the full-size logo +
+  divider come back. This is the first time the fix was measured rather than
+  guessed.
+- **How to test (please still glance on your phone):** open the "New Advance
+  Request" page and a deal from Your Deals on your phone. The Choice Advances
+  logo should sit fully on screen, nothing clipped at the left edge, no sideways
+  scroll.
 
 ---
 
-**Notes for these visual items (2, 5, 6):** the code is verified by type-check
-and a clean production build, but I could not log in to screenshot them because
-I do not have your password and the rule is to never reset it. Please eyeball 2,
-5, and 6 on a real device. If you want, share a test login (or approve a one-time
-magic link) and I will screenshot them for you.
+**Notes on verification:** item 6 (the mobile logo) was measured in a real
+browser at phone widths this time, so it is verified, not guessed. Items 2 and 5
+(in-app logo + the email) are verified by type-check and a clean production
+build, but I could not log in to screenshot them because I do not have your
+password and the rule is to never reset it. A quick glance on a real device is
+still worth it for 2 and 5. If you want, share a test login (or approve a
+one-time magic link) and I will screenshot them too.

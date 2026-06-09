@@ -512,29 +512,30 @@ function NewDealPageInner() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-clip">
       {/* Header */}
       <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border/50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4 py-4">
             <BrokerageBrandLogo
               size="sm"
+              className="shrink-0"
               logoUrl={agent?.brokerages?.logo_url}
               brokerageName={agent?.brokerages?.name}
               logoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
             />
-            <div className="w-px h-10 bg-border" />
+            <div className="hidden sm:block w-px h-10 bg-border" />
             <button
               onClick={() => router.push('/agent')}
-              className="text-muted-foreground hover:text-primary transition-colors"
+              className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
             >
               <ArrowLeft size={20} />
             </button>
-            <div>
-              <h1 className="text-lg font-bold text-foreground">New Advance Request</h1>
-              <p className="text-xs text-muted-foreground">Submit a commission advance for a firm deal</p>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg font-bold text-foreground truncate">New Advance Request</h1>
+              <p className="text-xs text-muted-foreground truncate">Submit a commission advance for a firm deal</p>
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto shrink-0">
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
