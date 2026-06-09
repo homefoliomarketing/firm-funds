@@ -10,7 +10,7 @@ import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
   CreditCard, Eye, EyeOff, ClipboardList, TimerReset, Inbox,
-  TrendingUp, UserCog,
+  TrendingUp, Mail, ChevronDown,
 } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
@@ -33,6 +33,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 
 interface DashboardStats {
   underReviewDeals: number
@@ -366,11 +369,27 @@ export default function AdminDashboard() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                className="relative h-10 w-10 text-muted-foreground hover:text-primary"
+                onClick={() => router.push('/admin/messages')}
+                title="Messages"
+                aria-label={`Messages${stats.unreadAgentMessages ? `, ${stats.unreadAgentMessages} unread` : ''}`}
+              >
+                <Mail size={22} />
+                {stats.unreadAgentMessages ? (
+                  <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
+                    {stats.unreadAgentMessages}
+                  </Badge>
+                ) : null}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 text-muted-foreground hover:text-primary"
                 onClick={() => router.push('/admin/settings')}
                 title="Settings"
+                aria-label="Settings"
               >
-                <Settings size={16} />
+                <Settings size={22} />
               </Button>
               <SignOutModal onConfirm={handleLogout} />
             </div>
@@ -398,13 +417,9 @@ export default function AdminDashboard() {
               // /admin/assignments page + assignment-actions remain in the repo
               // so this is a one-line re-enable when the feature is picked up.
               ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' }] : []),
-              { label: 'Portfolio', icon: TrendingUp, path: '/admin/portfolio' },
-              { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
               ...(hasCapability(profile, 'money.write') ? [{ label: 'Payments', icon: DollarSign, path: '/admin/payments' }] : []),
-              ...(hasCapability(profile, 'audit.read') ? [{ label: 'Audit Trail', icon: Shield, path: '/admin/audit' }] : []),
-              { label: 'Messages', icon: MessageSquare, path: '/admin/messages', badge: stats.unreadAgentMessages },
-              // Owner-only: assign internal staff tiers + invite new staff.
-              ...(hasCapability(profile, 'roles.manage') ? [{ label: 'Staff & Roles', icon: UserCog, path: '/admin/staff' }] : []),
+              // Audit Trail + Staff & Roles now live under Settings; Messages moved
+              // to the Mail icon in the header.
             ].map(link => (
               <Button
                 key={link.label}
@@ -422,6 +437,32 @@ export default function AdminDashboard() {
                 ) : null}
               </Button>
             ))}
+            {/* Portfolio + Reports combined into a single button. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 border-border/50 hover:border-primary/40 hover:text-primary transition-colors"
+                  />
+                }
+              >
+                <TrendingUp size={14} className="text-primary/80" />
+                Portfolio & Reports
+                <ChevronDown size={14} className="text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => router.push('/admin/portfolio')}>
+                  <TrendingUp size={14} className="text-primary/80" />
+                  Portfolio
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push('/admin/reports')}>
+                  <BarChart3 size={14} className="text-primary/80" />
+                  Reports
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </nav>
         </div>
 

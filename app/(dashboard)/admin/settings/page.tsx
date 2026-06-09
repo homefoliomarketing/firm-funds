@@ -5,7 +5,8 @@ import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import type { UserProfile } from '@/types/database'
-import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, FileSignature, ExternalLink } from 'lucide-react'
+import { Lock, Mail, User, Bell, Eye, EyeOff, CheckCircle, AlertTriangle, ArrowLeft, FileSignature, ExternalLink, Shield, UserCog, ChevronRight } from 'lucide-react'
+import { hasCapability } from '@/lib/access'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -204,6 +205,43 @@ export default function AdminSettingsPage() {
             {message.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
             {message.text}
           </div>
+        )}
+
+        {/* ADMINISTRATION — Audit Trail + Staff & Roles, capability-gated */}
+        {(hasCapability(profile, 'audit.read') || hasCapability(profile, 'roles.manage')) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                <Shield size={18} />
+                Administration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {[
+                ...(hasCapability(profile, 'audit.read')
+                  ? [{ label: 'Audit Trail', desc: 'Full history of every admin and system action', icon: Shield, path: '/admin/audit' }]
+                  : []),
+                ...(hasCapability(profile, 'roles.manage')
+                  ? [{ label: 'Staff & Roles', desc: 'Assign internal staff tiers and invite new staff', icon: UserCog, path: '/admin/staff' }]
+                  : []),
+              ].map(({ label, desc, icon: Icon, path }) => (
+                <button
+                  key={label}
+                  onClick={() => router.push(path)}
+                  className="w-full flex items-center justify-between gap-3 py-2.5 px-1 border-b border-border/50 last:border-0 text-left rounded-md hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon size={16} className="text-primary/80 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-muted-foreground flex-shrink-0" />
+                </button>
+              ))}
+            </CardContent>
+          </Card>
         )}
 
         {/* CHANGE PASSWORD */}
