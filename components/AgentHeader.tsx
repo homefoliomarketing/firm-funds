@@ -194,21 +194,21 @@ export default function AgentHeader({
             >
               {brokerageLogo ? (
                 <>
-                  {/* Plain <img> (not next/image): the generated logos are
-                      SVGs whose aspect ratio fought next/image's fixed
-                      width/height and clipped the wordmark on mobile. Mirrors
-                      BrokerageBrandLogo. Height-driven + w-auto + object-contain
-                      scales cleanly; shrink + min-w-0 lets it give up width so
-                      the header never overflows a phone. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={brokerageLogo}
-                    alt={brokerageLogoIncludesTagline
+                  {/* Brokerage logo as a fixed-box BACKGROUND image. An <img>
+                      with w-auto sized the generated SVG inconsistently across
+                      browsers (fine in desktop Chromium, clipped in mobile
+                      Chrome). A definite box + background-size:contain is
+                      spec-guaranteed to scale the whole logo to fit inside the
+                      box, so it can never spill off the screen edge. */}
+                  <div
+                    role="img"
+                    aria-label={brokerageLogoIncludesTagline
                       ? `${brokerageName || 'Brokerage'}, Powered by Firm Funds`
                       : `${brokerageName || 'Brokerage'} logo`}
+                    style={{ backgroundImage: `url("${brokerageLogo}")` }}
                     className={brokerageLogoIncludesTagline
-                      ? 'h-12 sm:h-24 md:h-28 w-auto max-w-[58vw] sm:max-w-none shrink min-w-0 object-contain'
-                      : 'h-9 sm:h-14 md:h-16 w-auto max-w-[52vw] sm:max-w-none shrink min-w-0 object-contain'}
+                      ? 'shrink-0 bg-contain bg-no-repeat bg-left sm:bg-center h-11 w-[132px] sm:h-28 sm:w-48 md:h-32 md:w-56'
+                      : 'shrink-0 bg-contain bg-no-repeat bg-left sm:bg-center h-9 w-[130px] sm:h-16 sm:w-44 md:h-20 md:w-52'}
                   />
                   {/* Skip the separate FF wordmark when the logo already
                       contains "Powered by Firm Funds" (generated logos —
