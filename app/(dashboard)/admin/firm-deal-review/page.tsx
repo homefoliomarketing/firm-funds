@@ -160,6 +160,96 @@ function SideChip({
   )
 }
 
+// Derive how each side of a deal resolved (matched agent, co-agent split, or
+// outside brokerage) from a queue row. Shared by the pending EventRow and the
+// expandable resolved row so the two renderings never drift. When
+// co_agent_split is true, matched_agent + second_matched_agent are both on the
+// SAME side; we route the pair to whichever side column is populated (or, pre-
+// resolve, whichever side's raw cell carried the delimiter-separated names).
+function computeSideDisplay(row: ReviewQueueRow) {
+  const parsed = row.parsed
+  const resolvedToOutside = row.status !== 'unmatched'
+  const listingOutside =
+    resolvedToOutside && !row.listing_matched_agent && !!parsed?.listing_agent_raw
+  const sellingOutside =
+    resolvedToOutside && !row.selling_matched_agent && !!parsed?.selling_agent_raw
+  const sideListing = row.co_agent_split &&
+    (row.listing_matched_agent || (!row.selling_matched_agent && parsed?.listing_agent_raw))
+  const sideSelling = row.co_agent_split && !sideListing
+  return {
+    listingMatched: row.listing_matched_agent ?? (sideListing ? row.matched_agent : null),
+    sellingMatched: row.selling_matched_agent ?? (sideSelling ? row.matched_agent : null),
+    listingCoAgent: sideListing ? row.second_matched_agent : null,
+    sellingCoAgent: sideSelling ? row.second_matched_agent : null,
+    listingOutside,
+    sellingOutside,
+  }
+}
+
+// The two side chips (Listing / Selling) showing who each side resolved to.
+// Used inline on pending rows and inside the expanded resolved-row panel.
+function EventSideSummary({ row }: { row: ReviewQueueRow }) {
+  const s = computeSideDisplay(row)
+  const parsed = row.parsed
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      <SideChip
+        label="Listing"
+        raw={parsed?.listing_agent_raw}
+        matched={s.listingMatched}
+        coAgent={s.listingCoAgent}
+        outsideMark={s.listingOutside}
+      />
+      <SideChip
+        label="Selling"
+        raw={parsed?.selling_agent_raw}
+        matched={s.sellingMatched}
+        coAgent={s.sellingCoAgent}
+        outsideMark={s.sellingOutside}
+      />
+    </div>
+  )
+}
+
+// The "Commission (from sheet)" line: whatever figures the parser pulled off
+// the source row, so the admin can see what the offer was based on.
+function EventCommissionSummary({ parsed }: { parsed: ReviewQueueRow['parsed'] }) {
+  const hasNone =
+    parsed?.listing_agent_commission_amount == null &&
+    parsed?.selling_agent_commission_amount == null &&
+    parsed?.sale_price == null
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+      <span className="uppercase tracking-wider">Commission (from sheet)</span>
+      {parsed?.listing_agent_commission_amount != null && (
+        <span>
+          Listing{' '}
+          <span className="font-medium text-foreground tabular-nums">
+            {formatCurrency(parsed.listing_agent_commission_amount)}
+          </span>
+        </span>
+      )}
+      {parsed?.selling_agent_commission_amount != null && (
+        <span>
+          Selling{' '}
+          <span className="font-medium text-foreground tabular-nums">
+            {formatCurrency(parsed.selling_agent_commission_amount)}
+          </span>
+        </span>
+      )}
+      {parsed?.sale_price != null && (
+        <span>
+          Sale price{' '}
+          <span className="font-medium text-foreground tabular-nums">
+            {formatCurrency(parsed.sale_price)}
+          </span>
+        </span>
+      )}
+      {hasNone && <span className="italic">none pulled from this row</span>}
+    </div>
+  )
+}
+
 export default function FirmDealReviewPage() {
   // Suspense boundary is required when reading URL search params from a
   // client page in Next.js 16 (per node_modules/next/dist/docs/.../
@@ -532,39 +622,98 @@ function FirmDealReviewPageInner() {
           </h2>
           <ul className="space-y-1">
             {resolved.map(row => (
-              <li
+              <ResolvedRow
                 key={row.id}
-                className="flex items-center gap-3 rounded-md border bg-card/40 px-3 py-2 text-sm"
-              >
-                <StatusDot status={row.status} />
-                <span className="font-medium truncate">{row.parsed?.address ?? '-'}</span>
-                <span className="text-muted-foreground text-xs truncate">{row.brokerage_name}</span>
-                <span className="text-muted-foreground text-xs ml-auto whitespace-nowrap">
-                  {formatShortDate(row.processed_at)}
-                </span>
-                {row.status === 'offer_sent' && (
-                  <Button
-                    onClick={() => handleResend(row.id)}
-                    disabled={busyEventId === row.id}
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs shrink-0"
-                    title="Re-send the offer email and text to the matched agent(s)"
-                  >
-                    {busyEventId === row.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5" aria-hidden="true" />
-                    )}
-                    Re-send
-                  </Button>
-                )}
-              </li>
+                row={row}
+                busy={busyEventId === row.id}
+                onResend={() => handleResend(row.id)}
+              />
             ))}
           </ul>
         </section>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Recently-resolved row — collapsed one-liner that expands to show who each
+// side resolved to and the commission figures the offer was based on, i.e.
+// everything that was on the deal before it was sent. The Re-send button stays
+// available in the collapsed header (it sits outside the expand toggle so a
+// click on it never toggles the panel).
+// ---------------------------------------------------------------------------
+function ResolvedRow({
+  row,
+  busy,
+  onResend,
+}: {
+  row: ReviewQueueRow
+  busy: boolean
+  onResend: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const parsed = row.parsed
+  return (
+    <li className="rounded-md border bg-card/40 text-sm">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          aria-label={open ? 'Collapse deal details' : 'Expand deal details'}
+          className="flex items-center gap-3 flex-1 min-w-0 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+          <StatusDot status={row.status} />
+          <span className="font-medium truncate">{parsed?.address ?? '-'}</span>
+          <span className="text-muted-foreground text-xs truncate hidden sm:inline">{row.brokerage_name}</span>
+          <span className="text-muted-foreground text-xs ml-auto whitespace-nowrap pl-2">
+            {formatShortDate(row.processed_at)}
+          </span>
+        </button>
+        {row.status === 'offer_sent' && (
+          <Button
+            onClick={onResend}
+            disabled={busy}
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs shrink-0"
+            title="Re-send the offer email and text to the matched agent(s)"
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Send className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            Re-send
+          </Button>
+        )}
+      </div>
+
+      {open && (
+        <div className="border-t bg-muted/20 px-3 py-2.5 space-y-2">
+          <EventSideSummary row={row} />
+          <EventCommissionSummary parsed={parsed} />
+          {(parsed?.mls_number || parsed?.closing_date_iso) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+              {parsed?.mls_number && (
+                <span>MLS <span className="font-medium text-foreground">{parsed.mls_number}</span></span>
+              )}
+              {parsed?.closing_date_iso && (
+                <span>Closing <span className="font-medium text-foreground">{formatShortDate(parsed.closing_date_iso)}</span></span>
+              )}
+            </div>
+          )}
+          {parsed?.parser_notes && (
+            <p className="text-[11px] text-muted-foreground italic">Parser: {parsed.parser_notes}</p>
+          )}
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -598,28 +747,6 @@ function EventRow({
 }: EventRowProps) {
   const d = draft ?? defaultDraft
   const parsed = row.parsed
-  // A side is "outside" iff there's a raw value but no agent match AND
-  // the event already left the unmatched bucket (i.e. the admin resolved
-  // it to outside, or matchEvent recognised it via the mapping table).
-  // For unmatched events we never show "outside" until resolution.
-  const resolvedToOutside = row.status !== 'unmatched'
-  const listingOutside =
-    resolvedToOutside && !row.listing_matched_agent && !!parsed?.listing_agent_raw
-  const sellingOutside =
-    resolvedToOutside && !row.selling_matched_agent && !!parsed?.selling_agent_raw
-
-  // When co_agent_split is true, both matched_agent and second_matched_agent
-  // are on the SAME side. Figure out which side based on which side column
-  // is populated — the admin-resolve and matcher-auto paths both put the
-  // first co-agent in the side column once resolved. If neither side column
-  // is set (matcher-auto pre-resolve case), fall back to the side whose raw
-  // value is non-empty; the matcher only routes co-agent splits when one
-  // side's cell contained the delimiter-separated names.
-  const sideListing = row.co_agent_split &&
-    (row.listing_matched_agent || (!row.selling_matched_agent && parsed?.listing_agent_raw))
-  const sideSelling = row.co_agent_split && !sideListing
-  const listingCoAgent = sideListing ? row.second_matched_agent : null
-  const sellingCoAgent = sideSelling ? row.second_matched_agent : null
 
   return (
     <li className="rounded-lg border bg-card text-sm">
@@ -704,61 +831,15 @@ function EventRow({
       </div>
 
       {/* Side summary — always visible. Compact line under the title row. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 pb-2">
-        <SideChip
-          label="Listing"
-          raw={parsed?.listing_agent_raw}
-          matched={
-            row.listing_matched_agent ?? (sideListing ? row.matched_agent : null)
-          }
-          coAgent={listingCoAgent}
-          outsideMark={listingOutside}
-        />
-        <SideChip
-          label="Selling"
-          raw={parsed?.selling_agent_raw}
-          matched={
-            row.selling_matched_agent ?? (sideSelling ? row.matched_agent : null)
-          }
-          coAgent={sellingCoAgent}
-          outsideMark={sellingOutside}
-        />
+      <div className="px-3 pb-2">
+        <EventSideSummary row={row} />
       </div>
 
       {/* Commission collected from the spreadsheet row, so the admin can verify
           what was pulled (and roughly what the offer would be) before anything
           is sent. Falls back to a clear "none" when the row carried no figures. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 pb-2 text-xs text-muted-foreground">
-        <span className="uppercase tracking-wider">Commission (from sheet)</span>
-        {parsed?.listing_agent_commission_amount != null && (
-          <span>
-            Listing{' '}
-            <span className="font-medium text-foreground tabular-nums">
-              {formatCurrency(parsed.listing_agent_commission_amount)}
-            </span>
-          </span>
-        )}
-        {parsed?.selling_agent_commission_amount != null && (
-          <span>
-            Selling{' '}
-            <span className="font-medium text-foreground tabular-nums">
-              {formatCurrency(parsed.selling_agent_commission_amount)}
-            </span>
-          </span>
-        )}
-        {parsed?.sale_price != null && (
-          <span>
-            Sale price{' '}
-            <span className="font-medium text-foreground tabular-nums">
-              {formatCurrency(parsed.sale_price)}
-            </span>
-          </span>
-        )}
-        {parsed?.listing_agent_commission_amount == null &&
-          parsed?.selling_agent_commission_amount == null &&
-          parsed?.sale_price == null && (
-            <span className="italic">none pulled from this row</span>
-          )}
+      <div className="px-3 pb-2">
+        <EventCommissionSummary parsed={parsed} />
       </div>
 
       {/* Resolver panel — shown when row needs review, or when expanded */}

@@ -176,14 +176,20 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
 
   // Header cell. When the brokerage has a white-label logo on file we render
   // it as an image (mirrors brandHeader() in lib/email.ts); otherwise we fall
-  // back to the original green text banner so nothing breaks when no logo is
-  // set. The logo sits on the same green band for visual continuity. When the
-  // logo already bakes in the tagline (generated logos) we render it alone;
-  // for custom uploads we add a small "Powered by Firm Funds" line beneath it.
+  // back to the green text banner so nothing breaks when no logo is set.
+  //
+  // Generated logos (logo_includes_tagline) bake the brokerage NAME in Firm
+  // Funds green (#5FA873) and the F-mark + tagline in light grey. On the old
+  // green band the green name was green-on-green and vanished (only the faint
+  // grey mark showed). Those logos are designed for a DARK backdrop, exactly
+  // like lib/email.ts renders them, so the generated-logo header sits on a dark
+  // band where the green name and grey mark both read crisply. Custom uploads
+  // and the no-logo text banner keep the green band (white text/most uploaded
+  // marks read fine on green).
   const logoUrl = input.brand_logo_url
   const headerCell = logoUrl
     ? input.brand_logo_includes_tagline
-      ? `<td style="background:#5FA873; padding:22px 32px; text-align:center;">
+      ? `<td style="background:#0d2018; padding:26px 32px; text-align:center;">
             <img src="${escapeHtml(logoUrl)}" alt="${brand}, Powered by Firm Funds" height="56" style="height:56px; width:auto; max-width:360px;" />
           </td>`
       : `<td style="background:#5FA873; padding:22px 32px; text-align:center;">
