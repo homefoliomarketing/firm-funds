@@ -243,6 +243,57 @@ export async function approveAndSendFirmDealOffer(eventId: string): Promise<Acti
 }
 
 // ============================================================================
+// Re-send — fire the offer email + SMS again for an offer that already went
+// out. Useful when the agent says they never got it, deleted it, or the first
+// send only landed one channel. The dispatcher's { resend: true } mode skips
+// the approved-status and already-sent guards and, crucially, leaves the
+// event's status and sent-at timestamps untouched, so a failed re-send can't
+// downgrade an offer_sent event. A fresh magic link is minted each time.
+// ============================================================================
+export async function resendFirmDealOffer(eventId: string): Promise<ActionResult<{ sent: boolean }>> {
+  const auth = await getAuthenticatedCapable('firmdeal.review')
+  if (auth.error) return { success: false, error: auth.error }
+  const supabase = createServiceRoleClient()
+
+  const { data: existing, error: loadErr } = await supabase
+    .from('firm_deal_events')
+    .select('status, matched_agent_id')
+    .eq('id', eventId)
+    .single()
+  if (loadErr || !existing) return { success: false, error: `Event not found: ${loadErr?.message}` }
+  if (existing.status !== 'offer_sent') {
+    return { success: false, error: `Re-send only applies to offers already sent (status is ${existing.status}).` }
+  }
+  if (!existing.matched_agent_id) {
+    return { success: false, error: 'No matched agent on event; nothing to re-send.' }
+  }
+
+  const result = await dispatchFirmDealNotification(eventId, supabase, { resend: true })
+
+  await logAuditEvent({
+    action: 'firm_deal_review.offer_resent',
+    entityType: 'firm_deal_event',
+    entityId: eventId,
+    severity: result.outcome === 'offer_sent' ? 'info' : 'warning',
+    metadata: {
+      event_id: eventId,
+      dispatch_outcome: result.outcome,
+      dispatch_message: result.message ?? null,
+      email_status: result.email.status,
+      sms_status: result.sms.status,
+      matched_agent_id: existing.matched_agent_id,
+      resent_by_user_id: auth.user?.id,
+    },
+  })
+
+  return {
+    success: result.outcome === 'offer_sent',
+    error: result.outcome !== 'offer_sent' ? result.message ?? `Re-send outcome: ${result.outcome}` : undefined,
+    data: { sent: result.outcome === 'offer_sent' },
+  }
+}
+
+// ============================================================================
 // Reject — admin says "don't send"
 // ============================================================================
 export async function rejectFirmDealOffer(eventId: string): Promise<ActionResult> {

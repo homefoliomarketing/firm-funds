@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   getFirmDealReviewQueue,
   approveAndSendFirmDealOffer,
+  resendFirmDealOffer,
   rejectFirmDealOffer,
   resolveUnmatchedFirmDealEvent,
   rerunFirmDealMatch,
@@ -246,6 +247,19 @@ function FirmDealReviewPageInner() {
     const res = await approveAndSendFirmDealOffer(eventId)
     if (!res.success) {
       alert(`Send failed: ${res.error}`)
+    }
+    setBusyEventId(null)
+    await loadQueue()
+  }
+
+  async function handleResend(eventId: string) {
+    if (!confirm('Re-send the offer email and text to the matched agent(s)?')) return
+    setBusyEventId(eventId)
+    const res = await resendFirmDealOffer(eventId)
+    if (!res.success) {
+      alert(`Re-send failed: ${res.error}`)
+    } else {
+      alert('Offer re-sent to the matched agent(s).')
     }
     setBusyEventId(null)
     await loadQueue()
@@ -528,6 +542,23 @@ function FirmDealReviewPageInner() {
                 <span className="text-muted-foreground text-xs ml-auto whitespace-nowrap">
                   {formatShortDate(row.processed_at)}
                 </span>
+                {row.status === 'offer_sent' && (
+                  <Button
+                    onClick={() => handleResend(row.id)}
+                    disabled={busyEventId === row.id}
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs shrink-0"
+                    title="Re-send the offer email and text to the matched agent(s)"
+                  >
+                    {busyEventId === row.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    Re-send
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

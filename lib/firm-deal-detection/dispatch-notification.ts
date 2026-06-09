@@ -121,7 +121,13 @@ function getResend(): Resend | null {
 
 export async function dispatchFirmDealNotification(
   eventId: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  // When { resend: true }, the approved-status and already-sent guards are
+  // skipped so an admin can re-fire the email + SMS for an offer that already
+  // went out. A re-send never mutates the event's status or sent-at timestamps
+  // (see dispatchWithContext), so a failed re-send can't downgrade an
+  // offer_sent event back to errored.
+  options: { resend?: boolean } = {}
 ): Promise<DispatchResult> {
   // Load full event with side-aware match fields and the co_agent_split flag
   // (added migration 097) so the variant picker can force generic for splits.
@@ -140,7 +146,7 @@ export async function dispatchFirmDealNotification(
     return errorResult(eventId, `Event not found: ${eventErr?.message ?? 'missing'}`)
   }
 
-  if (event.status !== 'approved') {
+  if (!options.resend && event.status !== 'approved') {
     return {
       event_id: eventId,
       outcome: 'skipped',
@@ -150,7 +156,7 @@ export async function dispatchFirmDealNotification(
     }
   }
 
-  if (event.email_sent_at || event.sms_sent_at) {
+  if (!options.resend && (event.email_sent_at || event.sms_sent_at)) {
     return {
       event_id: eventId,
       outcome: 'already_sent',
@@ -230,7 +236,7 @@ export async function dispatchFirmDealNotification(
     recipients,
   }
 
-  return await dispatchWithContext(ctx, supabase)
+  return await dispatchWithContext(ctx, supabase, options)
 }
 
 // pickAgentVariant + NotifyTier moved to ./offer-estimate (imported +
@@ -355,7 +361,8 @@ async function sendForOneAgent(
 
 async function dispatchWithContext(
   ctx: DispatchContext,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  options: { resend?: boolean } = {}
 ): Promise<DispatchResult> {
   // Fan out: each recipient gets their own variant pick, magic link,
   // rendered content, and parallel email + SMS send.
@@ -370,25 +377,31 @@ async function dispatchWithContext(
   const anySmsSent = perAgent.some(r => r.sms.status === 'sent')
   const anySent = anyEmailSent || anySmsSent
 
-  const updateFields: Record<string, unknown> = {}
-  if (anyEmailSent) updateFields.email_sent_at = new Date().toISOString()
-  if (anySmsSent) updateFields.sms_sent_at = new Date().toISOString()
-  const newStatus = anySent ? 'offer_sent' : 'errored'
-  updateFields.status = newStatus
-  if (!anySent) {
-    const summary = perAgent
-      .map(r => `agent ${r.agent_id.slice(0, 8)}: email=${r.email.status} ${r.email.error ?? ''}; sms=${r.sms.status} ${r.sms.error ?? ''}`)
-      .join(' | ')
-    updateFields.error_message = `All channels failed across ${perAgent.length} recipient(s). ${summary}`
+  // On a re-send we deliberately leave the event's status and sent-at
+  // timestamps untouched: the offer was already recorded as sent, so we just
+  // re-fire the channels and report the per-channel outcome. This also means a
+  // failed re-send can never downgrade an offer_sent event to errored.
+  if (!options.resend) {
+    const updateFields: Record<string, unknown> = {}
+    if (anyEmailSent) updateFields.email_sent_at = new Date().toISOString()
+    if (anySmsSent) updateFields.sms_sent_at = new Date().toISOString()
+    const newStatus = anySent ? 'offer_sent' : 'errored'
+    updateFields.status = newStatus
+    if (!anySent) {
+      const summary = perAgent
+        .map(r => `agent ${r.agent_id.slice(0, 8)}: email=${r.email.status} ${r.email.error ?? ''}; sms=${r.sms.status} ${r.sms.error ?? ''}`)
+        .join(' | ')
+      updateFields.error_message = `All channels failed across ${perAgent.length} recipient(s). ${summary}`
+    }
+    // Soft transition guard — see process-event.ts FIRM_DEAL_EVENT_TRANSITIONS.
+    if (!isValidFirmDealEventTransition(ctx.event.status, newStatus)) {
+      console.warn(
+        `[firm_deal_events] invalid status transition: ${ctx.event.status} -> ${newStatus} ` +
+          `(at dispatchWithContext). This is allowed for now but will become an error.`
+      )
+    }
+    await supabase.from('firm_deal_events').update(updateFields).eq('id', ctx.event.id)
   }
-  // Soft transition guard — see process-event.ts FIRM_DEAL_EVENT_TRANSITIONS.
-  if (!isValidFirmDealEventTransition(ctx.event.status, newStatus)) {
-    console.warn(
-      `[firm_deal_events] invalid status transition: ${ctx.event.status} -> ${newStatus} ` +
-        `(at dispatchWithContext). This is allowed for now but will become an error.`
-    )
-  }
-  await supabase.from('firm_deal_events').update(updateFields).eq('id', ctx.event.id)
 
   // Top-level email/sms mirror the PRIMARY recipient so callers that
   // pre-date multi-agent dispatch still see the existing shape. The

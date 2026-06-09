@@ -5,6 +5,27 @@ Newest batch on top. Check off each item once you have verified it yourself.
 
 ---
 
+## 2026-06-09 — "Re-send" button on Firm Deal Review
+
+- **New:** on the Firm Deal Review page (`/admin/firm-deal-review`), each
+  already-sent offer in the "Recently resolved" list now has a **Re-send**
+  button. Clicking it (after a confirm) re-fires the offer email AND text to the
+  matched agent(s), with a fresh magic link. Use it when an agent says they
+  never got the offer, deleted it, or only one channel landed.
+- **Safe by design:** a re-send does not change the deal's status or its
+  original sent date, and a failed re-send will never flip a sent offer back to
+  "error". It only appears on offers that were actually sent (last 7 days of
+  resolved items).
+- **Files:** `app/(dashboard)/admin/firm-deal-review/page.tsx`,
+  `lib/actions/firm-deal-review-actions.ts`,
+  `lib/firm-deal-detection/dispatch-notification.ts`
+- **How to test:** go to `/admin/firm-deal-review`, find a sent offer under
+  "Recently resolved", click **Re-send**, confirm. The matched test agent should
+  get the offer email + text again. (Heads up: this sends a REAL email and text,
+  so use a test agent.)
+
+---
+
 ## 2026-06-09 — Firm-deal emails, white-label logos, agent self-submit
 
 Shipped to `main` (Netlify auto-deploys). One database change was applied:
