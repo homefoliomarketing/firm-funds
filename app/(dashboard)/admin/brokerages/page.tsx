@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox, Wand2, Sparkles } from 'lucide-react'
 import { generateBrokerageLogoSvg, svgToFile } from '@/lib/brokerage-logo-generator'
 import { formatCurrency } from '@/lib/formatting'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsCsv, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
@@ -876,7 +876,7 @@ export default function BrokeragesPage() {
           const formData = new FormData()
           formData.append('brokerageId', newBrokerageId)
           formData.append('file', createRosterFile)
-          const importRes = await bulkImportAgentsCsv(formData)
+          const importRes = await bulkImportAgentsRoster(formData)
           if (importRes.success && importRes.data) {
             rosterMsg = ` - ${importRes.data.imported} agent${importRes.data.imported !== 1 ? 's' : ''} imported`
             if (importRes.data.skipped > 0) rosterMsg += ` (${importRes.data.skipped} skipped)`
@@ -886,7 +886,7 @@ export default function BrokeragesPage() {
               setExpandedId(newBrokerageId)
             }
           } else {
-            rosterMsg = ` - roster import failed: ${importRes.error || 'invalid CSV'}`
+            rosterMsg = ` - roster import failed: ${importRes.error || 'invalid file'}`
           }
         } catch (err) {
           console.error('Roster import error during create:', err)
@@ -1182,7 +1182,7 @@ export default function BrokeragesPage() {
       const formData = new FormData()
       formData.append('brokerageId', brokerageId)
       formData.append('file', file)
-      const result = await bulkImportAgentsCsv(formData)
+      const result = await bulkImportAgentsRoster(formData)
 
       if (result.success && result.data) {
         setImportResult(result.data)
@@ -1196,8 +1196,8 @@ export default function BrokeragesPage() {
         setStatusMessage({ type: 'error', text: result.error || 'Import failed' })
       }
     } catch (err: unknown) {
-      console.error('CSV import error:', err)
-      setStatusMessage({ type: 'error', text: 'Failed to read the file. Make sure it is a valid CSV file.' })
+      console.error('Roster import error:', err)
+      setStatusMessage({ type: 'error', text: 'Failed to read the file. Make sure it is a valid .csv or .xlsx file.' })
     }
     setImportingFor(null)
     setSubmitting(false)
@@ -1753,7 +1753,7 @@ export default function BrokeragesPage() {
                   </button>
                 </div>
                 <p className="text-xs mb-3 text-muted-foreground">
-                  Upload a .csv with columns: First Name, Last Name, Email, Phone, RECO Number. Agents will be imported automatically when the brokerage is created.
+                  Upload a .csv or .xlsx with columns: First Name, Last Name, Email, Phone, RECO Number. The Firm Funds onboarding roster works as-is. Agents will be imported automatically when the brokerage is created.
                 </p>
                 <div className="flex items-center gap-3">
                   <label
@@ -1763,7 +1763,7 @@ export default function BrokeragesPage() {
                     {createRosterFile ? 'Change File' : 'Choose File'}
                     <input
                       type="file"
-                      accept=".csv,text/csv"
+                      accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                       className="hidden"
                       onChange={(e) => setCreateRosterFile(e.target.files?.[0] || null)}
                     />
@@ -2249,7 +2249,7 @@ export default function BrokeragesPage() {
                                 <Upload size={13} /> Import Roster
                                 <input
                                   type="file"
-                                  accept=".csv,text/csv"
+                                  accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                                   className="hidden"
                                   onChange={(e) => handleFileUpload(e, brokerage.id)}
                                   disabled={submitting}

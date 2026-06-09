@@ -1,6 +1,6 @@
 # Coding Conventions and Gotchas
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-09_
 
 Project-specific rules and known traps. Read this before writing code, because several conventions here override defaults you might assume from older Next.js or Supabase versions.
 
@@ -57,6 +57,16 @@ External POST endpoints (webhooks, callbacks) must be in the `PUBLIC_PATHS` arra
 - Always `await` async operations in serverless functions or they get killed mid-flight.
 - File uploads must use signed URLs.
 - Netlify TypeScript checking is stricter than local `tsc --noEmit`. Watch null checks and unused imports.
+
+## SheetJS (`xlsx`) is pinned to the SheetJS CDN, not the npm registry
+
+The roster importer parses Excel files with SheetJS. The copy on the npm registry is abandoned at 0.18.5 (published 2022) and carries two known CVEs (CVE-2023-30533 prototype pollution, CVE-2024-22363 ReDoS). SheetJS distributes fixed versions only from its own CDN, so `package.json` pins a tarball URL:
+
+```
+npm i --save https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
+```
+
+Never run `npm i xlsx@latest` or accept a dependabot-style bump to a registry version; that would silently downgrade to the vulnerable 0.18.5. To upgrade, swap the version in the tarball URL (check https://cdn.sheetjs.com for the latest). Parse uploads from a buffer (`XLSX.read(bytes, ...)`), never `XLSX.readFile`, so bundlers do not pull in the `fs` codepath.
 
 ## Theme
 

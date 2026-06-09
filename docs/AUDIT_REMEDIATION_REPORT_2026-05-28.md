@@ -19,7 +19,7 @@ Production verification was later completed against `firmfunds.ca`; see the fina
 
 ### Dependency Hardening
 
-- Removed the vulnerable `xlsx` dependency path and replaced spreadsheet import with CSV import handled by a server action.
+- Removed the vulnerable `xlsx` dependency path and replaced spreadsheet import with CSV import handled by a server action. (Addendum 2026-06-09: `xlsx` was reintroduced server-side at 0.20.3, the CVE-fixed release pinned from the SheetJS CDN tarball, to support .xlsx roster imports. See docs/development/conventions.md.)
 - Removed unused project-audit dependencies: `shadcn`, `@tanstack/react-query`, `react-hook-form`, `@hookform/resolvers`, and `zustand`.
 - Upgraded and pinned `next` and `eslint-config-next` to `16.2.6`.
 - Upgraded and pinned `resend` to `6.12.4`.

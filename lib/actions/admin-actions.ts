@@ -29,6 +29,17 @@ import {
 } from '@/lib/brokerage-payments'
 import { postDealRepaymentEntry } from '@/lib/agent-statement'
 import { generateBrokerageLogoSvg } from '@/lib/brokerage-logo-generator'
+import {
+  parseCsv,
+  parseXlsxRows,
+  rowsToBulkAgents,
+  RosterSheetTooLargeError,
+  MAX_ROSTER_CSV_BYTES,
+  MAX_ROSTER_XLSX_BYTES,
+  MAX_ROSTER_ROWS,
+  XLSX_SHEET_ROW_LIMIT,
+  type BulkAgentRow,
+} from '@/lib/roster-import'
 
 // ============================================================================
 // Auto-generate a brokerage's advance-division logo when none was supplied.
@@ -649,20 +660,11 @@ export async function createAgent(input: {
 
 // ============================================================================
 // Bulk import agents from parsed spreadsheet data
+//
+// Parsing helpers (parseCsv, parseXlsxRows, rowsToBulkAgents) live in
+// lib/roster-import.ts so they can be unit-tested; this 'use server' file
+// can only export async functions.
 // ============================================================================
-
-interface BulkAgentRow {
-  firstName: string
-  lastName: string
-  // ⚠️ TEMPORARY: email optional for testing — REVERT BEFORE GO-LIVE
-  email?: string
-  phone?: string
-  recoNumber?: string
-  addressStreet?: string
-  addressCity?: string
-  addressProvince?: string
-  addressPostalCode?: string
-}
 
 interface BulkImportResult {
   success: boolean
@@ -674,144 +676,40 @@ interface BulkImportResult {
   }
 }
 
-const MAX_ROSTER_CSV_BYTES = 256 * 1024
-const MAX_ROSTER_ROWS = 200
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let value = ''
-  let inQuotes = false
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]
-    const next = text[i + 1]
-
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        value += '"'
-        i++
-      } else {
-        inQuotes = !inQuotes
-      }
-      continue
-    }
-
-    if (char === ',' && !inQuotes) {
-      row.push(value)
-      value = ''
-      continue
-    }
-
-    if ((char === '\n' || char === '\r') && !inQuotes) {
-      if (char === '\r' && next === '\n') i++
-      row.push(value)
-      if (row.some(cell => cell.trim() !== '')) rows.push(row)
-      row = []
-      value = ''
-      continue
-    }
-
-    value += char
-  }
-
-  row.push(value)
-  if (row.some(cell => cell.trim() !== '')) rows.push(row)
-  return rows
-}
-
-function normalizeHeader(value: string) {
-  return value.toLowerCase().replace(/[^a-z]/g, '')
-}
-
-function isPhoneHeader(header: string) {
-  const normalized = normalizeHeader(header)
-  return ['phone', 'cell', 'mobile', 'tel', 'telephone'].some(term => normalized.includes(term))
-}
-
-function hasSpreadsheetFormulaRisk(value: string, header: string) {
-  const trimmed = value.trimStart()
-  if (!/^[=+\-@]/.test(trimmed)) return false
-
-  // Phone numbers commonly start with + and may contain hyphens; allow only
-  // those characters in phone-like columns.
-  if (isPhoneHeader(header) && /^[+\-\d\s().]+$/.test(trimmed)) return false
-
-  return true
-}
-
-function rowsToBulkAgents(rows: string[][]): { agents: BulkAgentRow[]; error?: string } {
-  let headerRowIdx = -1
-  for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const rowText = rows[i].join(' ').toLowerCase()
-    if (rowText.includes('first') && rowText.includes('email')) {
-      headerRowIdx = i
-      break
-    }
-  }
-
-  if (headerRowIdx < 0) {
-    return { agents: [], error: 'CSV must include a header row with First Name and Email columns' }
-  }
-
-  const headers = rows[headerRowIdx].map(header => header.trim())
-  const dataRows = rows.slice(headerRowIdx + 1)
-  if (dataRows.length === 0) return { agents: [], error: 'CSV contains no agent rows' }
-  if (dataRows.length > MAX_ROSTER_ROWS) {
-    return { agents: [], error: `Maximum ${MAX_ROSTER_ROWS} agents per import` }
-  }
-
-  for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
-    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
-      const cell = dataRows[rowIdx][colIdx] ?? ''
-      if (hasSpreadsheetFormulaRisk(cell, headers[colIdx] ?? '')) {
-        return {
-          agents: [],
-          error: `Row ${rowIdx + headerRowIdx + 2}: spreadsheet formula-like values are not allowed`,
-        }
-      }
-    }
-  }
-
-  const findValue = (row: string[], needles: string[]) => {
-    const idx = headers.findIndex(header => {
-      const normalized = normalizeHeader(header)
-      return needles.some(needle => normalized.includes(needle))
-    })
-    return idx >= 0 ? String(row[idx] ?? '').trim() : ''
-  }
-
-  return {
-    agents: dataRows.map(row => ({
-      firstName: findValue(row, ['firstname', 'first']),
-      lastName: findValue(row, ['lastname', 'last']),
-      email: findValue(row, ['email', 'mail']),
-      phone: findValue(row, ['phone', 'cell', 'mobile', 'tel']) || undefined,
-      recoNumber: findValue(row, ['reco', 'license', 'licence', 'registration']) || undefined,
-      addressStreet: findValue(row, ['street', 'addressstreet', 'streetaddress', 'address']) || undefined,
-      addressCity: findValue(row, ['city', 'addresscity']) || undefined,
-      addressProvince: findValue(row, ['province', 'addressprovince', 'state', 'prov']) || undefined,
-      addressPostalCode: findValue(row, ['postal', 'postalcode', 'zip', 'addresspostalcode']) || undefined,
-    })),
-  }
-}
-
-export async function bulkImportAgentsCsv(formData: FormData): Promise<BulkImportResult> {
+export async function bulkImportAgentsRoster(formData: FormData): Promise<BulkImportResult> {
   const { error: authErr } = await getAuthenticatedCapable('agent.invite')
   if (authErr) return { success: false, error: authErr }
 
   const brokerageId = String(formData.get('brokerageId') || '')
   const file = formData.get('file') as File | null
   if (!brokerageId) return { success: false, error: 'Brokerage is required' }
-  if (!file) return { success: false, error: 'CSV file is required' }
-  if (!file.name.toLowerCase().endsWith('.csv')) {
-    return { success: false, error: 'Only CSV roster imports are supported' }
-  }
-  if (file.size > MAX_ROSTER_CSV_BYTES) {
-    return { success: false, error: 'CSV file must be 256KB or smaller' }
+  if (!file) return { success: false, error: 'Roster file is required' }
+
+  const fileName = file.name.toLowerCase()
+  let rows: string[][]
+  if (fileName.endsWith('.csv')) {
+    if (file.size > MAX_ROSTER_CSV_BYTES) {
+      return { success: false, error: 'CSV file must be 256KB or smaller' }
+    }
+    rows = parseCsv(await file.text())
+  } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+    if (file.size > MAX_ROSTER_XLSX_BYTES) {
+      return { success: false, error: 'Excel file must be 1MB or smaller' }
+    }
+    try {
+      rows = parseXlsxRows(await file.arrayBuffer())
+    } catch (err: unknown) {
+      if (err instanceof RosterSheetTooLargeError) {
+        return { success: false, error: `Roster sheet has more than ${XLSX_SHEET_ROW_LIMIT} rows. Keep the agent table near the top of the sheet.` }
+      }
+      console.error('Roster xlsx parse error:', err instanceof Error ? err.message : err)
+      return { success: false, error: 'Could not read the Excel file. Make sure it is a valid .xlsx roster.' }
+    }
+  } else {
+    return { success: false, error: 'Roster must be a .csv or .xlsx file' }
   }
 
-  const parsed = rowsToBulkAgents(parseCsv(await file.text()))
+  const parsed = rowsToBulkAgents(rows)
   if (parsed.error) return { success: false, error: parsed.error }
 
   return bulkImportAgents({ brokerageId, agents: parsed.agents })
@@ -827,7 +725,7 @@ export async function bulkImportAgents(input: {
   try {
     if (!input.brokerageId) return { success: false, error: 'Brokerage is required' }
     if (!input.agents || input.agents.length === 0) return { success: false, error: 'No agents to import' }
-    if (input.agents.length > 200) return { success: false, error: 'Maximum 200 agents per import' }
+    if (input.agents.length > MAX_ROSTER_ROWS) return { success: false, error: `Maximum ${MAX_ROSTER_ROWS} agents per import` }
 
     // Verify brokerage exists
     const { data: brokerage } = await supabase
@@ -845,7 +743,10 @@ export async function bulkImportAgents(input: {
       .eq('brokerage_id', input.brokerageId)
       .neq('status', 'archived')
 
-    const existingEmails = new Set((existingAgents || []).map(a => a.email.toLowerCase()))
+    // agents.email is intentionally nullable (many agents are phone-only)
+    const existingEmails = new Set(
+      (existingAgents || []).flatMap(a => (a.email ? [a.email.toLowerCase()] : []))
+    )
 
     const errors: string[] = []
     let imported = 0
@@ -853,7 +754,10 @@ export async function bulkImportAgents(input: {
 
     for (let i = 0; i < input.agents.length; i++) {
       const row = input.agents[i]
-      const rowNum = i + 2 // +2 because row 1 is header, data starts row 2
+      // Prefer the row number from the source spreadsheet (set by
+      // rowsToBulkAgents); fall back to header-on-row-1 numbering for
+      // direct bulkImportAgents callers.
+      const rowNum = row.sourceRow ?? i + 2
 
       // Validate required fields — only first name + last name required now
       // ⚠️ TEMPORARY: email not required for testing — REVERT BEFORE GO-LIVE

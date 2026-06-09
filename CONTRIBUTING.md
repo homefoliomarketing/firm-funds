@@ -1,6 +1,6 @@
 # Contributing to Firm Funds
 
-_Last updated: 2026-06-01_
+_Last updated: 2026-06-09_
 
 This guide covers how to work in the repository and, most importantly, how to keep the documentation current.
 
@@ -21,6 +21,7 @@ The flip side of that principle: **documentation is only useful if it is current
 | Financial math (`lib/calculations.ts`, `lib/constants.ts`) | [docs/business/financial-model.md](docs/business/financial-model.md) |
 | Deal status flow, underwriting, settlement, remediation | [docs/business/deal-lifecycle.md](docs/business/deal-lifecycle.md) |
 | Firm-deal detection, matching, offer flow (`lib/firm-deal-detection/`) | [docs/business/firm-deals.md](docs/business/firm-deals.md) |
+| Agent roster import (`lib/roster-import.ts`, `bulkImportAgentsRoster`) | [docs/business/agent-roster-import.md](docs/business/agent-roster-import.md) |
 | DocuSign integration (`lib/docusign.ts`) | [docs/integrations/docusign.md](docs/integrations/docusign.md) |
 | Email templates or Resend logic (`lib/email.ts`) | [docs/integrations/email.md](docs/integrations/email.md) |
 | Firm-deal data source (Google Sheets, no ParcLabs: `lib/firm-deal-detection/sheets-client.ts`) | [docs/integrations/parcllabs.md](docs/integrations/parcllabs.md) |

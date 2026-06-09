@@ -1,6 +1,6 @@
 # Firm Funds Documentation
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-09_
 
 The canonical reference for how Firm Funds works. Read these docs before digging into source code, and update them whenever you change behavior. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the doc-to-code mapping.
 
@@ -22,6 +22,7 @@ Firm Funds is a real estate commission advance platform. For a one-page overview
 | [Financial model](business/financial-model.md) | Fee and discount math, late interest, brokerage splits, worked examples |
 | [Deal lifecycle](business/deal-lifecycle.md) | Deal status state machine, underwriting, settlement, remediation and cure |
 | [Firm deals](business/firm-deals.md) | ParcLabs detection pipeline, agent matching, co-agent splits, offer flow |
+| [Agent roster import](business/agent-roster-import.md) | Bulk agent import from .csv/.xlsx rosters, parsing pipeline, guards |
 
 ## API reference
 

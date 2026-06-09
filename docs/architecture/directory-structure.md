@@ -1,6 +1,6 @@
 # Directory Structure
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-09_
 
 This document is an annotated map of the important directories in the Firm Funds repository, so you can find where any given piece of behavior lives.
 
@@ -141,6 +141,7 @@ lib/
   docusign.ts              DocuSign REST integration (envelopes, signing) via pg
   contract-docx.ts         Contract document generation
   brokerage-payments.ts    Brokerage payment logic
+  roster-import.ts         Agent roster parsing (.csv/.xlsx) for the bulk importer
   brokerage-admin-roles.ts, brokerage-logo-generator.ts  Brokerage helpers
   formatting.ts, utils.ts, request-helpers.ts, file-validation.ts, cron-auth.ts  Helpers
   supabase/
