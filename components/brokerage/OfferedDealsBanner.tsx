@@ -27,6 +27,10 @@ export interface OfferedDeal {
   property_address: string
   closing_date: string | null
   created_at: string
+  /** Set when the agent took this offer over to submit it themselves. The
+   *  brokerage is paused on it: shown here as a passive, non-actionable note
+   *  (no Submit / Decline). Migration 105. */
+  agent_self_submit_at?: string | null
   agent?: {
     first_name?: string | null
     last_name?: string | null
@@ -76,9 +80,15 @@ export default function OfferedDealsBanner({ deals, onDeclined }: Props) {
     }
   }
 
-  const label = deals.length === 1
-    ? '1 agent is waiting on you to submit an advance'
-    : `${deals.length} agents are waiting on you to submit an advance`
+  // Rows the agent took over to submit themselves are passive notes — the
+  // brokerage can't act on them, so they don't count toward "waiting on you".
+  const actionableCount = deals.filter(d => !d.agent_self_submit_at).length
+
+  const label = actionableCount === 0
+    ? 'Firm-deal offers'
+    : actionableCount === 1
+      ? '1 agent is waiting on you to submit an advance'
+      : `${actionableCount} agents are waiting on you to submit an advance`
 
   return (
     <section aria-label="Offers awaiting brokerage submission" className="mb-6">
@@ -91,7 +101,9 @@ export default function OfferedDealsBanner({ deals, onDeclined }: Props) {
             <div className="flex-1 min-w-0">
               <h3 className="text-sm font-bold text-foreground">{label}</h3>
               <p className="text-xs mt-1 text-muted-foreground">
-                These agents accepted firm-deal offers and asked you to submit on their behalf. Open the pre-filled form to add the commission split and trade record, or decline if it doesn&apos;t qualify.
+                {actionableCount === 0
+                  ? 'These agents accepted firm-deal offers and chose to submit them themselves. Nothing for you to do here.'
+                  : 'These agents accepted firm-deal offers and asked you to submit on their behalf. Open the pre-filled form to add the commission split and trade record, or decline if it doesn’t qualify.'}
               </p>
             </div>
           </div>
@@ -99,6 +111,7 @@ export default function OfferedDealsBanner({ deals, onDeclined }: Props) {
           <ul className="space-y-2.5">
             {deals.map((deal) => {
               const agentName = `${deal.agent?.first_name ?? ''} ${deal.agent?.last_name ?? ''}`.trim() || 'Agent'
+              const agentSelfSubmitting = !!deal.agent_self_submit_at
               return (
                 <li key={deal.id} className="rounded-lg border border-primary/20 bg-card/60 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -116,24 +129,32 @@ export default function OfferedDealsBanner({ deals, onDeclined }: Props) {
                         Accepted {formatDate(deal.created_at)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeclineModal({ dealId: deal.id, agentName, address: deal.property_address })}
-                        className="text-status-amber hover:bg-status-amber-muted hover:text-status-amber"
-                      >
-                        Decline
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => openSubmission(deal.id)}
-                        className="bg-primary text-primary-foreground hover:bg-primary/90"
-                      >
-                        Submit advance
-                        <ChevronRight size={14} />
-                      </Button>
-                    </div>
+                    {agentSelfSubmitting ? (
+                      // Paused: the agent is submitting this one themselves, so
+                      // the brokerage gets a passive note and no action buttons.
+                      <span className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground flex-shrink-0">
+                        This agent is submitting this themselves
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeclineModal({ dealId: deal.id, agentName, address: deal.property_address })}
+                          className="text-status-amber hover:bg-status-amber-muted hover:text-status-amber"
+                        >
+                          Decline
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => openSubmission(deal.id)}
+                          className="bg-primary text-primary-foreground hover:bg-primary/90"
+                        >
+                          Submit advance
+                          <ChevronRight size={14} />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </li>
               )

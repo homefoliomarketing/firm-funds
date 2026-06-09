@@ -530,6 +530,164 @@ export async function acceptFirmDealOffer(
 }
 
 // ============================================================================
+// agentTakeOverOffer — the agent decides to submit the offered deal themselves
+// instead of waiting on their brokerage.
+//
+// Sets deals.agent_self_submit_at = now() (migration 105). That flag PAUSES the
+// brokerage on this offer: it drops out of the submit-on-behalf queue, the
+// brokerage convert/decline actions refuse it, and the nudge crons skip it.
+// This is the guard that prevents a duplicate submission (agent + brokerage
+// both submitting the same offer). The agent then continues to the new-deal
+// form via ?fromOffer=<dealId>, which converts this same row in place.
+//
+// Ownership + status are re-checked server-side; agent_self_submit_at must be
+// NULL so a double-click can't thrash the flag.
+// ============================================================================
+
+export async function agentTakeOverOffer(
+  dealId: string
+): Promise<ActionResult<{ deal_id: string }>> {
+  if (!dealId || typeof dealId !== 'string') {
+    return { success: false, error: 'Missing deal id.' }
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealId)) {
+    return { success: false, error: 'Invalid deal id.' }
+  }
+
+  const auth = await getAuthenticatedWriter(['agent'])
+  if (auth.error || !auth.profile?.agent_id) {
+    return { success: false, error: auth.error ?? 'Not an agent.' }
+  }
+  const myAgentId = auth.profile.agent_id as string
+
+  const supabase = createServiceRoleClient()
+  const { data: deal, error: dealErr } = await supabase
+    .from('deals')
+    .select('id, agent_id, brokerage_id, status, agent_self_submit_at')
+    .eq('id', dealId)
+    .maybeSingle()
+  if (dealErr) return { success: false, error: dealErr.message }
+  if (!deal) return { success: false, error: 'Deal not found.' }
+  if (deal.agent_id !== myAgentId) {
+    return { success: false, error: 'This deal does not belong to you.' }
+  }
+  if (deal.status !== 'offered') {
+    return {
+      success: false,
+      error: 'This offer can no longer be taken over (it is no longer awaiting submission).',
+    }
+  }
+  if (deal.agent_self_submit_at) {
+    // Already flagged — treat as success so a double-click is idempotent.
+    return { success: true, data: { deal_id: dealId } }
+  }
+
+  const nowIso = new Date().toISOString()
+  // CAS-style guard: only flip while still offered AND not already taken over,
+  // so we never reopen the brokerage's path out from under a concurrent action.
+  const { data: updated, error: updateErr } = await supabase
+    .from('deals')
+    .update({ agent_self_submit_at: nowIso })
+    .eq('id', dealId)
+    .eq('status', 'offered')
+    .is('agent_self_submit_at', null)
+    .select('id')
+    .maybeSingle()
+  if (updateErr) {
+    return { success: false, error: `Failed to take over this offer: ${updateErr.message}` }
+  }
+  if (!updated) {
+    return {
+      success: false,
+      error: 'This offer was just updated. Please reload and try again.',
+    }
+  }
+
+  await logAuditEvent({
+    action: 'deal.firm_deal_offer_agent_takeover',
+    entityType: 'deal',
+    entityId: dealId,
+    metadata: {
+      brokerage_id: deal.brokerage_id,
+      agent_id: myAgentId,
+      triggered_by_user_id: auth.user?.id ?? null,
+      taken_over_at: nowIso,
+    },
+  })
+
+  return { success: true, data: { deal_id: dealId } }
+}
+
+// ============================================================================
+// agentHandBackOffer — the agent changes their mind and hands the offer back
+// to their brokerage. Clears deals.agent_self_submit_at, which RESUMES the
+// brokerage flow (the offer reappears in their queue and the nudge crons pick
+// it back up). Prevents an offer from being stranded if the agent took it over
+// but never finished submitting.
+// ============================================================================
+
+export async function agentHandBackOffer(
+  dealId: string
+): Promise<ActionResult<{ deal_id: string }>> {
+  if (!dealId || typeof dealId !== 'string') {
+    return { success: false, error: 'Missing deal id.' }
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(dealId)) {
+    return { success: false, error: 'Invalid deal id.' }
+  }
+
+  const auth = await getAuthenticatedWriter(['agent'])
+  if (auth.error || !auth.profile?.agent_id) {
+    return { success: false, error: auth.error ?? 'Not an agent.' }
+  }
+  const myAgentId = auth.profile.agent_id as string
+
+  const supabase = createServiceRoleClient()
+  const { data: deal, error: dealErr } = await supabase
+    .from('deals')
+    .select('id, agent_id, brokerage_id, status, agent_self_submit_at')
+    .eq('id', dealId)
+    .maybeSingle()
+  if (dealErr) return { success: false, error: dealErr.message }
+  if (!deal) return { success: false, error: 'Deal not found.' }
+  if (deal.agent_id !== myAgentId) {
+    return { success: false, error: 'This deal does not belong to you.' }
+  }
+  if (deal.status !== 'offered') {
+    return {
+      success: false,
+      error: 'This offer can no longer be handed back (it is no longer awaiting submission).',
+    }
+  }
+  if (!deal.agent_self_submit_at) {
+    // Not currently taken over — nothing to hand back. Idempotent success.
+    return { success: true, data: { deal_id: dealId } }
+  }
+
+  const { error: updateErr } = await supabase
+    .from('deals')
+    .update({ agent_self_submit_at: null })
+    .eq('id', dealId)
+    .eq('status', 'offered')
+  if (updateErr) {
+    return { success: false, error: `Failed to hand this offer back: ${updateErr.message}` }
+  }
+
+  await logAuditEvent({
+    action: 'deal.firm_deal_offer_agent_handed_back',
+    entityType: 'deal',
+    entityId: dealId,
+    metadata: {
+      brokerage_id: deal.brokerage_id,
+      agent_id: myAgentId,
+      triggered_by_user_id: auth.user?.id ?? null,
+    },
+  })
+
+  return { success: true, data: { deal_id: dealId } }
+}
+
+// ============================================================================
 // declineFirmDealOffer — brokerage admin marks the offer as not qualifying.
 // Sets status='cancelled' + records the reason. Agent dashboard shows the
 // outcome on the offered-deal detail page.
@@ -558,7 +716,7 @@ export async function declineFirmDealOffer(
   const supabase = createServiceRoleClient()
   const { data: deal, error: dealErr } = await supabase
     .from('deals')
-    .select('id, brokerage_id, status, agent_id')
+    .select('id, brokerage_id, status, agent_id, agent_self_submit_at')
     .eq('id', dealId)
     .maybeSingle()
   if (dealErr) return { success: false, error: dealErr.message }
@@ -568,6 +726,10 @@ export async function declineFirmDealOffer(
   }
   if (deal.status !== 'offered') {
     return { success: false, error: `Can only decline offers in 'offered' status. This one is '${deal.status}'.` }
+  }
+  // Brokerage is paused on offers the agent took over to submit themselves.
+  if (deal.agent_self_submit_at) {
+    return { success: false, error: 'This agent has chosen to submit this advance themselves.' }
   }
 
   const nowIso = new Date().toISOString()
@@ -721,7 +883,7 @@ export async function remindBrokerageOfPendingOffer(
   // brand) so we don't need to fetch those columns here.
   const { data: deal, error: dealErr } = await supabase
     .from('deals')
-    .select('id, agent_id, brokerage_id, status, last_manual_nudge_at')
+    .select('id, agent_id, brokerage_id, status, last_manual_nudge_at, agent_self_submit_at')
     .eq('id', dealId)
     .maybeSingle()
   if (dealErr) return { success: false, error: dealErr.message }
@@ -734,6 +896,15 @@ export async function remindBrokerageOfPendingOffer(
     return {
       success: false,
       error: 'Reminders are only available while the offer is waiting for your brokerage to submit.',
+    }
+  }
+  // Defense-in-depth: once the agent has taken the offer over to submit it
+  // themselves, the brokerage is paused, so a reminder would be wrong. The
+  // offered-view UI hides this button in that state, but guard it anyway.
+  if (deal.agent_self_submit_at) {
+    return {
+      success: false,
+      error: "You're submitting this advance yourself, so there's nothing for your brokerage to do.",
     }
   }
 

@@ -218,6 +218,12 @@ export async function submitDeal(formData: {
   // the original deal's id is written to revised_from_deal_id so the lineage
   // is queryable from the new deal.
   revisedFromDealId?: string
+  // Migration 105: when the agent took over a firm-deal offer to submit it
+  // themselves, this is the id of that 'offered' deal row. We CONVERT that
+  // same row in place (status -> under_review) instead of inserting a new one,
+  // so there is never a duplicate deal and the firm_deal_events back-link
+  // stays valid. The brokerage is already paused on it via agent_self_submit_at.
+  fromOfferDealId?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
   if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
@@ -295,44 +301,120 @@ export async function submitDeal(formData: {
     // Build notes with transaction type
     const noteText = `Transaction type: ${formData.transactionType}${formData.notes?.trim() ? '\n' + formData.notes.trim() : ''}`
 
-    // Insert the deal with server-calculated values. Lock the settlement
-    // window at submission so the CPA the agent signs and the system's
-    // enforcement can never diverge if the brokerage's effective window
-    // changes later (e.g., a 5th strike auto-bumps them mid-flight).
-    const { data: newDeal, error: insertError } = await supabase
-      .from('deals')
-      .insert({
-        agent_id: agentData.id,
-        brokerage_id: agentData.brokerage_id,
-        status: 'under_review',
-        property_address: validation.data.propertyAddress,
-        closing_date: formData.closingDate,
-        gross_commission: formData.grossCommission,
-        brokerage_split_pct: formData.brokerageSplitPct,
-        net_commission: calc.netCommission,
-        days_until_closing: daysUntilClosing,
-        discount_fee: calc.discountFee,
-        settlement_period_fee: calc.settlementPeriodFee,
-        settlement_days_at_funding: settlementDays,
-        advance_amount: calc.advanceAmount,
-        brokerage_referral_fee: calc.brokerageReferralFee,
-        brokerage_referral_pct: referralPct,
-        amount_due_from_brokerage: calc.amountDueFromBrokerage,
-        source: 'manual_portal',
-        notes: noteText,
-        payment_status: 'not_applicable', // not funded yet
-        // Task 5: lineage link for resubmissions of previously denied deals.
-        ...(formData.revisedFromDealId
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO: regen types after migration 084 applied
-          ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
-          : {}),
-      })
-      .select()
-      .single()
+    // Two paths to a single under_review deal:
+    //   - fromOfferDealId set → the agent took over a firm-deal offer (migration
+    //     105). CONVERT that same 'offered' row in place so there is never a
+    //     duplicate and the firm_deal_events back-link stays valid. Mirrors the
+    //     brokerage conversion in submitDealAsBrokerage.
+    //   - Otherwise → INSERT a brand-new row.
+    // Lock the settlement window at submission so the CPA the agent signs and
+    // the system's enforcement can never diverge if the brokerage's effective
+    // window changes later (e.g., a 5th strike auto-bumps them mid-flight).
+    let newDeal: { id: string } | null = null
+    if (formData.fromOfferDealId) {
+      // RLS doesn't let an agent flip their own deal's status, so use the
+      // service-role client for the conversion. Ownership + status + the
+      // self-submit flag are all verified in code below before the write.
+      const offerSupabase = createServiceRoleClient()
+      const { data: existing } = await offerSupabase
+        .from('deals')
+        .select('id, agent_id, brokerage_id, status, agent_self_submit_at')
+        .eq('id', formData.fromOfferDealId)
+        .maybeSingle()
+      if (!existing) return { success: false, error: 'Offered deal not found.' }
+      if (existing.agent_id !== agentData.id) {
+        return { success: false, error: 'This offer does not belong to you.' }
+      }
+      if (existing.brokerage_id !== agentData.brokerage_id) {
+        return { success: false, error: 'This offer belongs to another brokerage.' }
+      }
+      if (existing.status !== 'offered') {
+        return { success: false, error: `This offer has already been ${existing.status}. Reload the page.` }
+      }
+      if (!existing.agent_self_submit_at) {
+        // The agent must have taken the offer over first (which pauses the
+        // brokerage). Without that flag the brokerage is still the owner.
+        return { success: false, error: 'Take this offer over before submitting it yourself.' }
+      }
 
-    if (insertError) {
-      console.error('Deal insert error:', insertError.message, insertError.details, insertError.hint)
-      return { success: false, error: `Failed to submit deal: ${insertError.message}` }
+      const { data: updated, error: convertError } = await offerSupabase
+        .from('deals')
+        .update({
+          status: 'under_review',
+          property_address: validation.data.propertyAddress,
+          closing_date: formData.closingDate,
+          gross_commission: formData.grossCommission,
+          brokerage_split_pct: formData.brokerageSplitPct,
+          net_commission: calc.netCommission,
+          days_until_closing: daysUntilClosing,
+          discount_fee: calc.discountFee,
+          settlement_period_fee: calc.settlementPeriodFee,
+          settlement_days_at_funding: settlementDays,
+          advance_amount: calc.advanceAmount,
+          brokerage_referral_fee: calc.brokerageReferralFee,
+          brokerage_referral_pct: referralPct,
+          amount_due_from_brokerage: calc.amountDueFromBrokerage,
+          // Keep source='firm_deal_offer' so the deal still attributes to the
+          // automated pipeline; notes capture the transaction type.
+          notes: noteText,
+          payment_status: 'not_applicable',
+          // Defensive: clear any stale balance_deducted from the offered row.
+          balance_deducted: 0,
+          ...(formData.revisedFromDealId
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO: regen types after migration 084 applied
+            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
+            : {}),
+        })
+        .eq('id', formData.fromOfferDealId)
+        .eq('status', 'offered')  // CAS-style guard against a double-submit
+        .select('id')
+        .single()
+      if (convertError || !updated) {
+        console.error('Agent offer conversion error:', convertError?.message)
+        return { success: false, error: `Failed to submit deal: ${convertError?.message ?? 'no rows updated'}` }
+      }
+      newDeal = updated
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from('deals')
+        .insert({
+          agent_id: agentData.id,
+          brokerage_id: agentData.brokerage_id,
+          status: 'under_review',
+          property_address: validation.data.propertyAddress,
+          closing_date: formData.closingDate,
+          gross_commission: formData.grossCommission,
+          brokerage_split_pct: formData.brokerageSplitPct,
+          net_commission: calc.netCommission,
+          days_until_closing: daysUntilClosing,
+          discount_fee: calc.discountFee,
+          settlement_period_fee: calc.settlementPeriodFee,
+          settlement_days_at_funding: settlementDays,
+          advance_amount: calc.advanceAmount,
+          brokerage_referral_fee: calc.brokerageReferralFee,
+          brokerage_referral_pct: referralPct,
+          amount_due_from_brokerage: calc.amountDueFromBrokerage,
+          source: 'manual_portal',
+          notes: noteText,
+          payment_status: 'not_applicable', // not funded yet
+          // Task 5: lineage link for resubmissions of previously denied deals.
+          ...(formData.revisedFromDealId
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO: regen types after migration 084 applied
+            ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
+            : {}),
+        })
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('Deal insert error:', insertError.message, insertError.details, insertError.hint)
+        return { success: false, error: `Failed to submit deal: ${insertError.message}` }
+      }
+      newDeal = inserted
+    }
+
+    if (!newDeal) {
+      return { success: false, error: 'Failed to record the deal (no row).' }
     }
 
     // Audit log
@@ -571,7 +653,7 @@ export async function submitDealAsBrokerage(formData: {
       // 'offered') on the update guards against the double-submit case.
       const { data: existing } = await adminSupabase
         .from('deals')
-        .select('id, agent_id, brokerage_id, status')
+        .select('id, agent_id, brokerage_id, status, agent_self_submit_at')
         .eq('id', formData.fromOfferDealId)
         .maybeSingle()
       if (!existing) return { success: false, error: 'Offered deal not found.' }
@@ -583,6 +665,11 @@ export async function submitDealAsBrokerage(formData: {
       }
       if (existing.status !== 'offered') {
         return { success: false, error: `This offer has already been ${existing.status}. Reload the page.` }
+      }
+      // Paused: the agent took this offer over to submit it themselves. Refuse
+      // so the brokerage can't create a duplicate submission (migration 105).
+      if (existing.agent_self_submit_at) {
+        return { success: false, error: 'This agent has chosen to submit this advance themselves.' }
       }
 
       const { data: updated, error: updateError } = await adminSupabase

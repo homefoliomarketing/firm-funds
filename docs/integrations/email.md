@@ -1,6 +1,6 @@
 # Email Integration (Resend)
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-09_
 
 This document describes how Firm Funds sends transactional and notification email through Resend, the available templates and when each is sent, and how unsubscribe, preference, and retry tracking work.
 
@@ -27,6 +27,8 @@ Every template routes through `sendEmailWithUnsubscribe(opts)`, which:
 4. Sends through Resend. Failures are logged and swallowed (never thrown), so a Resend hiccup never crashes a server action.
 
 Subject lines are sanitized (`sanitizeSubject` strips CR/LF to prevent header injection and caps length); body interpolations are HTML-escaped (`escapeHtml`). The shared `wrap()` function renders the dark-themed branded HTML shell. Agent-facing and brokerage-facing emails can show the brokerage's own logo via `getBrandingForAgent` / `getBrandingForBrokerage`, falling back to the Firm Funds wordmark on any miss.
+
+The firm-deal templates in `lib/firm-deal-detection/` (which build their own light-themed HTML shells outside `wrap()`) follow the same white-label pattern. The agent-facing trigger email (`render-email.ts`) renders the brokerage's logo image in its header when `brand_logo_url` is supplied, falling back to the green text banner otherwise. `dispatch-notification.ts` resolves that logo from `brokerages.logo_url` / `logo_includes_tagline` (keyed off the event's `brokerage_id`, the same column the `lib/email.ts` headers use) and passes `brand_logo_url` / `brand_logo_includes_tagline` into the renderer; a missing logo or read error just leaves it null so the send is never blocked. When the logo already bakes in the tagline (generated logos, `logo_includes_tagline = true`) it is rendered alone; for custom uploads a small "Powered by Firm Funds" line is added beneath it.
 
 ### Transactional vs notification class
 

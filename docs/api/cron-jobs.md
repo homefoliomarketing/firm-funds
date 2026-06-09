@@ -1,6 +1,6 @@
 # Cron Jobs
 
-_Last updated: 2026-06-03_
+_Last updated: 2026-06-09_
 
 This document describes every scheduled `/api/cron/*` endpoint: what it processes, how it is authenticated, and the recommended firing cadence.
 
@@ -70,7 +70,7 @@ Picks up `firm_deal_events` in `status='approved'` (set either by a manual revie
 
 ### `/api/cron/firm-deal-offer-nudges`
 
-For each `deals` row in `status='offered'`, applies up to three time-based actions keyed off `brokerage_notified_at` and `created_at`:
+For each `deals` row in `status='offered'` **with `agent_self_submit_at` null** (offers the agent took over to submit themselves are excluded, so the brokerage is never nudged about them and they don't auto-expire while the agent works on them), applies up to three time-based actions keyed off `brokerage_notified_at` and `created_at`:
 
 1. 2 hours after notification: nudge the brokerage admin (stamps `brokerage_nudge_2h_at`).
 2. 4 hours after notification: send an aggressive internal escalation to the Firm Funds inbox (stamps `internal_alert_4h_at`).

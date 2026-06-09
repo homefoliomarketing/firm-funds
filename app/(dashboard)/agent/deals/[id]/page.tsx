@@ -19,7 +19,8 @@ import {
   formatStatusLabel,
 } from '@/lib/constants'
 import { updateDealDetails, cancelDeal, uploadDocument, getDocumentSignedUrl } from '@/lib/actions/deal-actions'
-import { remindBrokerageOfPendingOffer } from '@/lib/actions/firm-deal-offer-actions'
+import { remindBrokerageOfPendingOffer, agentTakeOverOffer, agentHandBackOffer } from '@/lib/actions/firm-deal-offer-actions'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { getChargeDays } from '@/lib/calculations'
 import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
 import { submitClosingDateAmendment, getDealAmendments } from '@/lib/actions/amendment-actions'
@@ -48,6 +49,16 @@ interface Deal {
   payment_status: string; funding_date: string | null
   repayment_date: string | null; source: string; denial_reason: string | null
   notes: string | null; created_at: string; updated_at: string
+  // Firm-deal offer: set when the agent took this offer over to submit it
+  // themselves (migration 105). Only meaningful while status === 'offered'.
+  agent_self_submit_at: string | null
+}
+
+/** White-label branding for this agent's brokerage, used by the header logo. */
+interface BrokerageBrand {
+  name: string | null
+  logo_url: string | null
+  logo_includes_tagline: boolean | null
 }
 
 interface DealDocument {
@@ -122,6 +133,14 @@ export default function AgentDealDetailPage() {
     type: 'success' | 'error'
     text: string
   } | null>(null)
+  // White-label branding for the header logo (issue 2). Falls back to the FF
+  // wordmark inside BrokerageBrandLogo when there's no brokerage logo.
+  const [brokerageBrand, setBrokerageBrand] = useState<BrokerageBrand | null>(null)
+  // Firm-deal offer takeover (issue 3): the agent decides to submit it
+  // themselves, or hands it back to the brokerage.
+  const [takingOver, setTakingOver] = useState(false)
+  const [handingBack, setHandingBack] = useState(false)
+  const [takeoverError, setTakeoverError] = useState<string | null>(null)
   // Closing date amendment state
   const [showAmendmentModal, setShowAmendmentModal] = useState(false)
   const [amendNewClosingDate, setAmendNewClosingDate] = useState('')
@@ -207,12 +226,23 @@ export default function AgentDealDetailPage() {
     // admin_notes and admin_notes_timeline (admin's internal scratchpad).
     const { data: dealData, error: dealError } = await supabase
       .from('deals')
-      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at')
+      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at, agent_self_submit_at')
       .eq('id', dealId)
       .single()
     if (dealError || !dealData) { router.push('/agent'); return }
     if (dealData.agent_id !== profile.agent_id) { router.push('/agent'); return }
     setDeal(dealData)
+    // White-label header branding (issue 2). Best-effort: a missing brokerage
+    // row just leaves brokerageBrand null and BrokerageBrandLogo shows the FF
+    // wordmark, which is the correct fallback.
+    if (dealData.brokerage_id) {
+      const { data: brand } = await supabase
+        .from('brokerages')
+        .select('name, logo_url, logo_includes_tagline')
+        .eq('id', dealData.brokerage_id)
+        .maybeSingle()
+      if (brand) setBrokerageBrand(brand as BrokerageBrand)
+    }
     const { data: docsData } = await supabase.from('deal_documents').select('*').eq('deal_id', dealId).order('created_at', { ascending: false })
     setDocuments(docsData || [])
     const { data: requestsData } = await supabase.from('document_requests').select('*').eq('deal_id', dealId).eq('status', 'pending').order('created_at', { ascending: false })
@@ -325,10 +355,9 @@ export default function AgentDealDetailPage() {
     setReminderFeedback(null)
     const result = await remindBrokerageOfPendingOffer(deal.id)
     if (result.success && result.data) {
-      const count = result.data.recipients.length
       setReminderFeedback({
         type: 'success',
-        text: `Reminder sent to ${count} ${count === 1 ? 'recipient' : 'recipients'} at your brokerage. We'll let you know if they submit.`,
+        text: "Reminder has been sent to your brokerage. We'll let you know if they submit.",
       })
     } else {
       setReminderFeedback({
@@ -337,6 +366,38 @@ export default function AgentDealDetailPage() {
       })
     }
     setReminderSending(false)
+  }
+
+  // Offered-status only. The agent decides to submit the offer themselves. We
+  // flag the deal (pausing the brokerage) then send them to the new-deal form,
+  // which converts this same offered row in place — no duplicate deal.
+  const handleTakeOverOffer = async () => {
+    if (!deal) return
+    setTakingOver(true)
+    setTakeoverError(null)
+    const result = await agentTakeOverOffer(deal.id)
+    if (result.success) {
+      router.push(`/agent/new-deal?fromOffer=${deal.id}`)
+    } else {
+      setTakeoverError(result.error || 'Could not take this over right now. Please try again.')
+      setTakingOver(false)
+    }
+  }
+
+  // Offered-status only. The agent changes their mind and hands the offer back
+  // to the brokerage, which resumes the brokerage-submits flow + nudges.
+  const handleHandBackOffer = async () => {
+    if (!deal) return
+    setHandingBack(true)
+    setTakeoverError(null)
+    const result = await agentHandBackOffer(deal.id)
+    if (result.success) {
+      await loadDealData()
+      setHandingBack(false)
+    } else {
+      setTakeoverError(result.error || 'Could not hand this back right now. Please try again.')
+      setHandingBack(false)
+    }
   }
 
   const startEditing = () => {
@@ -511,14 +572,22 @@ export default function AgentDealDetailPage() {
   // "awaiting submission" view with the timeline of what's been done so far.
   // ---------------------------------------------------------------------------
   if (deal.status === 'offered') {
+    // When set, the agent took this offer over to submit it themselves and the
+    // brokerage is paused. The view switches to a "continue your submission"
+    // state and the "Remind my brokerage" nudge is hidden (issue 3).
+    const selfSubmitting = !!deal.agent_self_submit_at
     return (
       <div className="min-h-screen bg-background">
         <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+                <BrokerageBrandLogo
+                  size="sm"
+                  logoUrl={brokerageBrand?.logo_url}
+                  brokerageName={brokerageBrand?.name}
+                  logoIncludesTagline={brokerageBrand?.logo_includes_tagline}
+                />
                 <div className="w-px h-6 bg-border" />
                 <button
                   onClick={() => router.push('/agent')}
@@ -548,10 +617,21 @@ export default function AgentDealDetailPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle2 size={20} className="text-primary shrink-0 mt-0.5" />
                 <div>
-                  <h2 className="text-base font-bold text-foreground">Your brokerage has been notified</h2>
-                  <p className="text-sm mt-1 text-muted-foreground">
-                    We sent your brokerage the details and asked them to submit your advance request. They handle the paperwork (commission split, trade record, supporting docs) and click submit. You don&apos;t need to do anything else.
-                  </p>
+                  {selfSubmitting ? (
+                    <>
+                      <h2 className="text-base font-bold text-foreground">You&apos;re submitting this one yourself</h2>
+                      <p className="text-sm mt-1 text-muted-foreground">
+                        We&apos;ve paused your brokerage on this offer so it can&apos;t be submitted twice. Finish your advance request below. Changed your mind? You can hand it back to your brokerage anytime before you submit.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-base font-bold text-foreground">Your brokerage has been notified</h2>
+                      <p className="text-sm mt-1 text-muted-foreground">
+                        We sent your brokerage the details and asked them to submit your advance request. They handle the paperwork (commission split, trade record, supporting docs) and click submit. You don&apos;t need to do anything else.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -583,80 +663,153 @@ export default function AgentDealDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground/70">
-                What happens next
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-6 pb-6 pt-0">
-              <ol className="space-y-3 text-sm">
-                <li className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">1</span>
-                  <div>
-                    <p className="font-medium text-foreground">Your brokerage submits the deal</p>
-                    <p className="text-xs mt-0.5 text-muted-foreground">They add the commission split and trade record and click submit. Usually same day.</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">2</span>
-                  <div>
-                    <p className="font-medium text-foreground">Firm Funds reviews and approves</p>
-                    <p className="text-xs mt-0.5 text-muted-foreground">We confirm the numbers and prep your contract.</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">3</span>
-                  <div>
-                    <p className="font-medium text-foreground">You get paid</p>
-                    <p className="text-xs mt-0.5 text-muted-foreground">Funds hit your account once you sign the contract.</p>
-                  </div>
-                </li>
-              </ol>
-              <p className="text-xs mt-5 text-muted-foreground">
-                If you haven&apos;t heard anything in a day, give your brokerage a quick call. We&apos;ll also nudge them automatically.
-              </p>
-
-              <div className="mt-5 pt-5 border-t border-border/40">
-                <p className="text-xs font-semibold text-foreground mb-1">
-                  Want us to nudge them right now?
+          {selfSubmitting ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground/70">
+                  Finish your submission
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-6 pt-0">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Pick up where you left off. We&apos;ll pre-fill the property and closing date, and you add the commission details and documents.
                 </p>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Sends your brokerage another email with the offer details. You can do this once every six hours.
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRemindBrokerage}
-                  disabled={reminderSending}
-                  className="gap-1.5"
-                >
-                  {reminderSending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-                  )}
-                  Remind my brokerage
-                </Button>
-                {reminderFeedback && (
-                  <p
-                    role="status"
-                    className={`mt-3 text-xs flex items-start gap-1.5 ${
-                      reminderFeedback.type === 'success' ? 'text-primary' : 'text-destructive'
-                    }`}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => router.push(`/agent/new-deal?fromOffer=${deal.id}`)}
+                    className="gap-1.5"
                   >
-                    {reminderFeedback.type === 'success' ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
-                    )}
-                    <span>{reminderFeedback.text}</span>
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    Continue your submission
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleHandBackOffer}
+                    disabled={handingBack}
+                    className="gap-1.5 text-muted-foreground hover:text-foreground"
+                  >
+                    {handingBack ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : null}
+                    Hand this back to my brokerage
+                  </Button>
+                </div>
+                {takeoverError && (
+                  <p role="status" className="mt-3 text-xs flex items-start gap-1.5 text-destructive">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>{takeoverError}</span>
                   </p>
                 )}
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground/70">
+                  What happens next
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-6 pt-0">
+                <ol className="space-y-3 text-sm">
+                  <li className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">1</span>
+                    <div>
+                      <p className="font-medium text-foreground">Your brokerage submits the deal</p>
+                      <p className="text-xs mt-0.5 text-muted-foreground">They add the commission split and trade record and click submit. Usually same day.</p>
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">2</span>
+                    <div>
+                      <p className="font-medium text-foreground">Firm Funds reviews and approves</p>
+                      <p className="text-xs mt-0.5 text-muted-foreground">We confirm the numbers and prep your contract.</p>
+                    </div>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-xs font-bold">3</span>
+                    <div>
+                      <p className="font-medium text-foreground">You get paid</p>
+                      <p className="text-xs mt-0.5 text-muted-foreground">Funds hit your account once you sign the contract.</p>
+                    </div>
+                  </li>
+                </ol>
+                <p className="text-xs mt-5 text-muted-foreground">
+                  If you haven&apos;t heard anything in a day, give your brokerage a quick call. We&apos;ll also nudge them automatically.
+                </p>
+
+                <div className="mt-5 pt-5 border-t border-border/40">
+                  <p className="text-xs font-semibold text-foreground mb-1">
+                    Want us to nudge them right now?
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Sends your brokerage another email with the offer details. You can do this once every six hours.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRemindBrokerage}
+                    disabled={reminderSending}
+                    className="gap-1.5"
+                  >
+                    {reminderSending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    Remind my brokerage
+                  </Button>
+                  {reminderFeedback && (
+                    <p
+                      role="status"
+                      className={`mt-3 text-xs flex items-start gap-1.5 ${
+                        reminderFeedback.type === 'success' ? 'text-primary' : 'text-destructive'
+                      }`}
+                    >
+                      {reminderFeedback.type === 'success' ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                      )}
+                      <span>{reminderFeedback.text}</span>
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-5 pt-5 border-t border-border/40">
+                  <p className="text-xs font-semibold text-foreground mb-1">
+                    Want to submit it yourself instead?
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Take it over and we&apos;ll pause your brokerage on this one so it isn&apos;t submitted twice. You add the commission details and documents.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTakeOverOffer}
+                    disabled={takingOver}
+                    className="gap-1.5"
+                  >
+                    {takingOver ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    I&apos;ll submit this myself
+                  </Button>
+                  {takeoverError && (
+                    <p role="status" className="mt-3 text-xs flex items-start gap-1.5 text-destructive">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                      <span>{takeoverError}</span>
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </main>
       </div>
     )
@@ -669,8 +822,12 @@ export default function AgentDealDetailPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+              <BrokerageBrandLogo
+                size="sm"
+                logoUrl={brokerageBrand?.logo_url}
+                brokerageName={brokerageBrand?.name}
+                logoIncludesTagline={brokerageBrand?.logo_includes_tagline}
+              />
               <div className="w-px h-6 bg-border" />
               <button
                 onClick={() => router.push('/agent')}

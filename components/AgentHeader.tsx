@@ -189,17 +189,36 @@ export default function AgentHeader({
             <button
               type="button"
               onClick={() => router.push('/agent')}
-              className="flex items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
+              className="flex items-center gap-3 min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
               aria-label="Go to agent dashboard"
             >
               {brokerageLogo ? (
                 <>
-                  {/* Brokerage logo as a fixed-box BACKGROUND image. An <img>
-                      with w-auto sized the generated SVG inconsistently across
-                      browsers (fine in desktop Chromium, clipped in mobile
-                      Chrome). A definite box + background-size:contain is
-                      spec-guaranteed to scale the whole logo to fit inside the
-                      box, so it can never spill off the screen edge. */}
+                  {/* Brokerage logo as a HEIGHT-DRIVEN background image.
+                      Why not the earlier approaches:
+                       - next/image fixed w/h fought the SVG aspect and clipped
+                         the wordmark on mobile.
+                       - A fixed-width box + background-size:contain does not clip
+                         INSIDE the box, but that box was shrink-0, so when the
+                         right-side cluster (bell + hamburger + the full "Sign
+                         out" button, which keeps its text label on mobile) ate
+                         the row, the WHOLE flex row overflowed a ~360px phone and
+                         dragged the left-most logo off the screen edge. That
+                         off-row overflow, not in-box scaling, is what was still
+                         "cut off".
+                      Fix: size the background by HEIGHT (auto width via
+                      bg-[length:auto_100%]) so the stacked F-mark + name +
+                      "POWERED BY FIRM FUNDS" tagline render at full box height
+                      and stay legible (contain into a short box shrank the
+                      tagline to ~3px). The mobile box width (w-24 / w-32) is set
+                      a touch wider than the widest logo renders at that height,
+                      so the full logo always shows; shrink + min-w-0 let it yield
+                      width under flex pressure (e.g. the deal-page title row)
+                      rather than forcing overflow, and overflow-hidden + bg-center
+                      crop the SVG's empty centred canvas margin first, never the
+                      logo. The generated SVG centres its content in a 480-wide
+                      canvas (~5% empty margin per side), so bg-center is correct
+                      for both generated and uploaded logos. */}
                   <div
                     role="img"
                     aria-label={brokerageLogoIncludesTagline
@@ -207,21 +226,26 @@ export default function AgentHeader({
                       : `${brokerageName || 'Brokerage'} logo`}
                     style={{ backgroundImage: `url("${brokerageLogo}")` }}
                     className={brokerageLogoIncludesTagline
-                      ? 'shrink-0 bg-contain bg-no-repeat bg-left sm:bg-center h-11 w-[132px] sm:h-28 sm:w-48 md:h-32 md:w-56'
-                      : 'shrink-0 bg-contain bg-no-repeat bg-left sm:bg-center h-9 w-[130px] sm:h-16 sm:w-44 md:h-20 md:w-52'}
+                      ? 'shrink min-w-0 overflow-hidden bg-[length:auto_100%] bg-no-repeat bg-center h-12 w-32 sm:h-28 sm:w-48 md:h-32 md:w-56'
+                      : 'shrink min-w-0 overflow-hidden bg-[length:auto_100%] bg-no-repeat bg-center h-9 w-24 sm:h-16 sm:w-44 md:h-20 md:w-52'}
                   />
                   {/* Skip the separate FF wordmark when the logo already
                       contains "Powered by Firm Funds" (generated logos —
-                      migration 096). */}
+                      migration 096). Also hide it below sm: on a phone the
+                      brokerage logo + divider + this wordmark + the right-side
+                      controls overran the row and clipped the brokerage logo at
+                      the screen edge. The wordmark is decorative duplication of
+                      branding; dropping it only on mobile keeps the brokerage
+                      logo fully visible without overflow. Desktop unchanged. */}
                   {!brokerageLogoIncludesTagline && (
                     <>
-                      <div className="w-px h-8 bg-white/15" aria-hidden="true" />
+                      <div className="hidden sm:block w-px h-8 bg-white/15" aria-hidden="true" />
                       <Image
                         src="/brand/white.png"
                         alt="Firm Funds"
                         width={120}
                         height={40}
-                        className="h-8 sm:h-10 w-auto opacity-60"
+                        className="hidden sm:block h-8 sm:h-10 w-auto opacity-60"
                       />
                     </>
                   )}

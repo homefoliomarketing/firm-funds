@@ -137,10 +137,15 @@ function NewBrokerageDealPageInner() {
       if (fromOfferId) {
         const { data: offeredDeal } = await supabase
           .from('deals')
-          .select('id, agent_id, property_address, closing_date, status, brokerage_id')
+          .select('id, agent_id, property_address, closing_date, status, brokerage_id, agent_self_submit_at')
           .eq('id', fromOfferId)
           .maybeSingle()
-        if (offeredDeal && offeredDeal.brokerage_id === prof.brokerage_id && offeredDeal.status === 'offered') {
+        // Paused: the agent took this offer over to submit it themselves. Don't
+        // prefill the form — block it with a clear message so the brokerage
+        // can't submit a duplicate. (The submit action also refuses this.)
+        if (offeredDeal && offeredDeal.brokerage_id === prof.brokerage_id && offeredDeal.agent_self_submit_at) {
+          setError('This agent has chosen to submit this advance themselves.')
+        } else if (offeredDeal && offeredDeal.brokerage_id === prof.brokerage_id && offeredDeal.status === 'offered') {
           setAgentId(offeredDeal.agent_id)
           if (offeredDeal.closing_date) setClosingDate(offeredDeal.closing_date)
           // Address pre-fill: try to split "street, city, province, postal"

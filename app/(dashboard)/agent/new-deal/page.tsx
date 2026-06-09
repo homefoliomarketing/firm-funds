@@ -7,6 +7,7 @@ import { ArrowLeft, Calculator, Send, DollarSign, MapPin, Calendar, Percent, Upl
 import { submitDeal, calculateDealPreview, uploadDocument, createRevisedDealFromDenied, getDealSubmissionGate } from '@/lib/actions/deal-actions'
 import { formatCurrency } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
+import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { KYC_STATUSES, DISCOUNT_RATE_PER_1000_PER_DAY, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -46,6 +47,11 @@ export default function NewDealPage() {
 function NewDealPageInner() {
   const searchParams = useSearchParams()
   const revisedFromId = searchParams.get('revisedFrom')
+  // Set when the agent took over a firm-deal offer to submit it themselves
+  // (issue 3). We load that 'offered' row, prefill it, and CONVERT it in place
+  // on submit so there's no duplicate deal.
+  const fromOfferId = searchParams.get('fromOffer')
+  const [fromOfferError, setFromOfferError] = useState<string | null>(null)
   // Banner state populated when we successfully fetched prefill from a denied deal.
   const [revisedFromBanner, setRevisedFromBanner] = useState<{ dealId: string; reason: string | null } | null>(null)
   const [revisedFromError, setRevisedFromError] = useState<string | null>(null)
@@ -93,10 +99,11 @@ function NewDealPageInner() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Restore draft on mount — UNLESS we're being asked to resubmit a denied
-  // deal. In that case the prefill effect below takes precedence so the
-  // agent doesn't see stale unrelated draft data in a new context.
+  // deal OR submit a taken-over firm-deal offer. In those cases the prefill
+  // effects below take precedence so the agent doesn't see stale unrelated
+  // draft data in a new context.
   useEffect(() => {
-    if (revisedFromId) return
+    if (revisedFromId || fromOfferId) return
     try {
       const saved = localStorage.getItem(DRAFT_KEY)
       if (saved) {
@@ -115,7 +122,7 @@ function NewDealPageInner() {
         setDraftSavedAt(draft.savedAt || null)
       }
     } catch { /* ignore corrupted localStorage */ }
-  }, [revisedFromId])
+  }, [revisedFromId, fromOfferId])
 
   // Pre-fill from a denied deal when ?revisedFrom=<id> is set. The server
   // action enforces ownership + status==='denied', so a curious agent can't
@@ -155,6 +162,49 @@ function NewDealPageInner() {
     })
     return () => { cancelled = true }
   }, [revisedFromId])
+
+  // Prefill from a taken-over firm-deal offer when ?fromOffer=<id> is set
+  // (issue 3). The offered row must belong to this agent, still be in 'offered'
+  // status, and have agent_self_submit_at set (the agent took it over, which
+  // pauses the brokerage). RLS only returns the agent's own deals, so a guessed
+  // id simply yields nothing. We mirror the brokerage's fromOfferId prefill:
+  // pull agent + address + closing date and let them add the financials.
+  useEffect(() => {
+    if (!fromOfferId) return
+    let cancelled = false
+    ;(async () => {
+      const { data: offeredDeal } = await supabase
+        .from('deals')
+        .select('id, agent_id, property_address, closing_date, status, agent_self_submit_at')
+        .eq('id', fromOfferId)
+        .maybeSingle()
+      if (cancelled) return
+      if (!offeredDeal) {
+        setFromOfferError("We couldn't find that offer. It may have already been submitted.")
+        return
+      }
+      if (offeredDeal.status !== 'offered' || !offeredDeal.agent_self_submit_at) {
+        setFromOfferError('This offer is no longer available for you to submit. Check your dashboard for its status.')
+        return
+      }
+      if (offeredDeal.closing_date) setClosingDate(offeredDeal.closing_date)
+      // Split "street, city, province, postal" back out of the joined string,
+      // falling back to dumping the whole thing into street.
+      const parts = (offeredDeal.property_address || '').split(',').map((p: string) => p.trim()).filter(Boolean)
+      if (parts.length >= 4) {
+        setStreetAddress(parts[0]); setCity(parts[1]); setProvince(parts[2]); setPostalCode(parts[3])
+      } else if (parts.length === 3) {
+        setStreetAddress(parts[0]); setCity(parts[1]); setPostalCode(parts[2])
+      } else {
+        setStreetAddress(offeredDeal.property_address || '')
+      }
+    })().catch(() => {
+      if (!cancelled) setFromOfferError('Unable to load this offer. Please try again from your dashboard.')
+    })
+    return () => { cancelled = true }
+    // supabase client is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromOfferId])
 
   // Save draft on field changes (debounced 1s)
   const saveDraft = useCallback(() => {
@@ -322,6 +372,8 @@ function NewDealPageInner() {
         brokerageSplitPct: parseFloat(brokerageSplitPct), transactionType, notes: notes.trim() || undefined,
         // Carry the revision lineage through so admins can trace the chain.
         revisedFromDealId: revisedFromBanner?.dealId,
+        // When set, convert the taken-over offered row in place (no duplicate).
+        fromOfferDealId: fromOfferId || undefined,
       })
       if (!result.success) { setError(result.error || 'Failed to submit deal. Please try again.'); setSubmitting(false); return }
       dealSubmitted = true
@@ -465,8 +517,12 @@ function NewDealPageInner() {
       <header className="bg-card/80 backdrop-blur-sm sticky top-0 z-40 border-b border-border/50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4 py-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/white.png" alt="Firm Funds" className="h-8 sm:h-10 w-auto" />
+            <BrokerageBrandLogo
+              size="sm"
+              logoUrl={agent?.brokerages?.logo_url}
+              brokerageName={agent?.brokerages?.name}
+              logoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
+            />
             <div className="w-px h-10 bg-border" />
             <button
               onClick={() => router.push('/agent')}
@@ -486,6 +542,25 @@ function NewDealPageInner() {
       </header>
 
       <main id="main-content" className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Taken-over firm-deal offer banner (issue 3). The agent chose to
+            submit this offer themselves; we've paused their brokerage on it
+            and pre-filled the property + closing date. */}
+        {fromOfferId && !fromOfferError && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-status-blue-muted/40 border border-status-blue-border/40" role="status">
+            <p className="text-sm font-semibold text-status-blue">
+              You&apos;re submitting this advance yourself
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              We&apos;ve paused your brokerage on this offer so it isn&apos;t submitted twice, and pre-filled the property and closing date. Add your commission details and documents below.
+            </p>
+          </div>
+        )}
+        {fromOfferError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle size={16} />
+            <AlertDescription>{fromOfferError}</AlertDescription>
+          </Alert>
+        )}
         {/* Resubmit-from-denied banner. Shows above the form so the agent
             has full context about why they're refilling fields. Tone is
             constructive — we want them to fix the issue and try again. */}

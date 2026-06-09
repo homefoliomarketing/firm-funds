@@ -1,6 +1,6 @@
 # Firm Funds Database Architecture
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-09_
 
 This document describes the Supabase Postgres data layer for Firm Funds: the tables, status enums, stored procedures, Row Level Security model, and the full migration history that produced the schema.
 
@@ -22,7 +22,7 @@ The numbering groups roughly into feature batches:
 | 070 to 079 | Concurrency uniqueness constraints, cron idempotency log, DocuSign linkage, atomic admin-note append, firm-deal detection pipeline |
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
 
-There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `104_brokerage_og_image.sql`.
+There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `105_agent_self_submit_offer.sql`.
 
 **Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
@@ -122,6 +122,7 @@ The central advance record. Base columns predate migration tracking; the columns
 | brokerage_nudge_2h_at | TIMESTAMPTZ | 2-hour nudge (migration 081) |
 | internal_alert_4h_at | TIMESTAMPTZ | 4-hour internal escalation (migration 081) |
 | brokerage_declined_at / brokerage_declined_reason | TIMESTAMPTZ / TEXT | Brokerage declined the offer (migration 081) |
+| agent_self_submit_at | TIMESTAMPTZ | Agent took an `offered` deal over to submit it themselves; pauses the brokerage on it (hidden from submit-on-behalf queue, convert/decline refused, nudge crons skip it). NULL = brokerage still owns the submission. Cleared if the agent hands it back (migration 105) |
 | funding_failure_reason / funding_failed_at | TEXT / TIMESTAMPTZ | EFT bounce or banking-rejection recovery (migration 084) |
 | revised_from_deal_id | UUID FK deals | Resubmission lineage (migration 084) |
 | version | INTEGER | Optimistic-lock counter, auto-bumped by trigger (migration 083) |
@@ -674,5 +675,6 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 102_staff_roles.sql | `user_profiles.staff_role` (owner/manager/staff) for least-privilege internal staff roles; no RLS change |
 | 103_impersonation.sql | `impersonation_sessions` table (look-only "view as user"); `audit_log.impersonated_target_id` column. Additive and idempotent; no existing RLS policy changed |
 | 104_brokerage_og_image.sql | `brokerages.og_image_url` (PNG of the white-label logo for SMS / social link-preview cards). Additive; nullable |
+| 105_agent_self_submit_offer.sql | `deals.agent_self_submit_at` — set when an agent takes an `offered` firm-deal over to submit it themselves (pauses the brokerage on it). Additive; nullable |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

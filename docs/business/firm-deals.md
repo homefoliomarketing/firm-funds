@@ -87,6 +87,17 @@ Once an offer has been dispatched, the agent lands on their dashboard via a magi
 3. **Notify the brokerage.** The brokerage admin team is emailed to submit the advance on the agent's behalf. This is best-effort: if Resend fails, the send is enqueued in `cron_email_failures` for the retry sweeper, and the agent is told "we'll keep trying." The offered deal is never rolled back because the notification failed. There is a recipient gate: if the brokerage has no email, no configured pipe recipients, and no `FIRM_FUNDS_OFFER_INBOX`, acceptance is refused with a clear support message rather than creating a black hole.
 4. **Decline.** A brokerage admin can decline an offered deal via `declineFirmDealOffer()`, moving it to `cancelled` with a recorded reason. The agent is notified (best-effort, same retry pattern).
 5. **Manual nudge.** An anxious agent can fire `remindBrokerageOfPendingOffer()` from the offered-deal page, sending the same email the 2-hour cron would, rate-limited to once per 6 hours per deal.
+6. **Agent self-submit (the agent takes it over).** From the offered-deal page the agent can choose "I'll submit this myself" instead of waiting on the brokerage. `agentTakeOverOffer()` stamps `deals.agent_self_submit_at` (migration 105) and routes the agent to `/agent/new-deal?fromOffer=<dealId>`, which prefills the property + closing date and, on submit, CONVERTS the same offered row in place to `under_review` (via `submitDeal`'s `fromOfferDealId` branch). That conversion is the no-duplicate guarantee: it reuses the one offered row rather than inserting a second deal, with a CAS guard (`.eq('status','offered')`) against a concurrent submit. The agent can reverse the decision with `agentHandBackOffer()`, which clears the flag and resumes the brokerage flow.
+
+### The brokerage is paused while `agent_self_submit_at` is set
+
+Once an agent takes an offer over, the brokerage must have no path to submit it (otherwise both could submit, creating two deals). The flag pauses the brokerage everywhere it could otherwise act:
+
+- The `OfferedDealsBanner` shows the row as a passive "This agent is submitting this themselves" note with no Submit/Decline buttons, and it no longer counts toward "N agents are waiting on you."
+- `brokerage/deals/new?from_offer=<id>` refuses to prefill (and `submitDealAsBrokerage`'s conversion path refuses the write) with "This agent has chosen to submit this advance themselves."
+- `declineFirmDealOffer()` refuses with the same kind of message.
+- The nudge/escalation/expiry cron (§6) excludes flagged rows entirely, so the brokerage is never emailed about an offer the agent took over, and the offer does not auto-expire while the agent is working on it.
+- `remindBrokerageOfPendingOffer()` is guarded server-side too (it is normally unreachable because the agent's "Remind my brokerage" button is hidden once the offer is taken over).
 
 ### Dual agency (both sides enrolled)
 
@@ -94,7 +105,7 @@ When both the listing and selling cell resolve to enrolled agents at the same br
 
 ## 6. The nudge, escalation, and expiry cron (`app/api/cron/firm-deal-offer-nudges`)
 
-This cron runs hourly over every `offered` deal and does up to three time-based things, each fired at most once via a stamp column:
+This cron runs hourly over every `offered` deal **whose `agent_self_submit_at` is null** (offers the agent took over to submit themselves are skipped, see §5) and does up to three time-based things, each fired at most once via a stamp column:
 
 | Timer (from `brokerage_notified_at`, or `created_at` for expiry) | Action | Stamp |
 | --- | --- | --- |

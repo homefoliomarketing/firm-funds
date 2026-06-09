@@ -85,6 +85,14 @@ interface DispatchContext {
     brand_name: string
     brand_tagline: string
   }
+  /** Brokerage white-label logo for the email header. Sourced from
+   *  brokerages.logo_url / logo_includes_tagline (same column lib/email.ts
+   *  renders). Null when the brokerage has no logo on file, in which case the
+   *  email falls back to its green text banner. */
+  branding: {
+    logo_url: string | null
+    logo_includes_tagline: boolean | null
+  }
   /** Recipients to fan out to. Always at least one (the primary). For
    *  co-agent splits and dual-agency-with-distinct-agents, two entries. */
   recipients: AgentRecord[]
@@ -167,7 +175,16 @@ export async function dispatchFirmDealNotification(
     agentIds.push(event.second_matched_agent_id)
   }
 
-  const [{ data: pipe, error: pipeErr }, { data: agentRows, error: agentErr }] = await Promise.all([
+  // Load pipe (brand text), agents, and brokerage branding (white-label logo
+  // for the email header) in parallel. The logo comes from brokerages.logo_url
+  // (same column lib/email.ts renders); a miss or error just leaves it null and
+  // the email falls back to its text banner, so the branding read never blocks
+  // the dispatch.
+  const [
+    { data: pipe, error: pipeErr },
+    { data: agentRows, error: agentErr },
+    { data: brokerageRow },
+  ] = await Promise.all([
     supabase
       .from('brokerage_pipes')
       .select('brand_name, brand_tagline')
@@ -177,6 +194,11 @@ export async function dispatchFirmDealNotification(
       .from('agents')
       .select('id, first_name, email, phone')
       .in('id', agentIds),
+    supabase
+      .from('brokerages')
+      .select('logo_url, logo_includes_tagline')
+      .eq('id', event.brokerage_id)
+      .maybeSingle(),
   ])
 
   if (pipeErr || !pipe) return errorResult(eventId, `Pipe load failed: ${pipeErr?.message}`, supabase)
@@ -200,6 +222,10 @@ export async function dispatchFirmDealNotification(
     pipe: {
       brand_name: pipe.brand_name ?? 'Firm Funds',
       brand_tagline: pipe.brand_tagline ?? 'Powered by Firm Funds',
+    },
+    branding: {
+      logo_url: brokerageRow?.logo_url ?? null,
+      logo_includes_tagline: brokerageRow?.logo_includes_tagline ?? null,
     },
     recipients,
   }
@@ -273,6 +299,8 @@ async function sendForOneAgent(
     closing_date_iso: parsed?.closing_date_iso ?? null,
     brand_name: ctx.pipe.brand_name,
     brand_tagline: ctx.pipe.brand_tagline,
+    brand_logo_url: ctx.branding.logo_url,
+    brand_logo_includes_tagline: ctx.branding.logo_includes_tagline,
     cta_url,
     variant,
     commission_amount,

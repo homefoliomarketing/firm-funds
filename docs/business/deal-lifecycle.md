@@ -1,6 +1,6 @@
 # Deal Lifecycle
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-09_
 
 This document describes the full state machine a commission advance moves through, who can trigger each transition, the underwriting checklist, the settlement window and late-strike behavior, and the failed-deal cure path.
 
@@ -30,7 +30,7 @@ stateDiagram-v2
     [*] --> offered: firm-deal offer created
     [*] --> under_review: advance request submitted
 
-    offered --> under_review: brokerage submits on behalf
+    offered --> under_review: brokerage submits on behalf, OR agent self-submits after takeover
     offered --> cancelled: declined or expired (60d)
 
     under_review --> approved
@@ -66,8 +66,8 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | --- | --- | --- | --- |
 | (new) | `offered` | Agent | Accepts a firm-deal offer (`acceptFirmDealOffer`) |
 | (new) | `under_review` | Agent or brokerage admin | Submits an advance request (blocked while the agent has an uncovered failed-to-close balance — see §6, "Submission gate") |
-| `offered` | `under_review` | Brokerage admin | Submits the offered deal on the agent's behalf |
-| `offered` | `cancelled` | Brokerage admin or system cron | Declines, or the 60-day expiry cron fires |
+| `offered` | `under_review` | Brokerage admin **or** the agent | Brokerage submits on the agent's behalf (`submitDealAsBrokerage` with `fromOfferDealId`), OR the agent takes the offer over (`agentTakeOverOffer`, sets `agent_self_submit_at`) and submits it themselves (`submitDeal` with `fromOfferDealId`). Both CONVERT the same offered row in place, so there is never a duplicate. While `agent_self_submit_at` is set the brokerage is paused (see `firm-deals.md` §5). |
+| `offered` | `cancelled` | Brokerage admin or system cron | Declines, or the 60-day expiry cron fires. Both are blocked/skipped while `agent_self_submit_at` is set. |
 | `under_review` | `approved` / `denied` / `cancelled` | Firm Funds admin | `updateDealStatus` (approval blocked until agent banking is verified) |
 | `approved` | `funded` | Firm Funds admin | Marks the deal funded after the EFT is sent |
 | `approved` | `denied` / `cancelled` / `under_review` | Firm Funds admin | `updateDealStatus` |

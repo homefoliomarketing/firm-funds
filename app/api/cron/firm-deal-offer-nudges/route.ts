@@ -75,6 +75,12 @@ export async function GET(request: Request) {
     // Pull every offered deal in one shot; the row count for offered will
     // be small (capped by the 60-day window). Sort oldest first so partial
     // runs prioritize the most-overdue rows.
+    //
+    // Skip rows the agent took over to submit themselves (agent_self_submit_at
+    // set, migration 105): the brokerage is paused on those, so we must not
+    // nudge/escalate them, and they shouldn't auto-expire while the agent is
+    // actively working on submitting. They re-enter this query if the agent
+    // hands the offer back (which clears the flag).
     const { data: offered, error: offeredErr } = await supabase
       .from('deals')
       .select(`
@@ -82,6 +88,7 @@ export async function GET(request: Request) {
         brokerage_nudge_2h_at, internal_alert_4h_at
       `)
       .eq('status', 'offered')
+      .is('agent_self_submit_at', null)
       .order('offered_at', { ascending: true })
       .limit(MAX_ROWS_PER_RUN)
 

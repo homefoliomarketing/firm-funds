@@ -196,7 +196,7 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
               ${closingRow}
               ${commissionRow}
             </table>
-            <p style="font-size:14px; color:#444; margin:0 0 20px 0;">Open the request in the portal to fill in the commission split and upload the trade record. The pre-filled form already has the property and agent info.</p>
+            <p style="font-size:14px; color:#444; margin:0 0 20px 0;">Open the request in the portal to fill in the commission split and upload the required documents. The pre-filled form already has the property and agent info.</p>
             <div style="text-align:center; margin:20px 0 8px 0;">
               <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 38px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
             </div>

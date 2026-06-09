@@ -33,6 +33,14 @@ export interface EmailRenderInput {
   closing_date_iso: string | null
   brand_name: string             // e.g. "Choice Advances"
   brand_tagline: string          // e.g. "Powered by Firm Funds"
+  /** Brokerage white-label logo URL (brokerages.logo_url). When present the
+   *  header renders this image instead of the text brand banner. Null/absent
+   *  falls back to the green text banner. */
+  brand_logo_url?: string | null
+  /** TRUE when brand_logo_url already bakes in "Powered by Firm Funds"
+   *  (brokerages.logo_includes_tagline, generated logos). Render the logo
+   *  alone in that case; otherwise add a small "Powered by Firm Funds" line. */
+  brand_logo_includes_tagline?: boolean | null
   cta_url: string                // deep link to the agent dashboard
   variant: 'sparse' | 'sparse_with_date' | 'dual_agency' | 'detailed'
   /** Gross commission for this agent's side, BEFORE the brokerage split.
@@ -101,7 +109,7 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
   } else if (input.variant === 'sparse') {
     intro = `We spotted what looks like one of yours: <span style="font-weight:600; color:#1a2e1d;">${address}</span>. If that's right, confirm the details and we'll have an advance ready for you.`
   } else {
-    intro = `We see that your recent deal at <span style="font-weight:600; color:#1a2e1d;">${address}</span> went firm. Congrats!`
+    intro = `Congratulations on your recent deal at <span style="font-weight:600; color:#1a2e1d;">${address}</span>!`
   }
 
   // 'detailed' variant inserts a callout above the "Get paid TODAY" hero
@@ -135,11 +143,12 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
     ? `Would you like to wait until <span style="font-weight:600; color:#222;">${escapeHtml(closingHuman)}</span> to receive your commission&hellip;`
     : `Would you like to wait weeks for your commission&hellip;`
 
+  // Only dual_agency keeps a hero subtitle ("Both sides, both commissions").
+  // The 'detailed' and default variants drop the old "Instead of waiting
+  // weeks" line; an empty label suppresses the <p> at render time.
   const todayLabel = input.variant === 'dual_agency'
     ? 'Both sides, both commissions'
-    : input.variant === 'detailed'
-      ? 'Instead of waiting weeks'
-      : 'Instead of waiting weeks'
+    : ''
 
   // CTA copy tracks the tier. Tier A asks the agent to confirm (we may
   // have only loosely matched), Tier B and beyond push toward submitting
@@ -165,6 +174,27 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
     subject = `Your deal at ${input.property_address} went firm`
   }
 
+  // Header cell. When the brokerage has a white-label logo on file we render
+  // it as an image (mirrors brandHeader() in lib/email.ts); otherwise we fall
+  // back to the original green text banner so nothing breaks when no logo is
+  // set. The logo sits on the same green band for visual continuity. When the
+  // logo already bakes in the tagline (generated logos) we render it alone;
+  // for custom uploads we add a small "Powered by Firm Funds" line beneath it.
+  const logoUrl = input.brand_logo_url
+  const headerCell = logoUrl
+    ? input.brand_logo_includes_tagline
+      ? `<td style="background:#5FA873; padding:22px 32px; text-align:center;">
+            <img src="${escapeHtml(logoUrl)}" alt="${brand}, Powered by Firm Funds" height="56" style="height:56px; width:auto; max-width:360px;" />
+          </td>`
+      : `<td style="background:#5FA873; padding:22px 32px; text-align:center;">
+            <img src="${escapeHtml(logoUrl)}" alt="${brand}" height="40" style="height:40px; width:auto; max-width:260px;" />
+            <div style="font-size:12px; opacity:0.85; margin-top:8px; font-weight:400; color:#ffffff;">${tagline}</div>
+          </td>`
+    : `<td style="background:#5FA873; padding:22px 32px; color:#ffffff;">
+            <div style="font-size:21px; font-weight:700; letter-spacing:-0.01em;">${brand}</div>
+            <div style="font-size:12px; opacity:0.85; margin-top:3px; font-weight:400;">${tagline}</div>
+          </td>`
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -178,10 +208,7 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
     <td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; width:100%; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 6px 24px rgba(0,0,0,0.07);">
         <tr>
-          <td style="background:#5FA873; padding:22px 32px; color:#ffffff;">
-            <div style="font-size:21px; font-weight:700; letter-spacing:-0.01em;">${brand}</div>
-            <div style="font-size:12px; opacity:0.85; margin-top:3px; font-weight:400;">${tagline}</div>
-          </td>
+          ${headerCell}
         </tr>
         <tr>
           <td style="padding:32px 36px 28px 36px; line-height:1.55;">
@@ -190,11 +217,11 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
 ${commissionCallout}
             <p style="font-size:15px; color:#4a4a4a; margin:0 0 12px 0; text-align:center;">${altOption}</p>
             <div style="text-align:center; color:#aaa; font-size:11px; margin:14px 0 12px 0; text-transform:uppercase; letter-spacing:0.18em;">or</div>
-            <div style="background:linear-gradient(180deg,#f0f8f2 0%,#e6f3ea 100%); border:2px solid #5FA873; border-radius:10px; padding:26px 20px; text-align:center; margin:4px 0 28px 0;">
-              <p style="font-size:34px; font-weight:800; color:#3d8055; margin:0; line-height:1.1; letter-spacing:-0.01em;">Get paid <span style="color:#5FA873;">TODAY</span></p>
-              <p style="font-size:13px; color:#5a7a64; margin-top:8px; font-weight:500;">${escapeHtml(todayLabel)}</p>
-            </div>
-            <p style="font-size:14px; color:#555; margin:0 0 26px 0; text-align:center;">You're already onboarded, so it's only a few steps from getting paid.</p>
+            <a href="${cta}" style="display:block; text-decoration:none; background:linear-gradient(180deg,#f0f8f2 0%,#e6f3ea 100%); border:2px solid #5FA873; border-radius:10px; padding:26px 20px; text-align:center; margin:4px 0 28px 0;">
+              <span style="display:block; font-size:34px; font-weight:800; color:#3d8055; line-height:1.1; letter-spacing:-0.01em;">Get paid <span style="color:#5FA873;">TODAY</span></span>
+              ${todayLabel ? `<span style="display:block; font-size:13px; color:#5a7a64; margin-top:8px; font-weight:500;">${escapeHtml(todayLabel)}</span>` : ''}
+            </a>
+            <p style="font-size:14px; color:#555; margin:0 0 26px 0; text-align:center;">You're already onboarded, so you're only a few steps away from getting paid.</p>
             <div style="text-align:center; margin:20px 0 8px 0;">
               <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 40px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
             </div>
@@ -216,7 +243,7 @@ ${commissionCallout}
     ? `We see that your recent deal at ${input.property_address} went firm. Looks like you held both sides too. Nice work.`
     : input.variant === 'sparse'
       ? `We spotted what looks like one of yours: ${input.property_address}. If that's right, confirm the details and we'll have an advance ready for you.`
-      : `We see that your recent deal at ${input.property_address} went firm. Congrats!`
+      : `Congratulations on your recent deal at ${input.property_address}!`
 
   const textLines = [
     `Hi ${input.agent_first_name || 'there'},`,
@@ -236,7 +263,7 @@ ${commissionCallout}
       ? `Would you like to wait until ${closingHuman} to receive your commission, or get paid TODAY?`
       : `Would you like to wait weeks for your commission, or get paid TODAY?`,
     '',
-    `You're already onboarded, so it's only a few steps from getting paid.`,
+    `You're already onboarded, so you're only a few steps away from getting paid.`,
     '',
     `${ctaLabel}: ${cta}`,
     '',

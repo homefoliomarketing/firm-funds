@@ -100,6 +100,9 @@ interface Deal {
   }>
   // denial_reason intentionally not fetched for brokerage (admin's wording).
   denial_reason?: string | null
+  // Set when the agent took an offered deal over to submit it themselves
+  // (migration 105). When set, the brokerage is paused on that offer.
+  agent_self_submit_at?: string | null
   agent?: {
     first_name: string
     last_name: string
@@ -179,7 +182,7 @@ export default function BrokerageDashboard() {
         // staff see status + summary only, not admin's internal wording.
         const { data: dealData } = await supabase
           .from('deals')
-          .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
+          .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
           .eq('brokerage_id', profileData.brokerage_id)
           .order('created_at', { ascending: false })
         setDeals((dealData as unknown as Deal[]) || [])
@@ -634,6 +637,9 @@ export default function BrokerageDashboard() {
             property_address: d.property_address,
             closing_date: d.closing_date,
             created_at: d.created_at,
+            // When set, the agent took this offer over to submit it themselves;
+            // the banner renders it as a passive, non-actionable note.
+            agent_self_submit_at: d.agent_self_submit_at ?? null,
             agent: d.agent ? {
               first_name: d.agent.first_name,
               last_name: d.agent.last_name,
@@ -1960,7 +1966,7 @@ export default function BrokerageDashboard() {
           if (profile?.brokerage_id) {
             const { data: dealData } = await supabase
               .from('deals')
-              .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
+              .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
               .eq('brokerage_id', profile.brokerage_id)
               .order('created_at', { ascending: false })
             if (dealData) setDeals(dealData as unknown as Deal[])

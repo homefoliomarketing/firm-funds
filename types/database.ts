@@ -187,6 +187,10 @@ export interface Deal {
   funding_failed_at: string | null
   // Resubmission lineage — points back to the denied/failed deal this was revised from (migration 084)
   revised_from_deal_id: string | null
+  // Firm-deal offer: set when the agent took an 'offered' deal over to submit
+  // it themselves; the brokerage is paused on it (migration 105). NULL = the
+  // brokerage still owns the submission.
+  agent_self_submit_at: string | null
   created_at: string
   updated_at: string
   // Joined data
