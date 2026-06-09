@@ -48,8 +48,8 @@ function Body() {
         <dd>
           Posted the day a deal is funded. It records the outstanding amount your
           brokerage will repay Firm Funds for that advance. This line is for your
-          records only and does not change your account balance, so the Balance
-          column shows "not affected" beside it.
+          records only and does not change your account balance, so it is not
+          counted in the Balance column beside it.
         </dd>
 
         <dt><strong>Repayment Received</strong></dt>
@@ -117,8 +117,8 @@ function Body() {
         Most rows show the balance at that moment in time, after that transaction was
         applied. Read from the top down to follow your account history. The balance at
         the top row should match the headline number on the page. Advance Issued and
-        Repayment Received lines show "not affected" here, because they are records of
-        deal activity and never move what you owe.
+        Repayment Received lines are not counted in the Balance column, because they
+        are records of deal activity and never move what you owe.
       </p>
 
       <h2>Disputes and questions</h2>
