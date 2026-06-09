@@ -41,11 +41,6 @@ interface DashboardStats {
   unreadAgentMessages: number
   dealsWithUnreadMessages: string[]
   firmDealPending: number
-  // Underwriter assignment quick metric — sum of unassigned under_review deals
-  // and overdue (7+ days in queue) deals. Surfaced as a card so admins can see
-  // queue depth at a glance and click through to /admin/assignments.
-  unassignedCount: number
-  overdueAssignedCount: number
 }
 
 // Shapes returned by the dashboard SELECTs. PostgREST nests one-to-many
@@ -119,8 +114,6 @@ export default function AdminDashboard() {
     unreadAgentMessages: 0,
     dealsWithUnreadMessages: [],
     firmDealPending: 0,
-    unassignedCount: 0,
-    overdueAssignedCount: 0,
   })
   const [allDeals, setAllDeals] = useState<DashboardDeal[]>([])
   const [overdueSettlements, setOverdueSettlements] = useState<OverdueSettlementRow[]>([])
@@ -230,14 +223,7 @@ export default function AdminDashboard() {
         }
       })
 
-      // Underwriter assignment metrics — derived from the same deal list we
-      // already pulled. Unassigned = under_review with no assigned_to_user_id.
-      // Overdue = any under_review older than 7 days (whether assigned or not)
-      // — the assignment page slices these into per-user buckets.
-      const sevenDaysAgoMs = Date.now() - (7 * 24 * 60 * 60 * 1000)
       const underReviewList = allDealsList.filter(d => d.status === 'under_review')
-      const unassignedCount = underReviewList.filter(d => !d.assigned_to_user_id).length
-      const overdueAssignedCount = underReviewList.filter(d => new Date(d.created_at).getTime() < sevenDaysAgoMs).length
 
       setStats({
         underReviewDeals: underReviewList.length,
@@ -246,8 +232,6 @@ export default function AdminDashboard() {
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
         firmDealPending: firmDealPendingCount ?? 0,
-        unassignedCount,
-        overdueAssignedCount,
       })
       setAllDeals(allDealsList)
 
@@ -409,7 +393,10 @@ export default function AdminDashboard() {
               // so nobody clicks into a screen that just bounces them back.
               ...(hasCapability(profile, 'kyc.verify') ? [{ label: 'Brokerages', icon: Building2, path: '/admin/brokerages', badge: stats.pendingKycCount + stats.pendingBankingCount }] : []),
               ...(hasCapability(profile, 'firmdeal.review') ? [{ label: 'Firm Deal Review', icon: Inbox, path: '/admin/firm-deal-review', badge: stats.firmDealPending }] : []),
-              ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Assignments', icon: ClipboardList, path: '/admin/assignments', badge: stats.unassignedCount + stats.overdueAssignedCount }] : []),
+              // Assignments tab intentionally hidden for now: the underwriter
+              // queue feature isn't wired and there's a single underwriter. The
+              // /admin/assignments page + assignment-actions remain in the repo
+              // so this is a one-line re-enable when the feature is picked up.
               ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' }] : []),
               { label: 'Portfolio', icon: TrendingUp, path: '/admin/portfolio' },
               { label: 'Reports', icon: BarChart3, path: '/admin/reports' },
@@ -457,48 +444,6 @@ export default function AdminDashboard() {
             </Card>
           ))}
         </section>
-
-        {/* Underwriter assignment quick metric — clickable card so admins can
-            jump straight into the assignments view. The card tone amplifies
-            when there are overdue items so it pulls attention. */}
-        {(stats.unassignedCount > 0 || stats.overdueAssignedCount > 0) && (
-          <section aria-label="Underwriter queue snapshot" className="mb-8">
-            <button
-              type="button"
-              onClick={() => router.push('/admin/assignments')}
-              className={`w-full text-left rounded-xl border p-4 sm:p-5 transition-colors hover:bg-white/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                stats.overdueAssignedCount > 0
-                  ? 'border-destructive/40 bg-destructive/5'
-                  : 'border-border/40 bg-card/60'
-              }`}
-              aria-label={`Open assignments view: ${stats.unassignedCount} unassigned, ${stats.overdueAssignedCount} overdue`}
-            >
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <ClipboardList
-                    size={20}
-                    className={stats.overdueAssignedCount > 0 ? 'text-destructive' : 'text-primary'}
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Underwriter queue
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      <span className="font-semibold text-foreground tabular-nums">{stats.unassignedCount}</span>{' '}
-                      unassigned ·{' '}
-                      <span className={`font-semibold tabular-nums ${stats.overdueAssignedCount > 0 ? 'text-destructive' : 'text-foreground'}`}>
-                        {stats.overdueAssignedCount}
-                      </span>{' '}
-                      overdue (7+ days)
-                    </p>
-                  </div>
-                </div>
-                <ChevronRight size={16} className="text-muted-foreground" aria-hidden="true" />
-              </div>
-            </button>
-          </section>
-        )}
 
         {/* PENDING ACTIONS */}
         {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
