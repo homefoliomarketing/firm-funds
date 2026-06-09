@@ -255,9 +255,12 @@ export interface AgentAccountTransaction {
     | 'failed_deal_balance'
     | 'failed_deal_interest'
     | 'balance_deduction'
+    | 'balance_deduction_reversed'
     | 'invoice_payment'
     | 'adjustment'
     | 'credit'
+    | 'deal_advance'
+    | 'deal_repayment'
   amount: number
   running_balance: number
   description: string

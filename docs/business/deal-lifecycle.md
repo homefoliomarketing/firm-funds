@@ -69,11 +69,11 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | `offered` | `under_review` | Brokerage admin **or** the agent | Brokerage submits on the agent's behalf (`submitDealAsBrokerage` with `fromOfferDealId`), OR the agent takes the offer over (`agentTakeOverOffer`, sets `agent_self_submit_at`) and submits it themselves (`submitDeal` with `fromOfferDealId`). Both CONVERT the same offered row in place, so there is never a duplicate. While `agent_self_submit_at` is set the brokerage is paused (see `firm-deals.md` §5). |
 | `offered` | `cancelled` | Brokerage admin or system cron | Declines, or the 60-day expiry cron fires. Both are blocked/skipped while `agent_self_submit_at` is set. |
 | `under_review` | `approved` / `denied` / `cancelled` | Firm Funds admin | `updateDealStatus` (approval blocked until agent banking is verified) |
-| `approved` | `funded` | Firm Funds admin | Marks the deal funded after the EFT is sent |
+| `approved` | `funded` | Firm Funds admin | Marks the deal funded after the EFT is sent. Posts an informational **Advance Issued** entry (`deal_advance`) to the agent's ledger for `amount_due_from_brokerage` — balance-neutral, for the statement only (see §6). |
 | `approved` | `denied` / `cancelled` / `under_review` | Firm Funds admin | `updateDealStatus` |
 | `funded` | `completed` | Firm Funds admin | Marks the deal repaid. **Requires confirmed brokerage payment(s) covering `amount_due_from_brokerage`** — enforced server-side in `updateDealStatus`, not just by the UI button. |
 | `funded` | `funded` (no status change) | Firm Funds admin | "Record Early Closing" (`recordEarlyClosing`): when the property closes before the scheduled date, refunds the prepaid discount fee for the days saved and credits the agent. Sets `actual_closing_date` + `discount_refund_amount` but does **not** complete the deal — completion still requires the brokerage payment. |
-| `funded` | `funding_failed` | Firm Funds admin | EFT-bounce action (reverses agent balance) |
+| `funded` | `funding_failed` | Firm Funds admin | EFT-bounce action (reverses agent balance, and reverses the informational Advance Issued entry) |
 | `funding_failed` | `approved` (via retry) / `cancelled` | Firm Funds admin | "Retry funding" reverts to `approved` to re-run the funding path; or cancel. (`STATUS_FLOW` also permits a direct `-> funded` manual correction.) |
 | `failed_to_close` | `cured` | System | Set when remediation remittance fully clears the balance |
 | `failed_to_close` | `funded` | Firm Funds admin | Revert if mis-marked |
@@ -165,3 +165,12 @@ An agent who has any `failed_to_close` deal with a remaining `outstanding_balanc
 - **Blocked** — coverage does not reach owed (cent tolerance).
 
 Enforced server-side in both `submitDeal` (agent self-serve) and `submitDealAsBrokerage` (brokerage on behalf), so neither entry point can bypass it. The agent and brokerage new-deal pages also call `getDealSubmissionGate` to warn up front and disable the submit button, but the server check is authoritative.
+
+### Statement entries: Advance Issued / Repayment Received (migration 106)
+
+So an agent's ledger reads like a bank statement, two **informational** entries are posted alongside the money flow:
+
+- **Advance Issued** (`deal_advance`) — posted when a deal is funded, for `amount_due_from_brokerage` (the outstanding balance the brokerage will repay). Posted in `updateDealStatus`'s funded branch after the optimistic-lock CAS wins.
+- **Repayment Received** (`deal_repayment`) — posted when a brokerage payment is confirmed received, for that payment's amount. Posted in `recordBrokeragePayment` (admin records a confirmed payment) and in `reviewBrokeragePaymentClaim` when an admin confirms a brokerage-submitted claim. Partial/multiple payments each post their own line; pending and rejected claims post nothing.
+
+Both go through the balance-neutral `record_agent_statement_entry` RPC, so they **never change `account_balance`** and therefore never trigger late-payment interest or get netted against a future advance — a funded advance the brokerage repays is not agent debt. On a clean deal the Advance Issued charge and the Repayment Received payment net to zero. If a funded deal is reverted to `approved` or marked `funding_failed`, the Advance Issued entry is reversed so the statement does not show a phantom advance. All posting is best-effort: the money path commits first, and a failed statement insert is logged for manual reconciliation but never unwinds funding or payment confirmation. The helpers live in `lib/agent-statement.ts`.

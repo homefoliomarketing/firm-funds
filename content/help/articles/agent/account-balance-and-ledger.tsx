@@ -5,11 +5,10 @@ function Body() {
   return (
     <>
       <p>
-        Your Account & Ledger page is the single source of truth for any money moving
-        between you and Firm Funds outside of a clean, completed advance. Every
-        interest charge, every credit from a brokerage remittance, every manual
-        adjustment shows up here as a line item with a running balance. Open it from
-        the Wallet icon in the header.
+        Your Account & Ledger page is the running record of money moving between you
+        and Firm Funds. Every advance we issue, every repayment your brokerage sends,
+        every interest charge, credit, and manual adjustment shows up here as a line
+        item. Open it from the Wallet icon in the header.
       </p>
 
       <h2>How to read your balance</h2>
@@ -45,6 +44,22 @@ function Body() {
         in plain English:
       </p>
       <dl>
+        <dt><strong>Advance Issued</strong></dt>
+        <dd>
+          Posted the day a deal is funded. It records the outstanding amount your
+          brokerage will repay Firm Funds for that advance. This line is for your
+          records only and does not change your account balance, so the Balance
+          column shows "not affected" beside it.
+        </dd>
+
+        <dt><strong>Repayment Received</strong></dt>
+        <dd>
+          Posted when Firm Funds confirms a payment from your brokerage against an
+          advance. It cancels out the matching Advance Issued line, so a normal deal
+          nets to zero. Like the advance line, it does not change your account
+          balance.
+        </dd>
+
         <dt><strong>Late Closing Interest</strong></dt>
         <dd>
           Interest that accrued because your brokerage missed the settlement window
@@ -99,9 +114,11 @@ function Body() {
 
       <h2>The running balance column</h2>
       <p>
-        Every row shows the balance at that moment in time, after that transaction
-        was applied. Read from the top down to follow your account history. The
-        balance at the top row should match the headline number on the page.
+        Most rows show the balance at that moment in time, after that transaction was
+        applied. Read from the top down to follow your account history. The balance at
+        the top row should match the headline number on the page. Advance Issued and
+        Repayment Received lines show "not affected" here, because they are records of
+        deal activity and never move what you owe.
       </p>
 
       <h2>Disputes and questions</h2>
@@ -123,7 +140,7 @@ const article: HelpArticle = {
     role: 'agent',
     category: 'deals',
     order: 50,
-    updatedAt: '2026-05-29',
+    updatedAt: '2026-06-09',
   },
   Body,
 }

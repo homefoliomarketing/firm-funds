@@ -27,6 +27,7 @@ import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable }
 import { hasCapability } from '@/lib/access'
 import { verifyFileMagicBytes } from '@/lib/file-validation'
 import { sumConfirmedPayments } from '@/lib/brokerage-payments'
+import { postDealAdvanceEntry, reverseDealAdvanceEntry } from '@/lib/agent-statement'
 import { formatCurrency } from '@/lib/formatting'
 
 // ============================================================================
@@ -989,6 +990,9 @@ export async function updateDealStatus(input: {
     // after we have exclusively claimed the deal via the CAS update below.
     // see audit finding #5
     let pendingFundingDeduction: { agentId: string; amount: number; description: string } | null = null
+    // Funding-only: informational "Advance issued" charge for the agent's
+    // statement (migration 106). Balance-neutral, posted after the CAS wins.
+    let pendingAdvanceEntry: { agentId: string; amount: number; propertyAddress: string | null } | null = null
 
     if (input.newStatus === 'funded') {
       updateData.funding_date = new Date().toISOString().split('T')[0]
@@ -1079,6 +1083,15 @@ export async function updateDealStatus(input: {
           description: `Balance deduction from advance: ${deal.property_address}`,
         }
       }
+
+      // Informational charge for the agent's statement: the outstanding balance
+      // the brokerage will repay. Balance-neutral (does not move account_balance);
+      // posted after the CAS update wins so we don't write it on a failed claim.
+      pendingAdvanceEntry = {
+        agentId: deal.agent_id,
+        amount: calc.amountDueFromBrokerage,
+        propertyAddress: deal.property_address ?? null,
+      }
     }
 
     if (input.newStatus === 'completed') {
@@ -1106,6 +1119,10 @@ export async function updateDealStatus(input: {
     if (isFundedToApprovedReversal) {
       updateData.balance_deducted = 0
     }
+    // The informational advance charge is posted on EVERY funding, so its
+    // reversal must fire on any funded->approved revert, not only when a
+    // balance deduction also occurred.
+    const isFundedToApprovedRevert = deal.status === 'funded' && input.newStatus === 'approved'
 
     // Task 2: Execute update with optimistic concurrency control via the
     // `version` column (migration 083 auto-increments it on every UPDATE).
@@ -1137,7 +1154,7 @@ export async function updateDealStatus(input: {
 
     // see audit finding #5: only this caller has claimed the deal; safe to debit now.
     // RPC requires service role (migration 072 locked apply_agent_balance_delta to service_role).
-    const rpcClient = (pendingFundingDeduction || isFundedToApprovedReversal)
+    const rpcClient = (pendingFundingDeduction || isFundedToApprovedReversal || isFundedToApprovedRevert || pendingAdvanceEntry)
       ? createServiceRoleClient()
       : null
     if (pendingFundingDeduction && rpcClient) {
@@ -1166,6 +1183,19 @@ export async function updateDealStatus(input: {
         }
         return { success: false, error: `Failed to deduct balance: ${rpcErr.message}` }
       }
+    }
+
+    // Informational "Advance issued" charge on the agent's statement. Balance-
+    // neutral and best-effort: the deal is already funded, so a failure here is
+    // logged (inside the helper) but never unwinds the funding.
+    if (pendingAdvanceEntry && rpcClient) {
+      await postDealAdvanceEntry(rpcClient, {
+        agentId: pendingAdvanceEntry.agentId,
+        dealId: deal.id,
+        amount: pendingAdvanceEntry.amount,
+        propertyAddress: pendingAdvanceEntry.propertyAddress,
+        createdBy: user.id,
+      })
     }
 
     // see audit finding #19: refund the previously deducted balance now that
@@ -1201,6 +1231,19 @@ export async function updateDealStatus(input: {
           refunded_amount: prevBalanceDeducted,
           reason: 'funded reverted to approved',
         },
+      })
+    }
+
+    // Reverse the informational "Advance issued" charge so the statement does
+    // not show a phantom advance on a deal that was pulled back to review.
+    if (isFundedToApprovedRevert && rpcClient) {
+      await reverseDealAdvanceEntry(rpcClient, {
+        agentId: deal.agent_id,
+        dealId: deal.id,
+        amount: Number(deal.amount_due_from_brokerage || 0),
+        propertyAddress: deal.property_address ?? null,
+        reason: 'deal returned to review',
+        createdBy: user.id,
       })
     }
 
@@ -2857,6 +2900,19 @@ export async function markFundingFailed(input: {
           error: `Funding marked as failed, but the balance reversal of $${priorBalanceDeducted.toFixed(2)} did NOT post. Apply a manual credit on the agent ledger to reconcile.`,
         }
       }
+    }
+
+    // Reverse the informational "Advance issued" charge so the agent's
+    // statement does not keep showing an advance whose funding bounced.
+    if (deal.agent_id) {
+      await reverseDealAdvanceEntry(createServiceRoleClient(), {
+        agentId: deal.agent_id,
+        dealId: deal.id,
+        amount: Number(deal.amount_due_from_brokerage || 0),
+        propertyAddress: deal.property_address ?? null,
+        reason: 'funding failed',
+        createdBy: user.id,
+      })
     }
 
     await logAuditEvent({

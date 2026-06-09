@@ -210,7 +210,9 @@ Append-only ledger. Balance writes must go through RPCs (section 5), never read-
 | reference_id | TEXT | Optional external reference (e.g. invoice id) |
 | created_by | UUID | Actor |
 
-`type` values (assembled across migrations 018, 039, 044, 073): `late_closing_interest`, `late_payment_interest`, `balance_deduction`, `balance_deduction_reversed`, `invoice_payment`, `adjustment`, `credit`, `failed_deal_balance`, `failed_deal_interest`. The ledger is immutable past insertion (migration 054).
+`type` values (assembled across migrations 018, 039, 044, 073, 106): `late_closing_interest`, `late_payment_interest`, `balance_deduction`, `balance_deduction_reversed`, `invoice_payment`, `adjustment`, `credit`, `failed_deal_balance`, `failed_deal_interest`, `deal_advance`, `deal_repayment`. The ledger is immutable past insertion (migration 054).
+
+`deal_advance` and `deal_repayment` (migration 106) are **informational** entries: a charge posted when a deal is funded (for `amount_due_from_brokerage`) and a payment posted when a brokerage payment is confirmed received. They make the ledger read like a statement (advance issued -> repayment received, netting to zero on a clean deal) but DO NOT change `account_balance` — they are written via `record_agent_statement_entry`, which freezes `running_balance` at the current balance. Because they never move the owed balance, they never trigger late-payment interest accrual or get netted against a future advance.
 
 ### agent_invoices (migration 018)
 
@@ -514,6 +516,7 @@ All balance and strike mutations go through SECURITY DEFINER functions that lock
 | --- | --- | --- |
 | `apply_agent_balance_delta(p_agent_id, p_delta, p_type, p_description, p_deal_id, p_created_by, p_reference_id)` | 052 | Atomically adjusts `agents.account_balance` by a signed delta and inserts the matching `agent_transactions` row. Returns the new transaction. The mandatory entry point for any balance write |
 | `apply_agent_balance_delta_capped(p_agent_id, p_delta_magnitude, p_type, p_description, p_deal_id, p_created_by)` | 073 | Atomic clamp-and-deduct: deducts min(magnitude, current_balance) under lock. Used by advance-time balance deductions |
+| `record_agent_statement_entry(p_agent_id, p_type, p_amount, p_description, p_deal_id, p_created_by, p_reference_id)` | 106 | Inserts an **informational** `deal_advance`/`deal_repayment` ledger row WITHOUT changing `account_balance` (`running_balance` frozen at current balance). Rejects any non-informational type. Used by funding (advance issued) and brokerage-payment confirmation (repayment received) |
 | `mark_invoice_paid_atomic(p_invoice_id, p_paid_amount, p_created_by)` | 073 | CAS-on-status invoice payment plus the matching ledger credit in one transaction. Idempotent if already paid |
 
 ### Strike and interest RPCs
@@ -676,5 +679,6 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 103_impersonation.sql | `impersonation_sessions` table (look-only "view as user"); `audit_log.impersonated_target_id` column. Additive and idempotent; no existing RLS policy changed |
 | 104_brokerage_og_image.sql | `brokerages.og_image_url` (PNG of the white-label logo for SMS / social link-preview cards). Additive; nullable |
 | 105_agent_self_submit_offer.sql | `deals.agent_self_submit_at` — set when an agent takes an `offered` firm-deal over to submit it themselves (pauses the brokerage on it). Additive; nullable |
+| 106_informational_deal_ledger_entries.sql | `deal_advance`/`deal_repayment` ledger types + `record_agent_statement_entry` RPC (balance-neutral statement entries). Additive |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

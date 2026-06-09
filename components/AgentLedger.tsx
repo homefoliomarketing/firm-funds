@@ -15,15 +15,21 @@ import type { AgentAccountTransaction } from '@/types/database'
 // admin agent profile page (/admin/agents/[id]). Presentational only — the
 // caller fetches the transactions (agent self-serve via the client, admin via
 // the service-role server query) and passes them in.
-const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof ArrowUpRight }> = {
+const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof ArrowUpRight; informational?: boolean }> = {
   late_closing_interest: { label: 'Late Closing Interest', color: 'text-status-amber', icon: Clock },
   late_payment_interest: { label: 'Late Payment Interest', color: 'text-status-amber', icon: Clock },
   balance_deduction: { label: 'Balance Deduction', color: 'text-status-teal', icon: ArrowDownLeft },
+  balance_deduction_reversed: { label: 'Balance Deduction Reversed', color: 'text-status-teal', icon: ArrowDownLeft },
   invoice_payment: { label: 'Invoice Payment', color: 'text-status-teal', icon: Receipt },
   adjustment: { label: 'Adjustment', color: 'text-muted-foreground', icon: DollarSign },
   credit: { label: 'Credit', color: 'text-status-teal', icon: ArrowDownLeft },
   failed_deal_balance: { label: 'Failed Deal Balance', color: 'text-status-red', icon: AlertTriangle },
   failed_deal_interest: { label: 'Failed Deal Interest', color: 'text-status-amber', icon: Clock },
+  // Informational deal-activity entries (migration 106). Shown for the record;
+  // they do NOT change the agent's account balance, so the Balance column
+  // renders a dash rather than a (misleading) frozen running total.
+  deal_advance: { label: 'Advance Issued', color: 'text-status-amber', icon: ArrowUpRight, informational: true },
+  deal_repayment: { label: 'Repayment Received', color: 'text-status-teal', icon: ArrowDownLeft, informational: true },
 }
 
 export default function AgentLedger({
@@ -33,6 +39,9 @@ export default function AgentLedger({
   transactions: AgentAccountTransaction[]
   emptyHint?: string
 }) {
+  const hasInformational = transactions.some(
+    (tx) => TRANSACTION_TYPE_CONFIG[tx.type]?.informational,
+  )
   return (
     <section aria-label="Transaction history">
       <Card className="overflow-hidden border-border/40 shadow-lg shadow-black/20">
@@ -92,7 +101,13 @@ export default function AgentLedger({
                           {isDebit ? '+' : ''}{formatCurrency(tx.amount)}
                         </TableCell>
                         <TableCell className="text-xs font-medium text-right tabular-nums text-foreground">
-                          {formatCurrency(tx.running_balance)}
+                          {config.informational ? (
+                            <span className="text-muted-foreground/50 font-normal" title="Does not affect your account balance">
+                              n/a
+                            </span>
+                          ) : (
+                            formatCurrency(tx.running_balance)
+                          )}
                         </TableCell>
                       </TableRow>
                     )
@@ -125,12 +140,22 @@ export default function AgentLedger({
                     <p className="text-xs text-foreground/80 truncate">{tx.description}</p>
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-[11px] text-muted-foreground/60 tabular-nums">{formatDate(tx.created_at)}</span>
-                      <span className="text-[11px] text-muted-foreground/60 tabular-nums">Bal: {formatCurrency(tx.running_balance)}</span>
+                      <span className="text-[11px] text-muted-foreground/60 tabular-nums">
+                        {config.informational ? 'Balance: not affected' : `Bal: ${formatCurrency(tx.running_balance)}`}
+                      </span>
                     </div>
                   </div>
                 )
               })}
             </div>
+
+            {hasInformational && (
+              <div className="px-5 sm:px-6 py-3 border-t border-border/40">
+                <p className="text-[11px] text-muted-foreground">
+                  Advance and repayment lines are shown for your records and do not change your account balance.
+                </p>
+              </div>
+            )}
           </>
         )}
       </Card>

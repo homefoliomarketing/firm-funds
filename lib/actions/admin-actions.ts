@@ -27,6 +27,7 @@ import {
   reviewPayment,
   sumConfirmedPayments,
 } from '@/lib/brokerage-payments'
+import { postDealRepaymentEntry } from '@/lib/agent-statement'
 import { generateBrokerageLogoSvg } from '@/lib/brokerage-logo-generator'
 
 // ============================================================================
@@ -2410,7 +2411,7 @@ export async function recordBrokeragePayment(input: {
 
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, status, brokerage_id, amount_due_from_brokerage')
+      .select('id, status, brokerage_id, amount_due_from_brokerage, agent_id, property_address')
       .eq('id', input.dealId)
       .single()
 
@@ -2475,6 +2476,20 @@ export async function recordBrokeragePayment(input: {
       },
       supabase,
     )
+
+    // Informational "Repayment received" entry on the agent's statement.
+    // Balance-neutral and best-effort: the payment is already recorded, so a
+    // failure here is logged (inside the helper) but does not fail the action.
+    if (deal.agent_id) {
+      await postDealRepaymentEntry(createServiceRoleClient(), {
+        agentId: deal.agent_id,
+        dealId: deal.id,
+        amount: input.amount,
+        propertyAddress: deal.property_address ?? null,
+        paymentId: newPayment.id,
+        createdBy: user.id,
+      })
+    }
 
     // The migration 055 trigger has already synced deals.repayment_amount.
     // Refetch the deal so the caller gets the fresh total.
@@ -2578,6 +2593,19 @@ async function reviewBrokeragePaymentClaim(
     .single()
 
   const newTotal = sumConfirmedPayments(updatedDeal?.brokerage_payments || [])
+
+  // On confirmation, post the informational "Repayment received" entry to the
+  // agent's statement (balance-neutral, best-effort). Rejections post nothing.
+  if (decision === 'confirmed' && updatedDeal?.agent_id) {
+    await postDealRepaymentEntry(supabase, {
+      agentId: updatedDeal.agent_id,
+      dealId: updated.deal_id,
+      amount: Number(updated.amount),
+      propertyAddress: updatedDeal.property_address ?? null,
+      paymentId: paymentId,
+      createdBy: reviewerUserId,
+    })
+  }
 
   await logAuditEvent({
     action: decision === 'confirmed' ? 'brokerage_payment.claim_confirmed' : 'brokerage_payment.claim_rejected',

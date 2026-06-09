@@ -1,6 +1,6 @@
 # Financial Model
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-09_
 
 This document explains exactly how Firm Funds turns a pending real estate commission into an advance amount, what fees are charged, how the brokerage gets paid, and how late interest accrues, with worked numeric examples tied to the real code.
 
@@ -203,6 +203,12 @@ A deal that closes late is different from a deal that **fails to close**. When a
 
 This live figure is what the admin sees in the Remediation IDP modal, and it becomes the directed amount on a Remediation IDP at signing time. See `deal-lifecycle.md` for the full failed-deal and cure flow.
 
-## 8. Currency formatting
+## 8. Agent ledger statement entries (advance issued / repayment received)
+
+The agent ledger (`agent_transactions` + `agents.account_balance`) is the running record of money between the agent and Firm Funds. `account_balance` itself only tracks what the agent **owes** (interest, failed-deal debt, manual adjustments, credits) — a clean advance the brokerage repays is not agent debt.
+
+To make the ledger read like a statement anyway, two **informational** entries are posted (migration 106): **Advance Issued** (`deal_advance`) when a deal is funded, for `amount_due_from_brokerage`, and **Repayment Received** (`deal_repayment`) when a brokerage payment is confirmed received. They are written via the balance-neutral `record_agent_statement_entry` RPC, so they do **not** move `account_balance` and never affect any of the interest or netting math above. On a clean deal they net to zero. Full mechanics in `deal-lifecycle.md` §6.
+
+## 9. Currency formatting
 
 `formatCurrency(amount)` renders any number as CAD using `Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' })`. A duplicate helper with the same behavior also exists inside `lib/email.ts` for email bodies.
