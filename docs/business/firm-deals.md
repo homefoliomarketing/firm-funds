@@ -1,6 +1,6 @@
 # Firm Deals (Proactive Offer Detection)
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-09_
 
 This document describes how Firm Funds detects a real estate deal becoming firm, matches it to an enrolled agent, and turns it into a proactive commission advance offer.
 
@@ -38,6 +38,12 @@ A row that appears in both Conditional and a month tab is treated as month-tab (
 ### Stage 4: dispatch the offer (cron `firm-deal-dispatcher`)
 
 The dispatcher picks up `approved` events and sends the offer to the matched agent by email and/or SMS, moving the event to `offer_sent`. Auto-fire is per pipe: when `brokerage_pipes.auto_fire_enabled` is false (the Phase 1 default), a matched event lands in `awaiting_approval` for a human to approve; when true, it goes straight to `approved` and dispatches automatically.
+
+### Link preview (white-label Open Graph card)
+
+The offer link in the SMS / email is `https://firmfunds.ca/agent/firm-deal/<token>` (`app/agent/firm-deal/[token]/route.ts`). When a messaging app renders that link it fetches the URL and reads its Open Graph tags to draw a preview card. A bare GET now returns a branded HTML page (`lib/firm-deal-detection/offer-launch.ts`): the card shows the **brokerage's** white-label brand (`brokerage_pipes.brand_name`) and logo (`brokerages.og_image_url`) plus the same advance estimate the SMS quotes (via the shared `pickAgentVariant` in `offer-estimate.ts`), instead of generic Firm Funds. The card text is the brand name + the deal's dollar figure; the website line stays `firmfunds.ca`. A nonce'd inline script forwards a real human on to `?go=1`, which runs the existing sign-in + dashboard redirect; preview crawlers do not run JS, so they only read the meta tags and never consume the (multi-use) token.
+
+The og:image must be a raster: messaging apps will not render the auto-generated SVG logo as an og:image. `brokerages.og_image_url` holds a PNG of the logo (dark 1200x630 card). Generate or refresh it with `npx tsx scripts/generate-og-logo.mts [brokerageId]` after onboarding a white-label partner (no arg = all `is_white_label_partner` brokerages); it renders the on-file SVG with Edge so the Big Shoulders wordmark font resolves, uploads `logo-og.png`, and sets `og_image_url`. When `og_image_url` is null the card falls back to the Firm Funds icon.
 
 ## 3. Agent matching (`match-agents.ts`)
 

@@ -78,6 +78,9 @@ export interface Brokerage {
    *  from lib/brokerage-logo-generator.ts). Templates check this to avoid
    *  double-rendering the FF wordmark next to the logo. Migration 096. */
   logo_includes_tagline: boolean
+  /** Public PNG of the white-label logo for social / SMS link-preview cards
+   *  (Open Graph). Raster companion to logo_url (SVG). Migration 104. */
+  og_image_url: string | null
   // White-label partner — Session 34
   is_white_label_partner: boolean
   profit_share_pct: number  // Negotiated %, per-brokerage. Whole numbers (20.00 = 20%). Never hardcoded.

@@ -50,6 +50,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { consumeFirmDealMagicLink } from '@/lib/firm-deal-detection/magic-link'
+import { resolveFirmDealOfferBranding, renderOfferLaunchHtml } from '@/lib/firm-deal-detection/offer-launch'
 import { logAuditEventServiceRole } from '@/lib/audit'
 
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://firmfunds.ca'
@@ -92,6 +93,43 @@ export async function GET(
   const { token } = await params
   const service = createServiceRoleClient()
 
+  // --- Link-preview / launch step -----------------------------------------
+  // A bare GET (no ?go=1) serves a branded HTML page: white-label Open Graph
+  // tags so the SMS/email preview card shows the brokerage's own brand (name +
+  // logo) and the deal's dollar figure, plus a nonce'd inline script that
+  // forwards a real human on to ?go=1 (the sign-in + redirect below). Link
+  // preview crawlers don't run JS — they only read the meta tags and never
+  // consume the token (which is multi-use anyway). See offer-launch.ts.
+  const reqUrl = new URL(req.url)
+  if (reqUrl.searchParams.get('go') !== '1') {
+    let branding: Awaited<ReturnType<typeof resolveFirmDealOfferBranding>> = null
+    try {
+      branding = await resolveFirmDealOfferBranding(service, token)
+    } catch (err) {
+      // Best-effort: a generic-but-valid card still renders, and ?go=1 stays
+      // the authoritative validation path.
+      console.warn(
+        '[firm-deal-magic-link] branding resolve failed',
+        err instanceof Error ? err.message : err
+      )
+    }
+    const html = renderOfferLaunchHtml({
+      branding,
+      appUrl: APP_URL,
+      goUrl: `${reqUrl.pathname}?go=1`,
+      canonicalUrl: `${APP_URL.replace(/\/$/, '')}${reqUrl.pathname}`,
+      nonce: req.headers.get('x-nonce') ?? '',
+    })
+    return new NextResponse(html, {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, max-age=0',
+      },
+    })
+  }
+
+  // --- Sign-in step (?go=1: a real human continuing through the splash) ----
   // Token prefix for audit/log — never the full token, which would be
   // replayable if logs leaked.
   const tokenPrefix = typeof token === 'string' ? token.slice(0, 8) : null
