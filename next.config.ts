@@ -6,6 +6,13 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '25mb',
     },
   },
+  // Ensure the brand logo PNG is traced into the report-export serverless
+  // function bundle on Netlify. public/ assets are CDN-served and not bundled
+  // into functions by default, so the pdf-lib logo read from process.cwd()
+  // would otherwise fall back to the text wordmark in production.
+  outputFileTracingIncludes: {
+    '/api/admin/reports/export': ['./public/brand/black.png'],
+  },
   async headers() {
     return [
       {
