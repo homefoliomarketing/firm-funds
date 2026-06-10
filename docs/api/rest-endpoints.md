@@ -1,6 +1,6 @@
 # REST Endpoints
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-10_
 
 This document describes every request-driven HTTP route under `app/api/` (excluding the scheduled cron routes and inbound webhooks, which are documented separately in `cron-jobs.md` and `webhooks.md`).
 
@@ -102,8 +102,9 @@ Source file: `app/api/brokerage/confirm-contact-email/route.ts`.
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/reports/referral-fees` | Session, role `brokerage_admin`, senior staff only | Generate a branded PDF referral-fee report for the caller's brokerage. Access is further restricted to senior contacts via `canViewBrokerageReferralFees(staff_title)` (Broker of Record + Brokerage Manager), enforced server-side so the tab being hidden client-side cannot be bypassed. | Query `?month=YYYY-MM` (optional) or `?all=true` | `200` PDF (`application/pdf`, attachment). `401` unauthenticated, `403` if not a senior brokerage admin, `400` on malformed month, `404` brokerage not found. |
 | GET | `/api/audit/export` | Session, role `super_admin` or `firm_funds_admin` | Export the audit log as CSV or JSON. Re-enforces the Origin check on this GET (unusual: GETs are normally exempt) because it exposes the full audit log. Search input is sanitized before being passed to the PostgREST `or()` filter. | Query `entityType`, `entityId`, `action`, `severity`, `actorEmail`, `search`, `dateFrom`, `dateTo`, `format` (`csv` default or `json`). Capped at 10,000 rows. | `200` CSV or JSON file (attachment). `401` unauthenticated, `403` forbidden (non-admin or bad origin), `429` rate-limited. |
+| GET | `/api/admin/reports/export` | Session, internal staff (any tier via `getAuthenticatedAdmin`) | Generate a downloadable financial report as a branded PDF (pdf-lib) or multi-sheet Excel workbook (SheetJS). Scoped to the whole company, a single brokerage, or a single agent (agent reports also include the agent ledger + current balance). Sections: summary, advances funded, repayments collected, brokerage revenue share, receivables aging, failed/flagged deals, full deal detail. Data is built once by `lib/reports/build.ts` (`buildReportPackage`) and rendered by `lib/reports/pdf.ts` / `lib/reports/xlsx.ts`. Not in `proxy.ts` PUBLIC_PATHS (session-cookie auth). | Query `format` (`pdf` default or `xlsx`), `scope` (`company` default, `brokerage`, or `agent`), `id` (required for brokerage/agent scope), optional `start`/`end` (`YYYY-MM-DD`) and `status`. | `200` PDF or XLSX file (attachment). `400` invalid scope/format or missing `id` for a scoped report, `401` unauthenticated, `500` on build/generation failure. |
 
-Source files: `app/api/reports/referral-fees/route.ts`, `app/api/audit/export/route.ts`.
+Source files: `app/api/reports/referral-fees/route.ts`, `app/api/audit/export/route.ts`, `app/api/admin/reports/export/route.ts` (with `lib/reports/build.ts`, `lib/reports/pdf.ts`, `lib/reports/xlsx.ts`, `lib/reports/types.ts`).
 
 ---
 

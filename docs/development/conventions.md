@@ -67,7 +67,11 @@ The roster importer parses Excel files with SheetJS. The copy on the npm registr
 npm i --save https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
 ```
 
-Never run `npm i xlsx@latest` or accept a dependabot-style bump to a registry version; that would silently downgrade to the vulnerable 0.18.5. To upgrade, swap the version in the tarball URL (check https://cdn.sheetjs.com for the latest). Parse uploads from a buffer (`XLSX.read(bytes, ...)`), never `XLSX.readFile`, so bundlers do not pull in the `fs` codepath.
+Never run `npm i xlsx@latest` or accept a dependabot-style bump to a registry version; that would silently downgrade to the vulnerable 0.18.5. To upgrade, swap the version in the tarball URL (check https://cdn.sheetjs.com for the latest). Parse uploads from a buffer (`XLSX.read(bytes, ...)`), never `XLSX.readFile`, so bundlers do not pull in the `fs` codepath. On the write side (the report exporter in `lib/reports/xlsx.ts`), build the workbook and emit it with `XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })` and return it from the route as `new Response(Buffer.from(buf), ...)`; never `XLSX.writeFile` (same `fs` reason). The `Buffer.from(...)` wrapper matters: a raw `Buffer<ArrayBufferLike>` (and a bare `Uint8Array`) is not assignable to the DOM `BodyInit` type under the current TS lib, but `Buffer.from(...)` returns `Buffer<ArrayBuffer>`, which is. The same applies to the pdf-lib bytes.
+
+## Financial report exports (`lib/reports/`)
+
+The admin report exporter (`/api/admin/reports/export`) is structured so the numbers are computed once and rendered two ways. `lib/reports/build.ts` (`buildReportPackage`) runs a single scoped `deals` query (service-role, RLS-bypassing) and produces a normalized `ReportPackage` (`lib/reports/types.ts`); `lib/reports/pdf.ts` (pdf-lib, branded) and `lib/reports/xlsx.ts` (SheetJS, multi-sheet) only format that object. Add a new section by extending the `ReportPackage` type and the builder, then both exporters. Money semantics live in the builder header comment: there is no `deals.funded_at`/`completed_at` (use `funding_date` + `status`); a deal counts as money-moved once `status` is in `funded`/`completed`/`failed_to_close`/`cured`. The report shows fee revenue, advances, collections, brokerage share, and amounts owed only; operating expenses are not tracked in this app (they live in the accounting software), so the bottom line is "Firm Funds gross profit," not net income.
 
 ## Theme
 

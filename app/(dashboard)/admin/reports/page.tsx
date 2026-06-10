@@ -10,6 +10,9 @@ import {
 } from 'lucide-react'
 import { getStatusBadgeClass, formatStatusLabel, DEAL_STATUSES } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
+import { getReportTargets } from '@/lib/actions/report-export-actions'
+import type { ReportScope, ReportTargets } from '@/lib/reports/types'
+import { StatusToast, type StatusToastMessage } from '@/components/StatusToast'
 import SignOutModal from '@/components/SignOutModal'
 import { DealNumber } from '@/components/DealNumber'
 import { Button } from '@/components/ui/button'
@@ -275,6 +278,12 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
   const [selectedBrokerage, setSelectedBrokerage] = useState<BrokerageDetail | null>(null)
   const [brokerageLoading, setBrokerageLoading] = useState(false)
+  // Branded PDF/Excel export panel state.
+  const [exportScope, setExportScope] = useState<ReportScope>('company')
+  const [selectedBrokerageId, setSelectedBrokerageId] = useState('')
+  const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [targets, setTargets] = useState<ReportTargets>({ brokerages: [], agents: [] })
+  const [statusMessage, setStatusMessage] = useState<StatusToastMessage | null>(null)
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
@@ -346,6 +355,13 @@ export default function ReportsPage() {
     // call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, supabase, loadMetrics])
+
+  // Load the brokerage + agent picker lists once for the export panel.
+  useEffect(() => {
+    getReportTargets().then((r) => {
+      if (r.success) setTargets({ brokerages: r.brokerages, agents: r.agents })
+    })
+  }, [])
 
   const handleDateChange = (range: DateRange) => {
     setDateRange(range)
@@ -442,6 +458,77 @@ export default function ReportsPage() {
       }
     }
     setExporting(null)
+  }
+
+  // Resolve the page's active date-range preset into concrete YYYY-MM-DD bounds
+  // for the export endpoint. Mirrors the server resolution in report-actions.ts:
+  // rolling windows are `now - N days`, ytd is Jan 1 this year, custom uses the
+  // pickers, and 'all' returns no bounds (start/end omitted). 'end' is left open
+  // for the rolling/ytd presets to match the server (which only sets a start).
+  const resolveExportDates = (): { start?: string; end?: string } => {
+    const toISODate = (d: Date) => {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+    const now = new Date()
+    switch (dateRange) {
+      case 'last_7':
+      case 'last_30':
+      case 'last_90': {
+        const days = dateRange === 'last_7' ? 7 : dateRange === 'last_30' ? 30 : 90
+        const d = new Date(now)
+        d.setDate(d.getDate() - days)
+        return { start: toISODate(d) }
+      }
+      case 'ytd':
+        return { start: toISODate(new Date(now.getFullYear(), 0, 1)) }
+      case 'custom':
+        return {
+          start: customStart || undefined,
+          end: customEnd || undefined,
+        }
+      case 'all':
+      default:
+        return {}
+    }
+  }
+
+  const exportTargetMissing =
+    (exportScope === 'brokerage' && !selectedBrokerageId) ||
+    (exportScope === 'agent' && !selectedAgentId)
+
+  const handleBrandedExport = (format: 'pdf' | 'xlsx') => {
+    if (exportTargetMissing) return
+
+    const params = new URLSearchParams()
+    params.set('format', format)
+    params.set('scope', exportScope)
+
+    if (exportScope === 'brokerage' && selectedBrokerageId) {
+      params.set('id', selectedBrokerageId)
+    } else if (exportScope === 'agent' && selectedAgentId) {
+      params.set('id', selectedAgentId)
+    }
+
+    const { start, end } = resolveExportDates()
+    if (start) params.set('start', start)
+    if (end) params.set('end', end)
+    if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter)
+
+    const url = `/api/admin/reports/export?${params.toString()}`
+    const a = document.createElement('a')
+    a.href = url
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+
+    setStatusMessage({
+      type: 'info',
+      text: 'Preparing your report… the download will start shortly.',
+    })
   }
 
   if (loading) {
@@ -645,6 +732,99 @@ export default function ReportsPage() {
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Export reports: branded PDF + Excel, scoped to company / brokerage / agent */}
+        <Card className="mb-8">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <FileText size={16} className="text-primary" />
+              <h3 className="text-sm font-bold text-foreground">Export reports</h3>
+            </div>
+            <p className="text-xs mb-4 text-muted-foreground">
+              Download a branded financial report for the whole company, a single brokerage, or a single agent. Uses the date range and status filters selected above.
+            </p>
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label htmlFor="export-scope" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Scope</label>
+                <select
+                  id="export-scope"
+                  value={exportScope}
+                  onChange={(e) => setExportScope(e.target.value as ReportScope)}
+                  className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark]"
+                >
+                  <option value="company">Whole company</option>
+                  <option value="brokerage">Single brokerage</option>
+                  <option value="agent">Single agent</option>
+                </select>
+              </div>
+
+              {exportScope === 'brokerage' && (
+                <div>
+                  <label htmlFor="export-brokerage" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Brokerage</label>
+                  <select
+                    id="export-brokerage"
+                    value={selectedBrokerageId}
+                    onChange={(e) => setSelectedBrokerageId(e.target.value)}
+                    className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark] max-w-xs"
+                  >
+                    <option value="">Select a brokerage…</option>
+                    {targets.brokerages.map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {exportScope === 'agent' && (
+                <div>
+                  <label htmlFor="export-agent" className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-muted-foreground">Agent</label>
+                  <select
+                    id="export-agent"
+                    value={selectedAgentId}
+                    onChange={(e) => setSelectedAgentId(e.target.value)}
+                    className="px-3 py-2 rounded-lg text-sm outline-none bg-input border border-border text-foreground [color-scheme:dark] max-w-xs"
+                  >
+                    <option value="">Select an agent…</option>
+                    {targets.agents.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.brokerageName ? `${a.name} (${a.brokerageName})` : a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handleBrandedExport('xlsx')}
+                  disabled={exportTargetMissing}
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-green-400 border-green-800 hover:bg-green-950/30"
+                >
+                  <Download size={13} />
+                  Download Excel
+                </Button>
+                <Button
+                  onClick={() => handleBrandedExport('pdf')}
+                  disabled={exportTargetMissing}
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-blue-400 border-blue-800 hover:bg-blue-950/30"
+                >
+                  <FileText size={13} />
+                  Download branded PDF
+                </Button>
+              </div>
+
+              {exportTargetMissing && (
+                <p className="text-xs text-muted-foreground self-center">
+                  {exportScope === 'brokerage' ? 'Select a brokerage' : 'Select an agent'}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -995,6 +1175,8 @@ export default function ReportsPage() {
             )}
           </DialogContent>
         </Dialog>
+
+      <StatusToast message={statusMessage} onDismiss={() => setStatusMessage(null)} />
     </div>
   )
 }
