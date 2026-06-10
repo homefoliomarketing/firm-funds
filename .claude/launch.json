@@ -13,6 +13,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["--yes", "http-server", "marketing/decks/commission-advance-pitch", "-p", "8765", "-c-1", "--silent"],
       "port": 8765
+    },
+    {
+      "name": "public-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "http-server", "public", "-p", "8770", "-c-1", "--silent"],
+      "port": 8770
     }
   ]
 }

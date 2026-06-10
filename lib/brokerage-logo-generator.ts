@@ -66,6 +66,31 @@ function charWidthEm(ch: string): number {
   return 0.49
 }
 
+// Worst-case character width for a NORMAL-width fallback font (Arial / Roboto /
+// Helvetica / Segoe UI bold — what email clients, PDF renderers, and <img>-
+// embedded SVGs substitute when the Big Shoulders web font can't load). These
+// are deliberately biased HIGH so the viewBox we size from them is never too
+// narrow. This is the safety budget that makes the wordmark clip-proof: the
+// generated viewBox is widened to fit this width, so even when a renderer falls
+// back to a much wider font than Big Shoulders, the centered text still fits
+// inside the box instead of overflowing and clipping on both edges.
+function charWidthEmWide(ch: string): number {
+  if (ch === ' ') return 0.30
+  const c = ch.toUpperCase()
+  if ('MW'.includes(c)) return 0.92
+  if ('IJ'.includes(c)) return 0.34
+  if ('1'.includes(c)) return 0.56
+  if ('FLT'.includes(c)) return 0.62
+  return 0.78 // safe upper bound for every other glyph in a wide bold sans
+}
+
+function approxLineWidthWide(text: string, fontSize: number): number {
+  let width = 0
+  for (const ch of text) width += charWidthEmWide(ch)
+  width += text.length * NAME_TRACKING_EM
+  return width * fontSize
+}
+
 // Tracking applied to the wordmark (em units). Mirrors the inline CSS on the
 // <text> element so the wrap math stays in sync if either changes.
 const NAME_TRACKING_EM = 0.03
@@ -164,7 +189,7 @@ export function generateBrokerageLogoSvg(
   // (e.g. "CHOICE ADVANCES", "ROYAL LEPAGE COMMUNITY") have room to stay on a
   // single line at a larger font, which scales to a more legible size when
   // the SVG is rendered into the portal header at h-20/h-24.
-  const padding = 24
+  const padding = 28
   const nameMaxWidth = maxWidth - padding * 2
   const { lines, fontSize } = fitName(brokerageName, nameMaxWidth)
 
@@ -174,7 +199,18 @@ export function generateBrokerageLogoSvg(
   // padding to ~265px total, which scaled the 13px tagline down to ~4px in
   // an 80px-tall header. Tighter padding + larger source font sizes give the
   // wordmark and tagline three to four times the rendered size.
-  const totalWidth = maxWidth
+  // Clip-proofing: the fit math above is calibrated for Big Shoulders Display (a
+  // narrow condensed face). Anywhere the web font can't load — email clients,
+  // PDF export, <img>-embedded SVGs — the renderer substitutes a normal-width
+  // system font that is ~25-30% wider, so the same text at the same font-size
+  // overflowed a maxWidth-wide viewBox and clipped on both sides (the bug:
+  // "CHOICE ADVANCES" losing its leading C and trailing S in Gmail). Size the
+  // viewBox to fit the WORST-CASE wide fallback so the centered wordmark can
+  // never exceed the box, whatever font the renderer picks. Height-constrained
+  // object-contain scaling in the portal turns the extra width into horizontal
+  // breathing room, NOT a smaller wordmark, so portal logos are unaffected.
+  const maxWideLineWidth = Math.max(...lines.map(l => approxLineWidthWide(l, fontSize)))
+  const totalWidth = Math.max(maxWidth, Math.ceil(maxWideLineWidth) + padding * 2)
   const centerX = totalWidth / 2
 
   // F-mark sits proportionally to the wordmark. We size it relative to font
@@ -229,7 +265,14 @@ export function generateBrokerageLogoSvg(
     </g>
   </g>
   <text x="${centerX}" y="${nameStartY}" text-anchor="middle" font-size="${fontSize}" fill="${nameColor}" class="ff-name" style="letter-spacing:${NAME_TRACKING_EM}em">
-    ${upperLines.map((l, i) => `<tspan x="${centerX}" ${i === 0 ? `y="${nameStartY}"` : `dy="${nameLineHeight}"`}>${l}</tspan>`).join('\n    ')}
+    ${upperLines.map((l, i) => {
+      // textLength pins each line to its Big-Shoulders width. Renderers that
+      // honor it condense a wide fallback back to the brand's narrow proportions
+      // (and it's a no-op for Big Shoulders itself); renderers that ignore it
+      // still can't clip because the viewBox above is sized for the wide font.
+      const tl = Math.round(approxLineWidth(lines[i], fontSize))
+      return `<tspan x="${centerX}" ${i === 0 ? `y="${nameStartY}"` : `dy="${nameLineHeight}"`} textLength="${tl}" lengthAdjust="spacingAndGlyphs">${l}</tspan>`
+    }).join('\n    ')}
   </text>
   <text x="${centerX}" y="${taglineY}" text-anchor="middle" font-size="${taglineFontSize}" fill="${taglineColor}" class="ff-tagline" dominant-baseline="hanging">
     POWERED BY <tspan class="ff-tagline-bold">FIRM FUNDS</tspan>

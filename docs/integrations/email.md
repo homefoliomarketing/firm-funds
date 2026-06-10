@@ -1,6 +1,6 @@
 # Email Integration (Resend)
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 This document describes how Firm Funds sends transactional and notification email through Resend, the available templates and when each is sent, and how unsubscribe, preference, and retry tracking work.
 
@@ -29,6 +29,45 @@ Every template routes through `sendEmailWithUnsubscribe(opts)`, which:
 `sendEmailWithUnsubscribe` also accepts an optional `attachments: { filename, content }[]` (content is a `Buffer`, which the Resend SDK base64-encodes). This is how `sendBrokerageExecutedIdpNotification` delivers the executed signed Direction to Pay PDF to the brokerage.
 
 Subject lines are sanitized (`sanitizeSubject` strips CR/LF to prevent header injection and caps length); body interpolations are HTML-escaped (`escapeHtml`). The shared `wrap()` function renders the dark-themed branded HTML shell. Agent-facing and brokerage-facing emails can show the brokerage's own logo via `getBrandingForAgent` / `getBrandingForBrokerage`, falling back to the Firm Funds wordmark on any miss.
+
+### 2a. The shared template shell (`wrap`) and its tokens
+
+`wrap(body, branding?, preheader?, fullWidthTrailer?)` is the single source of the email frame. It is email-safe by construction: table layout with `role="presentation"`, all styling inline, a web-safe font stack, no flex or grid for structure, and every gradient declares a solid-color fallback first (Outlook ignores the gradient and keeps the solid). It returns the COMPLETE document but deliberately omits the CASL unsubscribe footer, because `sendEmailWithUnsubscribe` appends that as `opts.html + footer`.
+
+Shell anatomy, ported from `public/email-mockup-welcome.html`:
+
+- Near-black page background (`#0A0A0A`), centered, with `56px 20px` outer padding.
+- A 560px elevated card (`#161616`, `1px` border `#2A2A2A`, `18px` radius).
+- A `2px` green top accent key-line. The solid `#5FA873` fallback is declared before the `linear-gradient(...)` so non-gradient clients still get a clean green line.
+- The brand logo header (see `brandHeader`).
+- A `44px 44px 40px` padded body region that renders `body`.
+- A three-line quiet footer (`#5C5C59`, `11px`) ending in the `firmfunds.ca` link.
+
+Parameters:
+
+| Param | Effect | Default |
+| --- | --- | --- |
+| `body` | Inner HTML for the padded card-body region | required |
+| `branding` | Brokerage logo + name for the header and footer line | Firm Funds default |
+| `preheader` | When set, renders the hidden preview-text div (`preheaderBlock`) at the top of `<body>`. This is the inbox-list preview line. Optional and positional so the ~37 callers that pass only `(body, branding)` are unaffected. | none |
+| `fullWidthTrailer` | Emitted edge-to-edge inside the card, below the padded body. Used for the recessed fallback-link shelf, which the design renders flush to the card edges on its own darker background. | none |
+
+`brandHeader(branding)` preserves three branches: (a) a generated brokerage logo that already bakes in "Powered by Firm Funds" (rendered alone at 88px), (b) a custom-uploaded logo with a separate "Powered by Firm Funds" line beneath it, and (c) the no-logo Firm Funds wordmark default.
+
+### 2b. Reusable body components
+
+Pure string-returning helpers in `lib/email.ts`, shared across templates as the redesign propagates. All interpolated user data is passed through `escapeHtml`.
+
+| Helper | Renders |
+| --- | --- |
+| `emailKicker(text)` | The green uppercase eyebrow label. Uppercasing is CSS (`text-transform` + `letter-spacing`), not hardcoded uppercase text. |
+| `emailButton(label, href)` | The hero CTA. Bulletproof: a VML `v:roundrect` fallback for Outlook plus a padded, gradient-backed anchor (solid-color fallback first) everywhere else. `href` is a server-built URL. |
+| `emailDetailCard(rows)` | The statement-style details card. `rows` is `{ label, value }[]`; values are right-aligned with hairline dividers between rows. |
+| `emailFallbackLink(url)` | The recessed monospaced "Button not working?" shelf carrying the raw URL. Pass it as `wrap`'s `fullWidthTrailer` so it renders flush to the card edges. |
+
+### 2c. The pure-render pattern
+
+`renderAgentInviteEmail(params)` is an exported, synchronous, side-effect-free function that builds the full Welcome / agent-invite document via `wrap(...)`. It does no DB or Resend I/O, so it can be rendered in a preview script or a dev route. `sendAgentInviteNotification` owns the send: it resolves branding, builds the invite URL, calls `renderAgentInviteEmail`, and passes the result as `html` to `sendEmailWithUnsubscribe` (its external signature, subject, `entityType`, and transactional flag are unchanged). Preview the output with `npx tsx scripts/render-email-preview.mts`, which writes `public/email-prod-welcome.html`. This is the template intended to be the model for migrating the other emails onto the same shell and helpers.
 
 The firm-deal templates in `lib/firm-deal-detection/` (which build their own light-themed HTML shells outside `wrap()`) follow the same white-label pattern. The agent-facing trigger email (`render-email.ts`) renders the brokerage's logo image in its header when `brand_logo_url` is supplied, falling back to the green text banner otherwise. `dispatch-notification.ts` resolves that logo from `brokerages.logo_url` / `logo_includes_tagline` (keyed off the event's `brokerage_id`, the same column the `lib/email.ts` headers use) and passes `brand_logo_url` / `brand_logo_includes_tagline` into the renderer; a missing logo or read error just leaves it null so the send is never blocked. When the logo already bakes in the tagline (generated logos, `logo_includes_tagline = true`) it is rendered alone; for custom uploads a small "Powered by Firm Funds" line is added beneath it.
 

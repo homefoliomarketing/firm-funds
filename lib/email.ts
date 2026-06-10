@@ -373,30 +373,32 @@ interface BrokerageBranding {
 }
 
 function brandHeader(branding?: BrokerageBranding | null): string {
+  // Logo header sizing + padding ported from public/email-mockup-welcome.html:
+  // an 88px-tall generated logo, 36px bottom padding, centered, max-width capped
+  // so a wide wordmark does not overflow the 560px column on narrow clients.
   if (branding?.logoUrl) {
     if (branding.logoIncludesTagline) {
-      // Generated logo — already includes "Powered by Firm Funds". Render alone.
-      // Height bumped to 88px because the generated SVG includes more vertical
-      // content (mark + name + tagline) than a bare brokerage logo.
+      // Generated logo already includes "Powered by Firm Funds". Render alone.
+      // The generated SVG packs mark + name + tagline, so it gets the full 88px.
       return `
-      <td style="padding:0 0 32px; text-align:center;">
-        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}, Powered by Firm Funds" height="88" style="height:88px; width:auto; max-width:360px;" />
+      <td align="center" style="padding:0 0 36px;">
+        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}, powered by Firm Funds" height="88" style="display:block; height:88px; width:auto; max-width:340px; border:0; outline:none; text-decoration:none;" />
       </td>`
     }
-    // Custom-uploaded logo — add separate "Powered by Firm Funds" below.
+    // Custom-uploaded logo, so add a separate "Powered by Firm Funds" line below.
     return `
-      <td style="padding:0 0 32px; text-align:center;">
-        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}" height="44" style="height:44px; width:auto; max-width:240px;" />
-        <div style="margin-top:10px;">
-          <span style="color:#737373; font-size:10px; letter-spacing:0.05em; text-transform:uppercase;">Powered by</span>
+      <td align="center" style="padding:0 0 36px;">
+        <img src="${branding.logoUrl}" alt="${escapeHtml(branding.name)}" height="44" style="display:block; height:44px; width:auto; max-width:240px; border:0; outline:none; text-decoration:none; margin:0 auto;" />
+        <div style="margin-top:12px;">
+          <span style="color:#8A8A87; font-size:10px; letter-spacing:0.06em; text-transform:uppercase;">Powered by</span>
           <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="12" style="height:12px; width:auto; vertical-align:middle; margin-left:6px;" />
         </div>
       </td>`
   }
-  // Default: Firm Funds-only header
+  // Default: Firm Funds-only header.
   return `
-      <td style="padding:0 0 32px; text-align:center;">
-        <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="36" style="height:36px; width:auto;" />
+      <td align="center" style="padding:0 0 36px;">
+        <img src="${APP_URL}/brand/white.png" alt="Firm Funds" height="40" style="display:block; height:40px; width:auto; border:0; outline:none; text-decoration:none;" />
       </td>`
 }
 
@@ -404,49 +406,206 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function wrap(body: string, branding?: BrokerageBranding | null): string {
-  return `
-<!DOCTYPE html>
-<html>
+// Hidden preheader (preview text). Renders the first line a recipient sees in
+// the inbox list before opening. The trailing zero-width / non-breaking run pads
+// out the preview so the client does not pull body copy in after the sentence.
+// Ported from public/email-mockup-welcome.html.
+function preheaderBlock(text: string): string {
+  return `  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#0A0A0A;">
+    ${escapeHtml(text)}
+    &#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;
+  </div>
+`
+}
+
+/**
+ * Shared email shell. Ported from public/email-mockup-welcome.html: near-black
+ * page background, an elevated 560px card with a thin green top accent key-line
+ * (solid-color fallback declared BEFORE the gradient for Outlook), the brand
+ * logo header, the body region, and a three-line quiet footer.
+ *
+ * The optional `preheader` renders the hidden preview-text div at the top of
+ * <body>. It is the third positional parameter so the other ~37 callers, which
+ * pass only (body, branding), are unaffected.
+ *
+ * The optional `fullWidthTrailer` is emitted edge-to-edge inside the card, after
+ * the 44px-padded body region. The Welcome redesign uses it for the recessed
+ * fallback-link shelf, which the mockup renders flush to the card edges with its
+ * own darker background. Omit it and the card ends at the body, exactly as the
+ * 37 existing callers expect.
+ *
+ * NOTE: this returns the COMPLETE document but deliberately does NOT include the
+ * CASL unsubscribe footer. sendEmailWithUnsubscribe appends that as
+ * `opts.html + footer`, so wrap() must stay footer-free.
+ */
+function wrap(
+  body: string,
+  branding?: BrokerageBranding | null,
+  preheader?: string,
+  fullWidthTrailer?: string
+): string {
+  const footerLeadLine = branding?.name
+    ? `${escapeHtml(branding.name)} &bull; powered by Firm Funds Inc.`
+    : 'Firm Funds Incorporated &bull; Ontario, Canada'
+  return `<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="x-apple-disable-message-reformatting" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="supported-color-schemes" content="dark" />
 </head>
-<body style="margin:0; padding:0; background:#0C0C0C; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0C0C0C; padding:48px 20px;">
+<body style="margin:0; padding:0; background:#0A0A0A; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+${preheader ? preheaderBlock(preheader) : ''}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0A0A0A;">
     <tr>
-      <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px; width:100%;">
-          <!-- Logo -->
+      <td align="center" style="padding:56px 20px;">
+
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:560px;">
+
+          <!-- Logo header -->
           <tr>
             ${brandHeader(branding)}
           </tr>
-          <!-- Main Card -->
+
+          <!-- Main card -->
           <tr>
-            <td style="background:#171717; border:1px solid #262626; border-radius:16px; overflow:hidden;">
-              <!-- Green accent bar -->
-              <div style="height:3px; background:linear-gradient(90deg, #5FA873, #4A8E5F);"></div>
-              <!-- Body -->
-              <div style="padding:40px 36px; color:#D4D4D4; font-size:15px; line-height:1.65;">
-                ${body}
-              </div>
+            <td style="background:#161616; border:1px solid #2A2A2A; border-radius:18px; overflow:hidden;">
+
+              <!-- Top accent key-line: solid green fallback first, gradient where supported -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="height:2px; line-height:2px; font-size:0; background:#5FA873; background:linear-gradient(90deg,#4A8E5F 0%,#5FA873 50%,#4A8E5F 100%);">&nbsp;</td>
+                </tr>
+              </table>
+
+              <!-- Card body -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding:44px 44px 40px; color:#D6D6D4; font-size:15px; line-height:1.65;">
+                    ${body}
+                  </td>
+                </tr>
+              </table>
+${fullWidthTrailer ? `
+              ${fullWidthTrailer}
+` : ''}
             </td>
           </tr>
-          <!-- Footer -->
+
+          <!-- Footer (three quiet lines) -->
           <tr>
-            <td style="padding:28px 36px 0; text-align:center;">
-              <p style="margin:0 0 6px; color:#525252; font-size:11px; letter-spacing:0.03em;">
-                ${branding?.name ? escapeHtml(branding.name) + ' &bull; powered by Firm Funds Inc.' : 'Firm Funds Incorporated &bull; Ontario, Canada'}
+            <td align="center" style="padding:30px 36px 0;">
+              <p style="margin:0 0 6px; color:#7E7E7B; font-size:11px; font-weight:400; line-height:1.5; letter-spacing:0.04em;">
+                ${footerLeadLine}
               </p>
-              <a href="${APP_URL}" style="color:#5FA873; text-decoration:none; font-size:11px; letter-spacing:0.03em;">firmfunds.ca</a>
+              <a href="${APP_URL}" style="color:#5FA873; text-decoration:none; font-size:11px; font-weight:600; letter-spacing:0.04em;">firmfunds.ca</a>
             </td>
           </tr>
+
         </table>
+
       </td>
     </tr>
   </table>
 </body>
 </html>`
+}
+
+// ============================================================================
+// Reusable email body components (ported from public/email-mockup-welcome.html)
+// ============================================================================
+// Pure string-returning helpers shared across templates. These will be reused
+// as the redesign propagates to the other email functions. Pass already-trusted
+// or already-escaped values: emailButton / emailFallbackLink take a URL we build
+// server-side, while emailDetailCard escapes every cell via escapeHtml.
+
+/** Green uppercase eyebrow label above a headline. Uppercasing is done with CSS
+ *  (text-transform + letter-spacing), not by hardcoding uppercase text. */
+function emailKicker(text: string): string {
+  return `<p style="margin:0 0 18px; color:#6FB783; font-size:11px; font-weight:700; line-height:1; letter-spacing:0.16em; text-transform:uppercase;">${escapeHtml(text)}</p>`
+}
+
+/** Hero CTA button. Bulletproof: a VML v:roundrect for Outlook plus a padded,
+ *  gradient-backed anchor (solid-color fallback first) everywhere else. `href`
+ *  is a server-built URL; it is emitted as-is into both the VML and the anchor. */
+function emailButton(label: string, href: string): string {
+  const safeLabel = escapeHtml(label)
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td align="center" style="padding:4px 0 8px;">
+                          <!--[if mso]>
+                          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+                            href="${href}"
+                            style="height:54px;v-text-anchor:middle;width:340px;" arcsize="24%" stroke="f" fillcolor="#5FA873">
+                            <w:anchorlock/>
+                            <center style="color:#0A140C;font-family:'Segoe UI',Arial,sans-serif;font-size:16px;font-weight:700;letter-spacing:0.01em;">
+                              ${safeLabel}
+                            </center>
+                          </v:roundrect>
+                          <![endif]-->
+                          <!--[if !mso]><!-- -->
+                          <a href="${href}"
+                             style="display:block; width:100%; background:#5FA873; background:linear-gradient(180deg,#65AE79 0%,#5FA873 50%,#549C6A 100%); color:#0A140C; text-decoration:none; text-align:center; font-size:16px; font-weight:700; line-height:54px; letter-spacing:0.01em; border-radius:13px; box-shadow:0 1px 0 rgba(255,255,255,0.10) inset, 0 6px 18px rgba(74,142,95,0.28);">
+                            ${safeLabel}
+                          </a>
+                          <!--<![endif]-->
+                        </td>
+                      </tr>
+                    </table>`
+}
+
+/** Statement-style details card: left labels (uppercase, muted), right-aligned
+ *  values, hairline divider between rows. Every label and value is escaped. */
+function emailDetailCard(rows: { label: string; value: string }[]): string {
+  const divider = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr><td style="height:1px; line-height:1px; font-size:0; background:#232323;">&nbsp;</td></tr>
+                          </table>`
+  const rowHtml = rows
+    .map(
+      (r) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td style="padding:14px 0; color:#8A8A87; font-size:12px; font-weight:600; line-height:1.4; letter-spacing:0.04em; text-transform:uppercase; width:120px; vertical-align:middle;">
+                                ${escapeHtml(r.label)}
+                              </td>
+                              <td style="padding:14px 0; color:#D6D6D4; font-size:14px; font-weight:400; line-height:1.4; text-align:right; vertical-align:middle; word-break:break-all;">
+                                ${escapeHtml(r.value)}
+                              </td>
+                            </tr>
+                          </table>`
+    )
+    .join(`\n                          ${divider}\n                          `)
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 30px;">
+                      <tr>
+                        <td style="background:#1C1C1C; border:1px solid #2A2A2A; border-radius:12px; padding:6px 22px;">
+                          ${rowHtml}
+                        </td>
+                      </tr>
+                    </table>`
+}
+
+/** Recessed monospaced "Button not working?" shelf with the raw fallback URL.
+ *  Sits in its own key-line zone below the card body. `url` is server-built. */
+function emailFallbackLink(url: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr><td style="height:1px; line-height:1px; font-size:0; background:#232323;">&nbsp;</td></tr>
+              </table>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding:22px 44px 26px; background:#131313;">
+                    <p style="margin:0 0 8px; color:#8A8A87; font-size:12px; font-weight:600; line-height:1.4; letter-spacing:0.04em; text-transform:uppercase;">
+                      Button not working?
+                    </p>
+                    <p style="margin:0; color:#858582; font-size:13px; line-height:1.5;">
+                      Copy and paste this link into your browser:
+                    </p>
+                    <p style="margin:6px 0 0; font-family:'SF Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; line-height:1.5; word-break:break-all;">
+                      <a href="${url}" style="color:#6FB783; text-decoration:none;">${url}</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>`
 }
 
 // ============================================================================
@@ -755,6 +914,51 @@ export async function sendDocumentRequestNotification(params: {
 // Email: Agent Invite → New Agent
 // ============================================================================
 
+/**
+ * PURE renderer for the Welcome / agent-invite email. Synchronous, no I/O.
+ * Builds the redesigned body (kicker, h1 headline, lead, details card, hero CTA,
+ * expiry note) and the recessed fallback-link shelf, then returns the fully
+ * wrapped document via wrap(...). The redesign is ported 1:1 from
+ * public/email-mockup-welcome.html. Kept exported and side-effect-free so it can
+ * be rendered in a preview script or a dev route without touching Resend or the
+ * DB. sendAgentInviteNotification owns the send (branding lookup, URL, headers).
+ */
+export function renderAgentInviteEmail(params: {
+  agentFirstName: string
+  agentEmail: string
+  brokerageName: string
+  inviteUrl: string
+  branding?: BrokerageBranding | null
+}): string {
+  const firstName = escapeHtml(params.agentFirstName ?? '')
+  const brokerage = escapeHtml(params.brokerageName ?? '')
+
+  const body = `${emailKicker('Account activation')}
+
+                    <h1 style="margin:0 0 16px; color:#F5F5F4; font-size:28px; font-weight:700; line-height:1.2; letter-spacing:-0.02em;">
+                      Welcome, ${firstName}.
+                    </h1>
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${brokerage} has set up your account so they can request commission advances on your behalf, powered by Firm Funds. Set your password to activate it, then finish a quick ID check and add your banking.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Brokerage', value: params.brokerageName ?? '' },
+                      { label: 'Your login', value: params.agentEmail ?? '' },
+                    ])}
+
+                    ${emailButton('Activate my account', params.inviteUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      This activation link is unique to you and expires in 72 hours.
+                    </p>`
+
+  const preheader = `Your ${params.brokerageName ?? ''} account is ready. Set your password to get started.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(params.inviteUrl))
+}
+
 // The legacy `tempPassword` parameter was removed for security.
 // All callers now pass an invite token instead of sending credentials in email.
 export async function sendAgentInviteNotification(params: {
@@ -782,39 +986,13 @@ export async function sendAgentInviteNotification(params: {
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to ${escapeHtml(params.brokerageName)}!</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.agentFirstName)}, your account is ready. Activate it now so ${escapeHtml(params.brokerageName)} can submit commission advance requests on your behalf, powered by Firm Funds.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Email</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentEmail)}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          Click the button below to set your password and finish setup (ID verification + banking). This link expires in 72 hours.
-        </p>
-        <div style="text-align:center; margin:28px 0;">
-          <a href="${inviteUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
-            Activate My Account
-          </a>
-        </div>
-        <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
-          <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
-        </p>
-      `, branding),
+    html: renderAgentInviteEmail({
+      agentFirstName: params.agentFirstName,
+      agentEmail: params.agentEmail,
+      brokerageName: params.brokerageName,
+      inviteUrl,
+      branding,
+    }),
   })
 }
 
