@@ -22,7 +22,7 @@ import {
   getNotificationPreferences,
   updateNotificationPreferences,
 } from '@/lib/actions/settings-actions'
-import { getDocuSignStatus } from '@/lib/actions/esign-actions'
+import { getEsignProviderStatus } from '@/lib/actions/esign-actions'
 
 export default function AdminSettingsPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
@@ -49,9 +49,11 @@ export default function AdminSettingsPage() {
   })
   const [notifSaving, setNotifSaving] = useState(false)
 
+  const [esignProvider, setEsignProvider] = useState<'signwell' | 'docusign'>('docusign')
+  const [signWellConfigured, setSignWellConfigured] = useState(false)
   const [docuSignConnected, setDocuSignConnected] = useState(false)
   const [docuSignConsentUrl, setDocuSignConsentUrl] = useState<string | null>(null)
-  const [docuSignLoading, setDocuSignLoading] = useState(true)
+  const [esignLoading, setEsignLoading] = useState(true)
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -82,10 +84,12 @@ export default function AdminSettingsPage() {
         setNotifPrefs(prefsResult.data as Record<string, boolean>)
       }
 
-      const dsStatus = await getDocuSignStatus()
-      setDocuSignConnected(dsStatus.connected)
-      setDocuSignConsentUrl(dsStatus.consentUrl || null)
-      setDocuSignLoading(false)
+      const esStatus = await getEsignProviderStatus()
+      setEsignProvider(esStatus.provider)
+      setSignWellConfigured(esStatus.signWellConfigured)
+      setDocuSignConnected(esStatus.docuSign.connected)
+      setDocuSignConsentUrl(esStatus.docuSign.consentUrl || null)
+      setEsignLoading(false)
 
       setLoading(false)
     }
@@ -391,17 +395,32 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* DOCUSIGN INTEGRATION */}
+        {/* E-SIGNATURE PROVIDER (provider-aware: SignWell uses API-key auth, no connect step) */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
               <FileSignature size={18} />
-              E-Signature (DocuSign)
+              E-Signature ({esignProvider === 'signwell' ? 'SignWell' : 'DocuSign'})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {docuSignLoading ? (
+            {esignLoading ? (
               <Skeleton className="h-10 w-full" />
+            ) : esignProvider === 'signwell' ? (
+              signWellConfigured ? (
+                <div className="flex items-center gap-3 py-2">
+                  <CheckCircle size={20} className="text-primary flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">SignWell Connected</p>
+                    <p className="text-xs text-muted-foreground">Commission Purchase Agreements and Irrevocable Directions to Pay are sent through SignWell. SignWell authenticates with a secure API key set in the server configuration, so there is nothing to connect here.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-2">
+                  <p className="text-sm font-semibold text-foreground">SignWell not configured</p>
+                  <p className="text-xs text-muted-foreground">The SIGNWELL_API_KEY environment variable is missing on the server. Add it to enable electronic signatures.</p>
+                </div>
+              )
             ) : docuSignConnected ? (
               <div className="flex items-center gap-3 py-2">
                 <CheckCircle size={20} className="text-primary flex-shrink-0" />

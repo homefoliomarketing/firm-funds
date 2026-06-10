@@ -80,6 +80,29 @@ export async function getDocuSignStatus(): Promise<{ connected: boolean; consent
 }
 
 // ============================================================================
+// Get active e-signature provider status (for the admin Settings card)
+// ============================================================================
+
+/**
+ * Reports which e-signature provider is active and its connection status, so
+ * the Settings UI can show the right panel. SignWell uses static API-key auth
+ * (no OAuth "connect" step) — it is "connected" whenever SIGNWELL_API_KEY is
+ * set. DocuSign's OAuth status is only probed when DocuSign is the active
+ * provider (when SignWell is active, the DocuSign token check is irrelevant
+ * and we skip the external call).
+ */
+export async function getEsignProviderStatus(): Promise<{
+  provider: 'signwell' | 'docusign'
+  signWellConfigured: boolean
+  docuSign: { connected: boolean; consentUrl?: string }
+}> {
+  const provider = getEsignProvider()
+  const signWellConfigured = isSignWellConfigured()
+  const docuSign = provider === 'docusign' ? await getDocuSignStatus() : { connected: false }
+  return { provider, signWellConfigured, docuSign }
+}
+
+// ============================================================================
 // Send Deal for E-Signature
 // ============================================================================
 
