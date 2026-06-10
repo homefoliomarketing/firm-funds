@@ -610,6 +610,14 @@ export async function POST(request: Request) {
             const agent = (deal as any)?.agent
             const brokerage = agent?.brokerage
 
+            // Only send the "Executed Direction to Pay" notice when an actual
+            // IDP was signed. A regular deal send writes two envelope rows
+            // (cpa + idp) under one SignWell document; a CPA Amendment send
+            // writes a single cpa row. An amendment is not a Direction to Pay,
+            // so a cpa-only document must NOT trigger this brokerage email
+            // (it would arrive mislabeled as an executed IDP).
+            const hasIdp = envelopes.some((e) => e.document_type === 'idp')
+
             // Dedupe recipients, drop nulls/blanks, case-insensitive compare.
             const recipients: string[] = []
             const seenEmails = new Set<string>()
@@ -622,7 +630,11 @@ export async function POST(request: Request) {
               recipients.push(trimmed)
             }
 
-            if (recipients.length === 0) {
+            if (!hasIdp) {
+              console.log(
+                `SignWell webhook: deal ${dealId} document has no IDP envelope (likely a CPA amendment) — skipping brokerage Executed Direction to Pay email.`
+              )
+            } else if (recipients.length === 0) {
               console.warn(
                 `SignWell webhook: deal ${dealId} brokerage has no broker_of_record_email or email on file — cannot email executed Direction to Pay. Skipping (signed PDF already stored).`
               )
