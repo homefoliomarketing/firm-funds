@@ -1,6 +1,6 @@
 # Firm Funds Documentation
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 The canonical reference for how Firm Funds works. Read these docs before digging into source code, and update them whenever you change behavior. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the doc-to-code mapping.
 
@@ -36,7 +36,8 @@ Firm Funds is a real estate commission advance platform. For a one-page overview
 
 | Doc | What it covers |
 |-----|----------------|
-| [DocuSign](integrations/docusign.md) | Contract generation, signing flow, Connect webhook, env vars |
+| [DocuSign](integrations/docusign.md) | Contract generation, signing flow, Connect webhook, env vars (default provider) |
+| [SignWell](integrations/signwell.md) | Pilot DocuSign replacement: text-tag fields, per-page initials, webhook, `ESIGN_PROVIDER` flag |
 | [Email (Resend)](integrations/email.md) | Transactional email templates and the email log |
 | [ParcLabs](integrations/parcllabs.md) | Property data API, event ingestion, and firm-deal feed |
 

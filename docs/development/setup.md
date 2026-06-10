@@ -1,6 +1,6 @@
 # Local Development Setup
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This guide gets a developer from a fresh clone to a running local instance of Firm Funds.
 
@@ -64,6 +64,18 @@ Create `.env.local` in the repo root. The application reads the following variab
 | `DOCUSIGN_REDIRECT_URI` | OAuth callback URL registered with DocuSign |
 | `DOCUSIGN_HMAC_SECRET` | HMAC key to verify inbound Connect webhooks |
 | `DOCUSIGN_HMAC_DEV_BYPASS` | Set to `true` only in local dev to skip webhook HMAC verification |
+
+### SignWell (e-signature)
+
+The e-signature provider is chosen at runtime by `ESIGN_PROVIDER`. DocuSign is the default; set `ESIGN_PROVIDER=signwell` to use SignWell. See [docs/integrations/signwell.md](../integrations/signwell.md) for the full picture.
+
+| Variable | Purpose |
+|----------|---------|
+| `ESIGN_PROVIDER` | Active e-signature provider: `docusign` (default) or `signwell` |
+| `SIGNWELL_API_KEY` | SignWell API key, sent as the `X-Api-Key` header |
+| `SIGNWELL_API_APPLICATION_ID` | Branding ("Firm Funds") app id. Optional; defaults to the Firm Funds app id |
+| `SIGNWELL_WEBHOOK_ID` | The SignWell webhook id, used as the HMAC secret to verify inbound webhooks |
+| `SIGNWELL_HMAC_DEV_BYPASS` | Set to `1` only in local dev to skip webhook HMAC verification (never in production) |
 
 ### Resend (email)
 

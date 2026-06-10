@@ -2,6 +2,8 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { createAndSendEnvelope, isDocuSignConnected, voidEnvelope } from '@/lib/docusign'
+import { getEsignProvider } from '@/lib/esign-config'
+import { isSignWellConfigured, sendSignWellDocument, cancelSignWellDocument } from '@/lib/signwell'
 import { logAuditEvent } from '@/lib/audit'
 import { generateCpaDocx, generateIdpDocx, generateBcaDocx, generateCpaAmendmentDocx, generateRemediationIdpDocx } from '@/lib/contract-docx'
 import { getChargeDays } from '@/lib/calculations'
@@ -85,11 +87,19 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  const useSignWell = getEsignProvider() === 'signwell'
+
   try {
-    // Check DocuSign connection
-    const connected = await isDocuSignConnected()
-    if (!connected) {
-      return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+    // Check provider connection
+    if (useSignWell) {
+      if (!isSignWellConfigured()) {
+        return { success: false, error: 'SignWell is not configured. Add SIGNWELL_API_KEY.' }
+      }
+    } else {
+      const connected = await isDocuSignConnected()
+      if (!connected) {
+        return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+      }
     }
 
     // Fetch deal with agent and brokerage data
@@ -232,86 +242,116 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
 
     // Create envelope with both documents
     const agentFirstName = agent.first_name || 'there'
-    const result = await createAndSendEnvelope({
-      emailSubject: `Firm Funds — Signature Required: ${deal.property_address}`,
-      emailBlurb: `Hi ${agentFirstName},\n\nFirm Funds Inc. has prepared your Commission Purchase Agreement and Irrevocable Direction to Pay for the property at ${deal.property_address}.\n\nPlease review and sign both documents at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you for choosing Firm Funds.\n\n— The Firm Funds Team`,
-      documents: [
-        {
-          documentBase64: cpaBase64,
-          name: 'Commission Purchase Agreement',
-          fileExtension: 'docx',
-          documentId: '1',
-        },
-        {
-          documentBase64: idpBase64,
-          name: 'Irrevocable Direction to Pay',
-          fileExtension: 'docx',
-          documentId: '2',
-        },
-      ],
-      signers: [
-        {
-          email: agent.email,
-          name: agentName,
-          recipientId: '1',
-          routingOrder: '1',
-          tabs: {
-            signHereTabs: [
-              // CPA signature — anchored to the text in the HTML
-              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-              // IDP signature
-              { documentId: '2', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            dateSignedTabs: [
-              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-              { documentId: '2', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            initialHereTabs: [
-              // CPA — initials on pages 1-4 (page 5 is signature page, no initials needed)
-              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-              // IDP — initials on page 1 (page 2 is signature page)
-              { documentId: '2', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
+    const emailSubject = `Firm Funds — Signature Required: ${deal.property_address}`
+    const emailBlurb = `Hi ${agentFirstName},\n\nFirm Funds Inc. has prepared your Commission Purchase Agreement and Irrevocable Direction to Pay for the property at ${deal.property_address}.\n\nPlease review and sign both documents at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you for choosing Firm Funds.\n\n— The Firm Funds Team`
+
+    // Normalized send result: envelopeId holds a DocuSign envelope id or a
+    // SignWell document id depending on the active provider; uri holds the
+    // DocuSign view URI or the SignWell signing URL.
+    let envelopeId: string
+    let envelopeUri: string
+
+    if (useSignWell) {
+      // SignWell reads signature/initials/date fields from the text tags already
+      // embedded in the .docx, so we pass no anchor/tab config.
+      // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+      const result = await sendSignWellDocument({
+        name: `Firm Funds — ${deal.property_address}`,
+        subject: emailSubject,
+        message: emailBlurb,
+        files: [
+          { name: 'Commission Purchase Agreement.docx', base64: cpaBase64 },
+          { name: 'Irrevocable Direction to Pay.docx', base64: idpBase64 },
+        ],
+        recipients: [{ id: '1', email: agent.email, name: agentName }],
+        metadata: { deal_id: dealId, deal_number: deal.deal_number ?? '' },
+      })
+      envelopeId = result.documentId
+      envelopeUri = result.signingUrls[0] ?? ''
+    } else {
+      const result = await createAndSendEnvelope({
+        emailSubject,
+        emailBlurb,
+        documents: [
+          {
+            documentBase64: cpaBase64,
+            name: 'Commission Purchase Agreement',
+            fileExtension: 'docx',
+            documentId: '1',
           },
-        },
-      ],
-      // CC the brokerage admin and broker of record
-      ccRecipients: [
-        ...(brokerage.broker_of_record_email ? [{
-          email: brokerage.broker_of_record_email,
-          name: brokerage.broker_of_record_name || brokerage.name,
-          recipientId: '2',
-          routingOrder: '2',
-        }] : []),
-        ...(brokerage.email && brokerage.email !== brokerage.broker_of_record_email ? [{
-          email: brokerage.email,
-          name: brokerage.name + ' (Admin)',
-          recipientId: '3',
-          routingOrder: '2',
-        }] : []),
-      ],
-      status: 'sent',
-    })
+          {
+            documentBase64: idpBase64,
+            name: 'Irrevocable Direction to Pay',
+            fileExtension: 'docx',
+            documentId: '2',
+          },
+        ],
+        signers: [
+          {
+            email: agent.email,
+            name: agentName,
+            recipientId: '1',
+            routingOrder: '1',
+            tabs: {
+              signHereTabs: [
+                // CPA signature — anchored to the hidden /sig1/ token on the signature line
+                { documentId: '1', anchorString: '/sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+                // IDP signature
+                { documentId: '2', anchorString: '/sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              dateSignedTabs: [
+                { documentId: '1', anchorString: '/dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+                { documentId: '2', anchorString: '/dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              initialHereTabs: [
+                // CPA — initials on pages 1-4 (page 5 is signature page, no initials needed)
+                { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+                // IDP — initials on page 1 (page 2 is signature page)
+                { documentId: '2', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+            },
+          },
+        ],
+        // CC the brokerage admin and broker of record
+        ccRecipients: [
+          ...(brokerage.broker_of_record_email ? [{
+            email: brokerage.broker_of_record_email,
+            name: brokerage.broker_of_record_name || brokerage.name,
+            recipientId: '2',
+            routingOrder: '2',
+          }] : []),
+          ...(brokerage.email && brokerage.email !== brokerage.broker_of_record_email ? [{
+            email: brokerage.email,
+            name: brokerage.name + ' (Admin)',
+            recipientId: '3',
+            routingOrder: '2',
+          }] : []),
+        ],
+        status: 'sent',
+      })
+      envelopeId = result.envelopeId
+      envelopeUri = result.uri
+    }
 
     // Save envelope records to database
     const envelopeRecords = [
       {
         deal_id: dealId,
-        envelope_id: result.envelopeId,
+        envelope_id: envelopeId,
         document_type: 'cpa' as const,
         status: 'sent' as const,
         agent_signer_status: 'sent' as const,
         sent_by: user.id,
-        envelope_uri: result.uri,
+        envelope_uri: envelopeUri,
       },
       {
         deal_id: dealId,
-        envelope_id: result.envelopeId,
+        envelope_id: envelopeId,
         document_type: 'idp' as const,
         status: 'sent' as const,
         agent_signer_status: 'sent' as const,
         sent_by: user.id,
-        envelope_uri: result.uri,
+        envelope_uri: envelopeUri,
       },
     ]
 
@@ -321,23 +361,26 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
 
     if (insertErr) {
       // Finding 31/32: unique constraint violation = another concurrent send
-      // beat us to the active envelope slot; void the duplicate envelope we
-      // just created in DocuSign and return a friendly error. Any other
-      // insert failure: same cleanup so we don't leak a sent envelope that
-      // can't be tracked.
+      // beat us to the active envelope slot; void/cancel the duplicate envelope
+      // we just created and return a friendly error. Any other insert failure:
+      // same cleanup so we don't leak a sent envelope that can't be tracked.
       console.error('Failed to save envelope records:', insertErr.message)
       try {
-        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+        if (useSignWell) {
+          await cancelSignWellDocument(envelopeId)
+        } else {
+          await voidEnvelope(envelopeId, 'cleanup after record-save failure')
+        }
       } catch (voidErr: unknown) {
         const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
-        console.error('Failed to void DocuSign envelope during cleanup:', _msg)
+        console.error('Failed to void/cancel envelope during cleanup:', _msg)
       }
       const isUniqueViolation = (insertErr as { code?: string }).code === '23505'
       return {
         success: false,
         error: isUniqueViolation
           ? 'An active envelope already exists for this deal.'
-          : 'Failed to record envelope; DocuSign envelope was voided.',
+          : 'Failed to record envelope; the e-signature envelope was voided.',
       }
     }
 
@@ -345,10 +388,10 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       action: 'esignature.sent',
       entityType: 'deal',
       entityId: dealId,
-      metadata: { envelopeId: result.envelopeId, agentEmail: agent.email, agentName },
+      metadata: { envelopeId, agentEmail: agent.email, agentName },
     })
 
-    return { success: true, data: { envelopeId: result.envelopeId } }
+    return { success: true, data: { envelopeId } }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('sendForSignature error:', _msg)
@@ -390,11 +433,19 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
       }
     }
 
+    // When ESIGN_PROVIDER=signwell, envelope_id holds a SignWell document id and
+    // we cancel via the SignWell API instead of voiding a DocuSign envelope.
+    const useSignWell = getEsignProvider() === 'signwell'
+
     const voided: string[] = []
     const failed: { envelopeId: string; error: string }[] = []
     for (const eid of targetIds) {
       try {
-        await voidEnvelope(eid, reason)
+        if (useSignWell) {
+          await cancelSignWellDocument(eid)
+        } else {
+          await voidEnvelope(eid, reason)
+        }
         voided.push(eid)
       } catch (voidErr: unknown) {
         const voidMessage = voidErr instanceof Error ? voidErr.message : 'Unknown void error'
@@ -402,7 +453,7 @@ export async function voidDealEnvelopes(dealId: string, reason: string): Promise
       }
     }
 
-    // Update only the records whose DocuSign side actually voided.
+    // Update only the records whose provider side actually voided/cancelled.
     if (voided.length > 0) {
       await supabase
         .from('esignature_envelopes')
@@ -498,11 +549,19 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin('brokerage.manage')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  const useSignWell = getEsignProvider() === 'signwell'
+
   try {
-    // Check DocuSign connection
-    const connected = await isDocuSignConnected()
-    if (!connected) {
-      return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+    // Check provider connection
+    if (useSignWell) {
+      if (!isSignWellConfigured()) {
+        return { success: false, error: 'SignWell is not configured. Add SIGNWELL_API_KEY.' }
+      }
+    } else {
+      const connected = await isDocuSignConnected()
+      if (!connected) {
+        return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+      }
     }
 
     // Fetch brokerage data
@@ -566,72 +625,103 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
 
     // Create envelope — signer is the Broker of Record
     const borFirstName = brokerage.broker_of_record_name?.split(' ')[0] || 'there'
-    const result = await createAndSendEnvelope({
-      emailSubject: `Firm Funds — Brokerage Cooperation Agreement: ${brokerage.name}`,
-      emailBlurb: `Hi ${borFirstName},\n\nFirm Funds Inc. has prepared a Brokerage Cooperation Agreement for ${brokerage.name}. This agreement establishes the partnership between your brokerage and Firm Funds for our Commission Purchase Program.\n\nPlease review and sign at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
-      documents: [
-        {
-          documentBase64: bcaBase64,
-          name: 'Brokerage Cooperation Agreement',
-          fileExtension: 'docx',
-          documentId: '1',
-        },
-      ],
-      signers: [
-        {
-          email: brokerage.broker_of_record_email,
-          name: brokerage.broker_of_record_name,
-          recipientId: '1',
-          routingOrder: '1',
-          tabs: {
-            signHereTabs: [
-              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            dateSignedTabs: [
-              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            initialHereTabs: [
-              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
+    const emailSubject = `Firm Funds — Brokerage Cooperation Agreement: ${brokerage.name}`
+    const emailBlurb = `Hi ${borFirstName},\n\nFirm Funds Inc. has prepared a Brokerage Cooperation Agreement for ${brokerage.name}. This agreement establishes the partnership between your brokerage and Firm Funds for our Commission Purchase Program.\n\nPlease review and sign at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`
+
+    // Normalized send result: envelopeId holds a DocuSign envelope id or a
+    // SignWell document id depending on the active provider.
+    let envelopeId: string
+    let envelopeUri: string
+
+    if (useSignWell) {
+      // SignWell reads fields from the .docx text tags; no anchor/tab config.
+      // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+      const result = await sendSignWellDocument({
+        name: `Firm Funds — ${brokerage.name}`,
+        subject: emailSubject,
+        message: emailBlurb,
+        files: [
+          { name: 'Brokerage Cooperation Agreement.docx', base64: bcaBase64 },
+        ],
+        recipients: [{ id: '1', email: brokerage.broker_of_record_email, name: brokerage.broker_of_record_name }],
+        metadata: { brokerage_id: brokerageId },
+      })
+      envelopeId = result.documentId
+      envelopeUri = result.signingUrls[0] ?? ''
+    } else {
+      const result = await createAndSendEnvelope({
+        emailSubject,
+        emailBlurb,
+        documents: [
+          {
+            documentBase64: bcaBase64,
+            name: 'Brokerage Cooperation Agreement',
+            fileExtension: 'docx',
+            documentId: '1',
           },
-        },
-      ],
-      // CC the brokerage admin email + Firm Funds admin
-      ccRecipients: [
-        ...(brokerage.email && brokerage.email !== brokerage.broker_of_record_email ? [{
-          email: brokerage.email,
-          name: brokerage.name + ' (Admin)',
-          recipientId: '2',
-          routingOrder: '2',
-        }] : []),
-      ],
-      status: 'sent',
-    })
+        ],
+        signers: [
+          {
+            email: brokerage.broker_of_record_email,
+            name: brokerage.broker_of_record_name,
+            recipientId: '1',
+            routingOrder: '1',
+            tabs: {
+              signHereTabs: [
+                { documentId: '1', anchorString: '/sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              dateSignedTabs: [
+                { documentId: '1', anchorString: '/dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              initialHereTabs: [
+                { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+            },
+          },
+        ],
+        // CC the brokerage admin email + Firm Funds admin
+        ccRecipients: [
+          ...(brokerage.email && brokerage.email !== brokerage.broker_of_record_email ? [{
+            email: brokerage.email,
+            name: brokerage.name + ' (Admin)',
+            recipientId: '2',
+            routingOrder: '2',
+          }] : []),
+        ],
+        status: 'sent',
+      })
+      envelopeId = result.envelopeId
+      envelopeUri = result.uri
+    }
 
     // Save envelope record — uses brokerage_id, NOT deal_id
     const { error: insertErr } = await supabase
       .from('esignature_envelopes')
       .insert({
         brokerage_id: brokerageId,
-        envelope_id: result.envelopeId,
+        envelope_id: envelopeId,
         document_type: 'bca' as const,
         status: 'sent' as const,
         agent_signer_status: 'sent' as const, // re-used field: tracks BOR signer status
         sent_by: user.id,
-        envelope_uri: result.uri,
+        envelope_uri: envelopeUri,
       })
 
     if (insertErr) {
-      // Finding 32: void the DocuSign envelope if we couldn't track it, so the
+      // Finding 32: void/cancel the envelope if we couldn't track it, so the
       // duplicate-envelope guard above remains the source of truth.
       console.error('Failed to save BCA envelope record:', insertErr.message)
       try {
-        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+        if (useSignWell) {
+          await cancelSignWellDocument(envelopeId)
+        } else {
+          await voidEnvelope(envelopeId, 'cleanup after record-save failure')
+        }
       } catch (voidErr: unknown) {
         const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
-        console.error('Failed to void DocuSign BCA envelope during cleanup:', _msg)
+        console.error('Failed to void/cancel BCA envelope during cleanup:', _msg)
       }
-      return { success: false, error: 'Failed to record BCA envelope; DocuSign envelope was voided.' }
+      return { success: false, error: 'Failed to record BCA envelope; the e-signature envelope was voided.' }
     }
 
     await logAuditEvent({
@@ -639,14 +729,14 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
       entityType: 'brokerage',
       entityId: brokerageId,
       metadata: {
-        envelopeId: result.envelopeId,
+        envelopeId,
         brokerageName: brokerage.name,
         brokerOfRecord: brokerage.broker_of_record_name,
         brokerOfRecordEmail: brokerage.broker_of_record_email,
       },
     })
 
-    return { success: true, data: { envelopeId: result.envelopeId } }
+    return { success: true, data: { envelopeId } }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('sendBcaForSignature error:', _msg)
@@ -686,11 +776,19 @@ export async function voidBcaEnvelope(brokerageId: string, reason: string): Prom
       }
     }
 
+    // When ESIGN_PROVIDER=signwell, envelope_id holds a SignWell document id and
+    // we cancel via the SignWell API instead of voiding a DocuSign envelope.
+    const useSignWell = getEsignProvider() === 'signwell'
+
     const voided: string[] = []
     const failed: { envelopeId: string; error: string }[] = []
     for (const eid of targetIds) {
       try {
-        await voidEnvelope(eid, reason)
+        if (useSignWell) {
+          await cancelSignWellDocument(eid)
+        } else {
+          await voidEnvelope(eid, reason)
+        }
         voided.push(eid)
       } catch (voidErr: unknown) {
         const voidMessage = voidErr instanceof Error ? voidErr.message : 'Unknown void error'
@@ -784,10 +882,18 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  const useSignWell = getEsignProvider() === 'signwell'
+
   try {
-    const connected = await isDocuSignConnected()
-    if (!connected) {
-      return { success: false, error: 'DocuSign is not connected' }
+    if (useSignWell) {
+      if (!isSignWellConfigured()) {
+        return { success: false, error: 'SignWell is not configured. Add SIGNWELL_API_KEY.' }
+      }
+    } else {
+      const connected = await isDocuSignConnected()
+      if (!connected) {
+        return { success: false, error: 'DocuSign is not connected' }
+      }
     }
 
     const { data: deal } = await supabase
@@ -857,74 +963,105 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
 
     const brokerage = agent.brokerage
 
-    const result = await createAndSendEnvelope({
-      emailSubject: `Firm Funds — Closing Date Amendment Signature Required: ${deal.property_address}`,
-      emailBlurb: `Hi ${agent.first_name || 'there'},\n\nThe closing date for your deal at ${deal.property_address} has been updated. Firm Funds Inc. has prepared a Commission Purchase Agreement Amendment that reflects the new terms.\n\nPlease review and sign at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
-      documents: [
-        {
-          documentBase64: amendmentBase64,
-          name: 'CPA Amendment — Closing Date Change',
-          fileExtension: 'docx',
-          documentId: '1',
-        },
-      ],
-      signers: [
-        {
-          email: agent.email,
-          name: agentName,
-          recipientId: '1',
-          routingOrder: '1',
-          tabs: {
-            signHereTabs: [
-              { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            dateSignedTabs: [
-              { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
-            initialHereTabs: [
-              { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-            ],
+    const emailSubject = `Firm Funds — Closing Date Amendment Signature Required: ${deal.property_address}`
+    const emailBlurb = `Hi ${agent.first_name || 'there'},\n\nThe closing date for your deal at ${deal.property_address} has been updated. Firm Funds Inc. has prepared a Commission Purchase Agreement Amendment that reflects the new terms.\n\nPlease review and sign at your earliest convenience. If you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`
+
+    // Normalized send result: envelopeId holds a DocuSign envelope id or a
+    // SignWell document id depending on the active provider.
+    let envelopeId: string
+    let envelopeUri: string
+
+    if (useSignWell) {
+      // SignWell reads fields from the .docx text tags; no anchor/tab config.
+      // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+      const result = await sendSignWellDocument({
+        name: `Firm Funds — ${deal.property_address}`,
+        subject: emailSubject,
+        message: emailBlurb,
+        files: [
+          { name: 'CPA Amendment.docx', base64: amendmentBase64 },
+        ],
+        recipients: [{ id: '1', email: agent.email, name: agentName }],
+        metadata: { deal_id: dealId, amendment_id: amendmentId },
+      })
+      envelopeId = result.documentId
+      envelopeUri = result.signingUrls[0] ?? ''
+    } else {
+      const result = await createAndSendEnvelope({
+        emailSubject,
+        emailBlurb,
+        documents: [
+          {
+            documentBase64: amendmentBase64,
+            name: 'CPA Amendment — Closing Date Change',
+            fileExtension: 'docx',
+            documentId: '1',
           },
-        },
-      ],
-      ccRecipients: [
-        ...(brokerage?.broker_of_record_email ? [{
-          email: brokerage.broker_of_record_email,
-          name: brokerage.broker_of_record_name || brokerage.name,
-          recipientId: '2',
-          routingOrder: '2',
-        }] : []),
-      ],
-      status: 'sent',
-    })
+        ],
+        signers: [
+          {
+            email: agent.email,
+            name: agentName,
+            recipientId: '1',
+            routingOrder: '1',
+            tabs: {
+              signHereTabs: [
+                { documentId: '1', anchorString: '/sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              dateSignedTabs: [
+                { documentId: '1', anchorString: '/dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+              initialHereTabs: [
+                { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+              ],
+            },
+          },
+        ],
+        ccRecipients: [
+          ...(brokerage?.broker_of_record_email ? [{
+            email: brokerage.broker_of_record_email,
+            name: brokerage.broker_of_record_name || brokerage.name,
+            recipientId: '2',
+            routingOrder: '2',
+          }] : []),
+        ],
+        status: 'sent',
+      })
+      envelopeId = result.envelopeId
+      envelopeUri = result.uri
+    }
 
     const { error: insertErr } = await supabase
       .from('esignature_envelopes')
       .insert({
         deal_id: dealId,
-        envelope_id: result.envelopeId,
+        envelope_id: envelopeId,
         document_type: 'cpa' as const,
         status: 'sent' as const,
         agent_signer_status: 'sent' as const,
         sent_by: user.id,
-        envelope_uri: result.uri,
+        envelope_uri: envelopeUri,
       })
 
     if (insertErr) {
-      // Finding 32: void the DocuSign envelope if we couldn't track it.
+      // Finding 32: void/cancel the envelope if we couldn't track it.
       console.error('Failed to save amendment envelope record:', insertErr.message)
       try {
-        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+        if (useSignWell) {
+          await cancelSignWellDocument(envelopeId)
+        } else {
+          await voidEnvelope(envelopeId, 'cleanup after record-save failure')
+        }
       } catch (voidErr: unknown) {
         const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
-        console.error('Failed to void DocuSign amendment envelope during cleanup:', _msg)
+        console.error('Failed to void/cancel amendment envelope during cleanup:', _msg)
       }
       const isUniqueViolation = (insertErr as { code?: string }).code === '23505'
       return {
         success: false,
         error: isUniqueViolation
           ? 'An active envelope already exists for this deal.'
-          : 'Failed to record amendment envelope; DocuSign envelope was voided.',
+          : 'Failed to record amendment envelope; the e-signature envelope was voided.',
       }
     }
 
@@ -933,12 +1070,12 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
       entityType: 'deal',
       entityId: dealId,
       metadata: {
-        envelope_id: result.envelopeId,
+        envelope_id: envelopeId,
         amendment_id: amendmentId,
       },
     })
 
-    return { success: true, data: { envelopeId: result.envelopeId } }
+    return { success: true, data: { envelopeId } }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Send amended CPA error:', _msg)
@@ -961,10 +1098,18 @@ export async function sendRemediationIdpForSignature(input: {
   const { error: authErr, user, supabase } = await getAuthenticatedAdmin('esign.deal')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
+  const useSignWell = getEsignProvider() === 'signwell'
+
   try {
-    const connected = await isDocuSignConnected()
-    if (!connected) {
-      return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+    if (useSignWell) {
+      if (!isSignWellConfigured()) {
+        return { success: false, error: 'SignWell is not configured. Add SIGNWELL_API_KEY.' }
+      }
+    } else {
+      const connected = await isDocuSignConnected()
+      if (!connected) {
+        return { success: false, error: 'DocuSign is not connected. Go to Admin Settings to authorize.' }
+      }
     }
 
     const { data: rem, error: remErr } = await supabase
@@ -1047,49 +1192,73 @@ export async function sendRemediationIdpForSignature(input: {
     const docBase64 = docBuffer.toString('base64')
 
     const agentFirstName = agent.first_name || 'there'
+    const emailSubject = `Firm Funds Remediation Direction to Pay: ${rem.property_address}`
+    const emailBlurb = `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${rem.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance, and no discount, settlement fee, or profit share applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\nThe Firm Funds Team`
 
     // Finding 30 (cont.): if envelope creation throws, revert CAS so the
     // remediation can be retried instead of being stuck in idp_sent forever.
-    let result: Awaited<ReturnType<typeof createAndSendEnvelope>>
+    // Normalized result: envelopeId holds a DocuSign envelope id or a SignWell
+    // document id depending on the active provider.
+    let envelopeId: string
+    let envelopeUri: string
     try {
-      result = await createAndSendEnvelope({
-        emailSubject: `Firm Funds Remediation Direction to Pay: ${rem.property_address}`,
-        emailBlurb: `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${rem.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance, and no discount, settlement fee, or profit share applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\nThe Firm Funds Team`,
-        documents: [
-          {
-            documentBase64: docBase64,
-            name: 'Remediation Direction to Pay',
-            fileExtension: 'docx',
-            documentId: '1',
-          },
-        ],
-        signers: [
-          {
-            email: agent.email,
-            name: agentName,
-            recipientId: '1',
-            routingOrder: '1',
-            tabs: {
-              signHereTabs: [
-                { documentId: '1', anchorString: 'Signature: /sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-              ],
-              dateSignedTabs: [
-                { documentId: '1', anchorString: 'Date Signed: /dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-              ],
-              initialHereTabs: [
-                { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
-              ],
+      if (useSignWell) {
+        // SignWell reads fields from the .docx text tags; no anchor/tab config.
+        // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+        const result = await sendSignWellDocument({
+          name: `Firm Funds — ${rem.property_address}`,
+          subject: emailSubject,
+          message: emailBlurb,
+          files: [
+            { name: 'Remediation Direction to Pay.docx', base64: docBase64 },
+          ],
+          recipients: [{ id: '1', email: agent.email, name: agentName }],
+          metadata: { remediation_deal_id: rem.id },
+        })
+        envelopeId = result.documentId
+        envelopeUri = result.signingUrls[0] ?? ''
+      } else {
+        const result = await createAndSendEnvelope({
+          emailSubject,
+          emailBlurb,
+          documents: [
+            {
+              documentBase64: docBase64,
+              name: 'Remediation Direction to Pay',
+              fileExtension: 'docx',
+              documentId: '1',
             },
-          },
-        ],
-        ccRecipients: rem.broker_of_record_email ? [{
-          email: rem.broker_of_record_email,
-          name: rem.broker_of_record_name || rem.brokerage_legal_name,
-          recipientId: '2',
-          routingOrder: '2',
-        }] : [],
-        status: 'sent',
-      })
+          ],
+          signers: [
+            {
+              email: agent.email,
+              name: agentName,
+              recipientId: '1',
+              routingOrder: '1',
+              tabs: {
+                signHereTabs: [
+                  { documentId: '1', anchorString: '/sig1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+                ],
+                dateSignedTabs: [
+                  { documentId: '1', anchorString: '/dat1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+                ],
+                initialHereTabs: [
+                  { documentId: '1', anchorString: '/ini1/', anchorXOffset: '0', anchorYOffset: '-5', anchorUnits: 'pixels' },
+                ],
+              },
+            },
+          ],
+          ccRecipients: rem.broker_of_record_email ? [{
+            email: rem.broker_of_record_email,
+            name: rem.broker_of_record_name || rem.brokerage_legal_name,
+            recipientId: '2',
+            routingOrder: '2',
+          }] : [],
+          status: 'sent',
+        })
+        envelopeId = result.envelopeId
+        envelopeUri = result.uri
+      }
     } catch (envelopeErr: unknown) {
       await supabase
         .from('remediation_deals')
@@ -1103,32 +1272,36 @@ export async function sendRemediationIdpForSignature(input: {
       .from('esignature_envelopes')
       .insert({
         remediation_deal_id: rem.id,
-        envelope_id: result.envelopeId,
+        envelope_id: envelopeId,
         document_type: 'remediation_idp' as const,
         status: 'sent' as const,
         agent_signer_status: 'sent' as const,
         sent_by: user.id,
-        envelope_uri: result.uri,
+        envelope_uri: envelopeUri,
       })
 
     if (insertErr) {
-      // Finding 32: if we can't persist the envelope record, void the DocuSign
+      // Finding 32: if we can't persist the envelope record, void/cancel the
       // envelope and revert the remediation status, otherwise we end up with
       // a "sent" remediation pointing at no row and the duplicate-envelope
       // guard above can never fire again.
       console.error('Failed to save Remediation IDP envelope record:', insertErr.message)
       try {
-        await voidEnvelope(result.envelopeId, 'cleanup after record-save failure')
+        if (useSignWell) {
+          await cancelSignWellDocument(envelopeId)
+        } else {
+          await voidEnvelope(envelopeId, 'cleanup after record-save failure')
+        }
       } catch (voidErr: unknown) {
         const _msg = voidErr instanceof Error ? voidErr.message : "Unknown error"
-        console.error('Failed to void DocuSign envelope during cleanup:', _msg)
+        console.error('Failed to void/cancel envelope during cleanup:', _msg)
       }
       await supabase
         .from('remediation_deals')
         .update({ status: 'pending' })
         .eq('id', rem.id)
         .eq('status', 'idp_sent')
-      return { success: false, error: 'Failed to record envelope; DocuSign envelope was voided.' }
+      return { success: false, error: 'Failed to record envelope; the e-signature envelope was voided.' }
     }
 
     await logAuditEvent({
@@ -1136,7 +1309,7 @@ export async function sendRemediationIdpForSignature(input: {
       entityType: 'deal',
       entityId: failedDeal.id,
       metadata: {
-        envelopeId: result.envelopeId,
+        envelopeId,
         remediationDealId: rem.id,
         sourcePropertyAddress: rem.property_address,
         directedAmount,
@@ -1145,7 +1318,7 @@ export async function sendRemediationIdpForSignature(input: {
       },
     })
 
-    return { success: true, data: { envelopeId: result.envelopeId, directedAmount } }
+    return { success: true, data: { envelopeId, directedAmount } }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('sendRemediationIdpForSignature error:', _msg)

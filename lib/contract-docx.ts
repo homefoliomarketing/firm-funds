@@ -16,6 +16,7 @@ import {
   TabStopPosition,
   TabStopType,
 } from 'docx'
+import { getEsignProvider, SIGNWELL_FIELD_SIZE } from './esign-config'
 
 // ============================================================================
 // Shared Helpers
@@ -24,6 +25,28 @@ import {
 const FONT = 'Times New Roman'
 const FONT_SIZE = 24 // docx uses half-points, so 24 = 12pt
 const SMALL_SIZE = 16 // 8pt
+
+/**
+ * A hidden SignWell text-tag field. SignWell parses {{...}} tags out of the
+ * rendered PDF text and turns each into a fillable field at that exact spot. We
+ * colour the tag white at 1pt so the signer never sees the raw code (the same
+ * trick the DocuSign /sig1/ anchors use). Width/height (positions 7/8 of the
+ * tag grammar) are REQUIRED, because SignWell otherwise sizes the field to the
+ * tiny hidden placeholder text. The signer is always recipient "1" (the agent
+ * or Broker of Record), matching how esign-actions.ts builds the recipients.
+ *   Grammar: {{Type:Signer:Required:Label:Prefill:ApiID:Width:Height}}
+ */
+function signWellTagRun(
+  type: 'signature' | 'initial' | 'autofill_date_signed',
+  size: { w: number; h: number },
+): TextRun {
+  return new TextRun({
+    text: `{{${type}:1:y::::${size.w}:${size.h}}}`,
+    font: FONT,
+    size: 2,
+    color: 'FFFFFF',
+  })
+}
 
 function heading2(text: string): Paragraph {
   return new Paragraph({
@@ -75,14 +98,28 @@ function makeHeader(title: string): Header {
  *  Fix: anchor moved to the body text via initialsAnchor() helper. Footer only has
  *  the visible "Initials: ___________" line and page numbers. */
 function makeFooterWithInitials(initialsLabel: string): Footer {
+  const isSignWell = getEsignProvider() === 'signwell'
+  // For SignWell, drop a hidden {{initial}} tag into the footer. Footers repeat
+  // on every page, so this yields exactly one initials field per page — the
+  // per-page initialing Firm Funds wants — with no per-page anchor bookkeeping.
+  // For DocuSign the footer stays a plain visible line (its /ini1/ anchor lives
+  // in the body via initialsAnchor(), because DocuSign double-matched footer
+  // anchors).
+  const initialsRuns = isSignWell
+    ? [
+        new TextRun({ text: `${initialsLabel}:  `, font: FONT, size: 20 }),
+        signWellTagRun('initial', SIGNWELL_FIELD_SIZE.initial),
+        new TextRun({ text: '___________', font: FONT, size: 20 }),
+      ]
+    : [
+        new TextRun({ text: `${initialsLabel}:  ___________`, font: FONT, size: 20 }),
+      ]
   return new Footer({
     children: [
       new Paragraph({
         alignment: AlignmentType.RIGHT,
         spacing: { before: 120, after: 60 },
-        children: [
-          new TextRun({ text: `${initialsLabel}:  ___________`, font: FONT, size: 20 }),
-        ],
+        children: initialsRuns,
       }),
       new Paragraph({
         border: { top: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
@@ -107,11 +144,47 @@ function makeFooterWithInitials(initialsLabel: string): Footer {
  *  DocuSign finds this once per section and places an initials tab.
  *  White text, 1pt, right-aligned to sit near the footer initials line. */
 function initialsAnchor(): Paragraph {
+  // SignWell places per-page initials via the repeating footer tag (see
+  // makeFooterWithInitials), so the in-body anchor is unnecessary and would add
+  // a stray extra field. Emit an empty spacer instead.
+  if (getEsignProvider() === 'signwell') {
+    return new Paragraph({ spacing: { before: 0, after: 0 }, children: [] })
+  }
   return new Paragraph({
     alignment: AlignmentType.RIGHT,
     spacing: { before: 0, after: 0 },
     children: [
       new TextRun({ text: '/ini1/', font: FONT, size: 2, color: 'FFFFFF' }),
+    ],
+  })
+}
+
+/** Visible signature / date line with a HIDDEN DocuSign anchor token.
+ *
+ *  The raw anchor code (e.g. "/sig1/") used to print as visible italic text on
+ *  the signature page, so signers saw gibberish like "Signature: /sig1/" and
+ *  the field landed on top of the label. Here the token is white 1pt — invisible
+ *  to humans, still found by DocuSign — and sits immediately after the label, so
+ *  the signature / date field drops onto the blank line to its right. The tab
+ *  anchors to the bare token ("/sig1/", "/dat1/") in esign-actions.ts. */
+function signatureLine(label: string, anchorToken: string): Paragraph {
+  let token: TextRun
+  if (getEsignProvider() === 'signwell') {
+    // Map the DocuSign anchor to its SignWell field tag: /sig1/ -> a signature
+    // field, /dat1/ -> an auto-filled date-signed field. Both land on the blank
+    // line to the right of the label.
+    token = anchorToken === '/dat1/'
+      ? signWellTagRun('autofill_date_signed', SIGNWELL_FIELD_SIZE.date)
+      : signWellTagRun('signature', SIGNWELL_FIELD_SIZE.signature)
+  } else {
+    token = new TextRun({ text: anchorToken, font: FONT, size: 2, color: 'FFFFFF' })
+  }
+  return new Paragraph({
+    spacing: { after: 160 },
+    children: [
+      new TextRun({ text: `${label}: `, font: FONT, size: FONT_SIZE }),
+      token,
+      new TextRun({ text: '_______________________________', font: FONT, size: FONT_SIZE }),
     ],
   })
 }
@@ -411,8 +484,8 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           body(`RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}`),
           emptyLine(),
           emptyLine(),
-          body('Signature: /sig1/', { italic: true }),
-          body('Date Signed: /dat1/', { italic: true }),
+          signatureLine('Signature', '/sig1/'),
+          signatureLine('Date Signed', '/dat1/'),
           emptyLine(),
           emptyLine(),
           body('PURCHASER: FIRM FUNDS INC.', { bold: true }),
@@ -555,8 +628,8 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           body(`RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}`),
           emptyLine(),
           emptyLine(),
-          body('Signature: /sig1/', { italic: true }),
-          body('Date Signed: /dat1/', { italic: true }),
+          signatureLine('Signature', '/sig1/'),
+          signatureLine('Date Signed', '/dat1/'),
         ],
       },
     ],
@@ -761,8 +834,8 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           ]),
           emptyLine(),
           emptyLine(),
-          body('Signature: /sig1/', { italic: true }),
-          body('Date Signed: /dat1/', { italic: true }),
+          signatureLine('Signature', '/sig1/'),
+          signatureLine('Date Signed', '/dat1/'),
         ],
       },
     ],
@@ -988,8 +1061,8 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
           body(`RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}`),
           emptyLine(),
           emptyLine(),
-          body('Signature: /sig1/', { italic: true }),
-          body('Date Signed: /dat1/', { italic: true }),
+          signatureLine('Signature', '/sig1/'),
+          signatureLine('Date Signed', '/dat1/'),
           emptyLine(),
           emptyLine(),
           body('PURCHASER: FIRM FUNDS INC.', { bold: true }),
@@ -1164,8 +1237,8 @@ export async function generateRemediationIdpDocx(data: Record<string, string>): 
           body(`RECO Registration No.: ${r('{{RECO_REGISTRATION_NUMBER}}')}`),
           emptyLine(),
           emptyLine(),
-          body('Signature: /sig1/', { italic: true }),
-          body('Date Signed: /dat1/', { italic: true }),
+          signatureLine('Signature', '/sig1/'),
+          signatureLine('Date Signed', '/dat1/'),
         ],
       },
     ],

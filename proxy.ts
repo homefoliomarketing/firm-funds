@@ -27,6 +27,8 @@ const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const API_CSRF_EXEMPT_EXACT = new Set<string>([
   // DocuSign Connect — HMAC-SHA256 verified in the route handler
   '/api/docusign/webhook',
+  // SignWell — HMAC-SHA256 (event.hash) verified in the route handler
+  '/api/signwell/webhook',
   // RFC 8058 one-click unsubscribe — Gmail / iCloud / Yahoo POST here
   // without an Origin header on behalf of the recipient. The token in the
   // request body IS the authentication; the worst an attacker who replays
@@ -198,6 +200,7 @@ export async function proxy(request: NextRequest) {
     '/api/magic-link',
     '/api/rate-limit',
     '/api/docusign/webhook',
+    '/api/signwell/webhook',
     '/api/kyc-mobile-upload',
     '/api/kyc-desktop-upload',
     '/api/kyc-validate-token',

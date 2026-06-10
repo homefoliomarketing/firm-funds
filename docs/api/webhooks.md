@@ -1,6 +1,6 @@
 # Inbound Webhooks
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This document describes the inbound webhook endpoints that accept POSTs from external systems, how each one is authenticated, the payload it expects, and the side effects it triggers.
 
@@ -65,6 +65,52 @@ In every case the `esignature_envelopes` rows for that envelope are updated to t
 ### Response behavior
 
 Returns `200 OK` for handled, duplicate, and most soft-failure cases (so DocuSign does not loop on retries). Returns `401` only on HMAC failure, and `500` only if the dedup table write itself fails. If a signed envelope cannot be downloaded because there is no valid DocuSign auth token, the route logs the failure and does **not** check off the checklist items, leaving them for an admin to handle after re-authorizing DocuSign.
+
+---
+
+## SignWell webhook
+
+**Path:** `/api/signwell/webhook`
+**Method:** POST
+**Source file:** `app/api/signwell/webhook/route.ts`
+
+This is the SignWell counterpart to the DocuSign Connect webhook, added for the SignWell pilot (see [docs/integrations/signwell.md](../integrations/signwell.md)). It is active whenever `ESIGN_PROVIDER=signwell`. It mirrors the DocuSign webhook field-for-field so both providers produce identical database state, with a few SignWell-specific differences noted below.
+
+### Purpose
+
+Receives SignWell document status updates and drives the signing side of the deal lifecycle: when a document is completed, the route downloads the merged signed PDF from SignWell, stores it in Supabase storage, and updates the relevant records (`esignature_envelopes`, `deal_documents`, `underwriting_checklist`, `brokerages`, `remediation_deals`).
+
+### Configuration (in SignWell)
+
+- URL: `https://firmfunds.ca/api/signwell/webhook`
+- Register under SignWell Settings -> API -> Webhooks (or via the API hook field), and capture the webhook's id into `SIGNWELL_WEBHOOK_ID` (it is the HMAC secret).
+
+### Authentication / verification
+
+SignWell signs in the **body, not a header**. It sends `hex(HMAC-SHA256(secret, message))` as the `event.hash` field of the JSON body, where the **secret** is the webhook id (`SIGNWELL_WEBHOOK_ID`) and the **message** is `` `${event.type}@${event.time}` ``. `verifySignWellWebhook()` recomputes the hex digest and compares constant-time against `event.hash`.
+
+The endpoint **fails closed**: a missing `SIGNWELL_WEBHOOK_ID`, a missing/empty hash, or a mismatch returns `401`. A dev-only escape hatch (`SIGNWELL_HMAC_DEV_BYPASS=1`) skips verification and must never be set in production. This closes the same forged-completion vulnerability the DocuSign HMAC check closes.
+
+### Expected payload
+
+A SignWell JSON body of the shape `{ event: { type, time, hash }, data: { object: { id, status, ... }, account_id } }`. The handler reads the event type from `event.type`, the document id from `data.object.id`, and the document status from `data.object.status`, all defensively.
+
+Terminal events handled: `document_completed` -> `signed`, `document_declined` -> `declined`, `document_canceled` -> `voided`. Non-terminal events (`document_sent`, `document_viewed`, per-signer `document_signed`) are acknowledged with `200` and ignored.
+
+### Idempotency
+
+SignWell sends no stable per-delivery event id, so the handler synthesizes a dedup key from the `` `${event.type}@${event.time}@${documentId}` `` triple (the same triple SignWell signs) and inserts it into `signwell_webhook_events` (migration 109) at the start of processing. A unique-violation (`23505`) returns `200` to stop retries.
+
+### Side effects on a signed document
+
+Dispatches on the first envelope row's `document_type` into the same three flows as the DocuSign webhook (deal CPA+IDP, BCA, Remediation IDP). Two SignWell-specific differences:
+
+- The SignWell **document** id is stored in `esignature_envelopes.envelope_id` (a CPA+IDP send has two rows sharing one document id).
+- SignWell returns **one merged completed PDF per document** (`GET /documents/{id}/completed_pdf`), not a per-file download. For a CPA+IDP document the same merged bytes back both `deal_documents` rows.
+
+### Response behavior
+
+Returns `200` for handled, duplicate, non-terminal, and malformed cases (so SignWell stops retrying), and `401` only on HMAC failure. On a **recoverable** failure while downloading/storing the signed PDF, it deletes its dedup-claim row and returns `503` so SignWell re-delivers and the download is retried. The `500` path is reserved for a failure writing the dedup table itself.
 
 ---
 

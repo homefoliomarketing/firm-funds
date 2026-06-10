@@ -2,6 +2,8 @@
 
 _Last updated: 2026-06-10_
 
+> **Being superseded by SignWell.** Firm Funds is piloting [SignWell](signwell.md) to replace DocuSign, because DocuSign locks email/signing-page branding behind a sales-only account. The active provider is chosen at runtime by the `ESIGN_PROVIDER` env var (`getEsignProvider()` in `lib/esign-config.ts`); DocuSign remains the **default** and stays fully wired until SignWell is validated in production. Everything below still applies whenever `ESIGN_PROVIDER` is `docusign` (the default). See [signwell.md](signwell.md) for the SignWell path and the cutover steps.
+
 This document explains how Firm Funds generates contracts, sends them for e-signature through DocuSign, processes the Connect webhook, stores signed documents, and what environment variables and tokens the integration needs.
 
 ## 1. Overview
@@ -55,7 +57,7 @@ The send actions all live in `lib/actions/esign-actions.ts` and follow the same 
 4. Optimistic-lock claim on the deal's `version` so a parallel send cannot create duplicate envelopes.
 5. Build a `contractData` merge-field map (legal names, fee figures, dates, RECO number, banking placeholders, and so on). The printed discount-period day count uses `getChargeDays(deal.days_until_closing)` so the contract's math reconciles with what is actually charged.
 6. Generate the .docx documents (`generateCpaDocx`, `generateIdpDocx`) and base64-encode them.
-7. Call `createAndSendEnvelope()`, which POSTs to `/restapi/v2.1/accounts/{accountId}/envelopes` with the documents, the agent as signer (recipient id 1), and the broker of record / brokerage admin as carbon copies. Signature, date, and initial fields are placed using anchor strings embedded in the document text (for example `Signature: /sig1/`, `Date Signed: /dat1/`, `/ini1/`).
+7. Call `createAndSendEnvelope()`, which POSTs to `/restapi/v2.1/accounts/{accountId}/envelopes` with the documents, the agent as signer (recipient id 1), and the broker of record / brokerage admin as carbon copies. Signature, date, and initial fields are placed using **hidden anchor tokens** embedded in the document text: the tabs anchor to the bare tokens `/sig1/`, `/dat1/`, and `/ini1/`. All three tokens are rendered white at 1pt (`signatureLine()` / `initialsAnchor()` in `lib/contract-docx.ts`) so the signer never sees the raw code; each sits immediately after a visible label (`Signature: ____`, `Date Signed: ____`) so the field drops onto the blank line to its right rather than on top of the label.
 8. Insert one `esignature_envelopes` row per document (CPA and IDP share the same `envelope_id` but have different `document_type`). If this insert fails, the DocuSign envelope is voided so a "sent" envelope can never become untrackable.
 9. Audit-log `esignature.sent`.
 
