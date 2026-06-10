@@ -1,6 +1,6 @@
 # Firm Funds Database Architecture
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This document describes the Supabase Postgres data layer for Firm Funds: the tables, status enums, stored procedures, Row Level Security model, and the full migration history that produced the schema.
 
@@ -21,9 +21,9 @@ The numbering groups roughly into feature batches:
 | 050 to 069 | Idempotency and atomic RPCs (balance, strikes, remediation, interest), ledger immutability, storage policy tightening, soft delete, audit-log hardening |
 | 070 to 079 | Concurrency uniqueness constraints, cron idempotency log, DocuSign linkage, atomic admin-note append, firm-deal detection pipeline |
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
-| 100 to 107 | Underwriter assigned_at, KYC bucket limits, staff least-privilege roles, look-only impersonation, brokerage OG image, agent self-submit, informational statement ledger, signed-BCA path / welcome flag / deposit-auth consent |
+| 100 to 108 | Underwriter assigned_at, KYC bucket limits, staff least-privilege roles, look-only impersonation, brokerage OG image, agent self-submit, informational statement ledger, signed-BCA path / welcome flag / deposit-auth consent, human-readable deal numbers |
 
-There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `107_bca_path_welcome_deposit_auth.sql`.
+There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `108_deal_numbers.sql`.
 
 **Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
@@ -81,11 +81,13 @@ Column lists below capture the significant columns (keys, status/enum fields, fi
 
 ### deals
 
-The central advance record. Base columns predate migration tracking; the columns below are assembled from migrations 006, 008, 011 (no), 018, 039, 043, 044, 046, 047, 081, 083, 084, 085, and the validation schema in `lib/validations.ts`.
+The central advance record. Base columns predate migration tracking; the columns below are assembled from migrations 006, 008, 011 (no), 018, 039, 043, 044, 046, 047, 081, 083, 084, 085, 108, and the validation schema in `lib/validations.ts`.
 
 | Column | Type | Purpose |
 | --- | --- | --- |
 | id | UUID PK | Deal identifier |
+| deal_number | TEXT (UNIQUE, nullable) | Human-readable tracking number stamped at submission, format `NNNN-MMDD-YY` (e.g. `0001-0609-26` = first deal submitted on the Toronto day June 9, 2026; the `NNNN` daily sequence resets each Toronto day). NULL for unsubmitted firm-deal offers. Assigned by the `assign_deal_number()` trigger, never by app code (migration 108) |
+| submitted_at | TIMESTAMPTZ | When the deal was first submitted (its status first left `offered`); set alongside `deal_number` by the same trigger (migration 108) |
 | agent_id | UUID FK agents | Owning agent |
 | brokerage_id | UUID FK brokerages | Owning brokerage |
 | status | TEXT (CHECK) | Lifecycle state (see section 4) |
@@ -131,6 +133,18 @@ The central advance record. Base columns predate migration tracking; the columns
 | admin_notes / admin_notes_timeline | TEXT / JSONB | Internal underwriting notes (migrations 006, 008) |
 | brokerage_payments_legacy_jsonb | JSONB | Deprecated; backfilled into `brokerage_payments` table (migration 055) |
 | eft_transfers_legacy_jsonb | JSONB | Deprecated; backfilled into `eft_transfers` table (migration 058) |
+
+### deal_number_counters (migration 108)
+
+Atomic per-day sequence source for `deals.deal_number`: one row per Toronto calendar date, holding the highest sequence handed out that day. Written **only** by the `assign_deal_number()` trigger; no API client (or even the service role through normal code paths) touches it directly. RLS is enabled with **no policies**, so it denies all access except the SECURITY DEFINER trigger that bypasses RLS.
+
+| Column | Type | Purpose |
+| --- | --- | --- |
+| date_key | date PK | Toronto calendar date |
+| last_seq | integer (NOT NULL, default 0) | Highest `NNNN` sequence issued for that date |
+| updated_at | timestamptz | Last increment time |
+
+The trigger increments the day's row via an `INSERT ... ON CONFLICT (date_key) DO UPDATE` upsert, which row-locks the `date_key` row so two concurrent submissions on the same day always get distinct sequences. See `assign_deal_number()` in section 5.
 
 ### agents
 
@@ -548,6 +562,7 @@ All balance and strike mutations go through SECURITY DEFINER functions that lock
 | `recompute_active_deal_days_until_closing()` | 057 | Batched recompute of days-until-closing |
 | `set_agent_account_activated()` (trigger) | 043 | Sets `account_activated_at` when KYC verified AND banking approved |
 | `deals_bump_version()` (trigger) | 083 | Auto-increments `deals.version` for optimistic locking |
+| `assign_deal_number()` (trigger) | 108 | `BEFORE INSERT OR UPDATE OF status ON deals`. Stamps `deal_number` (`NNNN-MMDD-YY`, Toronto day) and `submitted_at` the first time a deal's status is not `offered`. Idempotent (never overwrites an existing number) and concurrency-safe via the `deal_number_counters` upsert row lock. SECURITY DEFINER, `search_path=''`. Covers every creation path (agent self-submit, brokerage submit-on-behalf, offer conversion, seed) so no app code assigns the number |
 | `prevent_agent_delete_with_deals()`, `prevent_brokerage_delete_with_deals()`, `prevent_financial_deal_delete()`, `prevent_agent_delete_with_history()`, `prevent_confirmed_eft_delete()`, `prevent_confirmed_brokerage_payment_delete()` | 034, 048, 060, 062 | Delete guards protecting financial history |
 | `create_underwriting_checklist()` (trigger) | 008/009/012/017/023/027 | Seeds the 12-item underwriting checklist for a new deal |
 | `set_updated_at_now()`, `update_updated_at_column()` | 078 / earlier | Generic updated_at triggers |
@@ -684,5 +699,6 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 105_agent_self_submit_offer.sql | `deals.agent_self_submit_at` — set when an agent takes an `offered` firm-deal over to submit it themselves (pauses the brokerage on it). Additive; nullable |
 | 106_informational_deal_ledger_entries.sql | `deal_advance`/`deal_repayment` ledger types + `record_agent_statement_entry` RPC (balance-neutral statement entries). Additive |
 | 107_bca_path_welcome_deposit_auth.sql | `brokerages.bca_signed_pdf_path` (storage path of the signed BCA so it is viewable/downloadable), `user_profiles.welcomed_at` (first-login greeting flag), `agents.deposit_authorized_at` + `agents.deposit_authorized_by` (mandatory deposit-authorization consent during agent onboarding). Additive; all nullable |
+| 108_deal_numbers.sql | `deals.deal_number` (UNIQUE, nullable) + `deals.submitted_at`; `deal_number_counters` per-day sequence table (RLS on, no policies); `assign_deal_number()` SECURITY DEFINER trigger function + `trg_assign_deal_number` BEFORE INSERT OR UPDATE OF status trigger; backfill of existing non-offered deals. Additive |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

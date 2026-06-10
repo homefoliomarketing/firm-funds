@@ -48,6 +48,7 @@ You don't need to ask permission to push to git. Just send it if we are completi
 - Late payment interest: 24% per annum **true APR**, compounded daily as `(1.24)^(1/365) - 1`, accrual starts day 31 after closing (30-day grace)
 - Settlement window: 7 days standard, snapshotted at submission into `deals.settlement_days_at_funding`. Auto-bumps to 14 days after 5 manual strikes on a brokerage.
 - Deal status flow: `under_review → approved → funded → completed`. Failed deals: `funded → failed_to_close → cured` (after remediation IDP fully paid).
+- `deals.deal_number` is a human-readable tracking number assigned by a DB trigger (migration 108) at submission, format `NNNN-MMDD-YY` (NNNN resets each America/Toronto day). Firm-deal OFFERS are NOT numbered until actually submitted. Never assign it in app code.
 - `brokerage_split_pct` stores whole numbers (5 = 5%), NOT decimals. Do NOT multiply by 100.
 - All agent balance writes MUST go through `apply_agent_balance_delta` RPC (migration 052) — never read-modify-write directly. Same for `record_brokerage_late_strike` and `apply_remediation_remittance`.
 

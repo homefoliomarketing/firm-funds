@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { confirmBrokeragePaymentClaim, rejectBrokeragePaymentClaim } from '@/lib/actions/admin-actions'
 import { hasCapability } from '@/lib/access'
 import { StatusToast } from '@/components/StatusToast'
+import { DealNumber } from '@/components/DealNumber'
 
 interface PaymentEntry {
   id: string
@@ -34,6 +35,7 @@ interface PaymentEntry {
 
 interface Deal {
   id: string
+  deal_number: string | null
   property_address: string
   status: string
   advance_amount: number
@@ -87,7 +89,7 @@ export default function AdminPaymentsPage() {
     const { data: deals } = await supabase
       .from('deals')
       .select(`
-        id, property_address, status, advance_amount, amount_due_from_brokerage, brokerage_referral_fee,
+        id, deal_number, property_address, status, advance_amount, amount_due_from_brokerage, brokerage_referral_fee,
         funding_date, closing_date, brokerage_id,
         brokerage_payments ( id, amount, date:payment_date, reference, method, notes, status, submitted_by_role, submitted_at, rejection_reason ),
         agent:agents(first_name, last_name)
@@ -360,9 +362,12 @@ export default function AdminPaymentsPage() {
                                 <p className="font-semibold text-foreground truncate">
                                   {summary.brokerage.name}
                                 </p>
-                                <p className="text-muted-foreground truncate mt-0.5">
-                                  {deal.property_address}
-                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <p className="text-muted-foreground truncate">
+                                    {deal.property_address}
+                                  </p>
+                                  <DealNumber value={deal.deal_number} />
+                                </div>
                                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
                                   <span><strong className="text-foreground tabular-nums">{formatCurrency(entry.amount)}</strong></span>
                                   <span>· sent {formatDate(entry.date)}</span>
@@ -619,6 +624,7 @@ export default function AdminPaymentsPage() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
                                     <p className="font-medium text-sm truncate text-foreground transition-colors group-hover/deal:text-primary">{deal.property_address}</p>
+                                    <DealNumber value={deal.deal_number} />
                                     <span className={`flex-shrink-0 inline-flex px-2 py-0.5 text-xs font-semibold rounded-md border ${
                                       paymentStatus === 'paid'
                                         ? 'bg-green-950/50 text-green-400 border-green-800'

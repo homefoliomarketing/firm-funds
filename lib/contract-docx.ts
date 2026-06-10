@@ -60,7 +60,7 @@ function makeHeader(title: string): Header {
         alignment: AlignmentType.CENTER,
         spacing: { after: 100 },
         border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' } },
-        children: [new TextRun({ text: `FIRM FUNDS INC. — ${title}`, font: FONT, size: 18, color: '000000' })],
+        children: [new TextRun({ text: `FIRM FUNDS INC. | ${title}`, font: FONT, size: 18, color: '000000' })],
       }),
     ],
   })
@@ -91,7 +91,7 @@ function makeFooterWithInitials(initialsLabel: string): Footer {
           { type: TabStopType.RIGHT, position: TabStopPosition.MAX },
         ],
         children: [
-          new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE }),
+          new TextRun({ text: 'FIRM FUNDS INC. | Confidential', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [new Tab()] }),
           new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE }),
@@ -127,7 +127,7 @@ function makeFooterNoInitials(): Footer {
           { type: TabStopType.RIGHT, position: TabStopPosition.MAX },
         ],
         children: [
-          new TextRun({ text: 'FIRM FUNDS INC. — Confidential', font: FONT, size: SMALL_SIZE }),
+          new TextRun({ text: 'FIRM FUNDS INC. | Confidential', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [new Tab()] }),
           new TextRun({ text: 'Page ', font: FONT, size: SMALL_SIZE }),
           new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: SMALL_SIZE }),
@@ -212,8 +212,13 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           }),
           new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { after: 400 },
+            spacing: { after: 80 },
             children: [new TextRun({ text: 'True Sale of Commission Receivable', italics: true, font: FONT, size: FONT_SIZE })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+            children: [new TextRun({ text: `Deal No. ${r('{{DEAL_NUMBER}}')}`, font: FONT, size: 20, color: '000000' })],
           }),
 
           // Date + Parties
@@ -228,7 +233,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             { text: r('{{AGENT_FULL_LEGAL_NAME}}'), bold: true },
           ], { indent: 600 }),
           body('(hereinafter called the "Seller")', { italic: true, indent: 600 }),
-          body('— and —', { alignment: AlignmentType.CENTER }),
+          body('and', { alignment: AlignmentType.CENTER }),
           body('FIRM FUNDS INC.', { bold: true, indent: 600 }),
           body('a corporation incorporated under the laws of the Province of Ontario', { indent: 600 }),
           body('(hereinafter called the "Purchaser")', { italic: true, indent: 600 }),
@@ -263,7 +268,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           ]),
 
           // Article 1 — Definitions
-          heading2('ARTICLE 1 — DEFINITIONS'),
+          heading2('ARTICLE 1: DEFINITIONS'),
           ...([
             ['"Agreement of Purchase and Sale" or "APS"', ' means the binding written agreement for the purchase and sale of real property as described in Schedule "A", including any addenda or amendments thereto;'],
             ['"Brokerage"', ' means the real estate brokerage holding the Commission in trust as described in Schedule "A";'],
@@ -278,20 +283,20 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['"Remediation IDP"', ' means an Irrevocable Direction to Pay executed by the Seller under Article 5.5(b) in respect of a commission receivable other than the Commission, for the purpose of satisfying an outstanding balance owing under this Agreement;'],
             ['"Purchase Discount"', ' means the fee charged by the Purchaser for this purchase transaction, calculated as set out in Article 3;'],
             ['"Purchase Price"', ' means the amount paid by the Purchaser to the Seller, being the Face Value less the Purchase Discount and the Settlement Period Fee;'],
-            ['"Referral Fee"', ' means any referral or cooperation fee payable by the Purchaser to the Brokerage in connection with this transaction;'],
+            ['"Profit Share"', ' means the profit-sharing fee payable by the Purchaser to the Brokerage in consideration of the Brokerage\'s administrative cooperation in connection with this transaction, calculated and payable as set out in the Brokerage Cooperation Agreement between the Brokerage and the Purchaser and reflected in Schedule "A";'],
             ['"RECO"', ' means the Real Estate Council of Ontario.'],
           ] as [string, string][]).map(([term, def]) =>
             richParagraph([{ text: term, bold: true }, { text: def }], { indent: 300 })
           ),
 
           // Article 2
-          heading2('ARTICLE 2 — PURCHASE AND SALE'),
+          heading2('ARTICLE 2: PURCHASE AND SALE'),
           richParagraph([{ text: '2.1 Sale and Assignment. ', bold: true }, { text: 'The Seller hereby sells, assigns, and transfers to the Purchaser, absolutely and unconditionally, all of the Seller\'s right, title, interest, and entitlement in and to the Commission, free and clear of all liens, charges, encumbrances, claims, and security interests of any kind.' }]),
           richParagraph([{ text: '2.2 Absolute Assignment. ', bold: true }, { text: 'The Parties acknowledge and agree that this transaction constitutes a true sale and absolute assignment of the Commission, and not an assignment by way of security or a loan.' }]),
           richParagraph([{ text: '2.3 No Residual Interest. ', bold: true }, { text: 'Following the execution of this Agreement, the Seller shall have no further right, title, interest, or claim in or to the Commission, except as expressly set forth in this Agreement.' }]),
 
           // Article 3
-          heading2('ARTICLE 3 — PURCHASE PRICE AND PAYMENT'),
+          heading2('ARTICLE 3: PURCHASE PRICE AND PAYMENT'),
           richParagraph([{ text: '3.1 Face Value. ', bold: true }, { text: `The Face Value of the Commission is ${r('{{FACE_VALUE}}')} (the "Face Value"), being the net commission payable to the Seller after the Brokerage's commission split.` }]),
           richParagraph([{ text: '3.2 Purchase Discount. ', bold: true }, { text: `The Purchase Discount is ${r('{{PURCHASE_DISCOUNT}}')} (the "Purchase Discount"), calculated as follows: ${r('{{DISCOUNT_RATE}}')} of Face Value, for ${r('{{NUMBER_OF_DAYS}}')} days (being the number of calendar days from the day following the Funding Date to and including the Expected Closing Date; the Funding Date itself is not charged, as the funds are received the following day, and the Expected Closing Date is charged, as repayment is not received on that date).` }]),
           richParagraph([{ text: '3.3 Settlement Period Fee. ', bold: true }, { text: `The Settlement Period Fee is ${r('{{SETTLEMENT_PERIOD_FEE}}')} (the "Settlement Period Fee"), calculated as follows: ${r('{{DISCOUNT_RATE}}')} of Face Value, for ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days. This fee covers the settlement period during which the Brokerage is required to remit the Commission to the Purchaser. The Settlement Period Fee is a non-refundable flat fee and is not subject to proration or adjustment regardless of when payment is received.` }]),
@@ -299,14 +304,14 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           richParagraph([{ text: '3.5 Payment. ', bold: true }, { text: 'The Purchaser shall pay the Purchase Price to the Seller by electronic funds transfer to the account specified in Schedule "C" within two (2) business days of execution of this Agreement and the Irrevocable Direction to Pay.' }]),
 
           // Article 4
-          heading2('ARTICLE 4 — COLLECTION'),
+          heading2('ARTICLE 4: COLLECTION'),
           richParagraph([{ text: '4.1 ', bold: true }, { text: 'The Purchaser shall collect the Commission directly from the Brokerage\'s trust account upon closing of the Real Estate Transaction.' }]),
           richParagraph([{ text: '4.2 ', bold: true }, { text: 'The Seller shall, concurrently with the execution of this Agreement, execute an Irrevocable Direction to Pay directing the Brokerage to pay the Commission directly to the Purchaser.' }]),
 
           // Article 5
-          heading2('ARTICLE 5 — SELLER\'S REPAYMENT OBLIGATION'),
-          richParagraph([{ text: '5.1 Non-Closing — Full Repayment. ', bold: true }, { text: 'If the Real Estate Transaction does not close for any reason, the Seller shall be personally liable to repay the Purchaser the full Purchase Price. The Seller\'s obligation to repay is unconditional and is not limited by the reason for non-closing, including but not limited to buyer default, financing failure, mutual termination, or any act or omission of the Seller, the buyer, or any third party.' }]),
-          richParagraph([{ text: '5.2 Partial Shortfall — Commission Deficiency. ', bold: true }, { text: 'If the Real Estate Transaction closes but the commission actually received by the Purchaser is less than the Face Value (whether due to reduction, holdback, dispute, or any other reason), the Seller shall be personally liable to pay the Purchaser the difference between the Face Value and the amount actually received. For clarity, any Referral Fee lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement shall not be treated as a deficiency for the purposes of this Article.' }]),
+          heading2('ARTICLE 5: SELLER\'S REPAYMENT OBLIGATION'),
+          richParagraph([{ text: '5.1 Non-Closing: Full Repayment. ', bold: true }, { text: 'If the Real Estate Transaction does not close for any reason, the Seller shall be personally liable to repay the Purchaser the full Purchase Price. The Seller\'s obligation to repay is unconditional and is not limited by the reason for non-closing, including but not limited to buyer default, financing failure, mutual termination, or any act or omission of the Seller, the buyer, or any third party.' }]),
+          richParagraph([{ text: '5.2 Partial Shortfall: Commission Deficiency. ', bold: true }, { text: 'If the Real Estate Transaction closes but the commission actually received by the Purchaser is less than the Face Value (whether due to reduction, holdback, dispute, or any other reason), the Seller shall be personally liable to pay the Purchaser the difference between the Face Value and the amount actually received. For clarity, any Profit Share lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement shall not be treated as a deficiency for the purposes of this Article.' }]),
           richParagraph([{ text: '5.3 Repayment on Demand. ', bold: true }, { text: 'Upon written notice from the Purchaser that the Real Estate Transaction has failed to close or that the Commission has not been received in full, the Seller shall pay the amount owing under Article 5.1 or 5.2, as applicable, within thirty (30) days. If the Seller fails to make payment within this period, the outstanding amount shall be charged to the Seller\'s Firm Funds account as a balance owing, and interest at the rate of twenty-four percent (24%) per annum, compounded daily, shall accrue on the unpaid balance (including any prior accrued and unpaid interest) from the thirty-first (31st) day. For clarity, this interest provision applies specifically to seller repayment obligations under this Article, as distinct from the Late Payment Interest on brokerage remittance set out in Article 6.' }]),
           richParagraph([{ text: '5.4 Right of Offset. ', bold: true }, { text: 'The Purchaser may, at its sole discretion, offset any amount owing by the Seller under this Article against future commission purchase transactions, without further notice to the Seller. The Purchaser\'s right of offset under this Article 5.4 is in addition to, and not in substitution for, the Seller\'s obligation to elect a cure method under Article 5.5.' }]),
           richParagraph([{ text: '5.5 Mandatory Cure Election. ', bold: true }, { text: 'Upon written notice from the Purchaser under Article 5.3 that the Real Estate Transaction has failed to close or that the Commission has not been received in full, the Seller shall, within fifteen (15) calendar days of such notice, elect in writing one of the following methods to satisfy the outstanding balance: (a) Cash Repayment, being payment in full of the outstanding balance to the Purchaser by electronic funds transfer (or such other method as the Purchaser accepts) within thirty (30) calendar days of the Purchaser\'s notice under Article 5.3; or (b) Assignment of Next Eligible Commission(s), being the execution and delivery to the Purchaser of an Irrevocable Direction to Pay (a "Remediation IDP") directing the Brokerage to remit to the Purchaser the next commission receivable to become firm and payable to the Seller, in an amount sufficient to satisfy the outstanding balance. If the next commission receivable is insufficient to satisfy the outstanding balance in full, the Seller shall execute successive Remediation IDPs in respect of each subsequent commission receivable, in the order in which they become firm, until the outstanding balance is satisfied in full. If the Seller fails to make a written election within fifteen (15) calendar days, the Seller shall be deemed to have elected option (a) and the full outstanding balance shall become immediately due and payable.' }]),
@@ -314,35 +319,35 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
           richParagraph([{ text: '5.7 Continuing Obligation; Disclosure; Portability. ', bold: true }, { text: 'The Seller\'s obligation under Article 5.5(b) shall continue until the outstanding balance is satisfied in full, and shall not be affected by the passage of time, the Seller\'s transfer to another brokerage, or any change in the Seller\'s licensing status (provided the Seller remains a licensed registrant under RECO). The Seller covenants to: (a) notify the Purchaser in writing within two (2) business days of any commission receivable becoming firm, until the outstanding balance is satisfied; (b) notify the Purchaser in writing within two (2) business days of any change in the Seller\'s brokerage affiliation; and (c) cooperate in good faith to execute and deliver any Remediation IDP required under Article 5.5(b), including, where the Seller has transferred to a new brokerage, executing a Remediation IDP addressed to the new brokerage and providing the Purchaser with such other documentation as the Purchaser may reasonably require. Failure to comply with this Article 5.7 shall constitute a material breach of this Agreement, and Late Payment Interest at twenty-four percent (24%) per annum under Article 5.3 shall continue to accrue on the outstanding balance until satisfied.' }]),
 
           // Article 6
-          heading2('ARTICLE 6 — LATE PAYMENT INTEREST'),
+          heading2('ARTICLE 6: LATE PAYMENT INTEREST'),
           richParagraph([{ text: '6.1 Payment Due Date. ', bold: true }, { text: `The Brokerage shall remit the Commission to the Purchaser within ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date (the "Payment Due Date"). The Payment Due Date for this transaction is ${r('{{DUE_DATE}}')}.` }]),
           richParagraph([{ text: '6.2 Late Payment Grace; Late Interest Accrual Date. ', bold: true }, { text: `If the Commission is not received in full by the Payment Due Date, the Purchaser may, at its discretion, contact the Brokerage to address the delay. No Late Payment Interest shall accrue solely by reason of the Commission being unpaid between the Payment Due Date and the Late Interest Accrual Date (being the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days after the Expected Closing Date). For greater certainty, the Brokerage's obligation to remit the Commission by the Payment Due Date is not waived or modified by this grace; this Article governs only the timing of Late Payment Interest accrual.` }]),
-          richParagraph([{ text: '6.3 Late Payment Interest. ', bold: true }, { text: 'If the Commission has not been received in full by the Purchaser as of the Late Interest Accrual Date, Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, compounded daily on the Purchase Price (including any prior accrued and unpaid interest), commencing on the Late Interest Accrual Date and continuing until the Commission is received by the Purchaser in full. For the purposes of this Article, the Commission shall be considered received in full when the Purchaser has received the Face Value less any Referral Fee lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement. This Article applies to late remittance by the Brokerage following a closing; interest on seller repayment obligations following non-closing or commission deficiency is governed by Article 5.3.' }]),
+          richParagraph([{ text: '6.3 Late Payment Interest. ', bold: true }, { text: 'If the Commission has not been received in full by the Purchaser as of the Late Interest Accrual Date, Late Payment Interest shall accrue at the rate of twenty-four percent (24%) per annum, compounded daily on the Purchase Price (including any prior accrued and unpaid interest), commencing on the Late Interest Accrual Date and continuing until the Commission is received by the Purchaser in full. For the purposes of this Article, the Commission shall be considered received in full when the Purchaser has received the Face Value less any Profit Share lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement. This Article applies to late remittance by the Brokerage following a closing; interest on seller repayment obligations following non-closing or commission deficiency is governed by Article 5.3.' }]),
           richParagraph([{ text: '6.4 Responsibility for Late Payment Interest. ', bold: true }, { text: 'The Seller acknowledges and agrees that Late Payment Interest is the sole responsibility of the Seller. Such interest shall be charged to the Seller\'s account with the Purchaser and may be deducted from future commission purchase transactions or invoiced separately at the Purchaser\'s discretion.' }]),
           richParagraph([{ text: '6.5 No Refund of Settlement Period Fee. ', bold: true }, { text: 'For greater certainty, the Settlement Period Fee set out in Article 3.3 is non-refundable and shall not be credited, prorated, or adjusted in any circumstance, including early payment by the Brokerage.' }]),
 
           // Article 7
-          heading2('ARTICLE 7 — SUBSTITUTION AND REPAYMENT ARRANGEMENTS'),
+          heading2('ARTICLE 7: SUBSTITUTION AND REPAYMENT ARRANGEMENTS'),
           richParagraph([{ text: '7.1 Substitution Option. ', bold: true }, { text: 'If the Real Estate Transaction does not close, the Seller may, with the prior written consent of the Purchaser, offer a substitute commission receivable of equal or greater Face Value. Acceptance of a substitute commission is at the sole discretion of the Purchaser and does not discharge or reduce the Seller\'s repayment obligation under Article 5 unless the Purchaser confirms acceptance in writing. For greater certainty, this Article 7.1 is in addition to, and does not modify or supersede, the Seller\'s mandatory cure obligation under Article 5.5.' }]),
           richParagraph([{ text: '7.2 Repayment Arrangement. ', bold: true }, { text: 'The Purchaser may, at its sole discretion, agree to a repayment arrangement with the Seller. Any such arrangement must be agreed to in writing and shall not exceed six (6) monthly installments. Interest at the rate of twenty-four percent (24%) per annum, as set out in Article 5.3, shall continue to accrue on any unpaid balance during the repayment period.' }]),
           richParagraph([{ text: '7.3 Account Balance. ', bold: true }, { text: 'The following amounts shall be recorded as a balance owing on the Seller\'s Firm Funds account: (a) the full Purchase Price owing under Article 5.1 (non-closing); (b) any commission shortfall owing under Article 5.2 (partial deficiency); (c) interest on seller repayment obligations under Article 5.3; and (d) Late Payment Interest on brokerage late remittance under Article 6.2. The Purchaser may offset any balance owing against future commission purchase transactions without further notice to the Seller.' }]),
           richParagraph([{ text: '7.4 Cumulative Remedies. ', bold: true }, { text: 'The remedies set out in this Article are in addition to, and not in substitution for, any other rights or remedies available to the Purchaser at law or in equity.' }]),
 
           // Article 8
-          heading2('ARTICLE 8 — SELLER\'S REPRESENTATIONS AND WARRANTIES'),
+          heading2('ARTICLE 8: SELLER\'S REPRESENTATIONS AND WARRANTIES'),
           body('The Seller represents and warrants: (a) valid RECO registration and good standing; (b) full authority to sell and assign the Commission; (c) firm transaction with all conditions satisfied; (d) no prior assignment of the Commission; (e) no impediments to closing; (f) all information provided is true and accurate; (g) no pending litigation; (h) no PPSA registrations against the Commission; (i) buyer financing verified; (j) sufficient proceeds to pay the Commission.'),
 
           // Articles 9-12
-          heading2('ARTICLE 9 — NOTIFICATION OBLIGATION'),
+          heading2('ARTICLE 9: NOTIFICATION OBLIGATION'),
           body('The Seller shall immediately notify the Purchaser if: (a) the Closing Date changes; (b) the transaction is terminated; (c) any circumstance may prevent closing; or (d) the Seller ceases to be licensed.'),
 
-          heading2('ARTICLE 10 — TAX OBLIGATIONS'),
+          heading2('ARTICLE 10: TAX OBLIGATIONS'),
           body('The collection, reporting, and remittance of all applicable GST/HST on the Commission is the sole responsibility of the Seller.'),
 
-          heading2('ARTICLE 11 — FINTRAC COMPLIANCE'),
+          heading2('ARTICLE 11: FINTRAC COMPLIANCE'),
           body('The Seller acknowledges identity verification through the Purchaser\'s portal and consents to record retention for a minimum of five (5) years.'),
 
-          heading2('ARTICLE 12 — GENERAL PROVISIONS'),
+          heading2('ARTICLE 12: GENERAL PROVISIONS'),
           body('Governed by the laws of Ontario. Electronic signatures valid under the Electronic Commerce Act, 2000 (Ontario). Each Party has been advised to obtain independent legal advice.'),
           initialsAnchor(),
         ],
@@ -353,15 +358,16 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
         properties: {
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
-        headers: { default: makeHeader('Commission Purchase Agreement — Schedule "A"') },
+        headers: { default: makeHeader('Commission Purchase Agreement | Schedule "A"') },
         footers: { default: makeFooterWithInitials('Seller Initials') },
         children: [
           new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { after: 300 },
-            children: [new TextRun({ text: 'SCHEDULE "A" — TRANSACTION DETAILS', bold: true, font: FONT, size: 28, color: '000000' })],
+            children: [new TextRun({ text: 'SCHEDULE "A": TRANSACTION DETAILS', bold: true, font: FONT, size: 28, color: '000000' })],
           }),
           scheduleTable([
+            ['Deal Number', r('{{DEAL_NUMBER}}')],
             ['Property Address', r('{{PROPERTY_ADDRESS}}')],
             ['MLS Number', r('{{MLS_NUMBER}}')],
             ['Expected Closing Date', r('{{EXPECTED_CLOSING_DATE}}')],
@@ -374,7 +380,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['Purchase Discount', r('{{PURCHASE_DISCOUNT}}')],
             [`Settlement Period Fee (${r('{{SETTLEMENT_PERIOD_DAYS}}')} days)`, r('{{SETTLEMENT_PERIOD_FEE}}')],
             ['Purchase Price (Agent Receives)', r('{{PURCHASE_PRICE}}')],
-            ['Brokerage Referral Fee', r('{{BROKERAGE_REFERRAL_FEE}}')],
+            ['Brokerage Profit Share', r('{{BROKERAGE_REFERRAL_FEE}}')],
             ['Late Payment Interest Rate', `${r('{{LATE_INTEREST_RATE}}')} per annum, compounded daily`],
             ['Late Interest Grace (from closing)', `${r('{{LATE_INTEREST_GRACE_DAYS}}')} days`],
             ['Brokerage Legal Name', r('{{BROKERAGE_LEGAL_NAME}}')],
@@ -390,7 +396,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
         properties: {
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
-        headers: { default: makeHeader('Commission Purchase Agreement — Signature Page') },
+        headers: { default: makeHeader('Commission Purchase Agreement | Signature Page') },
         footers: { default: makeFooterNoInitials() },
         children: [
           new Paragraph({
@@ -450,6 +456,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
 
           // Date
           richParagraph([{ text: 'Date: ' }, { text: r('{{AGREEMENT_DATE}}'), bold: true }]),
+          richParagraph([{ text: 'Deal No.: ' }, { text: r('{{DEAL_NUMBER}}'), bold: true }]),
           emptyLine(),
 
           // TO
@@ -495,10 +502,10 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
           emptyLine(),
           body('This Direction is irrevocable and may not be revoked, altered, amended, or countermanded by me without the prior written consent of the Purchaser.'),
           emptyLine(),
-          body('I acknowledge that the Brokerage is entitled to deduct a Referral Fee from the Directed Amount prior to remittance, as set out in the Brokerage Cooperation Agreement between the Brokerage and the Purchaser. The net amount remitted after such deduction shall constitute compliance with this Direction.'),
+          body('I acknowledge that the Brokerage is entitled to deduct a Profit Share from the Directed Amount prior to remittance, as set out in the Brokerage Cooperation Agreement between the Brokerage and the Purchaser. The net amount remitted after such deduction shall constitute compliance with this Direction.'),
           emptyLine(),
           richParagraph([
-            { text: 'Subject to the Referral Fee deduction described above, the Directed Amount shall be paid from the Brokerage\'s real estate trust account no later than the Payment Due Date, being ' },
+            { text: 'Subject to the Profit Share deduction described above, the Directed Amount shall be paid from the Brokerage\'s real estate trust account no later than the Payment Due Date, being ' },
             { text: r('{{DUE_DATE}}'), bold: true },
             { text: ` (${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date of ` },
             { text: r('{{EXPECTED_CLOSING_DATE}}'), bold: true },
@@ -514,7 +521,7 @@ export async function generateIdpDocx(data: Record<string, string>): Promise<Buf
             ['Account Number', r('{{PURCHASER_ACCOUNT}}')],
           ]),
           emptyLine(),
-          body('If the commission actually payable to me on this transaction (after the Brokerage\'s commission split) is less than the Directed Amount, the Brokerage shall pay the full commission amount to the Purchaser, subject to the Referral Fee deduction described above. I acknowledge that the difference between the Directed Amount and the amount actually received by the Purchaser, excluding any Referral Fee lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement, shall remain my personal obligation to the Purchaser, as set out in Article 5.2 of the Commission Purchase Agreement. Such shortfall shall be charged to my Firm Funds account as a balance owing, and may be deducted from future commission purchase transactions, invoiced separately, or demanded by the Purchaser at any time.'),
+          body('If the commission actually payable to me on this transaction (after the Brokerage\'s commission split) is less than the Directed Amount, the Brokerage shall pay the full commission amount to the Purchaser, subject to the Profit Share deduction described above. I acknowledge that the difference between the Directed Amount and the amount actually received by the Purchaser, excluding any Profit Share lawfully deducted by the Brokerage under the Brokerage Cooperation Agreement, shall remain my personal obligation to the Purchaser, as set out in Article 5.2 of the Commission Purchase Agreement. Such shortfall shall be charged to my Firm Funds account as a balance owing, and may be deducted from future commission purchase transactions, invoiced separately, or demanded by the Purchaser at any time.'),
           body('If the Real Estate Transaction does not close for any reason, I acknowledge that: (a) my obligation to repay the full Purchase Price to the Purchaser remains in effect, as set out in Article 5.1 of the Commission Purchase Agreement; and (b) I shall be required to elect a cure method under Article 5.5 of the Commission Purchase Agreement, being either cash repayment or the execution of one or more Remediation IDPs assigning the proceeds of my next eligible commission(s) to the Purchaser until the outstanding balance is satisfied in full. I further acknowledge that a Remediation IDP does not constitute a new commission purchase, and no Purchase Price, Purchase Discount, or Settlement Period Fee will be paid to me in respect of any commission assigned under a Remediation IDP.'),
 
           // Brokerage Auth
@@ -602,7 +609,7 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
             { text: ', a corporation incorporated under the laws of Ontario, carrying on business at 121 Brock Street, Sault Ste. Marie, ON P6A 3B6 (the "Purchaser" or "Firm Funds");' },
           ]),
           emptyLine(),
-          body('— AND —', { alignment: AlignmentType.CENTER, bold: true }),
+          body('AND', { alignment: AlignmentType.CENTER, bold: true }),
           emptyLine(),
           richParagraph([
             { text: r('{{BROKERAGE_LEGAL_NAME}}'), bold: true },
@@ -624,21 +631,21 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           // Recitals — (#1) purchase language throughout
           body('RECITALS', { bold: true }),
           body('WHEREAS Firm Funds operates a commission purchase program under which it purchases the right to receive real estate commission receivables from individual real estate agents ("Agents") registered with the Brokerage;'),
-          body('AND WHEREAS the Brokerage acknowledges the value of commission purchase services to its Agents, and wishes to cooperate with Firm Funds to facilitate the orderly processing and payment of commission receivables;'),
+          body('AND WHEREAS the Brokerage acknowledges the value of commission purchase services to its Agents, and wishes to cooperate with Firm Funds by providing administrative assistance to facilitate the orderly processing and payment of commission receivables, in exchange for the Profit Share described in this Agreement;'),
           body('AND WHEREAS each commission purchase transaction will be governed by a separate Commission Purchase Agreement between Firm Funds and the Agent, and an Irrevocable Direction to Pay issued by the Agent to the Brokerage;'),
           body('NOW THEREFORE, in consideration of the mutual covenants and agreements hereinafter set forth, and for other good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, the parties agree as follows:'),
 
           emptyLine(),
 
           // Article 1: Definitions — (#2) add Face Value, (#8) remove seller-facing definitions
-          heading2('ARTICLE 1 — DEFINITIONS'),
+          heading2('ARTICLE 1: DEFINITIONS'),
           body('1.1 "Agent" means a real estate salesperson or broker registered under the Brokerage who enters into a Commission Purchase Agreement with Firm Funds.'),
           body('1.2 "Commission Purchase Agreement" or "CPA" means the agreement between Firm Funds and an Agent pursuant to which Firm Funds purchases the right to receive all or a portion of a Commission Receivable.'),
           body('1.3 "Irrevocable Direction to Pay" or "IDP" means an irrevocable written instruction from the Agent directing the Brokerage to remit commission funds to Firm Funds.'),
           body('1.4 "Commission Receivable" means the amount of real estate commission payable to an Agent through the Brokerage upon the closing of a real estate transaction.'),
           body('1.5 "Face Value" means the net commission payable to the Agent after the Brokerage\'s commission split, as set out in the applicable CPA.'),
           body('1.6 "Transaction" means a real estate transaction giving rise to a Commission Receivable.'),
-          body('1.7 "Referral Fee" means the fee payable by Firm Funds to the Brokerage in connection with each commission purchase transaction, calculated as a percentage of the sum of the Purchase Discount and the Settlement Period Fee (each as defined in the applicable CPA). The applicable Referral Fee percentage for each Transaction shall be as set out in the applicable CPA, and may vary by Transaction.'),
+          body('1.7 "Profit Share" means the profit-sharing fee payable by Firm Funds to the Brokerage in connection with each commission purchase transaction, in consideration of the Brokerage\'s administrative cooperation under Article 2, calculated as a percentage of the sum of the Purchase Discount and the Settlement Period Fee (each as defined in the applicable CPA). The applicable Profit Share percentage for each Transaction shall be as set out in the applicable CPA, and may vary by Transaction.'),
           body('1.8 "Purchase Discount" means the fee charged by Firm Funds to the Agent for the commission purchase transaction, as calculated and set out in the applicable CPA. For clarity, the Purchase Discount does not include the Settlement Period Fee.'),
           body(`1.9 "Payment Due Date" means the date that is the Settlement Window (as defined in Article 3.6) following the Expected Closing Date as set out in the applicable CPA and IDP, by which the Brokerage must remit the Commission to Firm Funds. Unless modified under Article 3.6, the Settlement Window is ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days.`),
           body('1.10 "Remediation IDP" means an Irrevocable Direction to Pay executed by an Agent under Article 5.5(b) of the applicable CPA, directing the Brokerage to remit the Agent\'s next or subsequent commission receivable to Firm Funds in satisfaction of an outstanding balance owing on a prior commission purchase transaction. For greater certainty, a Remediation IDP is not associated with a new commission purchase transaction and does not give rise to any Purchase Discount, Settlement Period Fee, or Purchase Price.'),
@@ -646,61 +653,62 @@ export async function generateBcaDocx(data: Record<string, string>): Promise<Buf
           body(`1.12 "Late Settlement Strike" means an occurrence in which the Brokerage fails to remit the Commission for a Transaction in full by the Payment Due Date applicable to that Transaction, as tracked by Firm Funds for the purposes of Article 3.6.`),
 
           // Article 2: Cooperation — (#1) purchase language, (#4) tightened 2.3
-          heading2('ARTICLE 2 — COOPERATION AND ACKNOWLEDGMENT'),
+          heading2('ARTICLE 2: COOPERATION AND ACKNOWLEDGMENT'),
           body('2.1 The Brokerage agrees to cooperate with Firm Funds in the processing of commission purchase transactions involving its Agents. This cooperation includes, without limitation, honouring Irrevocable Directions to Pay and facilitating the timely remittance of commission funds.'),
           body('2.2 The Brokerage acknowledges that each commission purchase transaction constitutes a true sale and purchase of a Commission Receivable, and not a loan or security interest. The Brokerage acknowledges that upon execution of a CPA and IDP, Firm Funds acquires a property right in the Commission Receivable.'),
           body('2.3 Nothing in this Agreement creates an obligation on the part of the Brokerage to recommend or market the commission purchase program to its Agents. However, upon receiving a valid IDP and supporting CPA documentation from an Agent, the Brokerage shall honour it in accordance with this Agreement.'),
+          body('2.4 Administrative Cooperation. The Brokerage agrees to provide reasonable administrative assistance to facilitate the orderly processing of commission purchase transactions involving its Agents. Such assistance includes, without limitation: (a) submitting commission purchase requests to Firm Funds on behalf of its Agents, and assisting Agents in the preparation and submission of such requests through the Firm Funds portal; (b) confirming commission details on request, including the status of a Transaction, the gross commission, the applicable commission split, and the Expected Closing Date; (c) providing Firm Funds with supporting documentation reasonably required to process a Transaction, including a copy of the Agreement of Purchase and Sale and the trade record sheet; (d) holding the Commission in its real estate trust account and remitting the required amount to Firm Funds in accordance with each Irrevocable Direction to Pay and Article 4; and (e) providing payment confirmations in accordance with Article 4.3. For greater certainty, the Brokerage\'s role is limited to the administrative cooperation described in this Agreement; the Brokerage does not underwrite, fund, or assume the credit risk of any Transaction, each of which remains the sole responsibility of Firm Funds. In consideration of this administrative cooperation, the Brokerage shall be entitled to the Profit Share set out in Article 4.'),
 
           // Article 3: Irrevocable Direction to Pay — (#3) Payment Due Date harmonized, (#5) partial shortfall, (#6) dispute handling
-          heading2('ARTICLE 3 — IRREVOCABLE DIRECTION TO PAY'),
-          body('3.1 Upon receiving a valid Irrevocable Direction to Pay from an Agent, the Brokerage shall honour such direction and remit to Firm Funds: (a) the directed amount, less the Referral Fee as set out in Article 4.4, or (b) if the commission actually payable to the Agent on the Transaction (after the Brokerage\'s commission split) is less than the directed amount, the full commission actually payable less the Referral Fee. Any shortfall between the directed amount and the commission actually remitted (exclusive of the Referral Fee) is governed by the applicable CPA and IDP.'),
+          heading2('ARTICLE 3: IRREVOCABLE DIRECTION TO PAY'),
+          body('3.1 Upon receiving a valid Irrevocable Direction to Pay from an Agent, the Brokerage shall honour such direction and remit to Firm Funds: (a) the directed amount, less the Profit Share as set out in Article 4.4, or (b) if the commission actually payable to the Agent on the Transaction (after the Brokerage\'s commission split) is less than the directed amount, the full commission actually payable less the Profit Share. Any shortfall between the directed amount and the commission actually remitted (exclusive of the Profit Share) is governed by the applicable CPA and IDP.'),
           body('3.2 The Brokerage acknowledges that an IDP, once executed by the Agent and delivered to the Brokerage, is irrevocable and may not be cancelled, modified, or overridden except with the express written consent of Firm Funds.'),
           body('3.3 The Brokerage agrees to process payment to Firm Funds no later than the Payment Due Date set out in the applicable IDP and CPA. Payment shall be made by electronic funds transfer to the account specified in the applicable IDP.'),
-          body('3.4 In the event of a commission dispute, holdback, or adjustment that affects the amount payable under an IDP, the Brokerage shall: (a) promptly notify both the Agent and Firm Funds in writing; (b) remit to Firm Funds any undisputed or actually payable portion of the commission, less the Referral Fee under Article 4.4, up to the directed amount; and (c) withhold only the disputed, held-back, or not-yet-payable portion pending resolution or written instructions from Firm Funds.'),
-          body('3.5 Remediation IDPs. The Brokerage acknowledges that, where a prior commission purchase transaction involving an Agent has resulted in an outstanding balance owing to Firm Funds (whether due to non-closing or commission deficiency), the Agent may be required under the applicable CPA to execute a Remediation IDP directing the Brokerage to remit the Agent\'s next eligible commission(s) to Firm Funds. The Brokerage agrees to honour any such Remediation IDP delivered to it by the Agent in accordance with the same procedures set out in Articles 3.1 through 3.4 and Article 4 for commission purchase IDPs, with the following modifications: (a) No Referral Fee. No Referral Fee shall be payable to the Brokerage in respect of a Remediation IDP, as the underlying transaction is not a new commission purchase. The Brokerage shall remit to Firm Funds the full commission amount otherwise payable to the Agent (after the Brokerage\'s standard commission split), up to the directed amount. (b) Successive Application. Where a single commission receivable is insufficient to satisfy the directed amount, the Brokerage acknowledges that the Agent may be required to execute successive Remediation IDPs in respect of subsequent commission receivables, and the Brokerage shall honour each such Remediation IDP delivered to it. (c) Agent Transfer. If the Brokerage receives notice that an Agent subject to an outstanding Remediation IDP obligation has transferred to another brokerage, the Brokerage shall: (i) notify Firm Funds in writing within two (2) business days; and (ii) remit to Firm Funds any commission earned by the Agent prior to the transfer that remains payable through the Brokerage, in accordance with any then-effective Remediation IDP.'),
+          body('3.4 In the event of a commission dispute, holdback, or adjustment that affects the amount payable under an IDP, the Brokerage shall: (a) promptly notify both the Agent and Firm Funds in writing; (b) remit to Firm Funds any undisputed or actually payable portion of the commission, less the Profit Share under Article 4.4, up to the directed amount; and (c) withhold only the disputed, held-back, or not-yet-payable portion pending resolution or written instructions from Firm Funds.'),
+          body('3.5 Remediation IDPs. The Brokerage acknowledges that, where a prior commission purchase transaction involving an Agent has resulted in an outstanding balance owing to Firm Funds (whether due to non-closing or commission deficiency), the Agent may be required under the applicable CPA to execute a Remediation IDP directing the Brokerage to remit the Agent\'s next eligible commission(s) to Firm Funds. The Brokerage agrees to honour any such Remediation IDP delivered to it by the Agent in accordance with the same procedures set out in Articles 3.1 through 3.4 and Article 4 for commission purchase IDPs, with the following modifications: (a) No Profit Share. No Profit Share shall be payable to the Brokerage in respect of a Remediation IDP, as the underlying transaction is not a new commission purchase. The Brokerage shall remit to Firm Funds the full commission amount otherwise payable to the Agent (after the Brokerage\'s standard commission split), up to the directed amount. (b) Successive Application. Where a single commission receivable is insufficient to satisfy the directed amount, the Brokerage acknowledges that the Agent may be required to execute successive Remediation IDPs in respect of subsequent commission receivables, and the Brokerage shall honour each such Remediation IDP delivered to it. (c) Agent Transfer. If the Brokerage receives notice that an Agent subject to an outstanding Remediation IDP obligation has transferred to another brokerage, the Brokerage shall: (i) notify Firm Funds in writing within two (2) business days; and (ii) remit to Firm Funds any commission earned by the Agent prior to the transfer that remains payable through the Brokerage, in accordance with any then-effective Remediation IDP.'),
           body(`3.6 Settlement Window; Late Settlement Strikes and Auto-Extension. (a) The Settlement Window applicable to each Transaction is fixed at the time the Agent's CPA is funded and is set out in the applicable CPA. The default Settlement Window is ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date. (b) Firm Funds shall track each occurrence in which the Brokerage fails to remit the Commission for a Transaction in full by the Payment Due Date applicable to that Transaction (each, a "Late Settlement Strike"). (c) Upon the Brokerage accumulating ${r('{{LATE_STRIKE_THRESHOLD}}')} (${r('{{LATE_STRIKE_THRESHOLD}}')}) Late Settlement Strikes, the Settlement Window for all Transactions thereafter funded shall, by operation of this Agreement and without further notice, be extended to ${r('{{BUMPED_SETTLEMENT_DAYS}}')} (${r('{{BUMPED_SETTLEMENT_DAYS}}')}) calendar days (the "Extended Settlement Window"), and shall continue at the Extended Settlement Window until Firm Funds, in its sole discretion, restores the default Settlement Window in writing. (d) For greater certainty, an extension of the Settlement Window under this Article 3.6 does not modify the Payment Due Date applicable to any Transaction that was already funded prior to the extension; each Transaction's Payment Due Date is governed by the Settlement Window in effect at the time of its CPA funding. (e) Nothing in this Article 3.6 limits Firm Funds' other remedies under this Agreement or at law for the Brokerage's failure to remit any Commission by the applicable Payment Due Date.`),
 
           // Article 4: Commission Handling
-          heading2('ARTICLE 4 — COMMISSION HANDLING AND REMITTANCE'),
+          heading2('ARTICLE 4: COMMISSION HANDLING AND REMITTANCE'),
           body('4.1 Upon closing of a Transaction, the Brokerage shall remit the amount required under Article 3.1 directly to Firm Funds by electronic funds transfer (EFT) to the account specified in the IDP, or by such other method as Firm Funds may direct in writing.'),
           body('4.2 Any residual commission amount remaining after remittance to Firm Funds under Article 3.1 shall be remitted to the Agent in accordance with the Brokerage\'s standard commission disbursement practices.'),
           body('4.3 The Brokerage shall provide Firm Funds with reasonable confirmation of payment, including the date of remittance and transaction reference number, within five (5) business days of payment.'),
-          body(`4.4 Referral Fee. For each Transaction in which the Brokerage honours an IDP, the Brokerage shall be entitled to a Referral Fee of ${r('{{REFERRAL_FEE_PCT}}')} of the sum of the Purchase Discount and the Settlement Period Fee. The Referral Fee percentage may be adjusted for a specific Transaction by written agreement between the parties, as reflected in the applicable CPA. The Referral Fee shall not apply to any other fees or charges under the CPA.`),
-          body('4.5 Deduction of Referral Fee. The Brokerage shall deduct the Referral Fee from the amount otherwise remittable to Firm Funds under Article 3.1 at the time of remittance. The Brokerage shall include the Referral Fee amount and the calculation basis in the payment confirmation provided under Article 4.3.'),
-          body('4.6 Referral Fee on Partial Commission. If the commission actually payable is less than the directed amount and the Brokerage remits a reduced amount under Article 3.1(b), the Referral Fee shall be calculated on the sum of the Purchase Discount and the Settlement Period Fee as originally set out in the applicable CPA, and shall not be recalculated based on the reduced remittance amount.'),
+          body(`4.4 Profit Share. For each Transaction in which the Brokerage honours an IDP, the Brokerage shall be entitled to a Profit Share of ${r('{{REFERRAL_FEE_PCT}}')} of the sum of the Purchase Discount and the Settlement Period Fee, in consideration of the administrative cooperation it provides under Article 2 of this Agreement. The Profit Share percentage may be adjusted for a specific Transaction by written agreement between the parties, as reflected in the applicable CPA. The Profit Share shall not apply to any other fees or charges under the CPA.`),
+          body('4.5 Deduction of Profit Share. The Brokerage shall deduct the Profit Share from the amount otherwise remittable to Firm Funds under Article 3.1 at the time of remittance. The Brokerage shall include the Profit Share amount and the calculation basis in the payment confirmation provided under Article 4.3.'),
+          body('4.6 Profit Share on Partial Commission. If the commission actually payable is less than the directed amount and the Brokerage remits a reduced amount under Article 3.1(b), the Profit Share shall be calculated on the sum of the Purchase Discount and the Settlement Period Fee as originally set out in the applicable CPA, and shall not be recalculated based on the reduced remittance amount.'),
 
           // Article 5: Notification Obligations
-          heading2('ARTICLE 5 — NOTIFICATION OBLIGATIONS'),
+          heading2('ARTICLE 5: NOTIFICATION OBLIGATIONS'),
           body('5.1 The Brokerage shall promptly notify Firm Funds in writing if it becomes aware of any of the following: (a) a change to the expected closing date of a Transaction subject to an IDP; (b) the termination, collapse, or material amendment of a Transaction; (c) any commission dispute, holdback, or legal proceeding affecting a Commission Receivable; (d) any change in the Agent\'s status, including termination, suspension, or transfer to another brokerage.'),
           body('5.2 The Brokerage shall provide Firm Funds with such notice within two (2) business days of becoming aware of the applicable event.'),
 
           // Article 6: Agent Authorization — (#1) purchase language, (#4) tightened 6.1
-          heading2('ARTICLE 6 — AGENT AUTHORIZATION'),
+          heading2('ARTICLE 6: AGENT AUTHORIZATION'),
           body('6.1 The Brokerage confirms that it shall not restrict its Agents from participating in lawful commission purchase arrangements with Firm Funds, and that upon receiving a valid IDP and CPA, the Brokerage shall honour the direction in accordance with this Agreement.'),
           body('6.2 The Brokerage agrees not to take any action to impede, discourage, or penalize an Agent solely for participating in the Firm Funds commission purchase program.'),
 
           // Article 7: Term and Termination — (#7) broadened survival clause
-          heading2('ARTICLE 7 — TERM AND TERMINATION'),
+          heading2('ARTICLE 7: TERM AND TERMINATION'),
           body('7.1 This Agreement shall commence on the date first written above and shall continue in force for a period of one (1) year, automatically renewing for successive one-year terms unless either party provides not less than ninety (90) days\' written notice of non-renewal prior to the end of the then-current term.'),
           body('7.2 Either party may terminate this Agreement for cause upon thirty (30) days\' written notice if the other party commits a material breach and fails to cure such breach within the notice period.'),
           body('7.3 Termination of this Agreement shall not affect any IDP that has been executed and delivered prior to the effective date of termination. Following termination, the Brokerage shall continue to comply with: (a) all outstanding IDPs; (b) its remittance obligations under Article 3; and (c) its notification obligations under Article 5, including with respect to non-closing, delay, deficiency, dispute, or holdback, until each outstanding Transaction is fully resolved and all amounts have been remitted or accounted for.'),
 
           // Article 8: Representations and Warranties — (#1) purchase language
-          heading2('ARTICLE 8 — REPRESENTATIONS AND WARRANTIES'),
+          heading2('ARTICLE 8: REPRESENTATIONS AND WARRANTIES'),
           body('8.1 The Brokerage represents and warrants that: (a) it is a brokerage in good standing registered under the Trust in Real Estate Services Act, 2002 (Ontario); (b) the Broker of Record has full authority to enter into this Agreement on behalf of the Brokerage; (c) entering into this Agreement does not conflict with any other agreement or obligation of the Brokerage; (d) it maintains adequate trust accounting and commission disbursement procedures.'),
           body('8.2 Firm Funds represents and warrants that: (a) it is a corporation in good standing under the laws of Ontario; (b) it has full authority to enter into this Agreement; (c) it shall comply with all applicable laws, including FINTRAC requirements, in connection with its commission purchase operations.'),
 
           // Article 9: Confidentiality
-          heading2('ARTICLE 9 — CONFIDENTIALITY'),
+          heading2('ARTICLE 9: CONFIDENTIALITY'),
           body('9.1 Each party agrees to keep confidential all information received from the other party in connection with this Agreement, including Agent information, transaction details, and financial terms. Such information may be disclosed only: (a) to the extent required by law or regulatory authority; (b) to professional advisors bound by confidentiality obligations; (c) with the prior written consent of the disclosing party.'),
 
           // Article 10: Indemnification — (#1) purchase language
-          heading2('ARTICLE 10 — INDEMNIFICATION'),
+          heading2('ARTICLE 10: INDEMNIFICATION'),
           body('10.1 The Brokerage shall indemnify and hold harmless Firm Funds from any loss, cost, or expense (including reasonable legal fees) arising from: (a) a breach of this Agreement by the Brokerage; (b) the Brokerage\'s failure to honour a valid IDP; (c) the Brokerage\'s release of directed funds in contravention of an IDP.'),
           body('10.2 Firm Funds shall indemnify and hold harmless the Brokerage from any loss, cost, or expense (including reasonable legal fees) arising from: (a) a breach of this Agreement by Firm Funds; (b) any claim by a third party relating to Firm Funds\' commission purchase activities, to the extent such claim does not arise from the Brokerage\'s own acts or omissions.'),
 
           // Article 11: General Provisions
-          heading2('ARTICLE 11 — GENERAL PROVISIONS'),
+          heading2('ARTICLE 11: GENERAL PROVISIONS'),
           body('11.1 Governing Law. This Agreement shall be governed by and construed in accordance with the laws of the Province of Ontario and the federal laws of Canada applicable therein.'),
           body('11.2 Entire Agreement. This Agreement constitutes the entire agreement between the parties with respect to the subject matter hereof and supersedes all prior negotiations, representations, and agreements.'),
           body('11.3 Amendments. No amendment to this Agreement shall be effective unless made in writing and signed by both parties.'),
@@ -880,7 +888,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
         properties: {
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
-        headers: { default: makeHeader('Commission Purchase Agreement — Amendment') },
+        headers: { default: makeHeader('Commission Purchase Agreement | Amendment') },
         footers: { default: makeFooterWithInitials('Seller Initials') },
         children: [
           // Title
@@ -900,6 +908,10 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
             { text: 'Amendment Date: ' },
             { text: r('{{AMENDMENT_DATE}}'), bold: true },
           ]),
+          richParagraph([
+            { text: 'Deal No.: ' },
+            { text: r('{{DEAL_NUMBER}}'), bold: true },
+          ]),
           emptyLine(),
 
           // Parties
@@ -907,7 +919,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
           body(r('{{AGENT_FULL_LEGAL_NAME}}'), { bold: true, indent: 300 }),
           body('(the "Seller")', { italic: true, indent: 300 }),
           emptyLine(),
-          body('— AND —', { alignment: AlignmentType.CENTER, bold: true }),
+          body('AND', { alignment: AlignmentType.CENTER, bold: true }),
           emptyLine(),
           body('FIRM FUNDS INC.', { bold: true, indent: 300 }),
           body('(the "Purchaser")', { italic: true, indent: 300 }),
@@ -934,23 +946,23 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
           ]),
           emptyLine(),
 
-          // Article 1 — Amendments
-          heading2('ARTICLE 1 — AMENDMENTS TO ORIGINAL AGREEMENT'),
+          // Article 1: Amendments
+          heading2('ARTICLE 1: AMENDMENTS TO ORIGINAL AGREEMENT'),
           ...article1Clauses,
 
-          // Article 2 — Financial Adjustment
-          heading2('ARTICLE 2 — FINANCIAL ADJUSTMENT'),
+          // Article 2: Financial Adjustment
+          heading2('ARTICLE 2: FINANCIAL ADJUSTMENT'),
           ...article2Clauses,
 
-          // Article 3 — Confirmation
-          heading2('ARTICLE 3 — CONFIRMATION OF ORIGINAL AGREEMENT'),
+          // Article 3: Confirmation
+          heading2('ARTICLE 3: CONFIRMATION OF ORIGINAL AGREEMENT'),
           body('3.1 Except as expressly amended herein, all terms and conditions of the Original Agreement shall remain in full force and effect and are hereby ratified and confirmed by the Parties.'),
           body('3.2 This Amendment shall be read together with the Original Agreement, and in the event of any conflict between this Amendment and the Original Agreement, the provisions of this Amendment shall prevail with respect to the matters addressed herein.'),
           body('3.3 All capitalized terms used but not defined in this Amendment shall have the meanings given to them in the Original Agreement.'),
 
           // Amendment Summary Table
           emptyLine(),
-          heading2('SCHEDULE — AMENDED TERMS SUMMARY'),
+          heading2('SCHEDULE: AMENDED TERMS SUMMARY'),
           scheduleTable(scheduleRows),
           initialsAnchor(),
         ],
@@ -961,7 +973,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
         properties: {
           page: { margin: { top: 1000, bottom: 1400, left: 1000, right: 1000 } },
         },
-        headers: { default: makeHeader('Commission Purchase Agreement — Amendment Signature') },
+        headers: { default: makeHeader('Commission Purchase Agreement | Amendment Signature') },
         footers: { default: makeFooterNoInitials() },
         children: [
           new Paragraph({
@@ -1001,7 +1013,7 @@ export async function generateCpaAmendmentDocx(data: Record<string, string>): Pr
 // Key differences from the standard IDP (CPA 5.6 / BCA 3.5):
 //   - No Purchase Price, Purchase Discount, or Settlement Period Fee — this
 //     is collection, not a new commission purchase.
-//   - No Referral Fee to the brokerage — full commission (after standard
+//   - No Profit Share to the brokerage; full commission (after standard
 //     split) passes through to Firm Funds up to the directed amount.
 //   - Directed amount = outstanding balance + accrued 24% p.a. interest on
 //     the failed deal (CPA 5.3).
@@ -1033,6 +1045,7 @@ export async function generateRemediationIdpDocx(data: Record<string, string>): 
 
           // Date
           richParagraph([{ text: 'Date: ' }, { text: r('{{AGREEMENT_DATE}}'), bold: true }]),
+          richParagraph([{ text: 'In respect of failed deal No.: ' }, { text: r('{{ORIGINAL_DEAL_NUMBER}}'), bold: true }]),
           emptyLine(),
 
           // TO (Brokerage)
@@ -1113,12 +1126,12 @@ export async function generateRemediationIdpDocx(data: Record<string, string>): 
             ['Account Number', r('{{PURCHASER_ACCOUNT}}')],
           ]),
 
-          // No Referral Fee / No Purchase Consideration — explicit per BCA 3.5(a) and CPA 5.6
-          heading2('NO REFERRAL FEE; NO PURCHASE CONSIDERATION'),
-          body('I acknowledge and agree, and the Brokerage acknowledges by accepting this Direction, that: (a) under Article 3.5(a) of the Brokerage Cooperation Agreement between the Brokerage and the Purchaser, no Referral Fee is payable to the Brokerage in respect of this Remediation Direction to Pay; (b) the Brokerage shall remit to the Purchaser the full Assigned Commission otherwise payable to me (after the Brokerage\'s standard commission split), up to the Directed Amount; and (c) this Remediation Direction to Pay does not constitute a new commission purchase transaction, and no Purchase Price, Purchase Discount, Settlement Period Fee, or other consideration is or shall be payable by the Purchaser to me in respect of the Assigned Commission (Article 5.6 of the Original CPA).'),
+          // No Profit Share / No Purchase Consideration: explicit per BCA 3.5(a) and CPA 5.6
+          heading2('NO PROFIT SHARE; NO PURCHASE CONSIDERATION'),
+          body('I acknowledge and agree, and the Brokerage acknowledges by accepting this Direction, that: (a) under Article 3.5(a) of the Brokerage Cooperation Agreement between the Brokerage and the Purchaser, no Profit Share is payable to the Brokerage in respect of this Remediation Direction to Pay; (b) the Brokerage shall remit to the Purchaser the full Assigned Commission otherwise payable to me (after the Brokerage\'s standard commission split), up to the Directed Amount; and (c) this Remediation Direction to Pay does not constitute a new commission purchase transaction, and no Purchase Price, Purchase Discount, Settlement Period Fee, or other consideration is or shall be payable by the Purchaser to me in respect of the Assigned Commission (Article 5.6 of the Original CPA).'),
 
-          // Shortfall — successive Remediation IDPs
-          heading2('SHORTFALL — SUCCESSIVE REMEDIATION IDPs'),
+          // Shortfall: successive Remediation IDPs
+          heading2('SHORTFALL: SUCCESSIVE REMEDIATION IDPs'),
           body('If the Assigned Commission, after the Brokerage\'s standard commission split, is insufficient to satisfy the Directed Amount in full, the Brokerage shall remit the full net amount to the Purchaser, and I acknowledge that the remaining Outstanding Balance shall continue to be owing under the Original CPA. I further acknowledge that I shall be required under Article 5.5(b) of the Original CPA to execute one or more successive Remediation Directions to Pay in respect of each subsequent commission receivable, in the order in which they become firm, until the Outstanding Balance is satisfied in full.'),
 
           // Surplus

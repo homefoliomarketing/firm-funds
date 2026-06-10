@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DealNumber } from '@/components/DealNumber'
 
 interface PaymentEntry {
   amount: number
@@ -17,6 +18,9 @@ interface PaymentEntry {
 
 interface PayableDeal {
   id: string
+  /** Human-readable deal number. Optional: only present once the payable-deals
+   *  query selects it. Rendered when available. */
+  deal_number?: string | null
   property_address: string
   status: string
   amount_due_from_brokerage: number | null
@@ -203,6 +207,12 @@ export default function RecordPaymentModal({ open, initialDealId, onClose, onSuc
           {/* Deal summary */}
           {selectedDeal && (
             <div className="rounded-lg p-3 bg-muted/30 border border-border text-xs space-y-1">
+              {selectedDeal.deal_number && (
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Deal number</span>
+                  <DealNumber value={selectedDeal.deal_number} />
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Amount owed</span>
                 <span className="font-semibold text-foreground tabular-nums">{formatCurrency(selectedDeal.amount_due_from_brokerage || 0)}</span>

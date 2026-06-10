@@ -7,6 +7,7 @@ import { AlertTriangle, DollarSign, FileSignature, CheckCircle2, Clock, ArrowRig
 import { formatCurrency } from '@/lib/formatting'
 import { submitCureElection } from '@/lib/actions/deal-actions'
 import AgentHeader from '@/components/AgentHeader'
+import { DealNumber } from '@/components/DealNumber'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { UserProfile } from '@/types/database'
@@ -22,6 +23,7 @@ interface AgentForHeader {
 
 interface DealRow {
   id: string
+  deal_number: string | null
   property_address: string
   failed_to_close_at: string | null
   failure_type: 'non_closing' | 'commission_deficiency' | null
@@ -87,7 +89,7 @@ export default function CureElectionPage({ params }: PageProps) {
 
       const { data: dealData, error: dealErr } = await supabase
         .from('deals')
-        .select('id, property_address, failed_to_close_at, failure_type, failure_reason, outstanding_balance, cure_election, cure_election_at, cure_election_deadline, status, agent_id')
+        .select('id, deal_number, property_address, failed_to_close_at, failure_type, failure_reason, outstanding_balance, cure_election, cure_election_at, cure_election_deadline, status, agent_id')
         .eq('id', dealId)
         .single()
 
@@ -125,7 +127,7 @@ export default function CureElectionPage({ params }: PageProps) {
       // Refresh the deal
       const { data: refreshed } = await supabase
         .from('deals')
-        .select('id, property_address, failed_to_close_at, failure_type, failure_reason, outstanding_balance, cure_election, cure_election_at, cure_election_deadline, status, agent_id')
+        .select('id, deal_number, property_address, failed_to_close_at, failure_type, failure_reason, outstanding_balance, cure_election, cure_election_at, cure_election_deadline, status, agent_id')
         .eq('id', deal.id)
         .single()
       if (refreshed) setDeal(refreshed as DealRow)
@@ -200,9 +202,12 @@ export default function CureElectionPage({ params }: PageProps) {
           <CardContent className="p-5 sm:p-6">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
-                  Outstanding Balance
-                </p>
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    Outstanding Balance
+                  </p>
+                  <DealNumber value={deal.deal_number} />
+                </div>
                 <p className="text-3xl font-bold tabular-nums text-status-red">
                   {formatCurrency(outstanding)}
                 </p>

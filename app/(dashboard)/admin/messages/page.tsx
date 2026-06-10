@@ -12,6 +12,7 @@ import {
 import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel, ADMIN_QUICK_REPLIES } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
+import { DealNumber } from '@/components/DealNumber'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
@@ -338,6 +339,7 @@ export default function AdminMessagesPage() {
                               </div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="text-xs text-primary">{item.agent_name}</span>
+                                <DealNumber value={item.deal_number} />
                                 <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(item.deal_status)}`}>
                                   {formatStatusLabel(item.deal_status)}
                                 </span>
@@ -405,6 +407,7 @@ export default function AdminMessagesPage() {
                         <p className="text-sm font-bold truncate text-foreground">{selectedDeal?.property_address}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-xs text-primary">{selectedDeal?.agent_name}</span>
+                          <DealNumber value={selectedDeal?.deal_number} />
                           {selectedDeal && (
                             <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(selectedDeal.deal_status)}`}>
                               {formatStatusLabel(selectedDeal.deal_status)}

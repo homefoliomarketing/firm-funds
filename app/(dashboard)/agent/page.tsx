@@ -19,6 +19,7 @@ import {
 } from '@/lib/actions/firm-deal-offer-actions'
 import AgentKycGate from '@/components/AgentKycGate'
 import AgentHeader from '@/components/AgentHeader'
+import { DealNumber } from '@/components/DealNumber'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -64,6 +65,7 @@ interface Deal {
   id: string
   status: string
   property_address: string
+  deal_number: string | null
   closing_date: string
   gross_commission: number
   brokerage_split_pct: number
@@ -872,7 +874,10 @@ function AgentDashboardInner() {
                           onClick={() => router.push(`/agent/deals/${deal.id}`)}
                         >
                           <div className="flex-1 min-w-0 mr-4">
-                            <p className="text-[13px] font-semibold truncate text-foreground group-hover:text-primary transition-colors">{deal.property_address}</p>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <p className="text-[13px] font-semibold truncate text-foreground group-hover:text-primary transition-colors">{deal.property_address}</p>
+                              <DealNumber value={deal.deal_number} className="shrink-0" />
+                            </div>
                             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                               <span className="text-xs text-muted-foreground/70">
                                 {formatDate(deal.created_at)}

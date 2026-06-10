@@ -449,7 +449,7 @@ export async function POST(request: Request) {
                 .maybeSingle()
               const { data: failedDeal } = await supabase
                 .from('deals')
-                .select('property_address')
+                .select('deal_number, property_address')
                 .eq('id', claimed.failed_deal_id as string)
                 .maybeSingle()
 
@@ -463,6 +463,7 @@ export async function POST(request: Request) {
                 agentName,
                 agentEmail: agent?.email || 'unknown',
                 brokerageName: claimed.brokerage_legal_name as string,
+                dealNumber: failedDeal?.deal_number,
                 failedDealPropertyAddress: failedDeal?.property_address || 'unknown',
                 sourcePropertyAddress: claimed.property_address as string,
                 directedAmount: Number(claimed.directed_amount),

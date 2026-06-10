@@ -9,6 +9,7 @@ import {
   ArrowLeft, Loader2, ShieldAlert,
 } from 'lucide-react'
 import AgentHeader from '@/components/AgentHeader'
+import { DealNumber } from '@/components/DealNumber'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,6 +32,7 @@ interface FailedDeal {
   id: string
   agent_id: string
   status: string
+  deal_number: string | null
   property_address: string
   failed_to_close_at: string | null
   failure_type: string | null
@@ -108,7 +110,7 @@ export default function CureElectionPage({ params }: PageProps) {
 
       const { data: dealData, error: dealErr } = await supabase
         .from('deals')
-        .select('id, agent_id, status, property_address, failed_to_close_at, failure_type, failure_reason, outstanding_balance, advance_amount, funding_date, cure_election, cure_election_at, cure_election_deadline, failed_deal_interest_charged')
+        .select('id, agent_id, status, deal_number, property_address, failed_to_close_at, failure_type, failure_reason, outstanding_balance, advance_amount, funding_date, cure_election, cure_election_at, cure_election_deadline, failed_deal_interest_charged')
         .eq('id', dealId)
         .single()
 
@@ -304,7 +306,10 @@ export default function CureElectionPage({ params }: PageProps) {
           <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Property</p>
-              <p className="font-medium text-foreground">{deal.property_address}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-medium text-foreground">{deal.property_address}</p>
+                <DealNumber value={deal.deal_number} />
+              </div>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Failed-to-close date</p>

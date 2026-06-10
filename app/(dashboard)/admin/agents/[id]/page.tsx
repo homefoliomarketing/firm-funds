@@ -9,6 +9,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass } from '@/lib/constants'
 import AgentLedger from '@/components/AgentLedger'
+import { DealNumber } from '@/components/DealNumber'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { AgentAccountTransaction } from '@/types/database'
@@ -23,6 +24,7 @@ const humanizeStatus = (s: string) =>
 
 type DealRow = {
   id: string
+  deal_number: string | null
   property_address: string | null
   status: string
   advance_amount: number | string | null
@@ -83,7 +85,7 @@ export default async function AdminAgentProfilePage({
 
   const { data: dealRows } = await service
     .from('deals')
-    .select('id, property_address, status, advance_amount, gross_commission, closing_date, created_at')
+    .select('id, deal_number, property_address, status, advance_amount, gross_commission, closing_date, created_at')
     .eq('agent_id', id)
     .order('created_at', { ascending: false })
 
@@ -247,9 +249,12 @@ export default async function AdminAgentProfilePage({
                       className="group flex items-center gap-3 px-5 sm:px-6 py-3 hover:bg-white/5 transition-colors"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
-                          {d.property_address || 'Untitled deal'}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
+                            {d.property_address || 'Untitled deal'}
+                          </p>
+                          <DealNumber value={d.deal_number} />
+                        </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {d.closing_date ? `Closing ${formatDate(d.closing_date)}` : 'No closing date'}
                           {d.advance_amount != null ? ` · Advance ${formatCurrency(Number(d.advance_amount))}` : ''}

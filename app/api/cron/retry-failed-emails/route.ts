@@ -239,6 +239,7 @@ async function attemptRetry(row: FailureRow): Promise<void> {
       // SettlementReminderParams shape.
       const params = payload as {
         dealId: string
+        dealNumber?: string | null
         propertyAddress: string
         agentEmail: string
         agentFirstName: string

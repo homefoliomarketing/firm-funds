@@ -27,6 +27,7 @@ import type { MessageData } from '@/components/messaging/MessageBubble'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
+import { DealNumber } from '@/components/DealNumber'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -75,6 +76,7 @@ interface Deal {
   id: string
   agent_id: string
   status: string
+  deal_number: string | null
   property_address: string
   closing_date: string
   gross_commission: number
@@ -183,7 +185,7 @@ export default function BrokerageDashboard() {
         // staff see status + summary only, not admin's internal wording.
         const { data: dealData } = await supabase
           .from('deals')
-          .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
+          .select('id, agent_id, brokerage_id, status, deal_number, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
           .eq('brokerage_id', profileData.brokerage_id)
           .order('created_at', { ascending: false })
         setDeals((dealData as unknown as Deal[]) || [])
@@ -635,6 +637,7 @@ export default function BrokerageDashboard() {
         <OfferedDealsBanner
           deals={offeredDeals.map(d => ({
             id: d.id,
+            deal_number: d.deal_number,
             property_address: d.property_address,
             closing_date: d.closing_date,
             created_at: d.created_at,
@@ -842,11 +845,12 @@ export default function BrokerageDashboard() {
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
                               <span className="inline-flex w-2 h-2 rounded-full bg-red-500 flex-shrink-0 animate-pulse" title="Trade record needed" />
                             )}
                             <p className="text-[13px] font-semibold truncate text-foreground group-hover:text-primary transition-colors">{deal.property_address}</p>
+                            <DealNumber value={deal.deal_number} className="shrink-0" />
                           </div>
                           <p className="text-xs mt-1.5 text-muted-foreground/70">
                             {deal.agent?.first_name} {deal.agent?.last_name} <span className="text-muted-foreground/30 mx-1" aria-hidden="true">|</span> {formatDate(deal.created_at)}
@@ -878,6 +882,9 @@ export default function BrokerageDashboard() {
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Deal Details</h4>
                               <div className="space-y-2.5 text-sm">
+                                {deal.deal_number && (
+                                  <div className="flex justify-between items-center"><span className="text-muted-foreground">Deal Number</span><DealNumber value={deal.deal_number} /></div>
+                                )}
                                 <div className="flex justify-between"><span className="text-muted-foreground">Property</span><span className="font-medium text-right text-foreground">{deal.property_address}</span></div>
                                 <div className="flex justify-between"><span className="text-muted-foreground">Closing Date</span><span className="font-medium text-foreground">{formatDate(deal.closing_date)}</span></div>
                                 <div className="flex justify-between"><span className="text-muted-foreground">Days Until Closing</span><span className="font-medium text-foreground">{deal.days_until_closing}</span></div>

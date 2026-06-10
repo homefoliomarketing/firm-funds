@@ -21,6 +21,7 @@ import {
 import { updateDealDetails, cancelDeal, uploadDocument, getDocumentSignedUrl } from '@/lib/actions/deal-actions'
 import { remindBrokerageOfPendingOffer, agentTakeOverOffer, agentHandBackOffer } from '@/lib/actions/firm-deal-offer-actions'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
+import { DealNumber } from '@/components/DealNumber'
 import { StatusToast } from '@/components/StatusToast'
 import { getChargeDays } from '@/lib/calculations'
 import { sendAgentReply, markDealMessagesRead } from '@/lib/actions/notification-actions'
@@ -43,6 +44,7 @@ import {
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
+  deal_number: string | null
   property_address: string; closing_date: string; gross_commission: number
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
   discount_fee: number; settlement_period_fee: number; advance_amount: number; brokerage_referral_fee: number
@@ -227,7 +229,7 @@ export default function AgentDealDetailPage() {
     // admin_notes and admin_notes_timeline (admin's internal scratchpad).
     const { data: dealData, error: dealError } = await supabase
       .from('deals')
-      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at, agent_self_submit_at')
+      .select('id, agent_id, brokerage_id, status, deal_number, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at, agent_self_submit_at')
       .eq('id', dealId)
       .single()
     if (dealError || !dealData) { router.push('/agent'); return }
@@ -607,7 +609,10 @@ export default function AgentDealDetailPage() {
               </div>
             </div>
             <div>
-              <h1 className="text-base sm:text-lg font-bold text-foreground leading-tight">{deal.property_address}</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-base sm:text-lg font-bold text-foreground leading-tight">{deal.property_address}</h1>
+                <DealNumber value={deal.deal_number} label="Deal" showPending />
+              </div>
               <p className="text-xs mt-0.5 text-muted-foreground">Accepted {formatDateTime(deal.created_at)}</p>
             </div>
           </div>
@@ -850,7 +855,10 @@ export default function AgentDealDetailPage() {
             </div>
           </div>
           <div>
-            <h1 className="text-base sm:text-lg font-bold text-foreground leading-tight">{deal.property_address}</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-base sm:text-lg font-bold text-foreground leading-tight">{deal.property_address}</h1>
+              <DealNumber value={deal.deal_number} size="md" label="Deal" />
+            </div>
             <p className="text-xs mt-0.5 text-muted-foreground">Submitted {formatDateTime(deal.created_at)}</p>
           </div>
         </div>

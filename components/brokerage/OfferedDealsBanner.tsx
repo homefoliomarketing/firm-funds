@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/formatting'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
+import { DealNumber } from '@/components/DealNumber'
 import { declineFirmDealOffer } from '@/lib/actions/firm-deal-offer-actions'
 
 /**
@@ -24,6 +25,9 @@ import { declineFirmDealOffer } from '@/lib/actions/firm-deal-offer-actions'
 
 export interface OfferedDeal {
   id: string
+  /** Human-readable deal number. NULL for offered leads (assigned only on
+   *  submission), so the banner renders a "Not yet submitted" chip. */
+  deal_number?: string | null
   property_address: string
   closing_date: string | null
   created_at: string
@@ -116,7 +120,10 @@ export default function OfferedDealsBanner({ deals, onDeclined }: Props) {
                 <li key={deal.id} className="rounded-lg border border-primary/20 bg-card/60 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-foreground truncate">{deal.property_address}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{deal.property_address}</p>
+                        <DealNumber value={deal.deal_number} showPending className="shrink-0" />
+                      </div>
                       <p className="text-xs mt-0.5 text-muted-foreground">
                         Agent: <span className="text-foreground font-medium">{agentName}</span>
                         {deal.closing_date && (

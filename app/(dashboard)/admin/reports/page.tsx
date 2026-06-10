@@ -11,6 +11,7 @@ import {
 import { getStatusBadgeClass, formatStatusLabel, DEAL_STATUSES } from '@/lib/constants'
 import { fetchReportMetrics, fetchBrokerageDetail, type ReportMetrics, type BrokerageDetail } from '@/lib/actions/report-actions'
 import SignOutModal from '@/components/SignOutModal'
+import { DealNumber } from '@/components/DealNumber'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -390,12 +391,13 @@ export default function ReportsPage() {
     setExporting('csv')
 
     const headers = [
-      'Property Address', 'Status', 'Agent', 'Brokerage', 'Gross Commission',
+      'Deal #', 'Property Address', 'Status', 'Agent', 'Brokerage', 'Gross Commission',
       'Brokerage Split %', 'Net Commission', 'Discount Fee', 'Advance Amount',
       'Referral Fee', 'Days to Closing', 'Closing Date', 'Funding Date', 'Created',
     ]
 
     const rows = metrics.exportDeals.map(d => [
+      d.deal_number || '',
       d.property_address,
       d.status,
       d.agent_name,
@@ -952,6 +954,7 @@ export default function ReportsPage() {
                         <table className="w-full">
                           <thead>
                             <tr className="bg-muted/50 border-b border-border/50">
+                              <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Deal #</th>
                               <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Property</th>
                               <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</th>
                               <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent</th>
@@ -966,6 +969,7 @@ export default function ReportsPage() {
                                 className="cursor-pointer border-b border-border/30 last:border-0 hover:bg-muted/20 transition-colors"
                                 onClick={() => { setSelectedBrokerage(null); router.push(`/admin/deals/${deal.id}`) }}
                               >
+                                <td className="px-4 py-3"><DealNumber value={deal.deal_number} /></td>
                                 <td className="px-4 py-3 text-sm font-medium text-foreground">{deal.property_address}</td>
                                 <td className="px-4 py-3">
                                   <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}>

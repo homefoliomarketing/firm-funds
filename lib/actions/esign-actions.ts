@@ -163,6 +163,7 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
     // Placeholder values for contract merge fields
     const contractData: Record<string, string> = {
       '{{AGREEMENT_DATE}}': formatDate(today),
+      '{{DEAL_NUMBER}}': deal.deal_number || 'N/A',
       '{{AGENT_FULL_LEGAL_NAME}}': agentName,
       '{{FACE_VALUE}}': formatCurrency(deal.net_commission),
       '{{PURCHASE_DISCOUNT}}': formatCurrency(deal.discount_fee),
@@ -827,6 +828,7 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
 
     const contractData: Record<string, string> = {
       '{{AMENDMENT_DATE}}': formatDate(new Date().toISOString().split('T')[0]),
+      '{{DEAL_NUMBER}}': deal.deal_number || 'N/A',
       '{{AGENT_FULL_LEGAL_NAME}}': agentName,
       '{{RECO_REGISTRATION_NUMBER}}': agent.reco_number || 'On file',
       '{{PROPERTY_ADDRESS}}': deal.property_address,
@@ -967,7 +969,7 @@ export async function sendRemediationIdpForSignature(input: {
 
     const { data: rem, error: remErr } = await supabase
       .from('remediation_deals')
-      .select('*, failed_deal:deals!remediation_deals_failed_deal_id_fkey(id, property_address, funding_date, agent_id), agent:agents(*)')
+      .select('*, failed_deal:deals!remediation_deals_failed_deal_id_fkey(id, deal_number, property_address, funding_date, agent_id), agent:agents(*)')
       .eq('id', input.remediationDealId)
       .single()
 
@@ -1028,6 +1030,7 @@ export async function sendRemediationIdpForSignature(input: {
       '{{BROKER_OF_RECORD}}': rem.broker_of_record_name || 'On file',
       '{{OUTSTANDING_BALANCE}}': formatCurrency(directedAmount),
       // Failed deal — establishes the original obligation
+      '{{ORIGINAL_DEAL_NUMBER}}': failedDeal.deal_number || 'N/A',
       '{{FAILED_DEAL_PROPERTY}}': failedDeal.property_address,
       '{{FAILED_DEAL_DATE}}': failedDeal.funding_date ? formatDate(failedDeal.funding_date) : 'original CPA date',
       // The new commission being assigned (manually entered)
@@ -1050,8 +1053,8 @@ export async function sendRemediationIdpForSignature(input: {
     let result: Awaited<ReturnType<typeof createAndSendEnvelope>>
     try {
       result = await createAndSendEnvelope({
-        emailSubject: `Firm Funds — Remediation Direction to Pay: ${rem.property_address}`,
-        emailBlurb: `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${rem.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance — no discount, settlement fee, or referral fee applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\n— The Firm Funds Team`,
+        emailSubject: `Firm Funds Remediation Direction to Pay: ${rem.property_address}`,
+        emailBlurb: `Hi ${agentFirstName},\n\nUnder your prior Commission Purchase Agreement for ${failedDeal.property_address} (which did not close), you elected to satisfy the outstanding balance of ${formatCurrency(directedAmount)} by assigning your next commission.\n\nFirm Funds Inc. has prepared a Remediation Direction to Pay for the commission earned on your sale of ${rem.property_address}. Please review and sign so your brokerage can remit the commission directly to Firm Funds.\n\nReminder: this is not a new advance, and no discount, settlement fee, or profit share applies. The remittance reduces your outstanding balance.\n\nIf you have any questions, reply to this email or contact us at bud@firmfunds.ca.\n\nThank you,\n\nThe Firm Funds Team`,
         documents: [
           {
             documentBase64: docBase64,

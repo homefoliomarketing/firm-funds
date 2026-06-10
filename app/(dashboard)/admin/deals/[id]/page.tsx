@@ -40,6 +40,7 @@ import RemediationDealsPanel from './RemediationDealsPanel'
 import { MarkFundingFailedButton, FundingFailedBanner } from '@/components/admin/FundingFailureActions'
 import { EarlyClosingButton } from '@/components/admin/EarlyClosingActions'
 import ViewAsUserButton from '@/components/admin/ViewAsUserButton'
+import { DealNumber } from '@/components/DealNumber'
 import { hasCapability } from '@/lib/access'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
@@ -381,6 +382,7 @@ function ImageZoomViewer({ src, alt }: { src: string; alt: string }) {
 
 interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
+  deal_number: string | null
   property_address: string; closing_date: string; gross_commission: number
   brokerage_split_pct: number; net_commission: number; days_until_closing: number
   discount_fee: number; settlement_period_fee: number; advance_amount: number
@@ -1307,8 +1309,9 @@ export default function DealDetailPage() {
             </div>
             <SignOutModal onConfirm={handleLogout} />
           </div>
-          <div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className="text-lg font-bold text-foreground">{deal.property_address}</h1>
+            <DealNumber value={deal.deal_number} size="md" label="Deal" />
           </div>
         </div>
       </header>

@@ -176,7 +176,7 @@ export async function GET(request: Request) {
     // actual deadline.
     const { data: fundedDeals } = await supabase
       .from('deals')
-      .select('id, property_address, closing_date, due_date, advance_amount, amount_due_from_brokerage, settlement_period_fee, settlement_days_at_funding, agent_id, brokerage_id, agents(first_name, email), brokerages(name, email, broker_of_record_email)')
+      .select('id, deal_number, property_address, closing_date, due_date, advance_amount, amount_due_from_brokerage, settlement_period_fee, settlement_days_at_funding, agent_id, brokerage_id, agents(first_name, email), brokerages(name, email, broker_of_record_email)')
       .eq('status', 'funded')
       .not('due_date', 'is', null)
 
@@ -204,6 +204,7 @@ export async function GET(request: Request) {
 
         const reminderParams = {
           dealId: deal.id,
+          dealNumber: deal.deal_number,
           propertyAddress: deal.property_address,
           agentEmail: agent.email,
           agentFirstName: agent.first_name,

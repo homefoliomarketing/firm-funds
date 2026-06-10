@@ -271,6 +271,7 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
     if (agentData) {
       sendAmendmentRequestedNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         agentName: `${agentData.first_name} ${agentData.last_name}`,
         oldClosingDate: deal.closing_date,
@@ -485,6 +486,7 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
     if (agentData) {
       sendAmendmentRequestedNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         agentName: `${agentData.first_name} ${agentData.last_name}`,
         oldClosingDate: deal.closing_date,
@@ -558,6 +560,7 @@ export async function approveClosingDateAmendment(input: {
       id: string
       status: string
       property_address: string
+      deal_number: string | null
       closing_date: string
       agent_id: string
       gross_commission: number
@@ -797,6 +800,7 @@ export async function approveClosingDateAmendment(input: {
     if (agent?.email) {
       sendAmendmentApprovedNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         agentEmail: agent.email,
         agentFirstName: agent.first_name,
@@ -837,7 +841,7 @@ export async function rejectClosingDateAmendment(input: {
   try {
     const { data: amendment } = await serviceClient
       .from('closing_date_amendments')
-      .select('*, deals(id, property_address, agents(first_name, email))')
+      .select('*, deals(id, property_address, deal_number, agents(first_name, email))')
       .eq('id', input.amendmentId)
       .single()
 
@@ -869,6 +873,7 @@ export async function rejectClosingDateAmendment(input: {
     type RejectDealRef = {
       id: string
       property_address: string
+      deal_number: string | null
       agents?: { first_name: string; email: string | null } | null
     } | null
     const dealRef = amendment.deals as RejectDealRef
@@ -889,6 +894,7 @@ export async function rejectClosingDateAmendment(input: {
     if (agent?.email && deal) {
       sendAmendmentRejectedNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         agentEmail: agent.email,
         agentFirstName: agent.first_name,
@@ -1026,7 +1032,7 @@ export async function requestClosingDateAmendment(input: {
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
       .select(
-        'id, status, closing_date, agent_id, brokerage_id, property_address, gross_commission, brokerage_split_pct, net_commission, advance_amount, discount_fee, settlement_period_fee, due_date, brokerage_referral_pct, settlement_days_at_funding, version',
+        'id, status, closing_date, agent_id, brokerage_id, property_address, deal_number, gross_commission, brokerage_split_pct, net_commission, advance_amount, discount_fee, settlement_period_fee, due_date, brokerage_referral_pct, settlement_days_at_funding, version',
       )
       .eq('id', input.dealId)
       .single()
@@ -1189,6 +1195,7 @@ export async function requestClosingDateAmendment(input: {
       try {
         await sendAmendmentRequestedNotification({
           dealId: deal.id,
+          dealNumber: deal.deal_number,
           propertyAddress: deal.property_address,
           agentName: `${agentData.first_name} ${agentData.last_name}`,
           oldClosingDate: deal.closing_date,

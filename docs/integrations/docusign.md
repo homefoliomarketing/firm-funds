@@ -1,6 +1,6 @@
 # DocuSign Integration
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This document explains how Firm Funds generates contracts, sends them for e-signature through DocuSign, processes the Connect webhook, stores signed documents, and what environment variables and tokens the integration needs.
 
@@ -27,6 +27,13 @@ The integration runs against a **production DocuSign account**. The config helpe
 | `app/api/docusign/connect/route.ts` | Starts the OAuth consent flow, sets a CSRF state cookie |
 | `app/api/docusign/callback/route.ts` | OAuth redirect target; exchanges the code for tokens |
 | `app/api/docusign/webhook/route.ts` | DocuSign Connect webhook (HMAC verified) |
+
+### Generated document wording (official launch contracts)
+
+The three core legal documents (CPA, IDP, BCA) print the lawyer-finalized "official" wording (sourced from `contract-samples/`). Two things to know when touching `lib/contract-docx.ts`:
+
+- **"Profit Share", not "Referral Fee".** The brokerage's fee is printed as **Profit Share** throughout, deliberately framed as payment for the brokerage's administrative cooperation rather than a regulated referral fee. The BCA gained a new **Article 2.4 "Administrative Cooperation"** and reworded recital / definition 1.7 / Article 4.4 to tie the Profit Share to that cooperation. The Remediation IDP and CPA Amendment generators were rebranded to "Profit Share" for consistency. Headings switched from em dashes to colons, and running headers use a pipe separator. **This is a print-only rename.** The internal merge-field tokens (`{{REFERRAL_FEE_PCT}}`, `{{BROKERAGE_REFERRAL_FEE}}`, etc.) and the database columns (`brokerages.referral_fee_percentage`, `deals.brokerage_referral_pct`) were **not** renamed; only the words on the page changed.
+- **Deal number on the documents.** The deal's `deal_number` (see [database.md](../architecture/database.md#deals), migration 108) prints on the CPA (Schedule "A" top row plus a "Deal No." line under the title), the IDP ("Deal No.:" line near the top), and the CPA Amendment ("Deal No.:" line). The Remediation IDP references the original failed deal's number ("In respect of failed deal No.: ..."). The values come from the `{{DEAL_NUMBER}}` / `{{ORIGINAL_DEAL_NUMBER}}` tokens.
 
 ## 3. Authorization (OAuth)
 

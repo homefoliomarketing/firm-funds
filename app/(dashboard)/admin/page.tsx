@@ -21,6 +21,7 @@ import { formatCurrency, formatDate } from '@/lib/formatting'
 import { hasCapability } from '@/lib/access'
 import SignOutModal from '@/components/SignOutModal'
 import { Button } from '@/components/ui/button'
+import { DealNumber } from '@/components/DealNumber'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -53,6 +54,7 @@ interface DashboardStats {
 type DashboardDeal = {
   id: string
   status: string
+  deal_number: string | null
   property_address: string | null
   closing_date: string | null
   advance_amount: number | null
@@ -340,7 +342,9 @@ export default function AdminDashboard() {
     filtered = filtered.filter(d => {
       const a = pickAgent(d.agents)
       const agentName = a ? `${a.first_name || ''} ${a.last_name || ''}`.toLowerCase() : ''
-      return d.property_address?.toLowerCase().includes(q) || agentName.includes(q)
+      return d.property_address?.toLowerCase().includes(q)
+        || agentName.includes(q)
+        || (d.deal_number?.toLowerCase().includes(q) ?? false)
     })
   }
   filtered = [...filtered].sort((a, b) => {
@@ -768,13 +772,13 @@ export default function AdminDashboard() {
                 )}
               </div>
               <div className="relative">
-                <Label htmlFor="deal-search" className="sr-only">Search deals by address or agent</Label>
+                <Label htmlFor="deal-search" className="sr-only">Search deals by deal number, address, or agent</Label>
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/40" />
                 <Input
                   id="deal-search"
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-                  placeholder="Search by address or agent..."
+                  placeholder="Search by deal #, address, or agent..."
                   className="pl-9 h-9 w-full sm:w-72 bg-secondary/30 border-border/30 placeholder:text-muted-foreground/40"
                 />
               </div>
@@ -830,6 +834,7 @@ export default function AdminDashboard() {
                         <TableCell className="text-[13px] font-semibold group-hover:text-primary transition-colors">
                           <span className="flex items-center gap-1.5">
                             {deal.property_address}
+                            <DealNumber value={deal.deal_number} />
                             {stats.dealsWithUnreadMessages.includes(deal.id) && (
                               <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold h-5 bg-red-600 text-white border-red-600">
                                 <MessageSquare size={10} /> New
@@ -886,7 +891,10 @@ export default function AdminDashboard() {
                   >
                     <CardContent className="p-3.5">
                       <div className="flex items-start gap-2 mb-2">
-                        <p className="text-sm font-bold text-foreground truncate flex-1">{deal.property_address}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-foreground truncate">{deal.property_address}</p>
+                          <DealNumber value={deal.deal_number} className="mt-1" />
+                        </div>
                         {stats.dealsWithUnreadMessages.includes(deal.id) && (
                           <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold shrink-0 bg-red-600 text-white border-red-600">
                             <MessageSquare size={10} /> New

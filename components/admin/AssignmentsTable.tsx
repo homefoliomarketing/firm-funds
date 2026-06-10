@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { EmptyState } from '@/components/ui/empty-state'
+import { DealNumber } from '@/components/DealNumber'
 import { cn } from '@/lib/utils'
 
 // ============================================================================
@@ -26,6 +27,7 @@ import { cn } from '@/lib/utils'
 
 export interface AssignmentDealRow {
   id: string
+  deal_number: string | null
   property_address: string
   agent_name: string | null
   brokerage_name: string | null
@@ -246,17 +248,20 @@ export function AssignmentsTable({
                   className="border-border/30 hover:bg-white/[0.03] transition-colors group"
                 >
                   <TableCell>
-                    <Link
-                      href={`/admin/deals/${deal.id}`}
-                      className="flex items-center gap-1.5 text-sm font-semibold text-foreground group-hover:text-primary transition-colors"
-                    >
-                      {deal.property_address}
-                      <ChevronRight
-                        size={12}
-                        aria-hidden="true"
-                        className="text-muted-foreground/40 group-hover:text-primary/60 transition-colors"
-                      />
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/admin/deals/${deal.id}`}
+                        className="flex items-center gap-1.5 text-sm font-semibold text-foreground group-hover:text-primary transition-colors"
+                      >
+                        {deal.property_address}
+                        <ChevronRight
+                          size={12}
+                          aria-hidden="true"
+                          className="text-muted-foreground/40 group-hover:text-primary/60 transition-colors"
+                        />
+                      </Link>
+                      <DealNumber value={deal.deal_number} />
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {deal.agent_name || '-'}

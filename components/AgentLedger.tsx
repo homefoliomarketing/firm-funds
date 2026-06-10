@@ -1,6 +1,7 @@
 import { ArrowDownLeft, ArrowUpRight, Receipt, Clock, AlertTriangle, DollarSign } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { Card } from '@/components/ui/card'
+import { DealNumber } from '@/components/DealNumber'
 import {
   Table,
   TableBody,
@@ -34,9 +35,16 @@ const TRANSACTION_TYPE_CONFIG: Record<string, { label: string; color: string; ic
 
 export default function AgentLedger({
   transactions,
+  dealNumbers,
   emptyHint = 'Account activity will appear here.',
 }: {
   transactions: AgentAccountTransaction[]
+  /**
+   * Optional map of deal_id -> deal_number. When provided, a deal-linked
+   * transaction row shows the human-readable deal number next to its
+   * description. The admin caller omits this; the agent account page passes it.
+   */
+  dealNumbers?: Record<string, string | null>
   emptyHint?: string
 }) {
   const hasInformational = transactions.some(
@@ -94,8 +102,13 @@ export default function AgentLedger({
                             {config.label}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs text-foreground max-w-[300px] truncate">
-                          {tx.description}
+                        <TableCell className="text-xs text-foreground max-w-[300px]">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="truncate">{tx.description}</span>
+                            {tx.deal_id && dealNumbers?.[tx.deal_id] && (
+                              <DealNumber value={dealNumbers[tx.deal_id]} className="shrink-0" />
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className={`text-xs font-semibold text-right tabular-nums ${isDebit ? 'text-status-amber' : 'text-status-teal'}`}>
                           {isDebit ? '+' : ''}{formatCurrency(tx.amount)}
@@ -137,7 +150,12 @@ export default function AgentLedger({
                         {isDebit ? '+' : ''}{formatCurrency(tx.amount)}
                       </span>
                     </div>
-                    <p className="text-xs text-foreground/80 truncate">{tx.description}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-xs text-foreground/80 truncate">{tx.description}</p>
+                      {tx.deal_id && dealNumbers?.[tx.deal_id] && (
+                        <DealNumber value={dealNumbers[tx.deal_id]} className="shrink-0" />
+                      )}
+                    </div>
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-[11px] text-muted-foreground/60 tabular-nums">{formatDate(tx.created_at)}</span>
                       <span className="text-[11px] text-muted-foreground/60 tabular-nums">

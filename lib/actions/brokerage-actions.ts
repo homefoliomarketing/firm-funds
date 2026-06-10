@@ -428,7 +428,7 @@ export async function submitBrokeragePaymentClaim(input: {
   // Verify the deal exists, is owned by this brokerage, and is in a payable state
   const { data: deal, error: dealError } = await serviceClient
     .from('deals')
-    .select('id, brokerage_id, agent_id, status, property_address, amount_due_from_brokerage, brokerage_payments(status)')
+    .select('id, brokerage_id, agent_id, status, property_address, deal_number, amount_due_from_brokerage, brokerage_payments(status)')
     .eq('id', input.dealId)
     .single()
 
@@ -507,6 +507,7 @@ export async function submitBrokeragePaymentClaim(input: {
     ])
     await sendPaymentClaimSubmittedNotification({
       dealId: deal.id,
+      dealNumber: deal.deal_number,
       propertyAddress: deal.property_address,
       brokerageName: brokerageData?.name || 'A brokerage',
       agentName: agentData ? `${agentData.first_name} ${agentData.last_name}` : 'Agent',
@@ -538,6 +539,7 @@ export async function getBrokeragePayableDeals(): Promise<ActionResult> {
     .from('deals')
     .select(`
       id,
+      deal_number,
       property_address,
       status,
       amount_due_from_brokerage,

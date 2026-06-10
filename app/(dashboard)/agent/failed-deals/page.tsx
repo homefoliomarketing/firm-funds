@@ -14,6 +14,7 @@ import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
 import AddRemediationDealModal, { type AgentBrokerageDefaults } from '@/components/remediation/AddRemediationDealModal'
 import { StatusToast } from '@/components/StatusToast'
+import { DealNumber } from '@/components/DealNumber'
 import {
   getFailedDealsForCaller,
   getRemediationDealsForFailedDeal,
@@ -251,6 +252,7 @@ function AgentFailedDealsPageInner() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-base font-semibold text-foreground">{row.property_address}</p>
+                          <DealNumber value={row.deal_number} />
                           <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider border ${electionTone(row.cure_election)}`}>
                             {electionLabel(row.cure_election)}
                           </span>

@@ -13,6 +13,7 @@ import { formatCurrency, formatDate } from '@/lib/formatting'
 import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import SignOutModal from '@/components/SignOutModal'
+import { DealNumber } from '@/components/DealNumber'
 import AddRemediationDealModal, { type AgentBrokerageDefaults } from '@/components/remediation/AddRemediationDealModal'
 import {
   getFailedDealsForCaller,
@@ -254,7 +255,10 @@ export default function BrokerageFailedDealsPage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-[12px] text-muted-foreground mt-1">{row.property_address}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-[12px] text-muted-foreground">{row.property_address}</p>
+                          <DealNumber value={row.deal_number} />
+                        </div>
                         <p className="text-[11px] text-muted-foreground/70 mt-1">
                           Failed {row.failed_to_close_at ? formatDate(row.failed_to_close_at) : 'unknown date'}
                           {row.agent.email && <span className="ml-2 text-muted-foreground/60">{row.agent.email}</span>}

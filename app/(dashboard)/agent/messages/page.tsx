@@ -10,6 +10,7 @@ import {
 import { formatRelativeTime } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import AgentHeader from '@/components/AgentHeader'
+import { DealNumber } from '@/components/DealNumber'
 import MessageThread from '@/components/messaging/MessageThread'
 import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
@@ -319,6 +320,7 @@ export default function AgentMessagesPage() {
                               <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded ${getStatusBadgeClass(item.deal_status)}`}>
                                 {formatStatusLabel(item.deal_status)}
                               </span>
+                              <DealNumber value={item.deal_number} />
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
@@ -390,6 +392,7 @@ export default function AgentMessagesPage() {
                               {formatStatusLabel(selectedDeal.deal_status)}
                             </span>
                           )}
+                          <DealNumber value={selectedDeal?.deal_number} />
                           <span className="text-[10px] text-muted-foreground/60">
                             {selectedDeal?.total_message_count || 0} messages
                           </span>

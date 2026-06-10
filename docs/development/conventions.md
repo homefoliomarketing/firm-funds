@@ -1,6 +1,6 @@
 # Coding Conventions and Gotchas
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 Project-specific rules and known traps. Read this before writing code, because several conventions here override defaults you might assume from older Next.js or Supabase versions.
 
@@ -33,6 +33,7 @@ RLS is the number one source of bugs. The rules:
 - `createClient()` from `@/lib/supabase/server` is async (it reads cookies).
 - `createServiceRoleClient()` from `@/lib/supabase/server` bypasses RLS. Use it for all server-side mutations.
 - All agent balance writes must go through the `apply_agent_balance_delta` RPC (migration 052). Never read-modify-write a balance directly. The same rule applies to `record_brokerage_late_strike` and `apply_remediation_remittance`.
+- Deal numbers (`deals.deal_number`) are assigned by the `assign_deal_number()` DB trigger at submission (migration 108). Never assign one in app code; the daily counter lives in `deal_number_counters` and is written only by that trigger.
 
 See [docs/architecture/database.md](../architecture/database.md) and [docs/architecture/authentication.md](../architecture/authentication.md).
 

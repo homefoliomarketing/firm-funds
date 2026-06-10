@@ -678,6 +678,7 @@ export async function getRemediationDealsForFailedDeal(failedDealId: string): Pr
 
 export interface FailedDealForCaller {
   id: string
+  deal_number: string | null
   property_address: string
   closing_date: string | null
   failed_to_close_at: string | null
@@ -711,7 +712,7 @@ export async function getFailedDealsForCaller(): Promise<ActionResult> {
     let query = serviceClient
       .from('deals')
       .select(`
-        id, property_address, closing_date, failed_to_close_at,
+        id, deal_number, property_address, closing_date, failed_to_close_at,
         outstanding_balance, failed_deal_interest_charged,
         cure_election, cure_election_deadline,
         agents:agents!deals_agent_id_fkey(
@@ -747,6 +748,7 @@ export async function getFailedDealsForCaller(): Promise<ActionResult> {
     const rows: FailedDealForCaller[] = []
     for (const raw of (data as unknown as Array<{
       id: string
+      deal_number: string | null
       property_address: string
       closing_date: string | null
       failed_to_close_at: string | null
@@ -808,6 +810,7 @@ export async function getFailedDealsForCaller(): Promise<ActionResult> {
       const remediations = raw.remediation_deals || []
       rows.push({
         id: raw.id,
+        deal_number: raw.deal_number,
         property_address: raw.property_address,
         closing_date: raw.closing_date,
         failed_to_close_at: raw.failed_to_close_at,

@@ -688,7 +688,7 @@ export async function sendDealMessage(input: {
   try {
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, property_address, agent_id')
+      .select('id, property_address, deal_number, agent_id')
       .eq('id', input.dealId)
       .single()
 
@@ -733,6 +733,7 @@ export async function sendDealMessage(input: {
     if (shouldSendEmail) {
       sendDealMessageNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         agentEmail: agent.email,
         agentFirstName: agent.first_name,
@@ -772,7 +773,7 @@ export async function returnDocument(input: {
     // Get deal and document info
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, property_address, agent_id')
+      .select('id, property_address, deal_number, agent_id')
       .eq('id', input.dealId)
       .single()
 
@@ -812,6 +813,7 @@ export async function returnDocument(input: {
     // Send email notification
     sendDocumentReturnNotification({
       dealId: deal.id,
+      dealNumber: deal.deal_number,
       propertyAddress: deal.property_address,
       agentEmail: agent.email,
       agentFirstName: agent.first_name,

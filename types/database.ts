@@ -194,6 +194,13 @@ export interface Deal {
   // it themselves; the brokerage is paused on it (migration 105). NULL = the
   // brokerage still owns the submission.
   agent_self_submit_at: string | null
+  // Human-readable tracking number assigned at submission (migration 108),
+  // format NNNN-MMDD-YY e.g. 0001-0609-26. NULL for unsubmitted firm-deal
+  // offers (status 'offered'). Assigned atomically by a DB trigger.
+  deal_number: string | null
+  // When the deal was first submitted (status left 'offered'); set alongside
+  // deal_number by the assign_deal_number trigger (migration 108).
+  submitted_at: string | null
   created_at: string
   updated_at: string
   // Joined data

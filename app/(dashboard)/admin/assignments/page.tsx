@@ -51,7 +51,7 @@ export default async function AssignmentsPage() {
   const { data: dealRows, error: dealsErr } = await service
     .from('deals')
     .select(
-      'id, property_address, status, created_at, assigned_to_user_id, agents(first_name, last_name), brokerages(name)',
+      'id, deal_number, property_address, status, created_at, assigned_to_user_id, agents(first_name, last_name), brokerages(name)',
     )
     .eq('status', 'under_review')
     .order('created_at', { ascending: true })
@@ -61,6 +61,7 @@ export default async function AssignmentsPage() {
   // join to keep the page fast.
   type DealRow = {
     id: string
+    deal_number: string | null
     property_address: string
     status: string
     created_at: string
@@ -98,6 +99,7 @@ export default async function AssignmentsPage() {
     const brokerageRow = pickOne(d.brokerages)
     return {
     id: d.id,
+    deal_number: d.deal_number,
     property_address: d.property_address,
     agent_name: agentRow
       ? `${agentRow.first_name ?? ''} ${agentRow.last_name ?? ''}`.trim() || null

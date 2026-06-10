@@ -31,6 +31,10 @@ export default function AgentAccountPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [agent, setAgent] = useState<AgentForHeader | null>(null)
   const [transactions, setTransactions] = useState<AgentAccountTransaction[]>([])
+  // Maps deal_id -> deal_number so the ledger can show the human-readable deal
+  // number on rows tied to a deal. The transaction rows carry deal_id but not
+  // the number, so we resolve it from the deals table after loading them.
+  const [dealNumbers, setDealNumbers] = useState<Record<string, string | null>>({})
   const [currentBalance, setCurrentBalance] = useState(0)
   const [pendingElections, setPendingElections] = useState<PendingElection[]>([])
   const [loading, setLoading] = useState(true)
@@ -65,6 +69,25 @@ export default function AgentAccountPage() {
           const data = result.data as { transactions: AgentAccountTransaction[]; currentBalance: number }
           setTransactions(data.transactions)
           setCurrentBalance(data.currentBalance)
+
+          // Resolve deal numbers for any deal-linked transactions so the
+          // ledger can show the tracking number alongside the description.
+          const dealIds = Array.from(
+            new Set(data.transactions.map(t => t.deal_id).filter((id): id is string => !!id)),
+          )
+          if (dealIds.length > 0) {
+            const { data: dealRows } = await supabase
+              .from('deals')
+              .select('id, deal_number')
+              .in('id', dealIds)
+            if (dealRows) {
+              const map: Record<string, string | null> = {}
+              for (const d of dealRows as Array<{ id: string; deal_number: string | null }>) {
+                map[d.id] = d.deal_number
+              }
+              setDealNumbers(map)
+            }
+          }
         }
 
         // Fetch all failed-to-close deals on this agent. Some need an election
@@ -224,7 +247,7 @@ export default function AgentAccountPage() {
         </section>
 
         {/* Transaction Ledger */}
-        <AgentLedger transactions={transactions} emptyHint="Your account activity will appear here." />
+        <AgentLedger transactions={transactions} dealNumbers={dealNumbers} emptyHint="Your account activity will appear here." />
       </main>
     </div>
   )

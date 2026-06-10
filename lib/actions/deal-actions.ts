@@ -311,7 +311,7 @@ export async function submitDeal(formData: {
     // Lock the settlement window at submission so the CPA the agent signs and
     // the system's enforcement can never diverge if the brokerage's effective
     // window changes later (e.g., a 5th strike auto-bumps them mid-flight).
-    let newDeal: { id: string } | null = null
+    let newDeal: { id: string; deal_number?: string | null } | null = null
     if (formData.fromOfferDealId) {
       // RLS doesn't let an agent flip their own deal's status, so use the
       // service-role client for the conversion. Ownership + status + the
@@ -368,7 +368,7 @@ export async function submitDeal(formData: {
         })
         .eq('id', formData.fromOfferDealId)
         .eq('status', 'offered')  // CAS-style guard against a double-submit
-        .select('id')
+        .select('id, deal_number')
         .single()
       if (convertError || !updated) {
         console.error('Agent offer conversion error:', convertError?.message)
@@ -434,6 +434,7 @@ export async function submitDeal(formData: {
     // Email notification → Firm Funds admin
     sendNewDealNotification({
       dealId: newDeal.id,
+      dealNumber: newDeal.deal_number,
       propertyAddress: validation.data.propertyAddress,
       advanceAmount: calc.advanceAmount,
       agentName: `${agentData.first_name} ${agentData.last_name}`,
@@ -452,6 +453,7 @@ export async function submitDeal(formData: {
       for (const admin of brokerageAdmins) {
         sendBrokerageAdminNewDealNotification({
           dealId: newDeal.id,
+          dealNumber: newDeal.deal_number,
           propertyAddress: validation.data.propertyAddress,
           advanceAmount: calc.advanceAmount,
           agentName: `${agentData.first_name} ${agentData.last_name}`,
@@ -646,7 +648,7 @@ export async function submitDealAsBrokerage(formData: {
     //     UPDATE in place so the back-link from firm_deal_events stays valid
     //     and the agent's deals list doesn't duplicate.
     //   - Otherwise → INSERT a brand-new row.
-    let newDeal: { id: string } | null = null
+    let newDeal: { id: string; deal_number?: string | null } | null = null
     if (formData.fromOfferDealId) {
       // Validate the offered row still exists, is owned by this brokerage,
       // is for the same agent, and hasn't already been claimed. Race window
@@ -710,7 +712,7 @@ export async function submitDealAsBrokerage(formData: {
         })
         .eq('id', formData.fromOfferDealId)
         .eq('status', 'offered')  // CAS-style guard against double-submit
-        .select('id')
+        .select('id, deal_number')
         .single()
       if (updateError || !updated) {
         console.error('Brokerage offer conversion error:', updateError?.message)
@@ -746,7 +748,7 @@ export async function submitDealAsBrokerage(formData: {
             ? ({ revised_from_deal_id: formData.revisedFromDealId } as any)
             : {}),
         })
-        .select('id')
+        .select('id, deal_number')
         .single()
       if (insertError || !inserted) {
         console.error('Brokerage deal insert error:', insertError?.message)
@@ -777,6 +779,7 @@ export async function submitDealAsBrokerage(formData: {
     // Notify Firm Funds admin
     await sendNewDealNotification({
       dealId: newDeal.id,
+      dealNumber: newDeal.deal_number,
       propertyAddress: validation.data.propertyAddress,
       advanceAmount: calc.advanceAmount,
       agentName: `${agentData.first_name} ${agentData.last_name}`,
@@ -1313,6 +1316,7 @@ export async function updateDealStatus(input: {
     if (agentInfo?.email) {
       sendStatusChangeNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         oldStatus: deal.status,
         newStatus: input.newStatus,
@@ -1339,6 +1343,7 @@ export async function updateDealStatus(input: {
           agentName: agentInfo ? `${agentInfo.first_name} ${agentInfo.last_name}` : 'Agent',
           newStatus: input.newStatus,
           dealId: deal.id,
+          dealNumber: deal.deal_number,
         })
       }
     } catch {
@@ -1804,7 +1809,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
       // Look up deal info for the email
       const { data: dealInfo } = await supabase
         .from('deals')
-        .select('property_address, agent_id, agents(first_name, last_name)')
+        .select('property_address, deal_number, agent_id, agents(first_name, last_name)')
         .eq('id', dealId)
         .single()
 
@@ -1813,6 +1818,7 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
 
       sendDocumentUploadedNotification({
         dealId,
+        dealNumber: dealInfo?.deal_number,
         propertyAddress: dealInfo?.property_address || 'Unknown Property',
         documentType,
         fileName: file.name,
@@ -2185,7 +2191,7 @@ export async function requestDocument(input: {
     // Fetch deal + agent info
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, property_address, agent_id')
+      .select('id, property_address, deal_number, agent_id')
       .eq('id', input.dealId)
       .single()
 
@@ -2220,6 +2226,7 @@ export async function requestDocument(input: {
     // Send the email notification
     sendDocumentRequestNotification({
       dealId: deal.id,
+      dealNumber: deal.deal_number,
       propertyAddress: deal.property_address,
       documentType: input.documentType,
       agentEmail: agent.email,
@@ -2701,6 +2708,7 @@ export async function markDealFailedToClose(input: {
     if (agent?.email) {
       sendFailedToCloseElectionEmail({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         agentEmail: agent.email,
         agentFirstName: agent.first_name,

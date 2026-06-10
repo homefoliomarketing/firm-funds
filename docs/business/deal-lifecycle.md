@@ -1,6 +1,6 @@
 # Deal Lifecycle
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This document describes the full state machine a commission advance moves through, who can trigger each transition, the underwriting checklist, the settlement window and late-strike behavior, and the failed-deal cure path.
 
@@ -20,6 +20,10 @@ Deal status is stored in the `deals.status` column. The full set is defined in `
 | `funding_failed` | The electronic transfer bounced; can be retried |
 | `failed_to_close` | A funded deal did not close; the agent owes the principal back |
 | `cured` | A failed deal's balance was fully remediated; terminal state |
+
+### Deal numbers
+
+At submission (the moment a deal's status first leaves `offered`), every deal is stamped with a human-readable `deal_number` in the format `NNNN-MMDD-YY` (for example `0001-0609-26` is the first deal submitted on June 9, 2026). The `NNNN` sequence resets each day, and the date is the America/Toronto calendar date at submission. Firm-deal OFFERS (status `offered`) are leads, not submitted deals, so they are deliberately **not** numbered until they are actually submitted; an offer the brokerage never acts on never burns a number. The number is assigned by a database trigger that covers every creation path, so no app code assigns it. See [database.md](../architecture/database.md#deal_number_counters-migration-108).
 
 ## 2. The state machine
 

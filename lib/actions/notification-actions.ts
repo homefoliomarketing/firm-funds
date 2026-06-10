@@ -34,6 +34,7 @@ function validateAttachmentPath(filePath: string | null | undefined, dealId: str
 
 export interface InboxDeal {
   deal_id: string
+  deal_number: string | null
   property_address: string
   deal_status: string
   closing_date: string
@@ -153,7 +154,7 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
     // Get all deals for this agent
     const { data: deals } = await serviceClient
       .from('deals')
-      .select('id, property_address, status, closing_date, created_at')
+      .select('id, deal_number, property_address, status, closing_date, created_at')
       .eq('agent_id', agentId)
 
     if (!deals || deals.length === 0) {
@@ -228,6 +229,7 @@ export async function getAgentInbox(agentId: string): Promise<ActionResult> {
 
       inboxDeals.push({
         deal_id: deal.id,
+        deal_number: deal.deal_number,
         property_address: deal.property_address,
         deal_status: deal.status,
         closing_date: deal.closing_date,
@@ -376,7 +378,7 @@ export async function sendAgentReply(input: {
     // Ownership check: prevent agent A from posting messages on agent B's deal.
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, property_address, agent_id')
+      .select('id, property_address, deal_number, agent_id')
       .eq('id', input.dealId)
       .single()
 
@@ -418,6 +420,7 @@ export async function sendAgentReply(input: {
         const { sendAgentMessageNotification } = await import('@/lib/email')
         await sendAgentMessageNotification({
           dealId: deal?.id || input.dealId,
+          dealNumber: deal?.deal_number,
           propertyAddress: deal?.property_address || 'Unknown',
           agentName: profile?.full_name || 'Agent',
           message: input.message.trim(),
@@ -534,6 +537,7 @@ export async function autoResolvePendingReturns(input: {
 
 export interface AdminInboxDeal {
   deal_id: string
+  deal_number: string | null
   property_address: string
   deal_status: string
   closing_date: string
@@ -584,7 +588,7 @@ export async function getAdminInbox(): Promise<ActionResult> {
     // Get deal + agent info
     const { data: deals } = await serviceClient
       .from('deals')
-      .select('id, property_address, status, closing_date, agent_id, agents(first_name, last_name, email)')
+      .select('id, deal_number, property_address, status, closing_date, agent_id, agents(first_name, last_name, email)')
       .in('id', dealIds)
 
     if (!deals) return { success: true, data: { inbox: [] } }
@@ -615,6 +619,7 @@ export async function getAdminInbox(): Promise<ActionResult> {
 
       inbox.push({
         deal_id: deal.id,
+        deal_number: deal.deal_number,
         property_address: deal.property_address,
         deal_status: deal.status,
         closing_date: deal.closing_date,
@@ -721,7 +726,7 @@ export async function sendAdminMessage(input: {
     // Get deal + agent for email notification
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, property_address, agent_id, agents(first_name, email)')
+      .select('id, property_address, deal_number, agent_id, agents(first_name, email)')
       .eq('id', input.dealId)
       .single()
 
@@ -764,6 +769,7 @@ export async function sendAdminMessage(input: {
         const { sendDealMessageNotification } = await import('@/lib/email')
         sendDealMessageNotification({
           dealId: deal.id,
+          dealNumber: deal.deal_number,
           propertyAddress: deal.property_address,
           agentEmail: agent.email ?? '',
           agentFirstName: agent.first_name ?? '',
@@ -811,7 +817,7 @@ export async function sendBrokerageMessage(input: {
     // Verify the deal belongs to this brokerage
     const { data: deal } = await serviceClient
       .from('deals')
-      .select('id, brokerage_id, property_address')
+      .select('id, brokerage_id, property_address, deal_number')
       .eq('id', input.dealId)
       .single()
 
@@ -842,6 +848,7 @@ export async function sendBrokerageMessage(input: {
       const { sendBrokerageMessageNotification } = await import('@/lib/email')
       await sendBrokerageMessageNotification({
         dealId: deal.id,
+        dealNumber: deal.deal_number,
         propertyAddress: deal.property_address,
         senderName: profile?.full_name || 'Brokerage Admin',
         message: input.message.trim(),

@@ -29,10 +29,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import SignOutModal from '@/components/SignOutModal'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
+import { DealNumber } from '@/components/DealNumber'
 
 interface DealRow {
   id: string
   status: string
+  deal_number: string | null
   property_address: string
   closing_date: string
   gross_commission: number
@@ -94,7 +96,7 @@ function AmendmentNewInner() {
 
       const { data: dealData } = await supabase
         .from('deals')
-        .select('id, status, property_address, closing_date, gross_commission, brokerage_split_pct, brokerage_referral_pct, days_until_closing, discount_fee, settlement_period_fee, advance_amount, due_date, agent:agents(first_name, last_name)')
+        .select('id, status, deal_number, property_address, closing_date, gross_commission, brokerage_split_pct, brokerage_referral_pct, days_until_closing, discount_fee, settlement_period_fee, advance_amount, due_date, agent:agents(first_name, last_name)')
         .eq('brokerage_id', profile.brokerage_id)
         .in('status', ['approved', 'funded'])
         .order('closing_date', { ascending: true })
@@ -306,6 +308,14 @@ function AmendmentNewInner() {
 
                 {selectedDeal && (
                   <div className="mt-4 rounded-lg border border-border bg-muted/30 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    {selectedDeal.deal_number && (
+                      <div>
+                        <p className="text-muted-foreground">Deal number</p>
+                        <div className="mt-0.5">
+                          <DealNumber value={selectedDeal.deal_number} />
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <p className="text-muted-foreground">Status</p>
                       <p>

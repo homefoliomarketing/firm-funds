@@ -24,12 +24,14 @@ import { ArrowLeft, DollarSign, TrendingUp, CheckCircle2, AlertTriangle, Clock, 
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { EmptyState } from '@/components/ui/empty-state'
+import { DealNumber } from '@/components/DealNumber'
 
 export const dynamic = 'force-dynamic'
 
 interface PortfolioDeal {
   id: string
   status: string
+  deal_number: string | null
   advance_amount: number
   amount_due_from_brokerage: number
   net_commission: number
@@ -55,7 +57,7 @@ async function loadPortfolio() {
   // grows beyond a few thousand rows, swap to a materialized view.
   const { data: deals } = await supabase
     .from('deals')
-    .select('id, status, advance_amount, amount_due_from_brokerage, net_commission, property_address, funding_date, repayment_date, due_date, brokerage_id, created_at')
+    .select('id, status, deal_number, advance_amount, amount_due_from_brokerage, net_commission, property_address, funding_date, repayment_date, due_date, brokerage_id, created_at')
     .neq('status', 'offered') // offered rows carry $0 placeholders; ignore in stats
     .order('created_at', { ascending: false })
 
@@ -263,7 +265,10 @@ export default async function PortfolioPage() {
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground truncate">{deal.property_address}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-foreground truncate">{deal.property_address}</p>
+                            <DealNumber value={deal.deal_number} />
+                          </div>
                           <p className="text-[11px] text-muted-foreground mt-0.5">
                             Funded {deal.funding_date ? formatDate(deal.funding_date) : '-'}
                           </p>

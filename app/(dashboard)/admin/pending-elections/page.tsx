@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import SignOutModal from '@/components/SignOutModal'
 import { StatusToast } from '@/components/StatusToast'
+import { DealNumber } from '@/components/DealNumber'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import {
@@ -381,7 +382,10 @@ export default function PendingCureElectionsPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{r.property_address}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{r.property_address}</p>
+                        <DealNumber value={r.deal_number} />
+                      </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                         {r.agent.first_name} {r.agent.last_name}
                         {r.agent.email && <span className="ml-1 text-muted-foreground/60">· {r.agent.email}</span>}
@@ -426,6 +430,7 @@ function PendingRow({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-base font-semibold text-foreground">{agentDisplayName(row.agent)}</p>
+              <DealNumber value={row.deal_number} />
               <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider border ${electionTone(row)}`}>
                 {electionLabel(row)}
               </span>

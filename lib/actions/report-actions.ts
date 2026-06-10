@@ -60,6 +60,7 @@ export interface ReportMetrics {
   // Raw deals for export
   exportDeals: {
     id: string
+    deal_number: string | null
     property_address: string
     status: string
     gross_commission: number
@@ -318,6 +319,7 @@ export async function fetchReportMetrics(input: {
       const brokerage = d.brokerage as { name: string } | null
       return {
         id: d.id,
+        deal_number: d.deal_number,
         property_address: d.property_address,
         status: d.status,
         gross_commission: Number(d.gross_commission || 0),
@@ -386,6 +388,7 @@ export interface BrokerageDetail {
   }[]
   recentDeals: {
     id: string
+    deal_number: string | null
     property_address: string
     status: string
     advance_amount: number
@@ -473,6 +476,7 @@ export async function fetchBrokerageDetail(input: {
       const agent = d.agent as { first_name: string; last_name: string } | null
       return {
         id: d.id,
+        deal_number: d.deal_number,
         property_address: d.property_address,
         status: d.status,
         advance_amount: Number(d.advance_amount || 0),

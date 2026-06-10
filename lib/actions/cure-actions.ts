@@ -17,6 +17,7 @@ export type RemediationSummary = {
 
 export type PendingCureElectionRow = {
   deal_id: string
+  deal_number: string | null
   property_address: string
   failed_to_close_at: string
   cure_election: 'cash_repayment' | 'commission_assignment' | null
@@ -41,6 +42,7 @@ export type PendingCureElectionRow = {
 
 export type CuredDealRow = {
   deal_id: string
+  deal_number: string | null
   property_address: string
   failed_to_close_at: string
   cured_at: string  // best-guess: failed_deal_interest_calculated_at after fully cleared
@@ -74,6 +76,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       .from('deals')
       .select(`
         id,
+        deal_number,
         property_address,
         failed_to_close_at,
         outstanding_balance,
@@ -131,6 +134,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
 
     type FailedDealRow = {
       id: string
+      deal_number: string | null
       property_address: string
       failed_to_close_at: string | null
       outstanding_balance: number | string | null
@@ -166,6 +170,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
 
       return {
         deal_id: d.id,
+        deal_number: d.deal_number,
         property_address: d.property_address,
         failed_to_close_at: d.failed_to_close_at as string,
         cure_election: d.cure_election as PendingCureElectionRow['cure_election'],
@@ -199,6 +204,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
       .from('deals')
       .select(`
         id,
+        deal_number,
         property_address,
         failed_to_close_at,
         failed_deal_interest_calculated_at,
@@ -215,6 +221,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
 
     type CuredDealQueryRow = {
       id: string
+      deal_number: string | null
       property_address: string
       failed_to_close_at: string
       failed_deal_interest_calculated_at: string | null
@@ -228,6 +235,7 @@ export async function getPendingCureElections(): Promise<ActionResult<PendingCur
     }
     const recentlyCured: CuredDealRow[] = ((curedDeals as unknown as CuredDealQueryRow[]) || []).map((d) => ({
       deal_id: d.id,
+      deal_number: d.deal_number,
       property_address: d.property_address,
       failed_to_close_at: d.failed_to_close_at,
       cured_at: d.failed_deal_interest_calculated_at || d.failed_to_close_at,
