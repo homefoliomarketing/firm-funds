@@ -176,7 +176,7 @@ export default function AdminPaymentsPage() {
       const q = searchQuery.toLowerCase()
       result = result.filter(s =>
         s.brokerage.name.toLowerCase().includes(q) ||
-        s.deals.some(d => d.property_address.toLowerCase().includes(q))
+        s.deals.some(d => d.property_address.toLowerCase().includes(q) || (d.deal_number?.toLowerCase().includes(q) ?? false))
       )
     }
 
@@ -497,7 +497,7 @@ export default function AdminPaymentsPage() {
             <Search size={16} className="text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
             <Input
               type="text"
-              placeholder="Search brokerages or properties..."
+              placeholder="Search by deal #, brokerage, or property..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"

@@ -231,7 +231,8 @@ function AgentDashboardInner() {
       result = result.filter(d =>
         d.property_address.toLowerCase().includes(q) ||
         d.status.toLowerCase().includes(q) ||
-        formatCurrency(d.advance_amount).toLowerCase().includes(q)
+        formatCurrency(d.advance_amount).toLowerCase().includes(q) ||
+        (d.deal_number?.toLowerCase().includes(q) ?? false)
       )
     }
 
@@ -875,7 +876,7 @@ function AgentDashboardInner() {
                   <Input
                     id="agent-search"
                     type="text"
-                    placeholder="Search by address..."
+                    placeholder="Search by deal #, address, or status..."
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                     className="pl-9 h-8 text-sm bg-secondary/50"

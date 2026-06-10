@@ -224,7 +224,11 @@ export default function AgentMessagesPage() {
   }
 
   const filteredInbox = searchQuery.trim()
-    ? inbox.filter(item => item.property_address.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? inbox.filter(item => {
+        const q = searchQuery.toLowerCase()
+        return item.property_address.toLowerCase().includes(q)
+          || (item.deal_number?.toLowerCase().includes(q) ?? false)
+      })
     : inbox
 
   const selectedDeal = inbox.find(d => d.deal_id === selectedDealId)
@@ -287,7 +291,7 @@ export default function AgentMessagesPage() {
                     <Search size={14} className="text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
                     <Input
                       type="text"
-                      placeholder="Search deals..."
+                      placeholder="Search by deal # or address..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-8"

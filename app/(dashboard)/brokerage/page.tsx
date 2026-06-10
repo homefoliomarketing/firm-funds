@@ -8,7 +8,7 @@ import {
   CheckCircle, Upload, ChevronLeft, ChevronRight, Download, Calendar,
   TrendingUp, BarChart3, Shield, CreditCard, XCircle, Clock, Send,
   MessageSquare, Inbox, Settings, Bell, Eye, ExternalLink, X, Phone, LifeBuoy,
-  CalendarClock,
+  CalendarClock, Search,
 } from 'lucide-react'
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
@@ -142,6 +142,7 @@ export default function BrokerageDashboard() {
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [dealTradeRecords, setDealTradeRecords] = useState<Map<string, { file_name: string; created_at: string }>>(new Map())
   const [dealsPage, setDealsPage] = useState(1)
+  const [dealSearchQuery, setDealSearchQuery] = useState('')
   const [referralMonth, setReferralMonth] = useState<string>('all')
   const [referralFilter, setReferralFilter] = useState<'all' | 'earned' | 'pending'>('all')
   const [downloadingPdf, setDownloadingPdf] = useState(false)
@@ -446,6 +447,21 @@ export default function BrokerageDashboard() {
     })
     return sorted
   }, [deals, dealTradeRecords])
+
+  // Free-text search over the Deals tab. ANDs onto the status/priority sort
+  // above. Matches deal number, agent full name, property address, and status
+  // label — all null-safe, lowercased, substring. Empty/whitespace shows all.
+  const searchedDeals = useMemo(() => {
+    const q = dealSearchQuery.trim().toLowerCase()
+    if (!q) return sortedDeals
+    return sortedDeals.filter((d) => {
+      const agentName = d.agent ? `${d.agent.first_name || ''} ${d.agent.last_name || ''}`.toLowerCase() : ''
+      return (d.property_address?.toLowerCase().includes(q) ?? false)
+        || agentName.includes(q)
+        || (d.deal_number?.toLowerCase().includes(q) ?? false)
+        || (d.status?.toLowerCase().includes(q) ?? false)
+    })
+  }, [sortedDeals, dealSearchQuery])
 
   const earnedDeals = useMemo(() =>
     deals.filter(d => ['funded', 'completed'].includes(d.status)), [deals])
@@ -859,10 +875,33 @@ export default function BrokerageDashboard() {
                 </div>
               ) : (
                 <div>
+                  {/* Free-text search — matches deal #, agent name, property
+                      address, and status. ANDs onto the status/priority sort. */}
+                  <div className="px-4 sm:px-6 py-3 border-b border-border/30 bg-muted/20">
+                    <div className="relative w-full sm:max-w-sm">
+                      <label htmlFor="brokerage-deal-search" className="sr-only">Search deals by deal number, agent, or property address</label>
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/40" aria-hidden="true" />
+                      <input
+                        id="brokerage-deal-search"
+                        type="search"
+                        value={dealSearchQuery}
+                        onChange={(e) => { setDealSearchQuery(e.target.value); setDealsPage(1) }}
+                        placeholder="Search by deal #, agent, or address..."
+                        className="w-full text-base sm:text-sm pl-9 pr-3 py-2 rounded-lg bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                  </div>
+                  {searchedDeals.length === 0 ? (
+                    <div className="px-6 py-16 text-center">
+                      <p className="text-sm font-semibold text-foreground mb-1">No deals match your search</p>
+                      <p className="text-xs text-muted-foreground">Try a different deal number, agent name, or property address.</p>
+                    </div>
+                  ) : (
+                  <>
                   {(() => {
-                    const totalPages = Math.max(1, Math.ceil(sortedDeals.length / DEALS_PER_PAGE))
+                    const totalPages = Math.max(1, Math.ceil(searchedDeals.length / DEALS_PER_PAGE))
                     const page = Math.min(dealsPage, totalPages)
-                    const pagedDeals = sortedDeals.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
+                    const pagedDeals = searchedDeals.slice((page - 1) * DEALS_PER_PAGE, page * DEALS_PER_PAGE)
                     return pagedDeals
                   })().map((deal) => (
                     <div key={deal.id}>
@@ -1085,13 +1124,13 @@ export default function BrokerageDashboard() {
                     </div>
                   ))}
                   {/* Pagination */}
-                  {sortedDeals.length > DEALS_PER_PAGE && (() => {
-                    const totalPages = Math.ceil(sortedDeals.length / DEALS_PER_PAGE)
+                  {searchedDeals.length > DEALS_PER_PAGE && (() => {
+                    const totalPages = Math.ceil(searchedDeals.length / DEALS_PER_PAGE)
                     const page = Math.min(dealsPage, totalPages)
                     return (
                       <nav aria-label="Deal list pagination" className="px-4 sm:px-6 py-3 flex items-center justify-between border-t border-border/30 bg-card/50">
                         <p className="text-xs text-muted-foreground/70 tabular-nums">
-                          {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, sortedDeals.length)} of {sortedDeals.length}
+                          {(page - 1) * DEALS_PER_PAGE + 1}–{Math.min(page * DEALS_PER_PAGE, searchedDeals.length)} of {searchedDeals.length}
                         </p>
                         <div className="flex items-center gap-1">
                           <Button
@@ -1119,6 +1158,8 @@ export default function BrokerageDashboard() {
                       </nav>
                     )
                   })()}
+                  </>
+                  )}
                 </div>
               )}
             </section>

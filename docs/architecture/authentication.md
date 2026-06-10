@@ -1,6 +1,6 @@
 # Authentication and Authorization
 
-_Last updated: 2026-06-02_
+_Last updated: 2026-06-10_
 
 This document explains how Firm Funds authenticates users, how it determines a user's role and access, how the request proxy gates routes, and how Row Level Security and the service-role client divide security responsibilities.
 
@@ -29,6 +29,24 @@ New users are onboarded with single-use invite tokens rather than self-signup.
 - **Email change confirmation:** `app/auth/email-confirmed/route.ts`. Supabase sends a confirmation link to the new address; this route exchanges the PKCE code for a session, reconciles `auth.users.email` against `user_profiles.email` (mirroring if they differ), and redirects to the role's dashboard. This URL must be registered in Supabase Auth redirect URLs. A cross-device safety net in `lib/auth-helpers.ts` (`maybeReconcileEmail`) reconciles on the next authenticated server-action call if the dedicated route never ran.
 
 > The task brief referenced `app/api/auth/callback/route.ts`. That path does not exist in this codebase. The equivalent auth callback is the email-confirmation route above, and the invite redemption flow lives in `app/api/magic-link/route.ts`.
+
+### Firm-deal offer auto-login and account auto-provisioning
+
+`app/agent/firm-deal/[token]/route.ts` is the entry point for firm-deal offer links (`https://firmfunds.ca/agent/firm-deal/<token>`) delivered by email and SMS. A bare GET serves a branded link-preview splash; only the real-human `?go=1` path proceeds to authentication, so link-preview crawlers never consume the token or trigger provisioning.
+
+On `?go=1` the route consumes the token via `consumeFirmDealMagicLink` (a 128-bit random token, bound to exactly one `agent_id` and one `firm_deal_event_id`, 7-day TTL, delivered over the agent's own verified email/SMS). It then resolves the email to sign in with and, when the matched agent has no usable login yet, provisions one before falling through to the shared `generateLink`/`verifyOtp` cookie-binding block that mints the session.
+
+Provisioning (`ensureAgentLoginAccount` in the same file, service-role only, idempotent) covers:
+
+- **Profile already has an email** — nothing to provision; sign in with it.
+- **Profile exists but `email` is null** — backfill `user_profiles.email` from `agents.email` and proceed.
+- **No profile, no auth user** (the common new-agent case) — `createUser` (throwaway temp password, `email_confirm: true`) then insert the `user_profiles` row.
+- **No profile, orphaned auth user** (an `auth.users` row left behind after a test-data wipe deleted its profile) — `createUser` fails "already registered"; the helper looks the auth id up by email via `listUsers` and inserts the missing profile for it. If the id cannot be resolved, the route falls back to the no-account dead-end rather than crashing.
+- **No email anywhere** (`agents.email` null and no profile email) — a test-data edge only; every real onboarded agent has an email. The route keeps the original `/login?reason=firm_deal_no_account` redirect.
+
+Newly provisioned profiles are inserted with `must_reset_password: true` and `is_active: true`, `role: 'agent'`. Because of the `must_reset_password` gate in `proxy.ts`, the freshly-logged-in agent is immediately routed to `/change-password` to set their own password before the account is usable for anything else. The account is therefore not usable until the agent picks a password.
+
+This does **not** widen the trust model: auto-login already happened for agents who had a profile, and the link itself is the only credential — unguessable, single-agent-bound, time-limited, and delivered over a channel verified during onboarding. A successful auto-provision writes a `firm_deal.account_auto_provisioned` audit row (alongside the existing per-failure `firm_deal.magic_link_consume_failed` rows) so production triage can see when an account was minted from an offer link.
 
 ## Roles and how access is determined
 
@@ -198,7 +216,7 @@ What `proxy` does on each request, in order:
 | `/api/docusign/webhook` | DocuSign Connect callback (HMAC verified in handler). |
 | `/api/kyc-mobile-upload`, `/api/kyc-desktop-upload`, `/api/kyc-validate-token` | Token-authenticated KYC endpoints. The old `/api/kyc-*` wildcard was replaced with exact matches so a future route cannot accidentally inherit public access. |
 | `/api/brokerage/confirm-contact-email` | Single-use token confirms a brokerage contact email; recipient may have no account. |
-| `/agent/firm-deal` | Firm-deal offer magic link; the URL token authenticates and mints a session. |
+| `/agent/firm-deal` | Firm-deal offer magic link; the URL token authenticates, auto-provisions a login if the matched agent has none, and mints a session. See the firm-deal auto-login section above. |
 | `/unsubscribe`, `/api/unsubscribe` | CASL unsubscribe landing page and RFC 8058 one-click POST. |
 
 **Why external POST endpoints must be added here.** Any route that accepts a POST from a non-browser caller (a webhook, a provider callback, a mail-client one-click unsubscribe) has no Supabase session and often no browser `Origin`. If it is not in `PUBLIC_PATHS`, the unauthenticated-user gate redirects it to `/login` (a `302`), and the handler never runs. So such routes must be added to `PUBLIC_PATHS`. Separately, state-changing API routes with no browser `Origin` must also be added to the CSRF exemption lists in `proxy.ts` (`API_CSRF_EXEMPT_EXACT` for exact paths, `API_CSRF_EXEMPT_PREFIX` for prefixes like `/api/cron/`), and each such route must carry its own out-of-band authentication (HMAC, a bearer `CRON_SECRET`, or a single-use token in the body).

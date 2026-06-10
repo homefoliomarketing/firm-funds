@@ -182,7 +182,7 @@ export default function AdminMessagesPage() {
     if (filterMode === 'needs_reply' && !item.needs_reply) return false
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      return item.property_address.toLowerCase().includes(q) || item.agent_name.toLowerCase().includes(q)
+      return item.property_address.toLowerCase().includes(q) || item.agent_name.toLowerCase().includes(q) || (item.deal_number?.toLowerCase().includes(q) ?? false)
     }
     return true
   })
@@ -266,7 +266,7 @@ export default function AdminMessagesPage() {
                     <Search size={14} className="text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
                     <Input
                       type="text"
-                      placeholder="Search by address or agent..."
+                      placeholder="Search by deal #, address, or agent..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-8"

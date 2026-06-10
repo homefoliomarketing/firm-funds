@@ -1,6 +1,6 @@
 # Firm Deals (Proactive Offer Detection)
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This document describes how Firm Funds detects a real estate deal becoming firm, matches it to an enrolled agent, and turns it into a proactive commission advance offer.
 
@@ -82,7 +82,7 @@ A split is a **one-off** description of how one transaction's commission is shar
 
 ## 5. The offer acceptance flow (`lib/actions/firm-deal-offer-actions.ts`)
 
-Once an offer has been dispatched, the agent lands on their dashboard via a magic link carrying `?firm_deal=<id>`. The flow:
+Once an offer has been dispatched, the agent lands on their dashboard via a magic link carrying `?firm_deal=<id>`. The offer link itself (`/agent/firm-deal/<token>`, handler `app/agent/firm-deal/[token]/route.ts`) auto-signs-in the agent: it consumes the token, resolves the agent's email, and mints a Supabase session. If the matched agent has no Firm Funds login yet — common, since the spreadsheet can match an `agents` row no human ever signed up against — the route auto-provisions one on the fly (in `must_reset_password` state) and still logs the agent in, so they land on `/change-password` to set a password rather than dead-ending at the login screen. Only an agent with no email anywhere (a test-data edge) still hits the old `?reason=firm_deal_no_account` dead-end. See the firm-deal auto-login section in `docs/architecture/authentication.md` for the full provisioning cases and security model. The flow:
 
 1. **View the offer.** `getFirmDealOfferForCurrentAgent()` returns the offer summary only if the logged-in agent is the matched (primary or secondary) agent on the event. A guessed id quietly returns null, leaking nothing about other agents' offers.
 2. **Accept.** `acceptFirmDealOffer()` creates a placeholder `deals` row in `status='offered'` with the address and closing date copied from the parsed event and all financial columns set to 0 (the UI hides these on offered rows so the agent never sees fake numbers). A partial unique index prevents two simultaneous clicks from double-creating. The event is back-linked via `offer_deal_id` (or `second_offer_deal_id` for the co-agent on a dual-side deal).
