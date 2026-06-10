@@ -254,7 +254,11 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
     if (useSignWell) {
       // SignWell reads signature/initials/date fields from the text tags already
       // embedded in the .docx, so we pass no anchor/tab config.
-      // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+      // NOTE(signwell): on completion, the brokerage is emailed the executed
+      // signed Direction to Pay (with the PDF attached) by the SignWell webhook
+      // (app/api/signwell/webhook/route.ts) via Resend. Only an optional
+      // send-time (pre-signing) CC of the broker-of-record/admin remains
+      // unimplemented on the SignWell path.
       const result = await sendSignWellDocument({
         name: `Firm Funds — ${deal.property_address}`,
         subject: emailSubject,
@@ -635,7 +639,10 @@ export async function sendBcaForSignature(brokerageId: string): Promise<ActionRe
 
     if (useSignWell) {
       // SignWell reads fields from the .docx text tags; no anchor/tab config.
-      // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+      // NOTE(signwell): the BCA is signed by the Broker of Record (not an
+      // agent direction to pay), so there is no executed-IDP delivery to the
+      // brokerage here. Only an optional send-time (pre-signing) CC of the
+      // brokerage admin remains unimplemented on the SignWell path.
       const result = await sendSignWellDocument({
         name: `Firm Funds — ${brokerage.name}`,
         subject: emailSubject,
@@ -973,7 +980,10 @@ export async function sendAmendedCpaForSignature(dealId: string, amendmentId: st
 
     if (useSignWell) {
       // SignWell reads fields from the .docx text tags; no anchor/tab config.
-      // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+      // NOTE(signwell): the CPA amendment is not an agent direction to pay, so
+      // there is no executed-IDP delivery to the brokerage here. Only an
+      // optional send-time (pre-signing) CC of the broker-of-record remains
+      // unimplemented on the SignWell path.
       const result = await sendSignWellDocument({
         name: `Firm Funds — ${deal.property_address}`,
         subject: emailSubject,
@@ -1204,7 +1214,11 @@ export async function sendRemediationIdpForSignature(input: {
     try {
       if (useSignWell) {
         // SignWell reads fields from the .docx text tags; no anchor/tab config.
-        // TODO(signwell): CC broker-of-record/admin not yet supported (notify via Resend later)
+        // NOTE(signwell): on completion, the brokerage's broker of record is
+        // emailed the executed signed Remediation Direction to Pay (with the
+        // PDF attached) by the SignWell webhook (app/api/signwell/webhook/route.ts)
+        // via Resend. Only an optional send-time (pre-signing) CC remains
+        // unimplemented on the SignWell path.
         const result = await sendSignWellDocument({
           name: `Firm Funds — ${rem.property_address}`,
           subject: emailSubject,

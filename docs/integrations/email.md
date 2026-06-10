@@ -1,6 +1,6 @@
 # Email Integration (Resend)
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-10_
 
 This document describes how Firm Funds sends transactional and notification email through Resend, the available templates and when each is sent, and how unsubscribe, preference, and retry tracking work.
 
@@ -25,6 +25,8 @@ Every template routes through `sendEmailWithUnsubscribe(opts)`, which:
 2. Mints or fetches a stable per-entity unsubscribe token.
 3. Appends a CASL-compliant footer and sets the `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers (RFC 8058), so Gmail, iCloud, and Yahoo render a one-click unsubscribe button.
 4. Sends through Resend. Failures are logged and swallowed (never thrown), so a Resend hiccup never crashes a server action.
+
+`sendEmailWithUnsubscribe` also accepts an optional `attachments: { filename, content }[]` (content is a `Buffer`, which the Resend SDK base64-encodes). This is how `sendBrokerageExecutedIdpNotification` delivers the executed signed Direction to Pay PDF to the brokerage.
 
 Subject lines are sanitized (`sanitizeSubject` strips CR/LF to prevent header injection and caps length); body interpolations are HTML-escaped (`escapeHtml`). The shared `wrap()` function renders the dark-themed branded HTML shell. Agent-facing and brokerage-facing emails can show the brokerage's own logo via `getBrandingForAgent` / `getBrandingForBrokerage`, falling back to the Firm Funds wordmark on any miss.
 
@@ -88,7 +90,8 @@ All of the following are exported `send...` functions in `lib/email.ts`.
 | `sendAmendmentApprovedNotification` | Agent | An amendment is approved |
 | `sendAmendmentRejectedNotification` | Agent | An amendment is rejected |
 | `sendFailedToCloseElectionEmail` | Agent | A funded deal failed; the agent must elect a cure path |
-| `sendRemediationIdpSignedNotification` | Firm Funds admin | A Remediation IDP is signed (fired from the DocuSign webhook) |
+| `sendRemediationIdpSignedNotification` | Firm Funds admin | A Remediation IDP is signed (fired from the e-sign webhook) |
+| `sendBrokerageExecutedIdpNotification` | Brokerage (broker of record + brokerage admin) | A deal's CPA/IDP or a Remediation IDP is fully signed; delivers the executed signed PDF as an attachment so the brokerage has its written authorization to remit (fired from the SignWell webhook) |
 
 Firm-deal offer emails (the proactive offer, the 2-hour brokerage nudge, the 4-hour internal escalation, and the agent decline notice) are sent from `lib/firm-deal-detection/dispatch-brokerage-offer.ts`, not from `lib/email.ts`. See `business/firm-deals.md`.
 

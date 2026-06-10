@@ -1,7 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySignWellWebhook, getSignWellCompletedPdf } from '@/lib/signwell'
 import { logAuditEventServiceRole } from '@/lib/audit'
-import { sendRemediationIdpSignedNotification } from '@/lib/email'
+import { sendRemediationIdpSignedNotification, sendBrokerageExecutedIdpNotification } from '@/lib/email'
 
 // SignWell webhook — receives document status updates.
 // Configure in SignWell: Settings → API → Webhooks (or via the API hook field).
@@ -353,7 +353,7 @@ export async function POST(request: Request) {
             .update({ status: 'idp_signed', signed_at: signedAtIso })
             .eq('id', remediationDealId)
             .eq('status', 'idp_sent')
-            .select('id, failed_deal_id, agent_id, brokerage_legal_name, property_address, directed_amount')
+            .select('id, failed_deal_id, agent_id, brokerage_id, brokerage_legal_name, broker_of_record_email, property_address, directed_amount')
             .maybeSingle()
 
           if (remUpdateErr) {
@@ -415,6 +415,62 @@ export async function POST(request: Request) {
               const message = emailErr instanceof Error ? emailErr.message : 'unknown'
               console.error('SignWell webhook: failed to send Remediation IDP signed notification:', message)
               // Email failure does not roll back the status flip.
+            }
+
+            // Email the brokerage its executed copy of the Remediation IDP.
+            // Like the regular deal IDP, this is a direction to pay the
+            // brokerage, so the brokerage should receive the executed copy.
+            // Best-effort and exactly once (this branch runs only on the
+            // CAS-claimed transition to idp_signed). We reuse the SAME merged
+            // buffer — no re-download — and only attach when the PDF actually
+            // downloaded (mergedPdf present). Unlike a regular deal, the
+            // remediation row carries the broker-of-record email directly
+            // (rem.broker_of_record_email), so that is our sole recipient.
+            try {
+              const borEmail =
+                typeof claimed.broker_of_record_email === 'string'
+                  ? claimed.broker_of_record_email.trim()
+                  : ''
+
+              if (!mergedPdf) {
+                console.warn(
+                  `SignWell webhook: remediation_deal ${remediationDealId} signed PDF unavailable — skipping brokerage executed-IDP email (admin already notified).`
+                )
+              } else if (!borEmail) {
+                console.warn(
+                  `SignWell webhook: remediation_deal ${remediationDealId} has no broker_of_record_email on file — cannot email executed Remediation IDP. Skipping.`
+                )
+              } else {
+                const { data: remAgent } = await supabase
+                  .from('agents')
+                  .select('first_name, last_name')
+                  .eq('id', claimed.agent_id as string)
+                  .maybeSingle()
+                const remAgentName = remAgent
+                  ? `${remAgent.first_name ?? ''} ${remAgent.last_name ?? ''}`.trim() || 'Agent'
+                  : 'Agent'
+
+                await sendBrokerageExecutedIdpNotification({
+                  to: [borEmail],
+                  brokerageName: (claimed.brokerage_legal_name as string) || 'your brokerage',
+                  agentName: remAgentName,
+                  propertyAddress: (claimed.property_address as string) || 'the property',
+                  dealNumber: null,
+                  brokerageId: (claimed.brokerage_id as string | null) ?? null,
+                  pdf: mergedPdf,
+                  pdfFileName: 'Remediation_Direction_to_Pay_Signed.pdf',
+                })
+                console.log(
+                  `SignWell webhook: emailed executed Remediation IDP for remediation_deal ${remediationDealId} to broker of record`
+                )
+              }
+            } catch (emailErr: unknown) {
+              const message = emailErr instanceof Error ? emailErr.message : 'unknown'
+              console.error(
+                `SignWell webhook: failed to email executed Remediation IDP to brokerage for remediation_deal ${remediationDealId}:`,
+                message
+              )
+              // Best-effort: never roll back the status flip or fail the webhook.
             }
           }
 
@@ -524,6 +580,79 @@ export async function POST(request: Request) {
               // missed document is retried.
               transientFailure = true
             }
+          }
+
+          // ----------------------------------------------------------------
+          // Email the brokerage its executed copy of the Direction to Pay.
+          // The IDP is the brokerage's written authorization to remit the
+          // agent's commission to Firm Funds, so the brokerage MUST receive
+          // the executed copy. The DocuSign flow did this by CC'ing the
+          // brokerage on the envelope; SignWell dropped CC, so we deliver it
+          // ourselves via Resend (more reliable + branded + logged).
+          //
+          // BEST-EFFORT and EXACTLY ONCE per deal completion (outside the
+          // per-row loop above): the signed PDF is already stored, so a Resend
+          // hiccup must NOT throw or trigger a 503 redelivery (that would
+          // duplicate stored objects). We reuse the SAME merged buffer — no
+          // re-download. The attachment is the merged completed PDF, which
+          // currently also contains the signed CPA (matching the prior
+          // DocuSign CC, which copied the whole envelope). If a brokerage
+          // should receive the IDP page only, narrow this later via
+          // SignWell's `completed_pdf?file_format=zip`.
+          try {
+            const { data: deal } = await supabase
+              .from('deals')
+              .select('property_address, deal_number, agent:agents(first_name, last_name, brokerage:brokerages(id, name, email, broker_of_record_email))')
+              .eq('id', dealId)
+              .maybeSingle()
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- nested join shape is dynamic
+            const agent = (deal as any)?.agent
+            const brokerage = agent?.brokerage
+
+            // Dedupe recipients, drop nulls/blanks, case-insensitive compare.
+            const recipients: string[] = []
+            const seenEmails = new Set<string>()
+            for (const addr of [brokerage?.broker_of_record_email, brokerage?.email]) {
+              const trimmed = typeof addr === 'string' ? addr.trim() : ''
+              if (!trimmed) continue
+              const key = trimmed.toLowerCase()
+              if (seenEmails.has(key)) continue
+              seenEmails.add(key)
+              recipients.push(trimmed)
+            }
+
+            if (recipients.length === 0) {
+              console.warn(
+                `SignWell webhook: deal ${dealId} brokerage has no broker_of_record_email or email on file — cannot email executed Direction to Pay. Skipping (signed PDF already stored).`
+              )
+            } else {
+              const agentName = agent
+                ? `${agent.first_name ?? ''} ${agent.last_name ?? ''}`.trim() || 'Agent'
+                : 'Agent'
+
+              await sendBrokerageExecutedIdpNotification({
+                to: recipients,
+                brokerageName: brokerage?.name || 'your brokerage',
+                agentName,
+                propertyAddress: (deal as { property_address?: string })?.property_address || 'the property',
+                dealNumber: (deal as { deal_number?: string | null })?.deal_number ?? null,
+                brokerageId: brokerage?.id ?? null,
+                pdf: mergedPdf,
+                pdfFileName: 'Irrevocable_Direction_to_Pay_Signed.pdf',
+              })
+              console.log(
+                `SignWell webhook: emailed executed Direction to Pay for deal ${dealId} to ${recipients.length} brokerage recipient(s)`
+              )
+            }
+          } catch (emailErr: unknown) {
+            const message = emailErr instanceof Error ? emailErr.message : 'unknown'
+            // Best-effort: never fail the webhook over an email problem. The
+            // signed PDF is already stored; do NOT flip transientFailure.
+            console.error(
+              `SignWell webhook: failed to email executed Direction to Pay to brokerage for deal ${dealId}:`,
+              message
+            )
           }
         } else {
           // No merged PDF — already flagged transientFailure above. Do NOT check

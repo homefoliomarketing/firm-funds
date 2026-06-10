@@ -190,6 +190,13 @@ interface SendEmailOpts {
    * body footer wording reflects the email's mandatory nature.
    */
   transactional?: boolean
+  /**
+   * Optional file attachments. Resend takes `{ filename, content }` where
+   * content is a Buffer (or base64 string); the SDK base64-encodes a Buffer
+   * for us. Used to deliver executed signed PDFs (for example the brokerage's
+   * copy of an Irrevocable Direction to Pay) directly on the email.
+   */
+  attachments?: { filename: string; content: Buffer }[]
 }
 
 /**
@@ -259,6 +266,13 @@ async function sendEmailWithUnsubscribe(opts: SendEmailOpts): Promise<unknown> {
     }
     if (opts.replyTo) {
       ;(payload as { replyTo?: string }).replyTo = opts.replyTo
+    }
+    if (opts.attachments && opts.attachments.length > 0) {
+      // Resend's attachment shape is { filename, content } with content as a
+      // Buffer (the SDK base64-encodes it). Cast through the SDK option type so
+      // we don't widen the shared payload typing.
+      ;(payload as { attachments?: { filename: string; content: Buffer }[] }).attachments =
+        opts.attachments
     }
     return await resend.emails.send(payload)
   } catch (err) {
@@ -2525,6 +2539,90 @@ export async function sendRemediationIdpSignedNotification(params: {
         <a href="${APP_URL}/admin/deals/${params.remediationDealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
           Open Remediation Deal
         </a>
+      `),
+  })
+}
+
+// ============================================================================
+// Email: Executed Direction to Pay → Brokerage (with signed PDF attached)
+// ============================================================================
+
+/**
+ * Deliver the executed (fully signed) Irrevocable Direction to Pay to the
+ * brokerage. This is a legal requirement: the IDP is the brokerage's written
+ * authorization to remit the agent's commission to Firm Funds, so the
+ * brokerage must receive the executed copy for its records. The old DocuSign
+ * flow handled this by CC'ing the brokerage on the envelope; SignWell treats
+ * every recipient as a signer, so we deliver the copy ourselves here.
+ *
+ * The attached PDF is the merged completed document. For a deal envelope that
+ * currently bundles the signed CPA + IDP together (matching the prior DocuSign
+ * CC behaviour, which copied the whole envelope). If a brokerage should only
+ * receive the IDP page later, narrow the attachment via
+ * `completed_pdf?file_format=zip` upstream and pass just the IDP bytes here.
+ *
+ * Transactional: a brokerage cannot opt out of receiving its own legal
+ * authorization document.
+ */
+export async function sendBrokerageExecutedIdpNotification(params: {
+  /** Deduped, non-null recipient list (broker-of-record + brokerage admin). */
+  to: string[]
+  brokerageName: string
+  agentName: string
+  propertyAddress: string
+  /** Optional deal number for the subject prefix + body line. */
+  dealNumber?: string | null
+  /** Per-brokerage unsubscribe handling (migration 092). Transactional anyway. */
+  brokerageId?: string | null
+  /** The executed signed PDF to attach. */
+  pdf: Buffer
+  /** File name shown on the attachment. */
+  pdfFileName: string
+}): Promise<void> {
+  await sendEmailWithUnsubscribe({
+    to: params.to.join(', '),
+    subject: sanitizeSubject(
+      `${dealTag(params.dealNumber)}Executed Direction to Pay: ${params.propertyAddress} (${params.agentName})`
+    ),
+    entityType: params.brokerageId ? 'brokerage' : undefined,
+    entityId: params.brokerageId ?? undefined,
+    transactional: true,
+    attachments: [{ filename: params.pdfFileName, content: params.pdf }],
+    html: wrap(`
+        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Executed Direction to Pay</h2>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          <strong style="color:#E5E5E5;">${escapeHtml(params.agentName ?? '')}</strong> has executed an Irrevocable Direction to Pay directing <strong style="color:#E5E5E5;">${escapeHtml(params.brokerageName ?? '')}</strong> to remit the commission for ${escapeHtml(params.propertyAddress ?? '')} to Firm Funds Inc.
+        </p>
+        <p style="margin:0 0 20px; color:#E5E5E5;">
+          The executed agreement is attached for your records. Please honour it and remit the directed commission to Firm Funds Inc. in accordance with the Brokerage Cooperation Agreement between your brokerage and Firm Funds.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+          <tr>
+            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                ${params.dealNumber ? `<tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Deal Number</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.dealNumber)}</td>
+                </tr>` : ''}
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Property</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Agent</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentName ?? '')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#737373; font-size:13px;">Brokerage</td>
+                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0; color:#737373; font-size:13px;">
+          If you have any questions about this direction to pay, reply to this email or contact us at bud@firmfunds.ca.
+        </p>
       `),
   })
 }
