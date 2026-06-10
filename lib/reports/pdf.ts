@@ -275,22 +275,22 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   yPos = PAGE_HEIGHT - MARGIN
 
   const headerTop = yPos
-  // Logo (or text wordmark fallback) top-left, scaled to ~28px tall.
-  const LOGO_H = 28
+  // Logo (or text wordmark fallback) top-left, top-aligned at the margin.
+  const LOGO_H = 32
   if (logoImg) {
     const scale = LOGO_H / logoImg.height
     const logoW = logoImg.width * scale
     page.drawImage(logoImg, {
-      x: MARGIN, y: headerTop - LOGO_H + 6, width: logoW, height: LOGO_H,
+      x: MARGIN, y: headerTop - LOGO_H, width: logoW, height: LOGO_H,
     })
   } else {
     page.drawText('FIRM FUNDS', {
-      x: MARGIN, y: headerTop - LOGO_H + 12, size: 18, font: fontBold, color: GREEN,
+      x: MARGIN, y: headerTop - LOGO_H + 8, size: 18, font: fontBold, color: GREEN,
     })
   }
 
-  // Title under the logo.
-  yPos = headerTop - LOGO_H - 6
+  // Title below the logo, with a clear gap so the two never overlap.
+  yPos = headerTop - LOGO_H - 22
   page.drawText(reportTitle, { x: MARGIN, y: yPos, size: 22, font: fontBold, color: INK })
   yPos -= 22
 
