@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   // would otherwise fall back to the text wordmark in production.
   outputFileTracingIncludes: {
     '/api/admin/reports/export': ['./public/brand/black.png'],
+    '/api/brokerage/reports/export': ['./public/brand/black.png'],
   },
   async headers() {
     return [

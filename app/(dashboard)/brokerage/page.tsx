@@ -146,6 +146,7 @@ export default function BrokerageDashboard() {
   const [referralFilter, setReferralFilter] = useState<'all' | 'earned' | 'pending'>('all')
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [downloadingCsv, setDownloadingCsv] = useState(false)
+  const [downloadingFullReport, setDownloadingFullReport] = useState<null | 'pdf' | 'xlsx'>(null)
   const [showMonthlyChart, setShowMonthlyChart] = useState(true)
   const [brokerageInbox, setBrokerageInbox] = useState<BrokerageInboxDeal[]>([])
   const [pendingAmendments, setPendingAmendments] = useState<PendingAmendment[]>([])
@@ -396,6 +397,31 @@ export default function BrokerageDashboard() {
       setPaymentStatusMsg({ type: 'error', text: 'We could not build the CSV export. Check your connection and try again.' })
     }
     setDownloadingCsv(false)
+  }
+
+  const handleDownloadFullReport = async (format: 'pdf' | 'xlsx') => {
+    setDownloadingFullReport(format)
+    try {
+      const params = new URLSearchParams()
+      params.set('format', format)
+      params.set('month', referralMonth === 'all' ? 'all' : referralMonth)
+      const res = await fetch(`/api/brokerage/reports/export?${params.toString()}`)
+      if (!res.ok) throw new Error('Failed to generate report')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const fallback = format === 'pdf' ? 'brokerage_report.pdf' : 'brokerage_report.xlsx'
+      a.download = res.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || fallback
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setPaymentStatusMsg({ type: 'success', text: 'Your full brokerage report is downloading.' })
+    } catch {
+      setPaymentStatusMsg({ type: 'error', text: 'We could not download the report. Check your connection and try again.' })
+    }
+    setDownloadingFullReport(null)
   }
 
   // =========================================================================
@@ -1457,6 +1483,42 @@ export default function BrokerageDashboard() {
                       </Button>
                     </div>
                   </div>
+
+                  {/* Full brokerage report (PDF + Excel) - senior contacts only */}
+                  {canViewReferrals && (
+                    <div className="mb-4 rounded-lg border border-border bg-card p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-foreground">Full brokerage report</h4>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Your deals, agent advances, referral earnings, and what your brokerage owes Firm Funds &mdash; for your accountant.
+                          </p>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          <Button
+                            onClick={() => handleDownloadFullReport('pdf')}
+                            disabled={downloadingFullReport !== null}
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 text-xs"
+                          >
+                            <Download size={13} />
+                            {downloadingFullReport === 'pdf' ? 'Generating...' : 'Download PDF'}
+                          </Button>
+                          <Button
+                            onClick={() => handleDownloadFullReport('xlsx')}
+                            disabled={downloadingFullReport !== null}
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 text-xs"
+                          >
+                            <Download size={13} />
+                            {downloadingFullReport === 'xlsx' ? 'Generating...' : 'Download Excel'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="rounded-lg overflow-x-auto border border-border/50">
                     <table className="w-full min-w-[600px]" aria-label="Referral fee breakdown by deal">

@@ -146,6 +146,7 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
   const end = filters.endDate || null
   const today = torontoToday()
   const statusFilter = filters.status && filters.status !== 'all' ? filters.status : null
+  const audience = filters.audience || 'internal'
 
   let query = supabase
     .from('deals')
@@ -212,7 +213,7 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
     .map((r) => ({ ...r, feeBase: round(r.feeBase), shareAmount: round(r.shareAmount), remitted: round(r.remitted) }))
     .sort((a, b) => b.shareAmount - a.shareAmount)
 
-  // Aging — point-in-time snapshot of open 'funded' receivables by days outstanding.
+  // Aging - point-in-time snapshot of open 'funded' receivables by days outstanding.
   const agingDefs = [
     { label: '0 to 30 days', min: 0, max: 30 },
     { label: '31 to 60 days', min: 31, max: 60 },
@@ -302,6 +303,7 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
   const scopeLabel = await resolveScopeLabel(supabase, filters)
   const meta: ReportMeta = {
     scope: filters.scope,
+    audience,
     scopeLabel: scopeLabel.label,
     scopeSubLabel: scopeLabel.subLabel,
     periodLabel:
@@ -339,11 +341,32 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
     agentBalance = num((ag as Record<string, unknown> | null)?.account_balance)
   }
 
-  const notes = [
-    'Advances are recorded as a receivable (an asset owed back to Firm Funds), not an expense.',
-    'Operating expenses (rent, payroll, software, insurance) are tracked in your accounting software, not in Firm Funds. This report covers fee revenue, advances, collections, brokerage share, and amounts owed.',
-    'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
-  ]
+  // Brokerage audience: strip every Firm Funds margin figure from the data
+  // itself (defence in depth - the generators also hide these), so the bytes a
+  // brokerage downloads never contain our fee, total revenue, or gross profit.
+  if (audience === 'brokerage') {
+    summary.feesEarned = 0
+    summary.firmProfit = 0
+    for (const r of fundedDeals) r.fee = 0
+    for (const r of dealDetail) {
+      r.discountFee = 0
+      r.settlementFee = 0
+    }
+    for (const r of revenueShare) r.feeBase = 0
+  }
+
+  const notes =
+    audience === 'brokerage'
+      ? [
+          'This report shows your brokerage deals, the advances your agents received, your referral earnings, what your brokerage owes Firm Funds, and aging.',
+          'Firm Funds fees, revenue, and margin are not shown.',
+          'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
+        ]
+      : [
+          'Advances are recorded as a receivable (an asset owed back to Firm Funds), not an expense.',
+          'Operating expenses (rent, payroll, software, insurance) are tracked in your accounting software, not in Firm Funds. This report covers fee revenue, advances, collections, brokerage share, and amounts owed.',
+          'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
+        ]
 
   return {
     meta,

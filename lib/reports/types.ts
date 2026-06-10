@@ -6,6 +6,11 @@
 
 export type ReportScope = 'company' | 'brokerage' | 'agent'
 
+// Who the report is for. 'internal' = Firm Funds staff (sees everything).
+// 'brokerage' = a brokerage viewing its OWN data; all Firm Funds margin is
+// stripped (the fee charged to the agent, total fee revenue, and gross profit).
+export type ReportAudience = 'internal' | 'brokerage'
+
 export interface ReportFilters {
   scope: ReportScope
   // brokerage_id when scope === 'brokerage', agent_id when scope === 'agent'
@@ -15,10 +20,13 @@ export interface ReportFilters {
   endDate?: string | null
   // Optional deal status filter ('all' or null = every status).
   status?: string | null
+  // Defaults to 'internal'. 'brokerage' strips all Firm Funds margin.
+  audience?: ReportAudience
 }
 
 export interface ReportMeta {
   scope: ReportScope
+  audience: ReportAudience
   scopeLabel: string // 'All brokerages (whole company)' | brokerage name | agent name
   scopeSubLabel?: string // e.g. the brokerage name shown under an agent report
   periodLabel: string // 'May 1, 2026 to May 31, 2026' or 'All time'
