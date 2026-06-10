@@ -6,10 +6,16 @@
 
 export type ReportScope = 'company' | 'brokerage' | 'agent'
 
-// Who the report is for. 'internal' = Firm Funds staff (sees everything).
-// 'brokerage' = a brokerage viewing its OWN data; all Firm Funds margin is
-// stripped (the fee charged to the agent, total fee revenue, and gross profit).
-export type ReportAudience = 'internal' | 'brokerage'
+// Who the report is for.
+//   'internal'  = Firm Funds staff (sees everything).
+//   'brokerage' = a brokerage viewing its OWN data; all Firm Funds margin is
+//                 stripped (the fee charged to the agent, total fee revenue,
+//                 and gross profit).
+//   'agent'     = an agent viewing their OWN data; a personal statement. They
+//                 DO see the fee they personally paid (it is their money / a
+//                 deductible expense), but our gross profit and the brokerage's
+//                 referral cut are stripped.
+export type ReportAudience = 'internal' | 'brokerage' | 'agent'
 
 export interface ReportFilters {
   scope: ReportScope

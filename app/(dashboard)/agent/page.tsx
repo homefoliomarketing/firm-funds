@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   FileText, Clock, TrendingUp, CheckCircle2, DollarSign,
   PlusCircle, Search, Calendar, ChevronRight, ChevronLeft, CreditCard,
-  AlertTriangle, Shield, Sparkles, X,
+  AlertTriangle, Shield, Sparkles, X, Download,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
@@ -124,6 +124,12 @@ function AgentDashboardInner() {
   const [offerJustAccepted, setOfferJustAccepted] = useState(false)
   const dealRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [highlightedDealId, setHighlightedDealId] = useState<string | null>(null)
+  // "Your statement" download - tracks which format is in flight so we can
+  // show "Generating..." and disable both buttons, plus an inline status
+  // message (matches the offerAcceptError inline-status pattern used above;
+  // this page does not use the shared StatusToast component).
+  const [downloadingStatement, setDownloadingStatement] = useState<null | 'pdf' | 'xlsx'>(null)
+  const [statementMsg, setStatementMsg] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
   const DEALS_PER_PAGE = 10
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -257,6 +263,43 @@ function AgentDashboardInner() {
       totalAdvanced,
     }
   }, [deals])
+
+  // Download the agent's own all-time financial statement. The endpoint is
+  // auth-scoped server-side to the caller's own agent record, so no id is
+  // passed. We stream the file back as a blob and trigger a browser download
+  // via a temporary anchor. Errors surface inline through statementMsg.
+  async function handleDownloadStatement(format: 'pdf' | 'xlsx') {
+    if (downloadingStatement) return
+    setDownloadingStatement(format)
+    setStatementMsg(null)
+    try {
+      const res = await fetch(`/api/agent/reports/export?format=${format}&month=all`)
+      if (!res.ok) {
+        setStatementMsg({
+          kind: 'error',
+          text: 'We could not download your statement. Check your connection and try again.',
+        })
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = res.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || `statement.${format}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setStatementMsg({ kind: 'success', text: 'Your statement is downloading.' })
+    } catch {
+      setStatementMsg({
+        kind: 'error',
+        text: 'We could not download your statement. Check your connection and try again.',
+      })
+    } finally {
+      setDownloadingStatement(null)
+    }
+  }
 
   // Show KYC verified modal ONCE — localStorage + DB double-lock
   useEffect(() => {
@@ -719,6 +762,58 @@ function AgentDashboardInner() {
             </Button>
           </div>
         )}
+        </section>
+
+        {/* Your statement - branded PDF / Excel download of the agent's own
+            deals, advances, fees paid, and account ledger. Sits next to the
+            balance/ledger area above. The export endpoint is auth-scoped to
+            the caller, so no extra gating is needed here. */}
+        <section aria-label="Your statement" className="mb-8">
+          <div className="rounded-xl p-5 bg-card border border-border/40">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-primary/10 border border-primary/30" aria-hidden="true">
+                  <FileText size={17} className="text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">Your statement</p>
+                  <p className="text-xs mt-0.5 text-muted-foreground">
+                    Your deals, advances, the fees you paid, and your account ledger - for your records or your accountant.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadStatement('pdf')}
+                  disabled={downloadingStatement !== null}
+                  className="whitespace-nowrap"
+                >
+                  <Download size={14} aria-hidden="true" />
+                  {downloadingStatement === 'pdf' ? 'Generating...' : 'Download PDF'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadStatement('xlsx')}
+                  disabled={downloadingStatement !== null}
+                  className="whitespace-nowrap"
+                >
+                  <Download size={14} aria-hidden="true" />
+                  {downloadingStatement === 'xlsx' ? 'Generating...' : 'Download Excel'}
+                </Button>
+              </div>
+            </div>
+            {statementMsg && (
+              <p
+                className={`text-xs mt-3 ${statementMsg.kind === 'error' ? 'text-status-red' : 'text-status-teal'}`}
+                role={statementMsg.kind === 'error' ? 'alert' : 'status'}
+              >
+                {statementMsg.text}
+              </p>
+            )}
+          </div>
         </section>
 
         {/* Welcome + New Deal Button */}

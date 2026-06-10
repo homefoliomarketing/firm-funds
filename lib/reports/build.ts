@@ -353,20 +353,42 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
       r.settlementFee = 0
     }
     for (const r of revenueShare) r.feeBase = 0
+  } else if (audience === 'agent') {
+    // Agent statement: keep the fees THEY paid, but strip our gross profit and
+    // the brokerage's referral cut, and drop the brokerage/Firm-Funds AR
+    // sections (revenue share, aging, collections) that are not the agent's
+    // own transactions. The generators render only the agent-relevant sections.
+    summary.firmProfit = 0
+    summary.referralPaid = 0
+    revenueShare.length = 0
+    aging.length = 0
+    collections.length = 0
+    for (const r of dealDetail) {
+      r.referralFee = 0
+      r.amountDueFromBrokerage = 0
+    }
   }
 
-  const notes =
-    audience === 'brokerage'
-      ? [
-          'This report shows your brokerage deals, the advances your agents received, your referral earnings, what your brokerage owes Firm Funds, and aging.',
-          'Firm Funds fees, revenue, and margin are not shown.',
-          'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
-        ]
-      : [
-          'Advances are recorded as a receivable (an asset owed back to Firm Funds), not an expense.',
-          'Operating expenses (rent, payroll, software, insurance) are tracked in your accounting software, not in Firm Funds. This report covers fee revenue, advances, collections, brokerage share, and amounts owed.',
-          'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
-        ]
+  let notes: string[]
+  if (audience === 'brokerage') {
+    notes = [
+      'This report shows your brokerage deals, the advances your agents received, your referral earnings, what your brokerage owes Firm Funds, and aging.',
+      'Firm Funds fees, revenue, and margin are not shown.',
+      'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
+    ]
+  } else if (audience === 'agent') {
+    notes = [
+      'This statement shows your deals, the advances you received, the fees you paid Firm Funds, your current balance, and your transaction ledger.',
+      'The fees you paid Firm Funds may be a deductible business expense; confirm with your accountant.',
+      'Your current balance is what you owe Firm Funds (a positive number) or your credit (a negative number) as of the generated date.',
+    ]
+  } else {
+    notes = [
+      'Advances are recorded as a receivable (an asset owed back to Firm Funds), not an expense.',
+      'Operating expenses (rent, payroll, software, insurance) are tracked in your accounting software, not in Firm Funds. This report covers fee revenue, advances, collections, brokerage share, and amounts owed.',
+      'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
+    ]
+  }
 
   return {
     meta,

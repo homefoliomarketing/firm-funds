@@ -80,8 +80,10 @@ function appendSheet(wb: XLSX.WorkBook, ws: XLSX.WorkSheet, name: string): void 
 function buildSummarySheet(pkg: ReportPackage): XLSX.WorkSheet {
   const { meta, summary } = pkg
   // Brokerage audience hides Firm Funds margin (fees earned + gross profit) and
-  // relabels figures from the brokerage's own point of view.
+  // relabels figures from the brokerage's own point of view. Agent audience is a
+  // personal statement: only advances funded, the fee they paid, and balance.
   const brokerage = meta.audience === 'brokerage'
+  const agent = meta.audience === 'agent'
   const rows: Cell[][] = []
 
   // Title block.
@@ -96,8 +98,16 @@ function buildSummarySheet(pkg: ReportPackage): XLSX.WorkSheet {
   const kvStart = rows.length
   // Brokerage variant drops "Fees earned" + "Firm Funds gross profit",
   // relabels "Brokerage share paid" to "Referral earnings", and relabels the
-  // receivable to "Owed to Firm Funds".
-  const kv: [string, number][] = brokerage
+  // receivable to "Owed to Firm Funds". Agent variant shows only the three
+  // personal figures (advances funded, the fee they paid, current balance).
+  const kv: [string, number][] = agent
+    ? [
+        ['Advances funded (count)', summary.fundedCount],
+        ['Advances funded ($)', money(summary.fundedAmount)],
+        ['Fees you paid', money(summary.feesEarned)],
+        ['Current balance', money(pkg.agentBalance ?? 0)],
+      ]
+    : brokerage
     ? [
         ['Advances funded (count)', summary.fundedCount],
         ['Advances funded ($)', money(summary.fundedAmount)],
@@ -120,7 +130,9 @@ function buildSummarySheet(pkg: ReportPackage): XLSX.WorkSheet {
       ]
   // Value-column rows that hold dollars (not counts) get the currency format.
   // 0-based offsets within kv.
-  const moneyRowOffsets = brokerage
+  const moneyRowOffsets = agent
+    ? new Set([1, 2, 3])
+    : brokerage
     ? new Set([1, 3, 4, 6])
     : new Set([1, 2, 4, 5, 6, 8])
   for (const [label, value] of kv) rows.push([label, value])
@@ -142,10 +154,15 @@ function buildSummarySheet(pkg: ReportPackage): XLSX.WorkSheet {
 function buildFundedSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
   if (pkg.fundedDeals.length === 0) return null
 
-  // Brokerage audience drops the "Fee" column (Firm Funds margin).
+  // Brokerage audience drops the "Fee" column (Firm Funds margin). Agent
+  // audience drops the Agent + Brokerage columns but KEEPS the Fee (the fee
+  // they personally paid).
   const brokerage = pkg.meta.audience === 'brokerage'
+  const agent = pkg.meta.audience === 'agent'
 
-  const header: Cell[] = brokerage
+  const header: Cell[] = agent
+    ? ['Date', 'Deal #', 'Advanced', 'Days', 'Fee', 'Status']
+    : brokerage
     ? ['Date', 'Deal #', 'Agent', 'Brokerage', 'Advanced', 'Days', 'Status']
     : ['Date', 'Deal #', 'Agent', 'Brokerage', 'Advanced', 'Days', 'Fee', 'Status']
   const rows: Cell[][] = [header]
@@ -156,7 +173,9 @@ function buildFundedSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
     totalAdvanced += d.advanceAmount
     totalFee += d.fee
     rows.push(
-      brokerage
+      agent
+        ? [d.date, d.dealNumber ?? '', money(d.advanceAmount), d.days, money(d.fee), d.status]
+        : brokerage
         ? [d.date, d.dealNumber ?? '', d.agentName, d.brokerageName, money(d.advanceAmount), d.days, d.status]
         : [
             d.date,
@@ -174,14 +193,21 @@ function buildFundedSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
   const dataFirst = 1
   const dataLast = pkg.fundedDeals.length // last data row index (0-based)
   rows.push(
-    brokerage
+    agent
+      ? ['Totals', '', money(totalAdvanced), '', money(totalFee), '']
+      : brokerage
       ? ['Totals', '', '', '', money(totalAdvanced), '', '']
       : ['Totals', '', '', '', money(totalAdvanced), '', money(totalFee), ''],
   )
   const totalsRow = rows.length - 1
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  if (brokerage) {
+  if (agent) {
+    // Money columns: Advanced (2) and Fee (4), across data rows + totals row.
+    applyMoneyFormat(ws, [2, 4], dataFirst, dataLast)
+    applyMoneyFormat(ws, [2, 4], totalsRow, totalsRow)
+    setColumnWidths(ws, [13, 14, 14, 7, 12, 16])
+  } else if (brokerage) {
     // Money column: Advanced (4) only.
     applyMoneyFormat(ws, [4], dataFirst, dataLast)
     applyMoneyFormat(ws, [4], totalsRow, totalsRow)
@@ -196,6 +222,8 @@ function buildFundedSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
 }
 
 function buildCollectionsSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
+  // Agent statement omits the Firm-Funds/brokerage AR sections entirely.
+  if (pkg.meta.audience === 'agent') return null
   if (pkg.collections.length === 0) return null
 
   const header: Cell[] = [
@@ -233,6 +261,8 @@ function buildCollectionsSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
 }
 
 function buildRevenueShareSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
+  // Agent statement never shows the brokerage's referral cut.
+  if (pkg.meta.audience === 'agent') return null
   if (pkg.revenueShare.length === 0) return null
 
   // Brokerage audience drops the "Fees generated" column (Firm Funds margin).
@@ -292,6 +322,8 @@ function buildRevenueShareSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
 }
 
 function buildAgingSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
+  // Agent statement omits the "owed to Firm Funds" aging (not their liability).
+  if (pkg.meta.audience === 'agent') return null
   if (pkg.aging.length === 0) return null
 
   const header: Cell[] = ['Bucket', 'Deals', 'Amount']
@@ -317,36 +349,65 @@ function buildAgingSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
 function buildFailedSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
   if (pkg.failedDeals.length === 0) return null
 
-  const header: Cell[] = [
-    'Deal #',
-    'Agent',
-    'Brokerage',
-    'Advanced',
-    'Outstanding',
-    'Interest accrued',
-    'Failed on',
-    'Status',
-  ]
+  // Agent audience drops the Agent + Brokerage columns (a personal statement).
+  const agent = pkg.meta.audience === 'agent'
+
+  const header: Cell[] = agent
+    ? [
+        'Deal #',
+        'Advanced',
+        'Outstanding',
+        'Interest accrued',
+        'Failed on',
+        'Status',
+      ]
+    : [
+        'Deal #',
+        'Agent',
+        'Brokerage',
+        'Advanced',
+        'Outstanding',
+        'Interest accrued',
+        'Failed on',
+        'Status',
+      ]
   const rows: Cell[][] = [header]
 
   for (const f of pkg.failedDeals) {
-    rows.push([
-      f.dealNumber ?? '',
-      f.agentName,
-      f.brokerageName,
-      money(f.advanceAmount),
-      money(f.outstanding),
-      money(f.interestAccrued),
-      f.failedAt ?? '',
-      f.status,
-    ])
+    rows.push(
+      agent
+        ? [
+            f.dealNumber ?? '',
+            money(f.advanceAmount),
+            money(f.outstanding),
+            money(f.interestAccrued),
+            f.failedAt ?? '',
+            f.status,
+          ]
+        : [
+            f.dealNumber ?? '',
+            f.agentName,
+            f.brokerageName,
+            money(f.advanceAmount),
+            money(f.outstanding),
+            money(f.interestAccrued),
+            f.failedAt ?? '',
+            f.status,
+          ],
+    )
   }
 
   const dataLast = pkg.failedDeals.length
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  // Money columns: Advanced (3), Outstanding (4), Interest accrued (5).
-  applyMoneyFormat(ws, [3, 4, 5], 1, dataLast)
-  setColumnWidths(ws, [14, 24, 26, 14, 14, 16, 13, 16])
+  if (agent) {
+    // Money columns: Advanced (1), Outstanding (2), Interest accrued (3).
+    applyMoneyFormat(ws, [1, 2, 3], 1, dataLast)
+    setColumnWidths(ws, [14, 14, 14, 16, 13, 16])
+  } else {
+    // Money columns: Advanced (3), Outstanding (4), Interest accrued (5).
+    applyMoneyFormat(ws, [3, 4, 5], 1, dataLast)
+    setColumnWidths(ws, [14, 24, 26, 14, 14, 16, 13, 16])
+  }
   return ws
 }
 
@@ -354,10 +415,27 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
   if (pkg.dealDetail.length === 0) return null
 
   // Brokerage audience drops the "Discount fee" + "Settlement fee" columns
-  // (Firm Funds margin).
+  // (Firm Funds margin). Agent audience drops Agent, Brokerage, Referral fee,
+  // and Due from brokerage, but KEEPS Discount fee + Settlement fee.
   const brokerage = pkg.meta.audience === 'brokerage'
+  const agent = pkg.meta.audience === 'agent'
 
-  const header: Cell[] = brokerage
+  const header: Cell[] = agent
+    ? [
+        'Deal #',
+        'Status',
+        'Property',
+        'Gross commission',
+        'Net commission',
+        'Discount fee',
+        'Settlement fee',
+        'Advanced',
+        'Funded',
+        'Closing',
+        'Repaid',
+        'Created',
+      ]
+    : brokerage
     ? [
         'Deal #',
         'Status',
@@ -396,7 +474,22 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
 
   for (const d of pkg.dealDetail) {
     rows.push(
-      brokerage
+      agent
+        ? [
+            d.dealNumber ?? '',
+            d.status,
+            d.property,
+            money(d.grossCommission),
+            money(d.netCommission),
+            money(d.discountFee),
+            money(d.settlementFee),
+            money(d.advanceAmount),
+            d.fundingDate ?? '',
+            d.closingDate ?? '',
+            d.repaymentDate ?? '',
+            d.createdAt,
+          ]
+        : brokerage
         ? [
             d.dealNumber ?? '',
             d.status,
@@ -436,7 +529,14 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
 
   const dataLast = pkg.dealDetail.length
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  if (brokerage) {
+  if (agent) {
+    // Money columns: Gross (3), Net (4), Discount fee (5), Settlement fee (6),
+    // Advanced (7).
+    applyMoneyFormat(ws, [3, 4, 5, 6, 7], 1, dataLast)
+    setColumnWidths(ws, [
+      14, 16, 30, 17, 16, 13, 14, 14, 13, 13, 13, 13,
+    ])
+  } else if (brokerage) {
     // Money columns: Gross (5), Net (6), Advanced (7), Referral fee (8),
     // Due from brokerage (9).
     applyMoneyFormat(ws, [5, 6, 7, 8, 9], 1, dataLast)

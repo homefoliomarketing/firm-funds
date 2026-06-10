@@ -82,10 +82,13 @@ interface RowSpec {
 
 export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   // Audience flag. 'brokerage' hides ALL Firm Funds margin (fees, gross profit)
-  // and relabels figures from the brokerage's own point of view. 'internal'
-  // renders exactly as before.
+  // and relabels figures from the brokerage's own point of view. 'agent' is a
+  // personal statement: the agent sees the fee they personally paid, but our
+  // gross profit and the brokerage's referral cut are gone. 'internal' renders
+  // exactly as before.
   const brokerage = pkg.meta.audience === 'brokerage'
-  const reportTitle = brokerage ? 'Brokerage report' : 'Financial report'
+  const agent = pkg.meta.audience === 'agent'
+  const reportTitle = agent ? 'Agent statement' : brokerage ? 'Brokerage report' : 'Financial report'
 
   const pdfDoc = await PDFDocument.create()
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
@@ -320,8 +323,16 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   type SummaryBox = { label: string; value: string; sub?: string; accent: ReturnType<typeof rgb> }
   // Brokerage audience hides the "Fees earned" and "FF gross profit" boxes
   // (Firm Funds margin), adds the brokerage's own "Referral earnings", and
-  // relabels the receivable from the brokerage's point of view.
-  const boxes: SummaryBox[] = brokerage
+  // relabels the receivable from the brokerage's point of view. Agent audience
+  // shows only the three personal figures: advances funded, the fee they paid,
+  // and their current balance.
+  const boxes: SummaryBox[] = agent
+    ? [
+        { label: 'ADVANCES FUNDED', value: money(s.fundedAmount), sub: `${s.fundedCount} deal${s.fundedCount !== 1 ? 's' : ''}`, accent: GREEN },
+        { label: 'FEES YOU PAID', value: money(s.feesEarned), accent: rgb(0.24, 0.35, 0.6) },
+        { label: 'CURRENT BALANCE', value: money(pkg.agentBalance ?? 0), accent: GREEN },
+      ]
+    : brokerage
     ? [
         { label: 'ADVANCES FUNDED', value: money(s.fundedAmount), sub: `${s.fundedCount} deal${s.fundedCount !== 1 ? 's' : ''}`, accent: GREEN },
         { label: 'COLLECTED', value: money(s.collectedAmount), sub: `${s.collectedCount} repayment${s.collectedCount !== 1 ? 's' : ''}`, accent: rgb(0.2, 0.5, 0.35) },
@@ -365,9 +376,20 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   // ===========================================================================
   sectionTitle('Advances funded')
   {
-    // Brokerage audience drops the "Fee" column (Firm Funds margin).
+    // Brokerage audience drops the "Fee" column (Firm Funds margin). Agent
+    // audience drops the Agent + Brokerage columns but KEEPS the Fee (the fee
+    // they personally paid).
     const cols = layoutColumns(
-      brokerage
+      agent
+        ? [
+            { label: 'Date', width: 70, align: 'left' },
+            { label: 'Deal #', width: 110, align: 'left' },
+            { label: 'Advanced', width: 110, align: 'right' },
+            { label: 'Days', width: 50, align: 'right' },
+            { label: 'Fee', width: 100, align: 'right' },
+            { label: 'Status', width: 92, align: 'left' },
+          ]
+        : brokerage
         ? [
             { label: 'Date', width: 62, align: 'left' },
             { label: 'Deal #', width: 88, align: 'left' },
@@ -387,7 +409,9 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
           ],
     )
     const rows: RowSpec[] = pkg.fundedDeals.map((d) => ({
-      cells: brokerage
+      cells: agent
+        ? [d.date, d.dealNumber ?? '-', money(d.advanceAmount), String(d.days), money(d.fee), d.status]
+        : brokerage
         ? [d.date, d.dealNumber ?? '-', d.agentName, d.brokerageName, money(d.advanceAmount), String(d.days)]
         : [
             d.date, d.dealNumber ?? '-', d.agentName, d.brokerageName,
@@ -395,13 +419,21 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
           ],
     }))
     if (rows.length === 0) {
-      const empty = brokerage
+      const empty = agent
+        ? ['No advances funded in this period.', '', '', '', '', '']
+        : brokerage
         ? ['No advances funded in this period.', '', '', '', '', '']
         : ['No advances funded in this period.', '', '', '', '', '', '']
       rows.push({ cells: empty, color: GREY })
     } else {
       const totAdv = pkg.fundedDeals.reduce((a, d) => a + d.advanceAmount, 0)
-      if (brokerage) {
+      if (agent) {
+        const totFee = pkg.fundedDeals.reduce((a, d) => a + d.fee, 0)
+        rows.push({
+          cells: [`Totals (${pkg.fundedDeals.length})`, '', money(totAdv), '', money(totFee), ''],
+          bold: true, ruleAbove: true,
+        })
+      } else if (brokerage) {
         rows.push({
           cells: [`Totals (${pkg.fundedDeals.length})`, '', '', '', money(totAdv), ''],
           bold: true, ruleAbove: true,
@@ -418,10 +450,10 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   }
 
   // ===========================================================================
-  // 4. REPAYMENTS COLLECTED
+  // 4. REPAYMENTS COLLECTED (skipped entirely for the agent statement)
   // ===========================================================================
-  sectionTitle('Repayments collected')
-  {
+  if (!agent) {
+    sectionTitle('Repayments collected')
     const cols = layoutColumns([
       { label: 'Paid', width: 62, align: 'left' },
       { label: 'Funded', width: 62, align: 'left' },
@@ -446,10 +478,10 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   }
 
   // ===========================================================================
-  // 5. REVENUE SHARE TO BROKERAGES
+  // 5. REVENUE SHARE TO BROKERAGES (skipped entirely for the agent statement)
   // ===========================================================================
-  sectionTitle('Revenue share to brokerages')
-  {
+  if (!agent) {
+    sectionTitle('Revenue share to brokerages')
     // Brokerage audience drops the "Fees generated" column (Firm Funds margin).
     const cols = layoutColumns(
       brokerage
@@ -497,10 +529,10 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   }
 
   // ===========================================================================
-  // 6. OUTSTANDING RECEIVABLES (AGING)
+  // 6. OUTSTANDING RECEIVABLES (AGING) (skipped entirely for the agent statement)
   // ===========================================================================
-  sectionTitle('Outstanding receivables (aging)')
-  {
+  if (!agent) {
+    sectionTitle('Outstanding receivables (aging)')
     const cols = layoutColumns([
       { label: 'Bucket', width: 280, align: 'left' },
       { label: 'Deals', width: 120, align: 'right' },
@@ -526,22 +558,40 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   // ===========================================================================
   if (pkg.failedDeals.length > 0) {
     sectionTitle('Failed / flagged deals')
-    const cols = layoutColumns([
-      { label: 'Deal #', width: 70, align: 'left' },
-      { label: 'Agent', width: 92, align: 'left' },
-      { label: 'Brokerage', width: 92, align: 'left' },
-      { label: 'Advanced', width: 62, align: 'right' },
-      { label: 'Outstanding', width: 66, align: 'right' },
-      { label: 'Interest', width: 56, align: 'right' },
-      { label: 'Failed on', width: 58, align: 'left' },
-      { label: 'Status', width: 36, align: 'left' },
-    ])
+    // Agent audience drops the Agent + Brokerage columns (a personal statement).
+    const cols = layoutColumns(
+      agent
+        ? [
+            { label: 'Deal #', width: 110, align: 'left' },
+            { label: 'Advanced', width: 90, align: 'right' },
+            { label: 'Outstanding', width: 92, align: 'right' },
+            { label: 'Interest', width: 80, align: 'right' },
+            { label: 'Failed on', width: 80, align: 'left' },
+            { label: 'Status', width: 80, align: 'left' },
+          ]
+        : [
+            { label: 'Deal #', width: 70, align: 'left' },
+            { label: 'Agent', width: 92, align: 'left' },
+            { label: 'Brokerage', width: 92, align: 'left' },
+            { label: 'Advanced', width: 62, align: 'right' },
+            { label: 'Outstanding', width: 66, align: 'right' },
+            { label: 'Interest', width: 56, align: 'right' },
+            { label: 'Failed on', width: 58, align: 'left' },
+            { label: 'Status', width: 36, align: 'left' },
+          ],
+    )
     const rows: RowSpec[] = pkg.failedDeals.map((d) => ({
-      cells: [
-        d.dealNumber ?? '-', d.agentName, d.brokerageName,
-        money(d.advanceAmount), money(d.outstanding), money(d.interestAccrued),
-        d.failedAt ?? '-', d.status,
-      ],
+      cells: agent
+        ? [
+            d.dealNumber ?? '-',
+            money(d.advanceAmount), money(d.outstanding), money(d.interestAccrued),
+            d.failedAt ?? '-', d.status,
+          ]
+        : [
+            d.dealNumber ?? '-', d.agentName, d.brokerageName,
+            money(d.advanceAmount), money(d.outstanding), money(d.interestAccrued),
+            d.failedAt ?? '-', d.status,
+          ],
     }))
     drawTable(cols, rows)
   }

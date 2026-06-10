@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/admin/reports/export': ['./public/brand/black.png'],
     '/api/brokerage/reports/export': ['./public/brand/black.png'],
+    '/api/agent/reports/export': ['./public/brand/black.png'],
   },
   async headers() {
     return [
