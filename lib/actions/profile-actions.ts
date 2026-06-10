@@ -11,6 +11,7 @@ import {
   sendAgentPhoneChangedNotification,
 } from '@/lib/email'
 import { logAuditEventServiceRole } from '@/lib/audit'
+import { normalizeE164, PHONE_VALIDATION_MESSAGE } from '@/lib/phone'
 
 // ============================================================================
 // Agent Profile Actions
@@ -50,14 +51,20 @@ export async function updateAgentProfile(data: {
   let phoneChanged = false
   let priorPhone: string | null = null
   let newPhone: string | null = null
+  let normalizedPhone: string | null = null
   let oldPhoneLast4: string | null = null
   let newPhoneLast4: string | null = null
 
   // Read prior phone regardless of whether the new value is set/cleared, so a
-  // change-to-empty (clear the phone) is also detected and audited.
+  // change-to-empty (clear the phone) is also detected and audited. Accept any
+  // human format ((416) 555-1234, 416-555-1234, 4165551234, ...) and store the
+  // canonical E.164 (+1XXXXXXXXXX) so the SMS path and display agree.
   if (data.phone !== undefined) {
-    if (data.phone !== null && data.phone !== '' && !/^\+1[2-9]\d{9}$/.test(data.phone)) {
-      return { success: false, error: 'Phone must be a valid Canadian number in +1XXXXXXXXXX format' }
+    if (data.phone !== null && data.phone !== '') {
+      normalizedPhone = normalizeE164(data.phone)
+      if (!normalizedPhone) {
+        return { success: false, error: PHONE_VALIDATION_MESSAGE }
+      }
     }
     const { data: existing } = await serviceClient
       .from('agents')
@@ -65,7 +72,7 @@ export async function updateAgentProfile(data: {
       .eq('id', data.agentId)
       .single()
     priorPhone = existing?.phone ?? null
-    newPhone = data.phone || null
+    newPhone = normalizedPhone
     if (priorPhone !== newPhone) {
       phoneChanged = true
       oldPhoneLast4 = priorPhone ? priorPhone.slice(-4) : null
@@ -75,7 +82,7 @@ export async function updateAgentProfile(data: {
 
   // Only update fields that are explicitly provided (not undefined)
   const updates: Record<string, string | null> = {}
-  if (data.phone !== undefined) updates.phone = data.phone || null
+  if (data.phone !== undefined) updates.phone = normalizedPhone
   if (data.addressStreet !== undefined) updates.address_street = data.addressStreet || null
   if (data.addressCity !== undefined) updates.address_city = data.addressCity || null
   if (data.addressProvince !== undefined) updates.address_province = data.addressProvince || null
@@ -164,6 +171,38 @@ export async function markKycModalSeen(agentId: string) {
     .from('agents')
     .update({ kyc_verified_modal_seen: true })
     .eq('id', agentId)
+
+  return { success: true }
+}
+
+// ============================================================================
+// Mark first-login welcome as seen (drives "Welcome" vs "Welcome back")
+// ============================================================================
+
+/**
+ * Stamp user_profiles.welcomed_at the first time a user lands on their
+ * dashboard, so subsequent visits greet them with "Welcome back". Idempotent:
+ * only writes when the flag is still NULL. Service role to bypass RLS.
+ */
+export async function markWelcomeSeen() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false }
+
+  const serviceClient = createServiceRoleClient()
+  const { data: profile } = await serviceClient
+    .from('user_profiles')
+    .select('welcomed_at')
+    .eq('id', user.id)
+    .single()
+
+  // Already welcomed — nothing to do.
+  if (profile?.welcomed_at) return { success: true }
+
+  await serviceClient
+    .from('user_profiles')
+    .update({ welcomed_at: new Date().toISOString() })
+    .eq('id', user.id)
 
   return { success: true }
 }
@@ -681,6 +720,9 @@ export async function submitAgentBanking(data: {
   transitNumber: string
   institutionNumber: string
   accountNumber: string
+  /** Agent's "I authorize Firm Funds Inc. to deposit payments into this
+   *  account" consent. Required by the onboarding flow; stamps deposit_authorized_at. */
+  authorizeDeposit?: boolean
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -707,20 +749,31 @@ export async function submitAgentBanking(data: {
   if (!/^\d{7,12}$/.test(data.accountNumber)) {
     return { success: false, error: 'Account number must be 7-12 digits' }
   }
+  // The "I authorize Firm Funds Inc. to deposit payments into this account"
+  // consent is mandatory to submit banking. Enforced server-side (the client
+  // also disables the submit button until it's checked).
+  if (!data.authorizeDeposit) {
+    return { success: false, error: 'You must authorize Firm Funds Inc. to deposit payments into this account.' }
+  }
 
   const serviceClient = createServiceRoleClient()
   const now = new Date().toISOString()
 
+  const update: Record<string, string | null> = {
+    banking_submitted_transit: data.transitNumber,
+    banking_submitted_institution: data.institutionNumber,
+    banking_submitted_account: data.accountNumber,
+    banking_submitted_at: now,
+    banking_approval_status: 'pending',
+    banking_rejection_reason: null,
+    // Record the direct-deposit authorization consent (migration 107).
+    deposit_authorized_at: now,
+    deposit_authorized_by: user.id,
+  }
+
   const { error } = await serviceClient
     .from('agents')
-    .update({
-      banking_submitted_transit: data.transitNumber,
-      banking_submitted_institution: data.institutionNumber,
-      banking_submitted_account: data.accountNumber,
-      banking_submitted_at: now,
-      banking_approval_status: 'pending',
-      banking_rejection_reason: null,
-    })
+    .update(update)
     .eq('id', data.agentId)
 
   if (error) {

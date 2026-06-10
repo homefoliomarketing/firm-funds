@@ -305,7 +305,7 @@ function AmendmentNewInner() {
                 )}
 
                 {selectedDeal && (
-                  <div className="mt-4 rounded-lg border border-border bg-muted/30 p-3 grid grid-cols-2 gap-3 text-xs">
+                  <div className="mt-4 rounded-lg border border-border bg-muted/30 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div>
                       <p className="text-muted-foreground">Status</p>
                       <p>
@@ -358,7 +358,7 @@ function AmendmentNewInner() {
                       <CardTitle className="text-base text-primary">Financial impact preview</CardTitle>
                     </CardHeader>
                     <CardContent className="p-5">
-                      <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                         <div className="font-semibold text-muted-foreground"></div>
                         <div className="font-semibold text-muted-foreground text-right">Current</div>
                         <div className="font-semibold text-primary text-right">After amendment</div>

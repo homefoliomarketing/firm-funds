@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
-  User, Phone, MapPin, CreditCard, Upload, CheckCircle, AlertCircle, FileText, Loader2,
+  User, Phone, CreditCard, Upload, CheckCircle, AlertCircle, FileText, Loader2,
 } from 'lucide-react'
 import { updateAgentProfile, submitAgentBanking } from '@/lib/actions/profile-actions'
+import { formatPhoneForDisplay } from '@/lib/phone'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 import AgentHeader from '@/components/AgentHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -33,6 +35,7 @@ export default function AgentProfilePage() {
   const [bankTransit, setBankTransit] = useState('')
   const [bankInstitution, setBankInstitution] = useState('')
   const [bankAccount, setBankAccount] = useState('')
+  const [depositConsent, setDepositConsent] = useState(false)
 
   // Form state
   const [phone, setPhone] = useState('')
@@ -66,7 +69,7 @@ export default function AgentProfilePage() {
 
       if (agentData) {
         setAgent(agentData)
-        setPhone(agentData.phone || '')
+        setPhone(formatPhoneForDisplay(agentData.phone))
         setAddressStreet(agentData.address_street || '')
         setAddressCity(agentData.address_city || '')
         setAddressProvince(agentData.address_province || 'Ontario')
@@ -75,6 +78,7 @@ export default function AgentProfilePage() {
         setBankTransit(agentData.banking_submitted_transit || '')
         setBankInstitution(agentData.banking_submitted_institution || '')
         setBankAccount(agentData.banking_submitted_account || '')
+        setDepositConsent(!!agentData.deposit_authorized_at)
       }
 
       setLoading(false)
@@ -185,6 +189,10 @@ export default function AgentProfilePage() {
 
   const handleSubmitBanking = async () => {
     if (!agent) return
+    if (!depositConsent) {
+      setBankingMessage({ type: 'error', text: 'Please check the authorization box to continue.' })
+      return
+    }
     setBankingSaving(true)
     setBankingMessage(null)
 
@@ -193,6 +201,7 @@ export default function AgentProfilePage() {
       transitNumber: bankTransit.trim(),
       institutionNumber: bankInstitution.trim(),
       accountNumber: bankAccount.trim(),
+      authorizeDeposit: true,
     })
 
     if (result.success) {
@@ -275,8 +284,8 @@ export default function AgentProfilePage() {
             </div>
 
             {/* Editable fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            <div className="space-y-4">
+              <div className="space-y-1.5 sm:max-w-xs">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                   <Phone size={12} />Phone
                 </Label>
@@ -287,44 +296,16 @@ export default function AgentProfilePage() {
                   placeholder="(416) 555-1234"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                  <MapPin size={12} />Street Address
-                </Label>
-                <Input
-                  type="text"
-                  value={addressStreet}
-                  onChange={(e) => setAddressStreet(e.target.value)}
-                  placeholder="123 Main St, Unit 4"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">City</Label>
-                <Input
-                  type="text"
-                  value={addressCity}
-                  onChange={(e) => setAddressCity(e.target.value)}
-                  placeholder="Toronto"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Province</Label>
-                <Input
-                  type="text"
-                  value={addressProvince}
-                  onChange={(e) => setAddressProvince(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Postal Code</Label>
-                <Input
-                  type="text"
-                  value={addressPostalCode}
-                  onChange={(e) => setAddressPostalCode(e.target.value)}
-                  placeholder="M5V 1A1"
-                  maxLength={7}
-                />
-              </div>
+              <AddressAutocomplete
+                label="Home address"
+                value={{ street: addressStreet, city: addressCity, province: addressProvince, postalCode: addressPostalCode }}
+                onChange={(p) => {
+                  setAddressStreet(p.street)
+                  setAddressCity(p.city)
+                  setAddressProvince(p.province)
+                  setAddressPostalCode(p.postalCode)
+                }}
+              />
             </div>
 
             {/* Save button */}
@@ -452,10 +433,22 @@ export default function AgentProfilePage() {
                 </div>
 
                 {agent?.banking_approval_status !== 'pending' && (
+                  <>
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={depositConsent}
+                      onChange={(e) => setDepositConsent(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary focus:ring-2"
+                    />
+                    <span className="text-sm text-foreground">
+                      I authorize Firm Funds Inc. to deposit payments into this account.
+                    </span>
+                  </label>
                   <div className="flex items-center gap-3">
                     <Button
                       onClick={handleSubmitBanking}
-                      disabled={bankingSaving || !bankTransit || !bankInstitution || !bankAccount}
+                      disabled={bankingSaving || !bankTransit || !bankInstitution || !bankAccount || !depositConsent}
                     >
                       {bankingSaving ? 'Submitting...' : agent?.banking_approval_status === 'rejected' ? 'Resubmit Banking Info' : 'Submit Banking Info'}
                     </Button>
@@ -466,18 +459,19 @@ export default function AgentProfilePage() {
                       </span>
                     )}
                   </div>
+                  </>
                 )}
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* Pre-Authorized Debit Form Upload */}
+        {/* Void Cheque / Direct Deposit Authorization Upload */}
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-base">
               <FileText size={18} className="text-primary" />
-              Pre-Authorized Debit Form
+              Void Cheque / Direct Deposit Authorization
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -485,7 +479,7 @@ export default function AgentProfilePage() {
               <div className="rounded-lg p-3 flex items-center gap-3 bg-primary/10 border border-primary/30">
                 <CheckCircle size={16} className="text-primary" />
                 <div>
-                  <p className="text-sm font-medium text-primary">Form uploaded</p>
+                  <p className="text-sm font-medium text-primary">Void cheque / direct deposit form uploaded</p>
                   <p className="text-xs text-muted-foreground">
                     Uploaded {agent.preauth_form_uploaded_at ? new Date(agent.preauth_form_uploaded_at).toLocaleDateString('en-CA') : 'recently'}
                   </p>
@@ -493,7 +487,7 @@ export default function AgentProfilePage() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Please upload your signed pre-authorized debit form. Accepted formats: PDF, JPEG, or PNG (max 10MB).
+                Upload a void cheque or your bank&apos;s direct deposit authorization form. A clear photo is fine. Accepted formats: PDF, JPEG, or PNG (max 10MB).
               </p>
             )}
 

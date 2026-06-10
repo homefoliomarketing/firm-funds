@@ -588,7 +588,7 @@ export default function AdminPaymentsPage() {
                   {isExpanded && (
                     <div className="px-6 pb-5 border-t border-border/40">
                       {/* Totals */}
-                      <div className="grid grid-cols-3 gap-4 py-4 mb-4 border-b border-border/30">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4 mb-4 border-b border-border/30">
                         <div>
                           <p className="text-xs font-semibold uppercase text-muted-foreground">Total Owed</p>
                           <p className="text-lg font-bold text-foreground">{formatCurrency(summary.totalOwed)}</p>
@@ -643,7 +643,7 @@ export default function AdminPaymentsPage() {
                                   View Deal
                                 </Button>
                               </div>
-                              <div className="grid grid-cols-3 gap-4 text-sm mt-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm mt-2">
                                 <div>
                                   <span className="text-muted-foreground">Owed: </span>
                                   <span className="font-semibold text-foreground">{formatCurrency(owed)}</span>

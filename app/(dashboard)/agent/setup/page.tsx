@@ -26,6 +26,7 @@ interface AgentForSetup {
   banking_submitted_account: string | null
   preauth_form_path: string | null
   preauth_form_uploaded_at: string | null
+  deposit_authorized_at: string | null
   phone: string | null
   address_street: string | null
   address_city: string | null
@@ -50,6 +51,7 @@ export default function AgentSetupPage() {
   const [bankAccount, setBankAccount] = useState('')
   const [bankSubmitting, setBankSubmitting] = useState(false)
   const [bankError, setBankError] = useState<string | null>(null)
+  const [depositConsent, setDepositConsent] = useState(false)
 
   // Preauth upload state
   const [uploading, setUploading] = useState(false)
@@ -82,6 +84,7 @@ export default function AgentSetupPage() {
         setBankTransit(a.banking_submitted_transit || '')
         setBankInstitution(a.banking_submitted_institution || '')
         setBankAccount(a.banking_submitted_account || '')
+        setDepositConsent(!!a.deposit_authorized_at)
       }
       setLoading(false)
     }
@@ -110,12 +113,21 @@ export default function AgentSetupPage() {
       setBankError('All banking fields are required.')
       return
     }
+    if (!agent.preauth_form_path) {
+      setBankError('Please upload your void cheque or direct deposit authorization form.')
+      return
+    }
+    if (!depositConsent) {
+      setBankError('Please check the authorization box to continue.')
+      return
+    }
     setBankSubmitting(true)
     const result = await submitAgentBanking({
       agentId: agent.id,
       transitNumber: bankTransit.trim(),
       institutionNumber: bankInstitution.trim(),
       accountNumber: bankAccount.trim(),
+      authorizeDeposit: true,
     })
     if (result.success) {
       await refreshAgent()
@@ -166,7 +178,7 @@ export default function AgentSetupPage() {
       })
       const finalData = await finalRes.json()
       if (finalData.success) {
-        setUploadMessage({ type: 'success', text: 'Pre-authorized debit form uploaded' })
+        setUploadMessage({ type: 'success', text: 'Void cheque / direct deposit form uploaded' })
         await refreshAgent()
       } else {
         setUploadMessage({ type: 'error', text: finalData.error || 'Failed to save' })
@@ -301,43 +313,62 @@ export default function AgentSetupPage() {
                   </div>
                 </div>
 
+                {/* Void cheque / direct deposit authorization upload (required) */}
+                <div className="space-y-2 pt-1">
+                  <Label>
+                    Void cheque or direct deposit authorization <span className="text-destructive">*</span>
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Upload a void cheque or your bank&apos;s direct deposit authorization form. A clear photo is fine. PDF, JPEG, or PNG up to 10MB.
+                  </p>
+                  {preauthUploaded ? (
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex items-center gap-3">
+                      <CheckCircle className="h-5 w-5 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Void cheque / direct deposit form on file</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Uploaded {agent.preauth_form_uploaded_at ? new Date(agent.preauth_form_uploaded_at).toLocaleDateString('en-CA') : 'recently'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90 transition-colors ${uploading ? 'opacity-50' : ''}`}>
+                      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                      {uploading ? 'Uploading...' : 'Upload void cheque / form'}
+                      <input type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" disabled={uploading} onChange={handlePreauthUpload} />
+                    </label>
+                  )}
+                  {uploadMessage && (
+                    <p className={`text-sm ${uploadMessage.type === 'success' ? 'text-primary' : 'text-destructive'}`}>{uploadMessage.text}</p>
+                  )}
+                </div>
+
+                {/* Mandatory deposit authorization consent */}
+                <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={depositConsent}
+                    onChange={(e) => setDepositConsent(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary focus:ring-2"
+                  />
+                  <span className="text-sm text-foreground">
+                    I authorize Firm Funds Inc. to deposit payments into this account.
+                  </span>
+                </label>
+
                 {bankError && <p className="text-sm text-destructive">{bankError}</p>}
 
-                <Button onClick={handleSubmitBanking} disabled={bankSubmitting || bankingSubmitted} className="w-full sm:w-auto">
+                <Button
+                  onClick={handleSubmitBanking}
+                  disabled={bankSubmitting || bankingSubmitted || !preauthUploaded || !depositConsent}
+                  className="w-full sm:w-auto"
+                >
                   {bankSubmitting ? 'Submitting...' : bankingSubmitted ? 'Submitted' : agent?.banking_approval_status === 'rejected' ? 'Resubmit Banking' : 'Submit Banking'}
                 </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/50">
-              <CardHeader>
-                <CardTitle className="text-base">Pre-authorized debit form</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Upload a signed pre-authorized debit form (your bank can provide one, or download a void cheque). PDF, JPEG, or PNG up to 10MB.
-                </p>
-
-                {preauthUploaded ? (
-                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex items-center gap-3">
-                    <CheckCircle className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Pre-authorized debit form on file</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Uploaded {agent.preauth_form_uploaded_at ? new Date(agent.preauth_form_uploaded_at).toLocaleDateString('en-CA') : 'recently'}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90 transition-colors ${uploading ? 'opacity-50' : ''}`}>
-                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                    {uploading ? 'Uploading...' : 'Upload form'}
-                    <input type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" disabled={uploading} onChange={handlePreauthUpload} />
-                  </label>
-                )}
-
-                {uploadMessage && (
-                  <p className={`text-sm ${uploadMessage.type === 'success' ? 'text-primary' : 'text-destructive'}`}>{uploadMessage.text}</p>
+                {!bankingSubmitted && (!preauthUploaded || !depositConsent) && (
+                  <p className="text-xs text-muted-foreground">
+                    Upload your void cheque / direct deposit form and check the authorization box to continue.
+                  </p>
                 )}
               </CardContent>
             </Card>

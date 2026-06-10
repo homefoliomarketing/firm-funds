@@ -1645,7 +1645,7 @@ export default function BrokerageDashboard() {
                                 )}
                               </div>
                             </div>
-                            <div className="grid grid-cols-3 gap-3 text-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                               <div>
                                 <span className="text-muted-foreground">Owed: </span>
                                 <span className="font-semibold text-foreground">{formatCurrency(owed)}</span>

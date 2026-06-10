@@ -1,6 +1,6 @@
 # Local Development Setup
 
-_Last updated: 2026-06-01_
+_Last updated: 2026-06-09_
 
 This guide gets a developer from a fresh clone to a running local instance of Firm Funds.
 
@@ -102,7 +102,7 @@ There is no ParcLabs integration in the codebase. Proactive deal detection polls
 
 | Variable | Purpose |
 |----------|---------|
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Google Maps JS API key for the address autocomplete field |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Google Maps (Places) JS API key for the `AddressAutocomplete` field. Used for deal property addresses and now also in the agent "My Info"/profile and onboarding forms (the component takes an optional `label`, defaulting to "Property address" and shown as "Home address" for agents) |
 
 ### Cron
 

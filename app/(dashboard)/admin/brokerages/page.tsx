@@ -10,7 +10,7 @@ import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle
 import { generateBrokerageLogoSvg, svgToFile } from '@/lib/brokerage-logo-generator'
 import { formatCurrency } from '@/lib/formatting'
 import { StatusToast } from '@/components/StatusToast'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, uploadBrokerageDocument, deleteBrokerageDocument, getBrokerageDocumentSignedUrl, getAgentPreauthFormSignedUrl } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, getAgentPreauthFormSignedUrl, getSignedBcaUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
@@ -62,6 +62,8 @@ interface Agent {
   banking_rejection_reason: string | null
   preauth_form_path: string | null
   preauth_form_uploaded_at: string | null
+  // Direct-deposit authorization consent (migration 107)
+  deposit_authorized_at: string | null
   // White-label activation tracking (Session 34)
   welcome_email_sent_at: string | null
   account_activated_at: string | null
@@ -100,6 +102,7 @@ interface Brokerage {
   broker_of_record_name: string | null
   broker_of_record_email: string | null
   bca_signed_at: string | null
+  bca_signed_pdf_path: string | null
   logo_url: string | null
   brand_color: string | null
   logo_includes_tagline: boolean
@@ -461,6 +464,7 @@ function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
   const [bcaError, setBcaError] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [showVoidInput, setShowVoidInput] = useState(false)
+  const [viewingBca, setViewingBca] = useState(false)
 
   // Fetch BCA status on mount
   useEffect(() => {
@@ -501,6 +505,18 @@ function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
       setBcaError(result.error || 'Failed to void BCA')
     }
     setBcaLoading(false)
+  }
+
+  const handleViewBca = async () => {
+    setViewingBca(true)
+    setBcaError(null)
+    const result = await getSignedBcaUrl({ brokerageId: brokerage.id })
+    if (result.success && result.data?.signedUrl) {
+      window.open(result.data.signedUrl, '_blank', 'noopener,noreferrer')
+    } else {
+      setBcaError(result.error || 'Failed to open the signed BCA')
+    }
+    setViewingBca(false)
   }
 
   const getBcaBadgeClass = (status: string | null) => {
@@ -546,6 +562,17 @@ function BcaStatusSection({ brokerage }: { brokerage: Brokerage }) {
         <p className="text-xs text-muted-foreground mb-3">
           Signed on {new Date(brokerage.bca_signed_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric' })}
         </p>
+      )}
+
+      {/* Signed document — view / download */}
+      {brokerage.bca_signed_at && brokerage.bca_signed_pdf_path && (
+        <button
+          onClick={handleViewBca}
+          disabled={viewingBca}
+          className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 bg-muted text-foreground border border-border hover:bg-muted/70"
+        >
+          <Download size={12} /> {viewingBca ? 'Opening...' : 'View signed BCA'}
+        </button>
       )}
 
       {/* Missing BOR warning */}
@@ -654,8 +681,6 @@ export default function BrokeragesPage() {
   const [editAgentForm, setEditAgentForm] = useState<AgentFormData & { status: string; flaggedByBrokerage: boolean; outstandingRecovery: string }>(
     { firstName: '', lastName: '', email: '', phone: '', recoNumber: '', status: 'active', flaggedByBrokerage: false, outstandingRecovery: '0' }
   )
-  const [brokerageDocs, setBrokerageDocs] = useState<Record<string, { id: string; file_name: string; document_type: string; file_path: string; file_size: number; created_at: string }[]>>({})
-  const [uploadingBrokerageDoc, setUploadingBrokerageDoc] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   // Logo generator dialog state — see lib/brokerage-logo-generator.ts
   const [logoGenOpen, setLogoGenOpen] = useState<{ brokerageId: string; isCreate: boolean } | null>(null)
@@ -1204,63 +1229,6 @@ export default function BrokeragesPage() {
     setSubmitting(false)
   }
 
-  // ---- Brokerage document handlers ----
-  const BROKERAGE_DOC_TYPES = [
-    { value: 'cooperation_agreement', label: 'Brokerage Cooperation Agreement' },
-    { value: 'white_label_agreement', label: 'White-Label Licensing Agreement' },
-    { value: 'banking_info', label: 'Banking / EFT Details' },
-    { value: 'kyc_business', label: 'Business KYC / Verification' },
-    { value: 'other', label: 'Other' },
-  ]
-
-  const loadBrokerageDocs = async (brokerageId: string) => {
-    const { data } = await supabase.from('brokerage_documents').select('*').eq('brokerage_id', brokerageId).order('created_at', { ascending: false })
-    setBrokerageDocs(prev => ({ ...prev, [brokerageId]: data || [] }))
-  }
-
-  const handleBrokerageDocUpload = async (e: React.ChangeEvent<HTMLInputElement>, brokerageId: string, docType: string) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 10 * 1024 * 1024) { setStatusMessage({ type: 'error', text: 'File must be under 10MB' }); return }
-    setUploadingBrokerageDoc(true)
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('brokerageId', brokerageId)
-    formData.append('documentType', docType)
-    const result = await uploadBrokerageDocument(formData)
-    if (!result.success) {
-      setStatusMessage({ type: 'error', text: result.error || 'Upload failed' })
-      setUploadingBrokerageDoc(false)
-      e.target.value = ''
-      return
-    }
-    setStatusMessage({ type: 'success', text: `${file.name} uploaded` })
-    await loadBrokerageDocs(brokerageId)
-    setUploadingBrokerageDoc(false)
-    e.target.value = ''
-  }
-
-  const handleBrokerageDocDelete = async (doc: { id: string; file_path: string; file_name: string }, brokerageId: string) => {
-    if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
-    const result = await deleteBrokerageDocument({ documentId: doc.id })
-    if (!result.success) {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to delete document' })
-      return
-    }
-    setStatusMessage({ type: 'success', text: 'Document deleted' })
-    await loadBrokerageDocs(brokerageId)
-  }
-
-  const handleBrokerageDocView = async (doc: { id: string }) => {
-    const result = await getBrokerageDocumentSignedUrl({ documentId: doc.id })
-    const signedUrl = result.data?.signedUrl as string | undefined
-    if (result.success && signedUrl) {
-      window.open(signedUrl, '_blank')
-    } else {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to open document' })
-    }
-  }
-
   const downloadTemplate = () => {
     const csv = [
       'First Name,Last Name,Email,Phone,RECO Number,Address Street,Address City,Address Province,Address Postal Code',
@@ -1574,20 +1542,20 @@ export default function BrokeragesPage() {
       {/* Header */}
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-5">
-            <div className="flex items-center gap-4">
+          <div className="flex justify-between items-center gap-2 py-3 sm:py-5">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <button
                 onClick={() => router.push('/admin')}
-                className="p-1.5 rounded-lg transition-colors text-primary hover:bg-primary/10"
+                className="p-1.5 rounded-lg transition-colors text-primary hover:bg-primary/10 flex-shrink-0"
               >
                 <ChevronLeft size={20} />
               </button>
-              <Image src="/brand/white.png" alt="Firm Funds" width={280} height={112} className="h-16 sm:h-20 md:h-28 w-auto" />
-              <div className="w-px h-10 bg-white/15" />
-              <p className="text-lg font-medium tracking-wide text-white" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Brokerages</p>
+              <Image src="/brand/white.png" alt="Firm Funds" width={280} height={112} className="h-9 sm:h-20 md:h-28 w-auto flex-shrink-0" />
+              <div className="hidden sm:block w-px h-10 bg-white/15" />
+              <p className="text-base sm:text-lg font-medium tracking-wide text-white truncate" style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>Manage Brokerages</p>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-primary">{profile?.full_name}</span>
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+              <span className="text-sm text-primary hidden sm:block">{profile?.full_name}</span>
               <SignOutModal onConfirm={handleLogout} />
             </div>
           </div>
@@ -1810,42 +1778,43 @@ export default function BrokeragesPage() {
                 <div key={brokerage.id} className={`rounded-xl overflow-hidden transition-all bg-card shadow-lg shadow-black/20 ${isExpanded ? 'border border-primary/50' : 'border border-border/40'}`}>
                   {/* Brokerage Row (click to expand) */}
                   <div
-                    className={`flex items-center gap-4 px-6 py-4 cursor-pointer transition-colors ${isExpanded ? 'bg-muted/30' : 'hover:bg-muted/20'}`}
+                    className={`flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-6 cursor-pointer transition-colors ${isExpanded ? 'bg-muted/30' : 'hover:bg-muted/20'}`}
                     onClick={() => {
                       if (isEditing) return
                       const newId = isExpanded ? null : brokerage.id
                       setExpandedId(newId)
                       setEditingBrokerageId(null)
                       setShowAddAgentFor(null)
-                      if (newId && !brokerageDocs[newId]) loadBrokerageDocs(newId)
                     }}
                   >
-                    <div className="flex-shrink-0 text-primary">
-                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-bold truncate text-foreground">{brokerage.name}</p>
-                        {brokerage.brand && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">{brokerage.brand}</span>
-                        )}
-                        {brokerage.is_white_label_partner && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30"
-                            title={`White-label partner, ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
-                          >
-                            White-Label
-                          </span>
-                        )}
-                        {actionCount > 0 && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
-                            <AlertCircle size={10} />
-                            {actionCount} pending
-                          </span>
-                        )}
+                    <div className="flex items-center gap-3 min-w-0 sm:flex-1">
+                      <div className="flex-shrink-0 text-primary">
+                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                       </div>
-                      <p className="text-xs mt-0.5 text-muted-foreground">{brokerage.email}</p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                          <p className="text-sm font-bold truncate text-foreground">{brokerage.name}</p>
+                          {brokerage.brand && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">{brokerage.brand}</span>
+                          )}
+                          {brokerage.is_white_label_partner && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30"
+                              title={`White-label partner, ${Number(brokerage.profit_share_pct ?? 0).toFixed(1)}% profit share`}
+                            >
+                              White-Label
+                            </span>
+                          )}
+                          {actionCount > 0 && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
+                              <AlertCircle size={10} />
+                              {actionCount} pending
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs mt-0.5 text-muted-foreground truncate">{brokerage.email}</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 flex-shrink-0">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:gap-4 sm:flex-shrink-0">
                       <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-md ${getLocalStatusBadgeClass(brokerage.status)}`}>
                         {brokerage.status.charAt(0).toUpperCase() + brokerage.status.slice(1)}
                       </span>
@@ -2110,76 +2079,6 @@ export default function BrokeragesPage() {
 
                       {/* Brokerage Cooperation Agreement (BCA) */}
                       <BcaStatusSection brokerage={brokerage} />
-
-                      {/* Brokerage Documents */}
-                      <BrokerageRowSection
-                        icon={<FileText size={15} className="text-primary" />}
-                        title={
-                          <>
-                            Documents
-                            <span className="font-normal ml-1.5 text-muted-foreground">
-                              ({(brokerageDocs[brokerage.id] || []).length})
-                            </span>
-                          </>
-                        }
-                        rightSlot={
-                          <div className="flex items-center gap-2">
-                            <select
-                              id={`brokDocType-${brokerage.id}`}
-                              className="text-xs px-2 py-1 rounded border border-border bg-input text-foreground focus:outline-none focus:border-primary"
-                              defaultValue="cooperation_agreement"
-                            >
-                              {BROKERAGE_DOC_TYPES.map(dt => (
-                                <option key={dt.value} value={dt.value}>{dt.label}</option>
-                              ))}
-                            </select>
-                            <label
-                              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90"
-                            >
-                              <Upload size={13} /> Upload
-                              <input
-                                type="file"
-                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                                className="hidden"
-                                disabled={uploadingBrokerageDoc}
-                                onChange={(e) => {
-                                  const select = document.getElementById(`brokDocType-${brokerage.id}`) as HTMLSelectElement
-                                  handleBrokerageDocUpload(e, brokerage.id, select?.value || 'cooperation_agreement')
-                                }}
-                              />
-                            </label>
-                          </div>
-                        }
-                      >
-                        {(brokerageDocs[brokerage.id] || []).length > 0 ? (
-                          <div className="space-y-1.5">
-                            {(brokerageDocs[brokerage.id] || []).map(doc => (
-                              <div key={doc.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-input border border-border">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <FileText size={14} className="text-primary" />
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-medium truncate text-foreground">{doc.file_name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {BROKERAGE_DOC_TYPES.find(d => d.value === doc.document_type)?.label || doc.document_type}
-                                      {' \u2022 '}{new Date(doc.created_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                  <button onClick={() => handleBrokerageDocView(doc)} className="px-2 py-1 rounded text-xs font-medium transition bg-primary text-primary-foreground hover:bg-primary/90">
-                                    <Eye size={13} />
-                                  </button>
-                                  <button onClick={() => handleBrokerageDocDelete(doc, brokerage.id)} className="px-2 py-1 rounded text-xs font-medium transition bg-red-950/50 text-red-400 hover:bg-red-950/70">
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">No documents uploaded. Upload the signed Brokerage Cooperation Agreement and other onboarding docs here.</p>
-                        )}
-                      </BrokerageRowSection>
 
                       {/* Brokerage Portal Access */}
                       <BrokerageRowSection
@@ -2932,14 +2831,26 @@ export default function BrokeragesPage() {
                                                         className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors bg-input text-primary border border-border hover:bg-muted disabled:opacity-50"
                                                       >
                                                         <Eye size={12} />
-                                                        {preauthViewingAgentId === agent.id ? 'Loading...' : 'View Pre-Auth Form'}
+                                                        {preauthViewingAgentId === agent.id ? 'Loading...' : 'View void cheque / direct deposit'}
                                                       </button>
                                                     )}
                                                     {!agent.preauth_form_path && (
-                                                      <span className="text-xs text-muted-foreground">No pre-auth form uploaded</span>
+                                                      <span className="text-xs text-muted-foreground">No void cheque / direct deposit form uploaded</span>
                                                     )}
                                                   </div>
                                                 </div>
+                                                {/* Direct-deposit authorization consent (migration 107) */}
+                                                <p className="text-xs mb-2">
+                                                  {agent.deposit_authorized_at ? (
+                                                    <span className="inline-flex items-center gap-1.5 text-green-400">
+                                                      <CheckCircle size={12} /> Authorized direct deposit on {new Date(agent.deposit_authorized_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                                                      <AlertCircle size={12} /> Direct-deposit authorization not yet given
+                                                    </span>
+                                                  )}
+                                                </p>
                                                 {/* Pending banking approval banner */}
                                                 {agent.banking_approval_status === 'pending' && agent.banking_submitted_transit && (
                                                   <div className="mb-2 rounded-lg p-3" style={{ background: 'var(--status-blue-muted)', border: '1px solid var(--status-blue-border)' }}>
@@ -3385,7 +3296,7 @@ export default function BrokeragesPage() {
       >
         <DialogContent className="max-w-3xl h-[80vh] p-0 gap-0">
           <DialogHeader className="px-4 py-3 border-b border-border/50">
-            <DialogTitle>Pre-Authorization Form</DialogTitle>
+            <DialogTitle>Void Cheque / Direct Deposit Authorization</DialogTitle>
           </DialogHeader>
           {preauthViewUrl && (
             preauthViewType === 'image' ? (
@@ -3393,7 +3304,7 @@ export default function BrokeragesPage() {
                 {/* Supabase signed URL — next/image domain config would
                     require knowing the project ref at build time. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={preauthViewUrl} alt="Pre-Authorization Form" className="w-full rounded-lg" />
+                <img src={preauthViewUrl} alt="Void Cheque / Direct Deposit Authorization" className="w-full rounded-lg" />
               </div>
             ) : (
               <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 60px)' }} />

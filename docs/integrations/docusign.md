@@ -1,6 +1,6 @@
 # DocuSign Integration
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-09_
 
 This document explains how Firm Funds generates contracts, sends them for e-signature through DocuSign, processes the Connect webhook, stores signed documents, and what environment variables and tokens the integration needs.
 
@@ -72,7 +72,7 @@ DocuSign retries any non-2xx within roughly 100 seconds, and aggregate mode legi
 
 The DocuSign event name maps to an internal status (`envelope-completed` -> `signed`, `envelope-declined` -> `declined`, `envelope-voided` -> `voided`, and so on). On `signed`, the webhook downloads the signed PDFs and dispatches on the first document type:
 
-- **BCA**: download the single signed PDF, store it under `brokerage-bca/{brokerageId}/...` in the `deal-documents` storage bucket, and stamp `brokerages.bca_signed_at`.
+- **BCA**: download the single signed PDF, store it under `brokerage-bca/{brokerageId}/...` in the `deal-documents` storage bucket, stamp `brokerages.bca_signed_at`, and record the storage path in `brokerages.bca_signed_pdf_path` (migration 107) so the signed BCA stays retrievable. The admin Brokerages page exposes a "View signed BCA" button that calls the Owner-only `getSignedBcaUrl` action (`brokerage.manage` capability) to mint a short-lived signed URL for that path.
 - **Remediation IDP**: download and store under `remediation_idp/{remediationDealId}/...`, CAS-flip the `remediation_deals` row from `idp_sent` to `idp_signed` with `signed_at`, audit-log `remediation_deal.signed`, and email the Firm Funds admin (`sendRemediationIdpSignedNotification`) so the brokerage remittance step is on the radar. The status flip happens even if the PDF download fails, because the signature event itself is authoritative.
 - **Regular deal (CPA plus IDP)**: for each document, download the signed PDF (CPA is documentId 1, IDP is documentId 2), store it under `{dealId}/...`, insert a `deal_documents` record (`commission_agreement` or `direction_to_pay`, `upload_source = 'nexone_auto'`), then find the matching underwriting checklist item and auto-check it, linking the document. If there is no valid auth token, the docs are not downloaded and the checklist items are left unchecked so the deal cannot silently advance.
 
@@ -88,7 +88,7 @@ All signed PDFs go into the Supabase storage bucket `deal-documents`, under a pr
 | BCA | `brokerage-bca/{brokerageId}/` |
 | Remediation IDP | `remediation_idp/{remediationDealId}/` |
 
-Deal-level documents (CPA, IDP) also get a row in `deal_documents`; BCA and Remediation IDP are tracked via their parent records (`brokerages.bca_signed_at`, `remediation_deals.status`).
+Deal-level documents (CPA, IDP) also get a row in `deal_documents`; BCA and Remediation IDP are tracked via their parent records (`brokerages.bca_signed_at` plus `brokerages.bca_signed_pdf_path` for the file path, `remediation_deals.status`).
 
 ## 7. Environment variables
 

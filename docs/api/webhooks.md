@@ -1,6 +1,6 @@
 # Inbound Webhooks
 
-_Last updated: 2026-05-29_
+_Last updated: 2026-06-09_
 
 This document describes the inbound webhook endpoints that accept POSTs from external systems, how each one is authenticated, the payload it expects, and the side effects it triggers.
 
@@ -57,7 +57,7 @@ DocuSign retries any non-2xx delivery and aggregate mode legitimately sends mult
 The handler dispatches on the envelope's `document_type` into one of three flows:
 
 1. **Deal envelope (CPA + IDP):** downloads each signed PDF (CPA = document 1, IDP = document 2), uploads to the `deal-documents` storage bucket, inserts `deal_documents` rows, and auto-checks the matching `underwriting_checklist` items, linking each to its stored document.
-2. **BCA envelope (Brokerage Cooperation Agreement):** downloads the single signed PDF to `brokerage-bca/{brokerageId}/...` and stamps `bca_signed_at` on the brokerage.
+2. **BCA envelope (Brokerage Cooperation Agreement):** downloads the single signed PDF to `brokerage-bca/{brokerageId}/...`, stamps `bca_signed_at` on the brokerage, **and records the storage path in `brokerages.bca_signed_pdf_path`** (migration 107) so the signed BCA can be viewed/downloaded later. The admin Brokerages page surfaces a "View signed BCA" button backed by the Owner-only `getSignedBcaUrl` server action (`brokerage.manage` capability), which mints a short-lived signed URL for that path.
 3. **Remediation IDP envelope (failed-deal cure):** downloads the signed PDF to `remediation_idp/{remediationDealId}/...`, flips the `remediation_deals` row to `idp_signed` with `signed_at` (compare-and-swap guarded on the prior `idp_sent` status), audit-logs the event, and emails the Firm Funds admin so the brokerage remittance step is tracked.
 
 In every case the `esignature_envelopes` rows for that envelope are updated to the mapped status (with a compare-and-swap on `agent_signed_at` so re-arrivals do not overwrite the timestamp), and the dedup row is marked processed.

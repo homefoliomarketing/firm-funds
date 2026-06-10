@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { getStatusBadgeClass, formatStatusLabel, BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
-import { markKycModalSeen } from '@/lib/actions/profile-actions'
+import { markKycModalSeen, markWelcomeSeen } from '@/lib/actions/profile-actions'
 import { getAgentBalanceSummary } from '@/lib/actions/account-actions'
 import {
   getFirmDealOfferForCurrentAgent,
@@ -34,6 +34,7 @@ interface AgentForDashboard {
   kyc_rejection_reason: string | null
   kyc_verified_modal_seen?: boolean | null
   banking_verified: boolean | null
+  banking_approval_status?: 'none' | 'pending' | 'approved' | 'rejected' | null
   preauth_form_path: string | null
   account_activated_at: string | null
   phone: string | null
@@ -276,6 +277,13 @@ function AgentDashboardInner() {
     void markKycModalSeen(agent.id)
   }, [agent?.kyc_status, agent?.id, agent?.kyc_verified_modal_seen])
 
+  // First-login greeting: the very first time a user reaches their dashboard we
+  // stamp welcomed_at so future visits say "Welcome back". markWelcomeSeen is
+  // idempotent, so firing it on a null flag is safe.
+  useEffect(() => {
+    if (profile && !profile.welcomed_at) void markWelcomeSeen()
+  }, [profile])
+
   // KYC status
   const kycPending = agent && agent.kyc_status === 'pending'
   const kycSubmitted = agent && agent.kyc_status === 'submitted'
@@ -284,6 +292,16 @@ function AgentDashboardInner() {
 
   // Account activation status (Session 34 — white-label flow)
   const notActivated = agent && !agent.account_activated_at
+
+  // Distinguish "still has setup work to do" from "everything submitted, waiting
+  // on staff approval". account_activated_at only flips once BOTH KYC and
+  // banking are APPROVED, so without this split a fully-submitted agent is wrongly
+  // told to "continue setup".
+  const kycActionNeeded = agent && (agent.kyc_status === 'pending' || agent.kyc_status === 'rejected')
+  const bankingStatus = agent?.banking_approval_status ?? 'none'
+  const bankingActionNeeded = agent && (bankingStatus === 'none' || bankingStatus === 'rejected')
+  const setupIncomplete = !!notActivated && (kycActionNeeded || bankingActionNeeded)
+  const awaitingApproval = !!notActivated && !setupIncomplete
 
   if (loading) {
     return (
@@ -590,8 +608,8 @@ function AgentDashboardInner() {
 
         {/* KYC / Banking status banners */}
         <section aria-label="Account status notifications">
-          {/* Activation CTA — single entry point to the setup wizard */}
-          {notActivated && (
+          {/* Activation CTA — only while the agent still has setup work to do */}
+          {setupIncomplete && (
             <div className="mb-6 rounded-xl p-5 flex items-center justify-between gap-4 bg-primary/10 border border-primary/30">
               <div className="flex items-center gap-3">
                 <Shield size={20} className="text-primary shrink-0" />
@@ -609,6 +627,25 @@ function AgentDashboardInner() {
                 Continue setup
                 <ChevronRight size={14} />
               </Button>
+            </div>
+          )}
+
+          {/* Everything submitted — waiting on staff approval */}
+          {awaitingApproval && (
+            <div className="mb-6 rounded-xl p-5 bg-status-blue-muted/60 border border-status-blue-border/60" role="status">
+              <div className="flex items-start gap-3">
+                <Clock size={20} className="text-status-blue shrink-0 mt-0.5" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-semibold text-status-blue">Pending approval</p>
+                  <p className="text-xs mt-0.5 text-status-blue/70">
+                    Your information is in and under review by {agent?.brokerages?.name || 'your brokerage'} and Firm Funds. We&apos;ll email you the moment your account is activated. Nothing more is needed from you right now.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-status-blue/70">
+                    <span>Identity: {agent?.kyc_status === 'verified' ? 'Approved' : 'Under review'}</span>
+                    <span>Banking: {bankingStatus === 'approved' ? 'Approved' : 'Under review'}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -687,7 +724,7 @@ function AgentDashboardInner() {
         <div className="mb-6 flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Welcome back, {profile?.full_name?.split(' ')[0]}
+              {profile?.welcomed_at ? 'Welcome back' : 'Welcome'}, {profile?.full_name?.split(' ')[0]}
             </h1>
             {agent?.brokerages && (
               <p className="text-sm mt-1 text-muted-foreground">{agent.brokerages.name}</p>

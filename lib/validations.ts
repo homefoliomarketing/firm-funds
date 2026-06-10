@@ -5,6 +5,7 @@ import {
   MAX_DAYS_UNTIL_CLOSING,
   calcDaysUntilClosing,
 } from './constants'
+import { normalizeE164, PHONE_VALIDATION_MESSAGE } from './phone'
 
 /** Schema for deal submission */
 export const DealSubmissionSchema = z.object({
@@ -71,7 +72,25 @@ const sanitizedString = (maxLen = 500) =>
   z.string().max(maxLen).transform(val => val.replace(/<[^>]*>/g, '').trim())
 
 const emailSchema = z.string().email('Invalid email address').max(254).transform(val => val.toLowerCase().trim())
-const phoneSchema = z.string().max(30).regex(/^[\d\s\-+().ext]*$/, 'Invalid phone number format').optional().nullable()
+// Accept any human-entered phone format ((416) 555-1234, 416-555-1234,
+// 4165551234, +1 416 555 1234, ...) and store the canonical E.164
+// (+1XXXXXXXXXX). Empty/absent stays null. Anything that isn't a valid 10-digit
+// North American number is rejected with a friendly message.
+const phoneSchema = z
+  .string()
+  .max(30)
+  .optional()
+  .nullable()
+  .transform((val) => {
+    if (val === undefined || val === null) return val
+    const trimmed = val.trim()
+    if (trimmed === '') return null
+    return normalizeE164(trimmed) ?? trimmed
+  })
+  .refine(
+    (val) => val === undefined || val === null || /^\+1\d{10}$/.test(val),
+    { message: PHONE_VALIDATION_MESSAGE },
+  )
 
 export const CreateBrokerageSchema = z.object({
   name: sanitizedString(200).pipe(z.string().min(1, 'Brokerage name is required')),

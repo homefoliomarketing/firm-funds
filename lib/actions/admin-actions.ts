@@ -15,12 +15,8 @@ import {
 } from '@/lib/validations'
 import {
   BROKERAGE_LATE_STRIKE_THRESHOLD,
-  MAX_UPLOAD_SIZE_BYTES,
-  ALLOWED_UPLOAD_MIME_TYPES,
-  ALLOWED_UPLOAD_EXTENSIONS,
   DISCOUNT_RATE_PER_1000_PER_DAY,
 } from '@/lib/constants'
-import { verifyFileMagicBytes } from '@/lib/file-validation'
 import {
   insertPayment,
   deletePayment,
@@ -3285,228 +3281,6 @@ export async function resendBrokerageSetupLink(input: {
   }
 }
 
-// ============================================================================
-// Brokerage Documents — upload + delete via server actions so every mutation
-// gets an audit log entry (who uploaded / deleted what, when) and goes through
-// the service-role client. Previous client-side INSERT/DELETE on
-// brokerage_documents from the admin browser left no audit trail.
-// ============================================================================
-
-const BROKERAGE_DOCUMENT_TYPES = [
-  'cooperation_agreement',
-  'white_label_agreement',
-  'banking_info',
-  'kyc_business',
-  'other',
-] as const
-
-export async function uploadBrokerageDocument(formData: FormData): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
-
-  try {
-    const file = formData.get('file') as File | null
-    const brokerageId = formData.get('brokerageId') as string | null
-    const documentType = formData.get('documentType') as string | null
-
-    if (!file || !brokerageId || !documentType) {
-      return { success: false, error: 'Missing required fields' }
-    }
-    if (!(BROKERAGE_DOCUMENT_TYPES as readonly string[]).includes(documentType)) {
-      return { success: false, error: 'Invalid document type' }
-    }
-    if (file.size === 0) return { success: false, error: 'File is empty' }
-    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-      return { success: false, error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)}MB` }
-    }
-
-    const fileName = file.name.toLowerCase()
-    const ext = '.' + fileName.split('.').pop()
-    if (!(ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)) {
-      return { success: false, error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_EXTENSIONS.join(', ')}` }
-    }
-    if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
-      return { success: false, error: 'File MIME type not allowed' }
-    }
-    const magicBytesValid = await verifyFileMagicBytes(file)
-    if (!magicBytesValid) {
-      return { success: false, error: 'File content does not match its declared type' }
-    }
-
-    const serviceClient = createServiceRoleClient()
-
-    // Verify the brokerage exists before touching storage.
-    const { data: brokerage, error: brokerageErr } = await serviceClient
-      .from('brokerages')
-      .select('id, name')
-      .eq('id', brokerageId)
-      .single()
-    if (brokerageErr || !brokerage) return { success: false, error: 'Brokerage not found' }
-
-    const safeBase = file.name.replace(/[^\w.\-]/g, '_')
-    const filePath = `brokerages/${brokerageId}/${Date.now()}_${safeBase}`
-
-    const { error: uploadError } = await serviceClient.storage
-      .from('deal-documents')
-      .upload(filePath, file)
-
-    if (uploadError) {
-      console.error('Brokerage doc storage upload error:', uploadError.message)
-      return { success: false, error: 'Failed to upload file. Please try again.' }
-    }
-
-    const { data: inserted, error: dbErr } = await serviceClient
-      .from('brokerage_documents')
-      .insert({
-        brokerage_id: brokerageId,
-        document_type: documentType,
-        file_name: file.name,
-        file_path: filePath,
-        file_size: file.size,
-        uploaded_by: user.id,
-      })
-      .select()
-      .single()
-
-    if (dbErr || !inserted) {
-      // Best-effort cleanup of the orphaned storage object.
-      await serviceClient.storage.from('deal-documents').remove([filePath])
-      console.error('Brokerage doc insert error:', dbErr?.message)
-      return { success: false, error: `Failed to save record: ${dbErr?.message || 'unknown error'}` }
-    }
-
-    await logAuditEvent({
-      action: 'brokerage.document_uploaded',
-      entityType: 'brokerage',
-      entityId: brokerageId,
-      severity: 'info',
-      metadata: {
-        document_id: inserted.id,
-        document_type: documentType,
-        file_name: file.name,
-        file_size: file.size,
-        brokerage_name: brokerage.name,
-        uploaded_by_user_id: user.id,
-      },
-    })
-
-    return { success: true, data: { document: inserted } }
-  } catch (err: unknown) {
-    const _msg = err instanceof Error ? err.message : "Unknown error"
-    console.error('uploadBrokerageDocument error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
-  }
-}
-
-export async function deleteBrokerageDocument(input: {
-  documentId: string
-}): Promise<ActionResult> {
-  const { error: authErr, user } = await getAuthenticatedCapable('brokerage.manage')
-  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
-
-  if (!input.documentId) return { success: false, error: 'Document id is required' }
-
-  try {
-    const serviceClient = createServiceRoleClient()
-
-    const { data: doc, error: lookupErr } = await serviceClient
-      .from('brokerage_documents')
-      .select('id, brokerage_id, document_type, file_name, file_path, file_size')
-      .eq('id', input.documentId)
-      .single()
-
-    if (lookupErr || !doc) return { success: false, error: 'Document not found' }
-
-    // Remove the storage object first; if it fails we still want to attempt
-    // the DB row delete so we don't leave a row pointing at a missing file.
-    const { error: storageErr } = await serviceClient.storage
-      .from('deal-documents')
-      .remove([doc.file_path])
-    if (storageErr) {
-      console.warn('Brokerage doc storage remove warning:', storageErr.message)
-    }
-
-    const { error: deleteErr } = await serviceClient
-      .from('brokerage_documents')
-      .delete()
-      .eq('id', doc.id)
-
-    if (deleteErr) {
-      return { success: false, error: `Failed to delete document: ${deleteErr.message}` }
-    }
-
-    await logAuditEvent({
-      action: 'brokerage.document_deleted',
-      entityType: 'brokerage',
-      entityId: doc.brokerage_id,
-      severity: 'warning',
-      metadata: {
-        document_id: doc.id,
-        document_type: doc.document_type,
-        file_name: doc.file_name,
-        file_size: doc.file_size,
-        deleted_by_user_id: user.id,
-        storage_remove_warning: storageErr?.message || null,
-      },
-    })
-
-    return { success: true, data: { brokerageId: doc.brokerage_id } }
-  } catch (err: unknown) {
-    const _msg = err instanceof Error ? err.message : "Unknown error"
-    console.error('deleteBrokerageDocument error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
-  }
-}
-
-export async function getBrokerageDocumentSignedUrl(input: {
-  documentId: string
-}): Promise<ActionResult> {
-  // Brokerage documents include banking details and the BCA contract, so gate
-  // viewing to Owner (pii.banking), consistent with the agent banking pre-auth
-  // form. Managers verify brokerage KYC status without opening the raw files.
-  const { error: authErr } = await getAuthenticatedCapable('pii.banking')
-  if (authErr) return { success: false, error: authErr }
-  if (!input.documentId) return { success: false, error: 'Document id is required' }
-
-  try {
-    const serviceClient = createServiceRoleClient()
-    const { data: doc, error: lookupErr } = await serviceClient
-      .from('brokerage_documents')
-      .select('id, brokerage_id, file_name, file_path')
-      .eq('id', input.documentId)
-      .single()
-
-    if (lookupErr || !doc) return { success: false, error: 'Document not found' }
-    if (!doc.file_path.startsWith(`brokerages/${doc.brokerage_id}/`)) {
-      return { success: false, error: 'Document path is invalid' }
-    }
-
-    const { data, error } = await serviceClient.storage
-      .from('deal-documents')
-      .createSignedUrl(doc.file_path, 3600, { download: false })
-
-    if (error || !data?.signedUrl) {
-      return { success: false, error: 'Failed to generate document link' }
-    }
-
-    await logAuditEvent({
-      action: 'brokerage.document_view',
-      entityType: 'brokerage',
-      entityId: doc.brokerage_id,
-      metadata: {
-        document_id: doc.id,
-        file_name: doc.file_name,
-      },
-    })
-
-    return { success: true, data: { signedUrl: data.signedUrl } }
-  } catch (err: unknown) {
-    const _msg = err instanceof Error ? err.message : "Unknown error"
-    console.error('getBrokerageDocumentSignedUrl error:', _msg)
-    return { success: false, error: 'An unexpected error occurred' }
-  }
-}
-
 export async function getAgentPreauthFormSignedUrl(input: {
   agentId: string
 }): Promise<ActionResult> {
@@ -3550,6 +3324,59 @@ export async function getAgentPreauthFormSignedUrl(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('getAgentPreauthFormSignedUrl error:', _msg)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Signed URL for a brokerage's signed BCA PDF. The signed copy is stored by the
+ * DocuSign webhook at brokerage-bca/{brokerageId}/... in the deal-documents
+ * bucket and recorded on brokerages.bca_signed_pdf_path (migration 107). Gated
+ * to Owner (brokerage.manage), consistent with sending/voiding the BCA.
+ */
+export async function getSignedBcaUrl(input: {
+  brokerageId: string
+}): Promise<ActionResult> {
+  const { error: authErr } = await getAuthenticatedCapable('brokerage.manage')
+  if (authErr) return { success: false, error: authErr }
+  if (!input.brokerageId) return { success: false, error: 'Brokerage id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+    const { data: brokerage, error: lookupErr } = await serviceClient
+      .from('brokerages')
+      .select('id, name, bca_signed_pdf_path')
+      .eq('id', input.brokerageId)
+      .single()
+
+    if (lookupErr || !brokerage) return { success: false, error: 'Brokerage not found' }
+    if (!brokerage.bca_signed_pdf_path) return { success: false, error: 'No signed BCA on file yet' }
+    if (
+      !brokerage.bca_signed_pdf_path.startsWith(`brokerage-bca/${brokerage.id}/`) ||
+      brokerage.bca_signed_pdf_path.includes('..')
+    ) {
+      return { success: false, error: 'Signed BCA path is invalid' }
+    }
+
+    const { data, error } = await serviceClient.storage
+      .from('deal-documents')
+      .createSignedUrl(brokerage.bca_signed_pdf_path, 3600, { download: false })
+
+    if (error || !data?.signedUrl) {
+      return { success: false, error: 'Failed to generate signed BCA link' }
+    }
+
+    await logAuditEvent({
+      action: 'brokerage.bca_view',
+      entityType: 'brokerage',
+      entityId: brokerage.id,
+      metadata: { brokerage_name: brokerage.name },
+    })
+
+    return { success: true, data: { signedUrl: data.signedUrl } }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getSignedBcaUrl error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

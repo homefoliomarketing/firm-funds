@@ -18,6 +18,8 @@ interface AddressAutocompleteProps {
   /** Restrict suggestions to this 2-letter region code (default: 'ca') */
   country?: string
   required?: boolean
+  /** Heading shown above the search box (default: 'Property address') */
+  label?: string
 }
 
 // Google Maps script loader — singleton, idempotent across mounts.
@@ -87,6 +89,7 @@ export default function AddressAutocomplete({
   onChange,
   country = 'ca',
   required = false,
+  label = 'Property address',
 }: AddressAutocompleteProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
   const [query, setQuery] = useState(value.street)
@@ -246,7 +249,7 @@ export default function AddressAutocomplete({
     <div className="space-y-3">
       <div ref={containerRef} className="relative">
         <Label htmlFor="address-search">
-          Property address {required && <span className="text-destructive">*</span>}
+          {label} {required && <span className="text-destructive">*</span>}
         </Label>
         <div className="relative">
           <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />

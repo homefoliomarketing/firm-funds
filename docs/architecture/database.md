@@ -21,8 +21,9 @@ The numbering groups roughly into feature batches:
 | 050 to 069 | Idempotency and atomic RPCs (balance, strikes, remediation, interest), ledger immutability, storage policy tightening, soft delete, audit-log hardening |
 | 070 to 079 | Concurrency uniqueness constraints, cron idempotency log, DocuSign linkage, atomic admin-note append, firm-deal detection pipeline |
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
+| 100 to 107 | Underwriter assigned_at, KYC bucket limits, staff least-privilege roles, look-only impersonation, brokerage OG image, agent self-submit, informational statement ledger, signed-BCA path / welcome flag / deposit-auth consent |
 
-There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `105_agent_self_submit_offer.sql`.
+There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `107_bca_path_welcome_deposit_auth.sql`.
 
 **Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
@@ -148,7 +149,8 @@ The central advance record. Base columns predate migration tracking; the columns
 | bank_transit_number / bank_institution_number / bank_account_number | TEXT (CHECK format) | Banking, admin-entered, format-checked (migration 021) |
 | banking_verified / banking_verified_at / banking_verified_by | boolean / timestamptz / uuid | Banking verification (migration 021) |
 | banking_approval_status | text | Self-service banking approval gate (migration 031) |
-| preauth_form_path / preauth_form_uploaded_at | TEXT / timestamptz | Pre-authorized debit form (migration 021) |
+| preauth_form_path / preauth_form_uploaded_at | TEXT / timestamptz | Void cheque / direct deposit authorization form, in the `agent-preauth-forms` bucket. Required at onboarding before banking can be submitted; admin reviews it via the "View void cheque / direct deposit" button (migration 021) |
+| deposit_authorized_at / deposit_authorized_by | TIMESTAMPTZ / UUID FK auth.users | Records the mandatory "I authorize Firm Funds Inc. to deposit payments into this account" consent the agent gives during onboarding; stamped by `submitAgentBanking` when the `authorizeDeposit` flag is set (migration 107) |
 | address_street / address_city / address_province / address_postal_code | TEXT | Address, province defaults to Ontario (migration 021) |
 | welcome_email_sent_at | TIMESTAMPTZ | Welcome email tracking (migration 043) |
 | account_activated_at | TIMESTAMPTZ | Auto-set when KYC verified AND banking approved, via trigger (migration 043) |
@@ -169,6 +171,7 @@ The central advance record. Base columns predate migration tracking; the columns
 | transaction_system | TEXT | NexOne/other transaction-management system |
 | broker_of_record_name / broker_of_record_email | TEXT | BoR signatory for the BCA (migration 029) |
 | bca_signed_at | timestamptz | Brokerage Cooperation Agreement signed timestamp |
+| bca_signed_pdf_path | TEXT | Storage path of the signed BCA PDF in the `deal-documents` bucket (`brokerage-bca/{brokerageId}/...`), recorded by the DocuSign webhook so the signed BCA can be viewed/downloaded from the admin Brokerages page via `getSignedBcaUrl` (migration 107). A BCA is brokerage-level (no deal_id), so the one signed file lives here rather than in `deal_documents` |
 | kyc_verified / kyc_verified_at / kyc_verified_by | boolean / timestamptz / text | FINTRAC verification (migration 011) |
 | reco_registration_number / reco_verification_date / reco_verification_notes | text / date | RECO public-register check (migration 011) |
 | is_white_label_partner | BOOLEAN | White-label flag (migration 043) |
@@ -430,9 +433,9 @@ A partial **UNIQUE** index on `real_user_id WHERE ended_at IS NULL` enforces at 
 
 | Table | Migration | Purpose |
 | --- | --- | --- |
-| user_profiles | base + 015, 026, 036, 102 | Identity row; `role`, `agent_id`, `brokerage_id`, `must_reset_password`, `staff_title`, `staff_role` (owner/manager/staff least-privilege tier, migration 102), `notification_preferences` JSONB |
+| user_profiles | base + 015, 026, 036, 102, 107 | Identity row; `role`, `agent_id`, `brokerage_id`, `must_reset_password`, `staff_title`, `staff_role` (owner/manager/staff least-privilege tier, migration 102), `notification_preferences` JSONB, `welcomed_at` (first-login greeting flag; NULL until the dashboard greets the user once, then "Welcome, {name}" becomes "Welcome back, {name}", migration 107) |
 | underwriting_checklist | base + 008/009/012/016/017/022/023/027 | 12-item, 3-category underwriting checklist; rows auto-created by `create_underwriting_checklist()` trigger function |
-| brokerage_documents | 008 | Brokerage-level documents (cooperation/white-label agreements, business KYC) |
+| brokerage_documents | 008 | **Deprecated / unused.** Formerly backed a manual brokerage document-upload section (BCA/KYC/etc.) on the admin Brokerages page. That UI and its server actions (`uploadBrokerageDocument`, `deleteBrokerageDocument`, `getBrokerageDocumentSignedUrl`) were removed; the only brokerage-level document is now the signed BCA, auto-attached after signing (`brokerages.bca_signed_pdf_path`). The table is left in place (not dropped) but nothing reads or writes it |
 | kyc_upload_tokens | 013 (RLS in 040, 065) | One-time mobile KYC upload tokens |
 | deal_messages | 018 (28 adds brokerage_admin, 056 tightens) | Admin/agent/brokerage chat per deal |
 | document_returns | 018 | Returning incorrect documents to agents |
@@ -680,5 +683,6 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 104_brokerage_og_image.sql | `brokerages.og_image_url` (PNG of the white-label logo for SMS / social link-preview cards). Additive; nullable |
 | 105_agent_self_submit_offer.sql | `deals.agent_self_submit_at` — set when an agent takes an `offered` firm-deal over to submit it themselves (pauses the brokerage on it). Additive; nullable |
 | 106_informational_deal_ledger_entries.sql | `deal_advance`/`deal_repayment` ledger types + `record_agent_statement_entry` RPC (balance-neutral statement entries). Additive |
+| 107_bca_path_welcome_deposit_auth.sql | `brokerages.bca_signed_pdf_path` (storage path of the signed BCA so it is viewable/downloadable), `user_profiles.welcomed_at` (first-login greeting flag), `agents.deposit_authorized_at` + `agents.deposit_authorized_by` (mandatory deposit-authorization consent during agent onboarding). Additive; all nullable |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

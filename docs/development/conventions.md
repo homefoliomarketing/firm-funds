@@ -86,6 +86,10 @@ All money math lives in `lib/calculations.ts` and `lib/constants.ts`. Do not har
 
 Full detail in [docs/business/financial-model.md](../business/financial-model.md).
 
+## Phone numbers
+
+Phones are stored E.164 (`+1XXXXXXXXXX`), entered in any human format, and formatted for display via `lib/phone.ts`. Users can type `(416) 555-1234`, `416-555-1234`, `4165551234`, and so on; `normalizeE164()` canonicalizes the input on save and `formatPhoneForDisplay()` renders it back. Use `PHONE_VALIDATION_MESSAGE` for the rejection copy. This replaced the old strict "+1XXXXXXXXXX required" rejection in the profile actions and the loose regex in `phoneSchema` (`lib/validations.ts`). Do not re-introduce a strict input format: validate by normalizing through `lib/phone.ts` instead.
+
 ## Copy and writing style
 
 - Do not use em dashes in any user-facing copy or in documentation. The owner treats them as an AI tell. Use commas, colons, or parentheses instead. This applies to these docs too.

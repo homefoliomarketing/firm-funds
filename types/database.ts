@@ -125,9 +125,12 @@ export interface Agent {
   banking_submitted_account: string | null
   banking_approval_status: 'none' | 'pending' | 'approved' | 'rejected'
   banking_rejection_reason: string | null
-  // Preauthorized debit form
+  // Void cheque / direct deposit authorization form
   preauth_form_path: string | null
   preauth_form_uploaded_at: string | null
+  // Direct-deposit authorization consent (migration 107)
+  deposit_authorized_at?: string | null
+  deposit_authorized_by?: string | null
   // Address
   address_street: string | null
   address_city: string | null
@@ -317,6 +320,9 @@ export interface UserProfile {
   is_active: boolean
   must_reset_password: boolean
   last_login: string | null
+  // First-login greeting flag (migration 107): NULL until the dashboard has
+  // welcomed the user once, then stamped. Drives "Welcome" vs "Welcome back".
+  welcomed_at?: string | null
   created_at: string
   // Free-form job title for brokerage staff (e.g. "Broker of Record",
   // "Brokerage Manager", "Office Manager"). Used to gate the Referral Fees

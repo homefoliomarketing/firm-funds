@@ -8,6 +8,10 @@
  * result, log shows it was skipped.
  */
 import twilio, { type Twilio } from 'twilio'
+import { normalizeE164 } from '@/lib/phone'
+
+// Re-exported for callers (and tests) that historically imported it from here.
+export { normalizeE164 }
 
 let _client: Twilio | null = null
 
@@ -72,20 +76,4 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     const message = err instanceof Error ? err.message : 'unknown twilio error'
     return { status: 'errored', error: message }
   }
-}
-
-/**
- * Best-effort conversion to E.164. Accepts:
- *   "705-910-7171"          -> "+17059107171"
- *   "(705) 910-7171"        -> "+17059107171"
- *   "+17059107171"          -> "+17059107171"
- *   "17059107171"           -> "+17059107171"
- *   "7059107171"            -> "+17059107171"
- * Returns null when the input doesn't look like a Canadian/US 10-digit number.
- */
-export function normalizeE164(raw: string): string | null {
-  const digits = raw.replace(/[^\d]/g, '')
-  if (digits.length === 10) return '+1' + digits
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits
-  return null
 }

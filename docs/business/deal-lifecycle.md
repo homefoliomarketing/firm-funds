@@ -174,3 +174,24 @@ So an agent's ledger reads like a bank statement, two **informational** entries 
 - **Repayment Received** (`deal_repayment`) — posted when a brokerage payment is confirmed received, for that payment's amount. Posted in `recordBrokeragePayment` (admin records a confirmed payment) and in `reviewBrokeragePaymentClaim` when an admin confirms a brokerage-submitted claim. Partial/multiple payments each post their own line; pending and rejected claims post nothing.
 
 Both go through the balance-neutral `record_agent_statement_entry` RPC, so they **never change `account_balance`** and therefore never trigger late-payment interest or get netted against a future advance — a funded advance the brokerage repays is not agent debt. On a clean deal the Advance Issued charge and the Repayment Received payment net to zero. If a funded deal is reverted to `approved` or marked `funding_failed`, the Advance Issued entry is reversed so the statement does not show a phantom advance. All posting is best-effort: the money path commits first, and a failed statement insert is logged for manual reconciliation but never unwinds funding or payment confirmation. The helpers live in `lib/agent-statement.ts`.
+
+## 7. Agent onboarding and activation
+
+Before an agent can transact, they pass through onboarding. An agent's `account_activated_at` is set automatically (trigger `set_agent_account_activated()`, migration 043) once their KYC is verified **and** their banking is approved. Until then the deal-approval step is blocked: an admin cannot move a deal `under_review -> approved` while the agent's banking is unverified.
+
+### Banking: void cheque / direct deposit + deposit authorization
+
+Agent onboarding requires two things before banking can be submitted (enforced in `submitAgentBanking`, `lib/actions/profile-actions.ts`):
+
+1. **A void cheque OR direct deposit authorization form** uploaded to the existing `agent-preauth-forms` storage bucket (path stored on `agents.preauth_form_path`). Admins review it on the agent banking row via the "View void cheque / direct deposit" button (relabeled from the old preauth-form wording).
+2. **The mandatory deposit-authorization consent**: the agent must check "I authorize Firm Funds Inc. to deposit payments into this account." `submitAgentBanking` will not accept banking unless its `authorizeDeposit` flag is set, and it stamps `agents.deposit_authorized_at` / `agents.deposit_authorized_by` (migration 107) to record the consent.
+
+### Agent dashboard states
+
+The agent dashboard (`app/(dashboard)/agent/page.tsx`) distinguishes three states so an agent always sees the right next step:
+
+- **Continue setup**: onboarding is genuinely incomplete (KYC and/or banking not yet submitted). The agent is pointed back to the remaining steps.
+- **Pending approval**: everything is submitted and the agent is waiting on staff to approve KYC and banking. This is a new state, separate from "Continue setup": there is nothing for the agent to do but wait.
+- **Active**: KYC verified and banking approved (`account_activated_at` set); the agent can transact.
+
+The dashboard also greets first-time users with "Welcome, {name}" and returning users with "Welcome back, {name}", driven by `user_profiles.welcomed_at` (migration 107): NULL means the user has never been greeted, so they get the first-time greeting and the flag is stamped once.

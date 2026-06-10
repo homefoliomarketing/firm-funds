@@ -259,6 +259,10 @@ export async function POST(request: Request) {
 
         const auth = await getValidAccessToken()
 
+        // Capture where we store the signed PDF so it's persisted (and thus
+        // retrievable) on the brokerage row, not just left orphaned in storage.
+        let signedBcaPath: string | null = null
+
         if (auth && brokerageId) {
           try {
             // 1. Download signed BCA PDF from DocuSign (documentId '1' — only one doc)
@@ -287,6 +291,7 @@ export async function POST(request: Request) {
                 console.error('DocuSign webhook: failed to upload BCA to storage:', uploadErr.message)
                 transientFailure = true
               } else {
+                signedBcaPath = storagePath
                 console.log(`DocuSign webhook: stored signed BCA at ${storagePath}`)
               }
             } else {
@@ -299,16 +304,22 @@ export async function POST(request: Request) {
             transientFailure = true
           }
 
-          // 3. Update bca_signed_at on the brokerage record
+          // 3. Update bca_signed_at — and the stored PDF path so the signed
+          //    BCA is downloadable/viewable from the brokerage record.
+          const bcaUpdate: { bca_signed_at: string; bca_signed_pdf_path?: string } = {
+            bca_signed_at: new Date().toISOString(),
+          }
+          if (signedBcaPath) bcaUpdate.bca_signed_pdf_path = signedBcaPath
+
           const { error: bcaUpdateErr } = await supabase
             .from('brokerages')
-            .update({ bca_signed_at: new Date().toISOString() })
+            .update(bcaUpdate)
             .eq('id', brokerageId)
 
           if (bcaUpdateErr) {
             console.error('DocuSign webhook: failed to update bca_signed_at:', bcaUpdateErr.message)
           } else {
-            console.log(`DocuSign webhook: brokerage ${brokerageId} bca_signed_at updated`)
+            console.log(`DocuSign webhook: brokerage ${brokerageId} bca_signed_at + path updated`)
           }
         } else {
           console.error(`DocuSign webhook: no valid auth token — cannot download signed BCA for brokerage ${brokerageId}`)
