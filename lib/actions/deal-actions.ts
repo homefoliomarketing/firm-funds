@@ -1506,6 +1506,80 @@ export async function markRefundIssued(input: {
 }
 
 // ============================================================================
+// Server Action: Issue an agent's standing refund/credit (Owner only)
+// ----------------------------------------------------------------------------
+// Account-level companion to markRefundIssued: clears a STANDING credit (a
+// negative account_balance not necessarily tied to one open deal) in a single
+// click from the agent page. Pays the agent the full credit (positive delta ->
+// balance back to ~0) and clears any per-deal refund markers the agent carries
+// so gated deals unblock. Use markRefundIssued for the per-deal flow; use this
+// for a leftover credit. The actual money movement (e-transfer/cheque) happens
+// out-of-band; this records that it was done and clears the ledger credit.
+// ============================================================================
+export async function issueAgentRefund(input: {
+  agentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  // Issuing a refund moves money — Owner only.
+  if (!hasCapability(profile, 'money.write')) {
+    return { success: false, error: 'You do not have permission to issue refunds.' }
+  }
+
+  try {
+    const rpcClient = createServiceRoleClient()
+
+    const { data: agent, error: agentErr } = await rpcClient
+      .from('agents')
+      .select('id, first_name, last_name, account_balance')
+      .eq('id', input.agentId)
+      .single()
+    if (agentErr || !agent) return { success: false, error: 'Agent not found' }
+
+    const balance = Number(agent.account_balance ?? 0)
+    // A credit is a NEGATIVE balance. Nothing to refund if they're at/above 0.
+    if (balance >= -0.01) {
+      return { success: false, error: 'This agent has no credit to refund.' }
+    }
+    const refundAmt = Math.round(Math.abs(balance) * 100) / 100
+
+    // Pay the agent: a positive delta clears the credit (balance -> ~0).
+    const { error: rpcErr } = await rpcClient.rpc('apply_agent_balance_delta', {
+      p_agent_id: agent.id,
+      p_delta: refundAmt,
+      p_type: 'refund_issued',
+      p_description: 'Refund issued to agent — account credit cleared',
+      p_deal_id: null,
+      p_created_by: user.id,
+    })
+    if (rpcErr) {
+      return { success: false, error: `Failed to record the refund: ${rpcErr.message}` }
+    }
+
+    // Paying the full credit settles every refund this agent was owed, so clear
+    // any per-deal refund markers too (keeps the completion gate consistent).
+    await rpcClient
+      .from('deals')
+      .update({ refund_owed_amount: 0, refund_issued_at: new Date().toISOString(), refund_issued_by: user.id })
+      .eq('agent_id', agent.id)
+      .gt('refund_owed_amount', 0)
+
+    await logAuditEvent({
+      action: 'agent.refund_issued',
+      entityType: 'agent',
+      entityId: agent.id,
+      metadata: { refund_amount: refundAmt },
+    })
+
+    return { success: true, data: { refund_amount: refundAmt } }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('issueAgentRefund error:', _msg)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
 // Server Action: Toggle underwriting checklist item (admin only)
 // ============================================================================
 

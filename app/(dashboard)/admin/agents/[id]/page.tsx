@@ -12,6 +12,8 @@ import AgentLedger from '@/components/AgentLedger'
 import { DealNumber } from '@/components/DealNumber'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { hasCapability } from '@/lib/access'
+import { IssueRefundButton } from '@/components/admin/IssueRefundButton'
 import type { AgentAccountTransaction } from '@/types/database'
 
 export const metadata = {
@@ -53,7 +55,7 @@ export default async function AdminAgentProfilePage({
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, is_active')
+    .select('role, is_active, staff_role')
     .eq('id', user.id)
     .single()
 
@@ -64,6 +66,10 @@ export default async function AdminAgentProfilePage({
   ) {
     redirect('/login')
   }
+
+  // Only Owners (money.write) may issue a refund; the server action enforces it
+  // too. Gates the account-level "Mark refund issued" button on the balance card.
+  const canIssueRefund = hasCapability(profile, 'money.write')
 
   const service = createServiceRoleClient()
 
@@ -243,6 +249,9 @@ export default async function AdminAgentProfilePage({
                       <DollarSign size={24} className={accent} aria-hidden="true" />
                     </div>
                   </div>
+                  {owedRefund && canIssueRefund && (
+                    <IssueRefundButton agentId={agent.id} amount={Math.abs(balance)} />
+                  )}
                 </CardContent>
               </Card>
             )
