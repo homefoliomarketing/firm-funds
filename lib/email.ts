@@ -15,10 +15,10 @@ function getResend(): Resend | null {
     // disappear. Throw so the call site logs an error (and Netlify alerting
     // picks it up). In dev we stay tolerant so local builds keep working.
     if (process.env.NODE_ENV === 'production') {
-      console.error('[email] RESEND_API_KEY missing in production — refusing to silently drop email')
+      console.error('[email] RESEND_API_KEY missing in production: refusing to silently drop email')
       throw new Error('RESEND_API_KEY is not configured')
     }
-    console.error('[email] RESEND_API_KEY not set — emails disabled (dev only)')
+    console.error('[email] RESEND_API_KEY not set: emails disabled (dev only)')
     return null
   }
   if (!resendClient) {
@@ -28,7 +28,7 @@ function getResend(): Resend | null {
 }
 
 // ============================================================================
-// CASL / RFC 8058 — Unsubscribe infrastructure
+// CASL / RFC 8058 - Unsubscribe infrastructure
 // ============================================================================
 // Every promotional / notification-class email needs:
 //   1. List-Unsubscribe header pointing to a URL the recipient can hit.
@@ -42,8 +42,8 @@ function getResend(): Resend | null {
 // Resend.
 //
 // Migration 092 also adds the email_unsubscribe_tokens table (entity_type,
-// entity_id, token). We mint tokens lazily — one per entity, reused across
-// every send to that entity — so a recipient who unsubscribes from any
+// entity_id, token). We mint tokens lazily, one per entity, reused across
+// every send to that entity, so a recipient who unsubscribes from any
 // previous email gets unsubscribed for all future ones via the same token.
 
 type UnsubscribeEntityType = 'agent' | 'brokerage'
@@ -52,7 +52,7 @@ type UnsubscribeEntityType = 'agent' | 'brokerage'
  * Fetch or mint a stable unsubscribe token for an entity. Idempotent: the
  * same agent/brokerage always gets the same token across email sends, so a
  * recipient who saves an unsubscribe link from any past email can still use
- * it. Uses a 32-byte hex token (64 chars) — long enough to be unguessable
+ * it. Uses a 32-byte hex token (64 chars): long enough to be unguessable
  * but short enough to fit in a URL without wrapping in clients.
  */
 async function getUnsubscribeToken(
@@ -68,7 +68,7 @@ async function getUnsubscribeToken(
       .eq('entity_id', entityId)
       .maybeSingle()
     if (selErr) {
-      // Surface the error but don't block the send — better to ship the
+      // Surface the error but don't block the send: better to ship the
       // email with the generic /unsubscribe footer than to drop it.
       console.error('[email] unsubscribe token lookup failed:', selErr.message)
     }
@@ -104,7 +104,7 @@ async function getUnsubscribeToken(
 /**
  * Check whether emails to this entity are currently enabled (migration 092).
  * Returns true if the recipient has not unsubscribed; false if they have.
- * On lookup error returns true (fail-open) — a transient DB blip should NOT
+ * On lookup error returns true (fail-open): a transient DB blip should NOT
  * mute production transactional notifications.
  */
 async function isEmailEnabledForEntity(
@@ -145,23 +145,32 @@ async function isEmailEnabledForEntity(
  * construction so we can reuse the same URL in both the header and the body
  * (must match exactly for one-click clients).
  */
-function buildUnsubscribeFooter(unsubscribeUrl: string, isTransactional: boolean): string {
-  if (isTransactional) {
+export function buildUnsubscribeFooter(unsubscribeUrl: string, isTransactional: boolean): string {
+  // This block is appended AFTER the wrap() document, so it renders directly on
+  // the #0A0A0A page background below the card. It is wrapped in a centered
+  // presentation table constrained to the same 560px column as the card, with
+  // quiet muted text and a green link. The visible unsubscribe / manage link is
+  // preserved for CASL. `unsubscribeUrl` is a server-built URL, emitted as-is.
+  const innerHtml = isTransactional
     // For mandatory account/security emails (password reset, email change
-    // confirmation, etc.) the footer points at the unsubscribe page which
-    // explains they cannot opt out of this class of email. The link is kept
-    // for CASL — recipients need an obvious "manage notifications" target.
-    return `
-      <hr style="border:none; border-top:1px solid #2a2a2a; margin:24px 0;" />
-      <p style="font-size:12px; color:#888; line-height:1.5;">
-        This is an account / security email from Firm Funds. <a href="${unsubscribeUrl}" style="color:#5FA873;">Manage notification preferences</a>.
-      </p>`
-  }
+    // confirmation, etc.) the copy explains they cannot opt out of this class
+    // of email, but still offers a "manage notifications" target for CASL.
+    ? `This is an account and security email from Firm Funds that you cannot opt out of. <a href="${unsubscribeUrl}" style="color:#6FB783; text-decoration:none;">Manage notification preferences</a>.`
+    : `You're receiving this email from Firm Funds. <a href="${unsubscribeUrl}" style="color:#6FB783; text-decoration:none;">Unsubscribe</a>. Firm Funds Inc., Ontario, Canada.`
   return `
-    <hr style="border:none; border-top:1px solid #2a2a2a; margin:24px 0;" />
-    <p style="font-size:12px; color:#888; line-height:1.5;">
-      You're receiving this email from Firm Funds. <a href="${unsubscribeUrl}" style="color:#5FA873;">Unsubscribe</a> or manage notifications. Firm Funds Inc., Ontario, Canada.
-    </p>`
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0A0A0A;">
+      <tr>
+        <td align="center" style="padding:20px 20px 28px;">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:560px;">
+            <tr>
+              <td align="center" style="text-align:center; color:#7E7E7B; font-size:11px; line-height:1.5; letter-spacing:0.04em; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                ${innerHtml}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>`
 }
 
 interface SendEmailOpts {
@@ -203,7 +212,7 @@ interface SendEmailOpts {
  * Resend wrapper that adds CASL footer + List-Unsubscribe headers and
  * respects the recipient's notification preference. Returns the Resend
  * response when sent, or null when the send was skipped or failed (errors
- * are logged, never thrown — the original sendXxx helpers had identical
+ * are logged, never thrown: the original sendXxx helpers had identical
  * fail-soft semantics so callers don't need to change).
  */
 async function sendEmailWithUnsubscribe(opts: SendEmailOpts): Promise<unknown> {
@@ -212,7 +221,7 @@ async function sendEmailWithUnsubscribe(opts: SendEmailOpts): Promise<unknown> {
 
   // Build the unsubscribe URL. If we have an entity, mint/fetch a per-entity
   // token; otherwise use the generic landing page (which renders "this is a
-  // transactional email — you can't unsubscribe").
+  // transactional email, you can't unsubscribe").
   let unsubscribeUrl = `${APP_URL}/unsubscribe`
   let serviceClient: SupabaseClient | null = null
   if (opts.entityType && opts.entityId) {
@@ -222,7 +231,7 @@ async function sendEmailWithUnsubscribe(opts: SendEmailOpts): Promise<unknown> {
       console.error('[email] service-role client unavailable:', err)
     }
     if (serviceClient) {
-      // Preference check — skip non-transactional sends when the recipient
+      // Preference check: skip non-transactional sends when the recipient
       // has unsubscribed. Transactional sends (account/security) bypass.
       if (!opts.transactional) {
         const enabled = await isEmailEnabledForEntity(
@@ -258,7 +267,7 @@ async function sendEmailWithUnsubscribe(opts: SendEmailOpts): Promise<unknown> {
       html: opts.html + footer,
       headers: {
         'List-Unsubscribe': `<${unsubscribeUrl}>`,
-        // RFC 8058 — Gmail / iCloud render a one-click button. Without the
+        // RFC 8058: Gmail / iCloud render a one-click button. Without the
         // -Post header they fall back to the mailto/URL but won't show the
         // big "Unsubscribe" affordance.
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
@@ -318,7 +327,7 @@ const dealTag = (n?: string | null): string => (n ? `[${n}] ` : '')
 /**
  * Fetch brokerage branding (logo + tagline flag) for a given agent. Used by
  * agent-facing email functions to render the agent's brokerage logo in the
- * email header. Returns null on miss or any error — emails fall back to the
+ * email header. Returns null on miss or any error: emails fall back to the
  * default Firm Funds wordmark in that case (never throws, never blocks the
  * email).
  */
@@ -527,6 +536,14 @@ function emailKicker(text: string): string {
   return `<p style="margin:0 0 18px; color:#6FB783; font-size:11px; font-weight:700; line-height:1; letter-spacing:0.16em; text-transform:uppercase;">${escapeHtml(text)}</p>`
 }
 
+/** Standard headline (h1) that sits under the kicker. Near-white, tight tracking.
+ *  Text is escaped, so pass a plain string. Kept at 26px (a touch smaller than the
+ *  Welcome email's 28px) so longer headlines like "Closing date amendment
+ *  requested" still sit on one or two clean lines. */
+function emailHeadline(text: string): string {
+  return `<h1 style="margin:0 0 16px; color:#F5F5F4; font-size:26px; font-weight:700; line-height:1.25; letter-spacing:-0.02em;">${escapeHtml(text)}</h1>`
+}
+
 /** Hero CTA button. Bulletproof: a VML v:roundrect for Outlook plus a padded,
  *  gradient-backed anchor (solid-color fallback first) everywhere else. `href`
  *  is a server-built URL; it is emitted as-is into both the VML and the anchor. */
@@ -557,8 +574,12 @@ function emailButton(label: string, href: string): string {
 }
 
 /** Statement-style details card: left labels (uppercase, muted), right-aligned
- *  values, hairline divider between rows. Every label and value is escaped. */
-function emailDetailCard(rows: { label: string; value: string }[]): string {
+ *  values, hairline divider between rows. Every label and value is escaped.
+ *  Optional per-row `valueColor` (semantic emphasis, e.g. a green amount or a
+ *  red old-email) and `strong` (bold the value) default to the muted body grey
+ *  and normal weight, so existing callers that pass only { label, value } are
+ *  unchanged. */
+function emailDetailCard(rows: { label: string; value: string; valueColor?: string; strong?: boolean }[]): string {
   const divider = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                             <tr><td style="height:1px; line-height:1px; font-size:0; background:#232323;">&nbsp;</td></tr>
                           </table>`
@@ -569,7 +590,7 @@ function emailDetailCard(rows: { label: string; value: string }[]): string {
                               <td style="padding:14px 0; color:#8A8A87; font-size:12px; font-weight:600; line-height:1.4; letter-spacing:0.04em; text-transform:uppercase; width:120px; vertical-align:middle;">
                                 ${escapeHtml(r.label)}
                               </td>
-                              <td style="padding:14px 0; color:#D6D6D4; font-size:14px; font-weight:400; line-height:1.4; text-align:right; vertical-align:middle; word-break:break-all;">
+                              <td style="padding:14px 0; color:${r.valueColor || '#D6D6D4'}; font-size:14px; font-weight:${r.strong ? '600' : '400'}; line-height:1.4; text-align:right; vertical-align:middle; word-break:break-all;">
                                 ${escapeHtml(r.value)}
                               </td>
                             </tr>
@@ -608,6 +629,46 @@ function emailFallbackLink(url: string): string {
               </table>`
 }
 
+/**
+ * Tinted, rounded callout box used for every semantic highlight in the emails:
+ * an approval banner, a "funds on the way" banner, a denial/return reason, a
+ * settlement-date highlight, a security warning, and so on. Standardizing this
+ * one helper keeps all the colored boxes visually consistent across every
+ * template (instead of each email inventing its own hex values).
+ *
+ * Each tone is tuned for WCAG AA on the dark card: a deep tinted background, a
+ * matching 1px border, an accent title color (used at >=12px bold so it clears
+ * AA), and a near-white body text color. `title` is escaped; `body` is RAW HTML
+ * so callers can include their own escaped interpolations and inline emphasis.
+ */
+function emailCallout(opts: {
+  tone?: 'success' | 'funded' | 'info' | 'warning' | 'danger' | 'neutral'
+  title?: string
+  body: string
+  align?: 'left' | 'center'
+}): string {
+  const tones = {
+    success: { bg: '#10271A', border: '#235638', title: '#6FB783', text: '#DCE9E0' },
+    funded: { bg: '#18123A', border: '#332066', title: '#A78BFA', text: '#E2DBF4' },
+    info: { bg: '#121D33', border: '#284063', title: '#88A9E6', text: '#D7E1F1' },
+    warning: { bg: '#2A2410', border: '#564618', title: '#E0B15A', text: '#ECE1C8' },
+    danger: { bg: '#271414', border: '#582A2A', title: '#F08C8C', text: '#EFDBDB' },
+    neutral: { bg: '#1C1C1C', border: '#2A2A2A', title: '#8A8A87', text: '#D6D6D4' },
+  }
+  const t = tones[opts.tone ?? 'neutral']
+  const align = opts.align ?? 'left'
+  const titleHtml = opts.title
+    ? `<p style="margin:0 0 8px; color:${t.title}; font-size:12px; font-weight:700; line-height:1.3; letter-spacing:0.08em; text-transform:uppercase;">${escapeHtml(opts.title)}</p>`
+    : ''
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 30px;">
+                      <tr>
+                        <td style="background:${t.bg}; border:1px solid ${t.border}; border-radius:12px; padding:18px 20px; text-align:${align};">
+                          ${titleHtml}<div style="color:${t.text}; font-size:14px; font-weight:400; line-height:1.6;">${opts.body}</div>
+                        </td>
+                      </tr>
+                    </table>`
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -641,6 +702,46 @@ function statusColor(status: string): string {
 // Email: New Deal Submitted → Admin
 // ============================================================================
 
+/**
+ * PURE renderer for the admin "New Deal Submitted" notification. Synchronous,
+ * no I/O. Mirrors renderAgentInviteEmail: builds the premium-dark body (kicker,
+ * headline, lead, details card, hero CTA) and returns the wrapped document with
+ * a preheader and the recessed fallback-link shelf for the Review Deal CTA.
+ * Admin-only, so no branding. sendNewDealNotification owns the send.
+ */
+export function renderNewDealEmail(params: {
+  dealId: string
+  propertyAddress: string
+  advanceAmount: number
+  agentName: string
+  brokerageName: string
+  dealNumber?: string | null
+}): string {
+  const reviewUrl = `${APP_URL}/admin/deals/${params.dealId}`
+
+  const body = `${emailKicker('New deal')}
+
+                    ${emailHeadline('New deal submitted.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      A new commission advance request has been submitted and is awaiting your review.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Agent', value: params.agentName ?? '' },
+                      { label: 'Brokerage', value: params.brokerageName ?? '' },
+                      { label: 'Advance Amount', value: formatCurrency(params.advanceAmount), valueColor: '#6FB783', strong: true },
+                    ])}
+
+                    ${emailButton('Review Deal', reviewUrl)}`
+
+  const preheader = `New advance request from ${params.agentName ?? ''} is awaiting your review.`
+
+  return wrap(body, null, preheader, emailFallbackLink(reviewUrl))
+}
+
 export async function sendNewDealNotification(params: {
   dealId: string
   propertyAddress: string
@@ -649,7 +750,7 @@ export async function sendNewDealNotification(params: {
   brokerageName: string
   dealNumber?: string | null
 }): Promise<void> {
-  // Admin-targeted internal notification — no entity preference check, but
+  // Admin-targeted internal notification, no entity preference check, but
   // we still include a List-Unsubscribe header pointing at the generic
   // unsubscribe surface (mailbox providers expect one on notification-class
   // mail) and an "account email" footer in the body.
@@ -657,49 +758,59 @@ export async function sendNewDealNotification(params: {
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}New Deal Submitted: ${params.propertyAddress}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Deal Submitted</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          A new commission advance request has been submitted and is awaiting your review.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Agent</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Advance Amount</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:16px; font-weight:700;">${formatCurrency(params.advanceAmount)}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <a href="${APP_URL}/admin/deals/${params.dealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-          Review Deal
-        </a>
-      `),
+    html: renderNewDealEmail(params),
   })
 }
 
 // ============================================================================
 // Email: New Deal Submitted → Brokerage Admin
 // ============================================================================
+
+/**
+ * PURE renderer for the brokerage-admin "New Advance Request" notification.
+ * Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker, headline, greeting
+ * lead, details card, the "now under review / track from your dashboard" muted
+ * note, then the hero CTA. Carries the brokerage branding through to wrap(), plus
+ * a preheader and the fallback shelf for the dashboard CTA.
+ */
+export function renderBrokerageAdminNewDealEmail(params: {
+  dealId: string
+  propertyAddress: string
+  advanceAmount: number
+  agentName: string
+  brokerageAdminFirstName: string
+  brokerageName: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const firstName = escapeHtml(params.brokerageAdminFirstName ?? '')
+  const dashboardUrl = `${APP_URL}/brokerage`
+
+  const body = `${emailKicker('Advance request')}
+
+                    ${emailHeadline('New advance request.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${firstName}, one of your agents has submitted a commission advance request through Firm Funds.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Agent', value: params.agentName ?? '' },
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Advance Amount', value: formatCurrency(params.advanceAmount), valueColor: '#6FB783', strong: true },
+                    ])}
+
+                    ${emailButton('View Brokerage Dashboard', dashboardUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      This deal is now under review by Firm Funds. You&rsquo;ll be able to track its status from your brokerage dashboard.
+                    </p>`
+
+  const preheader = `${params.agentName ?? ''} submitted a new advance request. Now under review.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(dashboardUrl))
+}
 
 export async function sendBrokerageAdminNewDealNotification(params: {
   dealId: string
@@ -719,48 +830,120 @@ export async function sendBrokerageAdminNewDealNotification(params: {
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}New Advance Request: ${params.agentName}, ${params.propertyAddress}`),
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Advance Request</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.brokerageAdminFirstName ?? '')}, one of your agents has submitted a commission advance request through Firm Funds.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Agent</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.agentName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Advance Amount</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:16px; font-weight:700;">${formatCurrency(params.advanceAmount)}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          This deal is now under review by Firm Funds. You&rsquo;ll be able to track its status from your brokerage dashboard.
-        </p>
-        <a href="${APP_URL}/brokerage" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-          View Brokerage Dashboard
-        </a>
-      `, branding),
+    html: renderBrokerageAdminNewDealEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      advanceAmount: params.advanceAmount,
+      agentName: params.agentName,
+      brokerageAdminFirstName: params.brokerageAdminFirstName,
+      brokerageName: params.brokerageName,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Deal Status Changed → Agent
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "Deal Status Updated" notification. Synchronous,
+ * no I/O. Mirrors renderAgentInviteEmail: kicker, headline, greeting lead, a
+ * details card (Property, Deal Number when present), a centered old -> new status
+ * transition built from two pills joined by an arrow (colors from statusColor),
+ * then the status-dependent callout (approved / funded / denied-with-reason) and
+ * the hero CTA. Carries branding through to wrap(), plus a preheader and the
+ * fallback shelf for the View Deal CTA.
+ */
+export function renderStatusChangeEmail(params: {
+  dealId: string
+  propertyAddress: string
+  oldStatus: string
+  newStatus: string
+  agentFirstName: string
+  denialReason?: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const oldColor = statusColor(params.oldStatus)
+  const newColor = statusColor(params.newStatus)
+  // Pill TEXT uses a lighter variant of each status hue so it clears WCAG AA on
+  // the low-opacity tinted chip (the full-strength statusColor used for the chip
+  // background fails at 13px). The chip background keeps the brand status hue.
+  const pillTextColor = (status: string): string => {
+    const map: Record<string, string> = {
+      under_review: '#6FA8F5',
+      approved: '#6FB783',
+      funded: '#A78BFA',
+      denied: '#F08C8C',
+      cancelled: '#9CA3AF',
+      completed: '#3FC9DD',
+    }
+    return map[status] || '#A1A1A1'
+  }
+  const oldText = pillTextColor(params.oldStatus)
+  const newText = pillTextColor(params.newStatus)
+  const oldLabel = statusLabel(params.oldStatus)
+  const newLabel = statusLabel(params.newStatus)
+  const dealUrl = `${APP_URL}/agent/deals/${params.dealId}`
+
+  // Centered transition: old-status pill, an arrow, new-status pill. Each pill is
+  // a tinted chip whose color comes from statusColor (background at low opacity
+  // via an 8-digit hex alpha suffix), matching the original two-pill treatment.
+  const transition = `<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 30px;">
+                      <tr>
+                        <td style="padding:6px 14px; background:${oldColor}1F; border-radius:8px; color:${oldText}; font-size:13px; font-weight:600; letter-spacing:0.02em;">
+                          ${escapeHtml(oldLabel)}
+                        </td>
+                        <td style="padding:0 14px; color:#8A8A87; font-size:16px;">&rarr;</td>
+                        <td style="padding:6px 14px; background:${newColor}1F; border-radius:8px; color:${newText}; font-size:13px; font-weight:600; letter-spacing:0.02em;">
+                          ${escapeHtml(newLabel)}
+                        </td>
+                      </tr>
+                    </table>`
+
+  let callout = ''
+  if (params.newStatus === 'approved') {
+    callout = emailCallout({
+      tone: 'success',
+      title: 'Approved',
+      body: `You're Approved! Your advance has been approved and will be funded shortly. We'll send another notification once the funds are on the way.`,
+    })
+  } else if (params.newStatus === 'funded') {
+    callout = emailCallout({
+      tone: 'funded',
+      body: `Funds on the Way! Your EFT transfer is being processed and our goal is to have the funds in your account within 24 business hours. We'll keep you posted if anything changes.`,
+    })
+  } else if (params.newStatus === 'denied' && params.denialReason) {
+    callout = emailCallout({
+      tone: 'danger',
+      title: 'Reason',
+      body: escapeHtml(params.denialReason),
+    })
+  }
+
+  const body = `${emailKicker('Deal update')}
+
+                    ${emailHeadline('Deal status updated.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, the status of your deal has been updated.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                    ])}
+
+                    ${transition}
+
+                    ${callout}${emailButton('View Deal', dealUrl)}`
+
+  const preheader = `Your deal for ${params.propertyAddress ?? ''} is now ${newLabel}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(dealUrl))
+}
 
 export async function sendStatusChangeNotification(params: {
   dealId: string
@@ -774,29 +957,7 @@ export async function sendStatusChangeNotification(params: {
   agentId?: string | null
   dealNumber?: string | null
 }): Promise<void> {
-  const color = statusColor(params.newStatus)
   const label = statusLabel(params.newStatus)
-
-  let extraMessage = ''
-  if (params.newStatus === 'approved') {
-    extraMessage = `
-      <div style="margin:16px 0 0; padding:16px; background:#0D2818; border:1px solid #1A4D2E; border-radius:12px; text-align:center;">
-        <p style="margin:0 0 4px; color:#5FA873; font-size:22px; font-weight:700;">You're Approved!</p>
-        <p style="margin:0; color:#E5E5E5; font-size:14px;">Your advance has been approved and will be funded shortly. We'll send another notification once the funds are on the way.</p>
-      </div>`
-  } else if (params.newStatus === 'funded') {
-    extraMessage = `
-      <div style="margin:16px 0 0; padding:16px; background:#1A0D40; border:1px solid #2D1A6E; border-radius:12px; text-align:center;">
-        <p style="margin:0 0 4px; color:#8B5CF6; font-size:22px; font-weight:700;">Funds on the Way!</p>
-        <p style="margin:0; color:#E5E5E5; font-size:14px;">Your EFT transfer is being processed and our goal is to have the funds in your account within 24 business hours. We'll keep you posted if anything changes.</p>
-      </div>`
-  } else if (params.newStatus === 'denied' && params.denialReason) {
-    extraMessage = `
-      <div style="margin:16px 0 0; padding:12px 16px; background:#241010; border:1px solid #422020; border-radius:8px;">
-        <p style="margin:0 0 4px; color:#F87171; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Reason</p>
-        <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.denialReason)}</p>
-      </div>`
-  }
 
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
@@ -814,43 +975,67 @@ export async function sendStatusChangeNotification(params: {
     ),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Deal Status Updated</h2>
-        <p style="margin:0 0 20px; color:#999;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, the status of your deal has been updated.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px; background:#222; border-radius:8px;">
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:15px; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</p>
-              ${params.dealNumber ? `<p style="margin:0 0 12px; color:#737373; font-size:12px;">Deal Number: <span style="color:#E5E5E5;">${escapeHtml(params.dealNumber)}</span></p>` : ''}
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:4px 12px; background:rgba(136,136,136,0.15); border-radius:6px; color:#888; font-size:13px; font-weight:600;">
-                    ${escapeHtml(statusLabel(params.oldStatus))}
-                  </td>
-                  <td style="padding:0 12px; color:#666; font-size:16px;">&rarr;</td>
-                  <td style="padding:4px 12px; background:${color}22; border-radius:6px; color:${color}; font-size:13px; font-weight:600;">
-                    ${escapeHtml(label)}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        ${extraMessage}
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-            View Deal
-          </a>
-        </div>
-      `, branding),
+    html: renderStatusChangeEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      oldStatus: params.oldStatus,
+      newStatus: params.newStatus,
+      agentFirstName: params.agentFirstName,
+      denialReason: params.denialReason,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Document Requested → Agent
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "Document Requested" notification. Synchronous,
+ * no I/O. Mirrors renderAgentInviteEmail: kicker, headline, greeting lead, a
+ * details card (Deal Number when present, Property, the titleized Document Type),
+ * an optional neutral callout carrying the staff note, then the hero CTA. Carries
+ * branding through to wrap(), plus a preheader and the fallback shelf for the
+ * Upload Document CTA.
+ */
+export function renderDocumentRequestEmail(params: {
+  dealId: string
+  propertyAddress: string
+  documentType: string
+  agentFirstName: string
+  message?: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const docTypeLabel = params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const uploadUrl = `${APP_URL}/agent/deals/${params.dealId}`
+
+  const messageCallout = params.message
+    ? emailCallout({ tone: 'neutral', title: 'Note from Firm Funds', body: escapeHtml(params.message) })
+    : ''
+
+  const body = `${emailKicker('Document request')}
+
+                    ${emailHeadline('Document requested.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, Firm Funds has requested a document for your deal.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Document Type', value: docTypeLabel },
+                    ])}
+
+                    ${messageCallout}${emailButton('Upload Document', uploadUrl)}`
+
+  const preheader = `Firm Funds requested ${docTypeLabel} for ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(uploadUrl))
+}
 
 export async function sendDocumentRequestNotification(params: {
   dealId: string
@@ -863,50 +1048,21 @@ export async function sendDocumentRequestNotification(params: {
   agentId?: string | null
   dealNumber?: string | null
 }): Promise<void> {
-  const messageBlock = params.message
-    ? `<div style="margin:16px 0 0; padding:12px 16px; background:#1E1E1E; border-left:3px solid #5FA873; border-radius:0 10px 10px 0; border:1px solid #2A2A2A; border-left:3px solid #5FA873;">
-        <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.message)}</p>
-       </div>`
-    : ''
-
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Document Requested: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Requested</h2>
-        <p style="margin:0 0 20px; color:#999;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, Firm Funds has requested a document for your deal.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Document Type</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${escapeHtml(params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        ${messageBlock}
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-            Upload Document
-          </a>
-        </div>
-      `, branding),
+    html: renderDocumentRequestEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      documentType: params.documentType,
+      agentFirstName: params.agentFirstName,
+      message: params.message,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
@@ -977,7 +1133,7 @@ export async function sendAgentInviteNotification(params: {
     : null
 
   const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
-  // Account-setup email — recipient cannot unsubscribe from being invited.
+  // Account-setup email: recipient cannot unsubscribe from being invited.
   // Marked transactional so we include the List-Unsubscribe header (mailbox
   // providers expect one) but bypass the preference check.
   await sendEmailWithUnsubscribe({
@@ -1000,17 +1156,27 @@ export async function sendAgentInviteNotification(params: {
 // Email: Document Uploaded → Admin
 // ============================================================================
 
-export async function sendDocumentUploadedNotification(params: {
+/**
+ * PURE renderer for the admin "Document Uploaded" notification. Synchronous,
+ * no I/O. Mirrors renderAgentInviteEmail: kicker, headline, the role-aware
+ * "uploaded by" lead sentence, a details card (Deal Number when present,
+ * Property, Uploaded By, the titleized Document Type, File), then the hero CTA.
+ * Admin-only, so no branding; carries a preheader and the fallback shelf for the
+ * Review Deal CTA. The role-dependent lead text and the "Uploaded By" label are
+ * derived here exactly as before; the label is passed raw so emailDetailCard
+ * escapes it once (the lead sentence escapes the name inline).
+ */
+export function renderDocumentUploadedEmail(params: {
   dealId: string
   propertyAddress: string
   documentType: string
   fileName: string
-  agentName: string
   uploaderRole: string
   uploaderName: string
   dealNumber?: string | null
-}): Promise<void> {
-  // Build escaped uploader name once; role labels are server-controlled so safe.
+}): string {
+  // Escaped uploader name for the raw-HTML lead sentence; role labels are
+  // server-controlled so safe.
   const safeUploaderName = escapeHtml(params.uploaderName ?? '')
 
   let uploadedByText: string
@@ -1022,55 +1188,65 @@ export async function sendDocumentUploadedNotification(params: {
     uploadedByText = `${safeUploaderName} has uploaded a new document for review.`
   }
 
-  let uploadedByLabel = safeUploaderName
+  // Raw (unescaped) label for the details card, which escapes it once. The role
+  // suffix is server-controlled, so only the name needs escaping (done by the card).
+  let uploadedByLabel = params.uploaderName ?? ''
   if (params.uploaderRole === 'agent') {
     uploadedByLabel += ' (Agent)'
   } else if (params.uploaderRole === 'brokerage_admin') {
     uploadedByLabel += ' (Brokerage Admin)'
   }
 
-  // Internal admin notification — transactional (admin cannot unsubscribe).
+  const docTypeLabel = params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  const reviewUrl = `${APP_URL}/admin/deals/${params.dealId}`
+
+  const body = `${emailKicker('Document uploaded')}
+
+                    ${emailHeadline('Document uploaded.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${uploadedByText}
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Uploaded By', value: uploadedByLabel },
+                      { label: 'Document Type', value: docTypeLabel },
+                      { label: 'File', value: params.fileName ?? '' },
+                    ])}
+
+                    ${emailButton('Review Deal', reviewUrl)}`
+
+  const preheader = `${uploadedByLabel} uploaded ${docTypeLabel} for ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, null, preheader, emailFallbackLink(reviewUrl))
+}
+
+export async function sendDocumentUploadedNotification(params: {
+  dealId: string
+  propertyAddress: string
+  documentType: string
+  fileName: string
+  agentName: string
+  uploaderRole: string
+  uploaderName: string
+  dealNumber?: string | null
+}): Promise<void> {
+  // Internal admin notification, transactional (admin cannot unsubscribe).
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Document Uploaded: ${params.propertyAddress}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Document Uploaded</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          ${uploadedByText}
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Uploaded By</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${uploadedByLabel}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Document Type</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">File</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.fileName ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <a href="${APP_URL}/admin/deals/${params.dealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-          Review Deal
-        </a>
-      `),
+    html: renderDocumentUploadedEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      documentType: params.documentType,
+      fileName: params.fileName,
+      uploaderRole: params.uploaderRole,
+      uploaderName: params.uploaderName,
+      dealNumber: params.dealNumber,
+    }),
   })
 }
 
@@ -1078,80 +1254,136 @@ export async function sendDocumentUploadedNotification(params: {
 // Email: Closing Date Alert → Admin (daily digest)
 // ============================================================================
 
+/**
+ * PURE renderer for the admin "Closing Date Alert" daily digest. Synchronous,
+ * no I/O, admin-only (no branding). Two dynamic tables in renderInvoiceEmail's
+ * statement language: an OVERDUE table under a danger section heading (the old
+ * siren emoji is removed; urgency is carried by the red heading + red Timeline
+ * cells) and an APPROACHING table under a warning section heading. Each section
+ * renders only when it has rows, exactly as before. Property cells keep their
+ * deep links (red for overdue, green for approaching). Internal ops, so no
+ * preheader and no fallback shelf. CTA targets the admin dashboard.
+ */
+export function renderClosingDateAlertDigestEmail(params: {
+  approachingDeals: { id: string; property_address: string; closing_date: string; days_until_closing: number; advance_amount: number; agent_name: string; status: string }[]
+  overdueDeals: { id: string; property_address: string; closing_date: string; days_overdue: number; advance_amount: number; agent_name: string; status: string }[]
+}): string {
+  const dashboardUrl = `${APP_URL}/admin`
+
+  const tableHeader = `<tr>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Property</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Timeline</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Agent</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Advance</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Status</th>
+                          </tr>`
+
+  const overdueRows = params.overdueDeals.map(d => `<tr>
+                            <td style="padding:11px 16px; font-size:13px; line-height:1.4; border-top:1px solid #232323;">
+                              <a href="${APP_URL}/admin/deals/${d.id}" style="color:#F08C8C; text-decoration:none; font-weight:600;">${escapeHtml(d.property_address ?? '')}</a>
+                            </td>
+                            <td style="padding:11px 16px; color:#F08C8C; font-size:13px; font-weight:600; line-height:1.4; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(String(d.days_overdue))} days overdue</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(d.agent_name ?? '')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(d.advance_amount))}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323; text-transform:capitalize;">${escapeHtml((d.status ?? '').replace(/_/g, ' '))}</td>
+                          </tr>`).join('\n                          ')
+
+  const approachingRows = params.approachingDeals.map(d => `<tr>
+                            <td style="padding:11px 16px; font-size:13px; line-height:1.4; border-top:1px solid #232323;">
+                              <a href="${APP_URL}/admin/deals/${d.id}" style="color:#6FB783; text-decoration:none; font-weight:600;">${escapeHtml(d.property_address ?? '')}</a>
+                            </td>
+                            <td style="padding:11px 16px; color:#E0B15A; font-size:13px; font-weight:600; line-height:1.4; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(String(d.days_until_closing))} days</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(d.agent_name ?? '')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(d.advance_amount))}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323; text-transform:capitalize;">${escapeHtml((d.status ?? '').replace(/_/g, ' '))}</td>
+                          </tr>`).join('\n                          ')
+
+  let sections = ''
+
+  if (params.overdueDeals.length > 0) {
+    sections += `<p style="margin:0 0 12px; color:#F08C8C; font-size:13px; font-weight:700; line-height:1.3; letter-spacing:0.08em; text-transform:uppercase;">${escapeHtml(String(params.overdueDeals.length))} overdue deal${params.overdueDeals.length !== 1 ? 's' : ''}</p>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px; background:#1C1C1C; border:1px solid #582A2A; border-radius:12px; overflow:hidden;">
+                          ${tableHeader}
+                          ${overdueRows}
+                        </table>`
+  }
+
+  if (params.approachingDeals.length > 0) {
+    sections += `<p style="margin:0 0 12px; color:#E0B15A; font-size:13px; font-weight:700; line-height:1.3; letter-spacing:0.08em; text-transform:uppercase;">${escapeHtml(String(params.approachingDeals.length))} approaching closing${params.approachingDeals.length !== 1 ? 's' : ''} (within 7 days)</p>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px; background:#1C1C1C; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
+                          ${tableHeader}
+                          ${approachingRows}
+                        </table>`
+  }
+
+  const body = `${emailKicker('Closing alerts')}
+
+                    ${emailHeadline('Closing date alert.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Here is your daily closing-date digest: deals that are overdue to close and deals approaching their closing date.
+                    </p>
+
+                    ${sections}${emailButton('Open Dashboard', dashboardUrl)}`
+
+  return wrap(body)
+}
+
 export async function sendClosingDateAlertDigest(params: {
   approachingDeals: { id: string; property_address: string; closing_date: string; days_until_closing: number; advance_amount: number; agent_name: string; status: string }[]
   overdueDeals: { id: string; property_address: string; closing_date: string; days_overdue: number; advance_amount: number; agent_name: string; status: string }[]
 }): Promise<void> {
   if (params.approachingDeals.length === 0 && params.overdueDeals.length === 0) return
 
-  const overdueRows = params.overdueDeals.map(d => `
-    <tr>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#F87171; font-size:13px;">
-        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#F87171; text-decoration:none; font-weight:600;">${escapeHtml(d.property_address ?? '')}</a>
-      </td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#F87171; font-size:13px;">${d.days_overdue} days overdue</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${escapeHtml(d.agent_name ?? '')}</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${formatCurrency(d.advance_amount)}</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px; text-transform:capitalize;">${escapeHtml((d.status ?? '').replace(/_/g, ' '))}</td>
-    </tr>
-  `).join('')
-
-  const approachingRows = params.approachingDeals.map(d => `
-    <tr>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">
-        <a href="${APP_URL}/admin/deals/${d.id}" style="color:#5FA873; text-decoration:none; font-weight:600;">${escapeHtml(d.property_address ?? '')}</a>
-      </td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#FCD34D; font-size:13px;">${d.days_until_closing} days</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${escapeHtml(d.agent_name ?? '')}</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px;">${formatCurrency(d.advance_amount)}</td>
-      <td style="padding:8px 12px; border-bottom:1px solid #333; color:#E5E5E5; font-size:13px; text-transform:capitalize;">${escapeHtml((d.status ?? '').replace(/_/g, ' '))}</td>
-    </tr>
-  `).join('')
-
-  const tableHeader = `
-    <tr>
-      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Property</td>
-      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Timeline</td>
-      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Agent</td>
-      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Advance</td>
-      <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Status</td>
-    </tr>`
-
-  let body = `<h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Closing Date Alert</h2>`
-
-  if (params.overdueDeals.length > 0) {
-    body += `
-      <p style="margin:0 0 12px; color:#F87171; font-weight:600; font-size:15px;">⚠ ${params.overdueDeals.length} Overdue Deal${params.overdueDeals.length !== 1 ? 's' : ''}</p>
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
-        ${tableHeader}${overdueRows}
-      </table>`
-  }
-
-  if (params.approachingDeals.length > 0) {
-    body += `
-      <p style="margin:0 0 12px; color:#FCD34D; font-weight:600; font-size:15px;">${params.approachingDeals.length} Approaching Closing${params.approachingDeals.length !== 1 ? 's' : ''} (within 7 days)</p>
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
-        ${tableHeader}${approachingRows}
-      </table>`
-  }
-
-  body += `
-    <a href="${APP_URL}/admin" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-      Open Dashboard
-    </a>`
-
-  // Internal admin digest — transactional (admin cannot unsubscribe).
+  // Internal admin digest: transactional (admin cannot unsubscribe).
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`Closing Date Alert: ${params.overdueDeals.length} overdue, ${params.approachingDeals.length} approaching`),
     transactional: true,
-    html: wrap(body),
+    html: renderClosingDateAlertDigestEmail({
+      approachingDeals: params.approachingDeals,
+      overdueDeals: params.overdueDeals,
+    }),
   })
 }
 
 // ============================================================================
 // 8. KYC Mobile Upload Link
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "Upload Your ID from your phone" notification.
+ * Synchronous, no I/O. This email previously built plain HTML; it is rebuilt onto
+ * wrap() + helpers to mirror renderAgentInviteEmail: kicker, headline, a short
+ * lead, the hero CTA to the secure upload page, and a trailing centered note that
+ * keeps the "expires in N minutes / single use" line plus the safe-to-ignore
+ * line. Carries branding through to wrap(), plus a preheader and the fallback
+ * shelf for the upload link.
+ */
+export function renderKycMobileUploadEmail(params: {
+  agentFirstName: string
+  uploadUrl: string
+  expiresInMinutes: number
+  branding?: BrokerageBranding | null
+}): string {
+  const body = `${emailKicker('ID upload')}
+
+                    ${emailHeadline('Upload your ID.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, you requested to upload your government-issued photo ID from your mobile device. Tap the button below to open the secure upload page.
+                    </p>
+
+                    ${emailButton('Upload My ID', params.uploadUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      This link expires in ${params.expiresInMinutes} minutes and can only be used once. If you didn&rsquo;t request this, you can safely ignore this email.
+                    </p>`
+
+  const preheader = `Open the secure page to upload your ID. Expires in ${params.expiresInMinutes} minutes.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(params.uploadUrl))
+}
 
 export async function sendKycMobileUploadLink(params: {
   agentEmail: string
@@ -1161,19 +1393,7 @@ export async function sendKycMobileUploadLink(params: {
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }) {
-  const body = `
-    <h2 style="margin:0 0 16px; color:#fff; font-size:20px;">Upload Your ID</h2>
-    <p>Hi ${escapeHtml(params.agentFirstName ?? '')},</p>
-    <p>You requested to upload your government-issued photo ID from your mobile device. Tap the button below to open the secure upload page.</p>
-    <div style="text-align:center; margin:28px 0;">
-      <a href="${params.uploadUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
-        Upload My ID
-      </a>
-    </div>
-    <p style="color:#737373; font-size:13px;">This link expires in ${params.expiresInMinutes} minutes and can only be used once.</p>
-    <p style="color:#737373; font-size:13px;">If you didn't request this, you can safely ignore this email.</p>`
-
-  // KYC/identity verification is a regulatory/legal email — transactional so
+  // KYC/identity verification is a regulatory/legal email, transactional so
   // it bypasses the recipient's preference flag.
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
@@ -1182,7 +1402,12 @@ export async function sendKycMobileUploadLink(params: {
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(body, branding),
+    html: renderKycMobileUploadEmail({
+      agentFirstName: params.agentFirstName,
+      uploadUrl: params.uploadUrl,
+      expiresInMinutes: params.expiresInMinutes,
+      branding,
+    }),
   })
 }
 
@@ -1190,13 +1415,52 @@ export async function sendKycMobileUploadLink(params: {
 // 9. KYC Approved → Agent
 // ============================================================================
 
+/**
+ * PURE renderer for the agent "Identity Verified" (KYC approved) notification.
+ * Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead, a
+ * success callout confirming the ID check (the old green-checkmark glyph is
+ * dropped and conveyed by the success tone instead), the "what you can do now"
+ * list as a clean styled <ul> preserving every bullet, then the hero CTA. Carries
+ * branding through to wrap(), plus a preheader and the fallback shelf for the
+ * dashboard CTA.
+ */
+export function renderKycApprovedEmail(params: {
+  agentFirstName: string
+  branding?: BrokerageBranding | null
+}): string {
+  const dashboardUrl = `${APP_URL}/agent`
+
+  const body = `${emailKicker('Account active')}
+
+                    ${emailHeadline('Identity verified.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, your government-issued ID has been verified successfully. Your account is now fully active.
+                    </p>
+
+                    ${emailCallout({ tone: 'success', title: "You're all set", body: 'Your ID check is complete and your account is now fully active.' })}
+
+                    <p style="margin:0 0 10px; color:#F5F5F4; font-size:15px; font-weight:600; line-height:1.4;">What you can do now</p>
+                    <ul style="margin:0 0 30px; padding-left:20px; color:#D6D6D4; font-size:15px; line-height:1.7;">
+                      <li style="margin:0 0 6px;">Submit commission advance requests</li>
+                      <li style="margin:0 0 6px;">Track your deal status in real time</li>
+                      <li style="margin:0 0 6px;">Get funded before your deals close</li>
+                    </ul>
+
+                    ${emailButton('Go to My Dashboard', dashboardUrl)}`
+
+  const preheader = `Your ID is verified. Your Firm Funds account is now fully active.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(dashboardUrl))
+}
+
 export async function sendKycApprovedNotification(params: {
   agentEmail: string
   agentFirstName: string
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
 }): Promise<void> {
-  // KYC approval is a regulatory/legal notice — transactional.
+  // KYC approval is a regulatory/legal notice: transactional.
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
@@ -1204,32 +1468,56 @@ export async function sendKycApprovedNotification(params: {
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(`
-        <div style="text-align:center; padding:12px 0 24px;">
-          <div style="display:inline-block; width:56px; height:56px; border-radius:50%; background:#0D2818; border:2px solid #1A4D2E; line-height:56px; font-size:28px;">✓</div>
-        </div>
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; text-align:center;">Identity Verified!</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5; text-align:center;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, your government-issued ID has been verified successfully. Your account is now fully active.
-        </p>
-        <div style="padding:20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; margin-bottom:24px;">
-          <p style="margin:0 0 8px; color:#5FA873; font-weight:600; font-size:15px;">What you can do now:</p>
-          <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px;">• Submit commission advance requests</p>
-          <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px;">• Track your deal status in real time</p>
-          <p style="margin:0; color:#E5E5E5; font-size:14px;">• Get funded before your deals close</p>
-        </div>
-        <div style="text-align:center;">
-          <a href="${APP_URL}/agent" style="display:inline-block; padding:14px 36px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:15px;">
-            Go to My Dashboard
-          </a>
-        </div>
-      `, branding),
+    html: renderKycApprovedEmail({
+      agentFirstName: params.agentFirstName,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Document Returned → Agent
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "Document Returned" notification. Synchronous,
+ * no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead, a details card
+ * (Deal Number when present, Property, Document), a danger callout carrying the
+ * return reason, then the hero CTA. Urgency is conveyed by the danger callout,
+ * not a red button (the CTA is the standard green emailButton). Carries branding
+ * through to wrap(), plus a preheader and the fallback shelf for the deep link.
+ */
+export function renderDocumentReturnEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  documentName: string
+  reason: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const fixUrl = `${APP_URL}/agent/deals/${params.dealId}#returned-docs`
+
+  const body = `${emailKicker('Action required')}
+
+                    ${emailHeadline('Document returned.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, a document for your deal has been returned and needs attention. This may cause delays in processing your advance.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Document', value: params.documentName ?? '' },
+                    ])}
+
+                    ${emailCallout({ tone: 'danger', title: 'Reason for return', body: escapeHtml(params.reason ?? '') })}${emailButton('View & Fix Document', fixUrl)}`
+
+  const preheader = `A document for ${params.propertyAddress ?? ''} was returned and needs attention.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(fixUrl))
+}
 
 export async function sendDocumentReturnNotification(params: {
   dealId: string
@@ -1249,47 +1537,61 @@ export async function sendDocumentReturnNotification(params: {
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Action Required: Document Returned for ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#F87171; font-size:20px;">Document Returned</h2>
-        <p style="margin:0 0 20px; color:#999;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, a document for your deal has been returned and needs attention. This may cause delays in processing your advance.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Document</td>
-                  <td style="padding:6px 0; color:#F87171; font-size:14px; font-weight:600;">${escapeHtml(params.documentName ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <div style="margin:16px 0; padding:12px 16px; background:#2A1212; border-left:3px solid #F87171; border-radius:0 8px 8px 0;">
-          <p style="margin:0 0 4px; color:#F87171; font-size:12px; font-weight:600;">REASON FOR RETURN</p>
-          <p style="margin:0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.reason ?? '')}</p>
-        </div>
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}#returned-docs" style="display:inline-block; padding:12px 28px; background:#F87171; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-            View & Fix Document
-          </a>
-        </div>
-      `, branding),
+    html: renderDocumentReturnEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      documentName: params.documentName,
+      reason: params.reason,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Deal Message → Agent
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "New Message" (deal thread) notification.
+ * Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead, a
+ * details card (Deal Number when present, Property, From), the quoted message in
+ * a neutral callout (pre-wrap so line breaks survive), then the hero CTA. Carries
+ * branding through to wrap(), plus a preheader and the fallback shelf for the
+ * deep link.
+ */
+export function renderDealMessageEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  message: string
+  senderName: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const replyUrl = `${APP_URL}/agent/deals/${params.dealId}#messages`
+
+  const body = `${emailKicker('New message')}
+
+                    ${emailHeadline('New message.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName)}, you have a new message regarding your deal.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'From', value: params.senderName ?? '' },
+                    ])}
+
+                    ${emailCallout({ tone: 'neutral', title: 'Message', body: `<span style="white-space:pre-wrap;">${escapeHtml(params.message)}</span>` })}${emailButton('Reply', replyUrl)}`
+
+  const preheader = `New message from ${params.senderName ?? ''} about ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(replyUrl))
+}
 
 export async function sendDealMessageNotification(params: {
   dealId: string
@@ -1309,40 +1611,94 @@ export async function sendDealMessageNotification(params: {
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Message from Firm Funds: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">New Message</h2>
-        <p style="margin:0 0 20px; color:#999;">
-          Hi ${escapeHtml(params.agentFirstName)}, you have a new message regarding your deal.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
-          ${params.dealNumber ? `<tr>
-            <td style="padding:8px 0; color:#737373; font-size:13px; width:100px;">Deal Number</td>
-            <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.dealNumber)}</td>
-          </tr>` : ''}
-          <tr>
-            <td style="padding:8px 0; color:#737373; font-size:13px; width:100px;">Property</td>
-            <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.propertyAddress)}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px 0; color:#737373; font-size:13px;">From</td>
-            <td style="padding:6px 0; color:#5FA873; font-size:14px; font-weight:600;">${escapeHtml(params.senderName)}</td>
-          </tr>
-        </table>
-        <div style="margin:16px 0; padding:12px 16px; background:#1E1E1E; border-left:3px solid #5FA873; border-radius:0 10px 10px 0; border:1px solid #2A2A2A; border-left:3px solid #5FA873;">
-          <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.6;">${escapeHtml(params.message).replace(/\n/g, '<br>')}</p>
-        </div>
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}#messages" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-            Reply
-          </a>
-        </div>
-      `, branding),
+    html: renderDealMessageEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      message: params.message,
+      senderName: params.senderName,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Invoice → Agent
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "Invoice" notification. Synchronous, no I/O.
+ * Mirrors renderAgentInviteEmail: kicker, headline, lead, a summary details card
+ * (Invoice #, Amount Due in green, Due Date), then, when line items exist, a
+ * brand-green statement table that preserves every line (description + formatted
+ * amount) plus a Total row, a trailing remittance note, and the hero CTA. The
+ * old gold/amber invoice theme is retired in favor of brand green. The send fn
+ * owns the date formatting and reshapes the line items (it passes the display
+ * dueDate string and the { description, amount } rows in); the renderer builds
+ * the row HTML. Carries branding through to wrap(), plus a preheader and the
+ * fallback shelf for the account CTA.
+ */
+export function renderInvoiceEmail(params: {
+  invoiceNumber: string
+  agentName: string
+  amountDue: number
+  dueDate: string
+  lineItems: { description: string; amount: number }[]
+  branding?: BrokerageBranding | null
+}): string {
+  const accountUrl = `${APP_URL}/agent`
+  const amountDueStr = formatCurrency(params.amountDue)
+
+  const lineItemsHtml = params.lineItems
+    .map(
+      (item) => `<tr>
+                              <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(item.description ?? '')}</td>
+                              <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(item.amount))}</td>
+                            </tr>`
+    )
+    .join('\n                            ')
+
+  const statementTable = params.lineItems.length > 0
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 30px; background:#1C1C1C; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
+                          <tr>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Description</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Amount</th>
+                          </tr>
+                          ${lineItemsHtml}
+                          <tr>
+                            <td style="padding:13px 16px; color:#6FB783; font-size:14px; font-weight:700; border-top:1px solid #2A2A2A; background:#10271A;">Total</td>
+                            <td style="padding:13px 16px; color:#6FB783; font-size:14px; font-weight:700; text-align:right; border-top:1px solid #2A2A2A; background:#10271A; white-space:nowrap;">${escapeHtml(amountDueStr)}</td>
+                          </tr>
+                        </table>`
+    : ''
+
+  const body = `${emailKicker('Invoice')}
+
+                    ${emailHeadline(`Invoice ${params.invoiceNumber ?? ''}.`)}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentName ?? '')}, please find your invoice below for outstanding charges on your Firm Funds account.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Invoice #', value: params.invoiceNumber ?? '', strong: true },
+                      { label: 'Amount Due', value: amountDueStr, valueColor: '#6FB783', strong: true },
+                      { label: 'Due Date', value: params.dueDate ?? '' },
+                    ])}
+
+                    ${statementTable}
+
+                    <p style="margin:0 0 30px; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55;">
+                      Please remit payment at your earliest convenience. If you have questions about this invoice, reply to this email or contact us at support@firmfunds.ca.
+                    </p>
+
+                    ${emailButton('View My Account', accountUrl)}`
+
+  const preheader = `Invoice ${params.invoiceNumber ?? ''}: ${amountDueStr} due ${params.dueDate ?? ''}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(accountUrl))
+}
 
 export async function sendInvoiceNotification(params: {
   invoiceNumber: string
@@ -1357,14 +1713,7 @@ export async function sendInvoiceNotification(params: {
   const formatMoney = (n: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n)
   const formatDateStr = (d: string) => new Date(d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
 
-  const lineItemsHtml = params.lineItems.map(item => `
-    <tr>
-      <td style="padding:8px 12px; color:#E5E5E5; font-size:13px; border-bottom:1px solid #333;">${escapeHtml(item.description ?? '')}</td>
-      <td style="padding:8px 12px; color:#E5E5E5; font-size:13px; text-align:right; border-bottom:1px solid #333;">${formatMoney(item.amount)}</td>
-    </tr>
-  `).join('')
-
-  // Invoices are billing/legal documents — transactional, must bypass the
+  // Invoices are billing/legal documents: transactional, must bypass the
   // recipient's promotional opt-out.
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
@@ -1373,59 +1722,58 @@ export async function sendInvoiceNotification(params: {
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#D4A04A; font-size:20px;">Invoice ${escapeHtml(params.invoiceNumber ?? '')}</h2>
-        <p style="margin:0 0 20px; color:#999;">
-          Hi ${escapeHtml(params.agentName ?? '')}, please find your invoice below for outstanding charges on your Firm Funds account.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Invoice #</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.invoiceNumber ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Amount Due</td>
-                  <td style="padding:6px 0; color:#D4A04A; font-size:16px; font-weight:700;">${formatMoney(params.amount)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Due Date</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(formatDateStr(params.dueDate))}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        ${params.lineItems.length > 0 ? `
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
-          <tr style="background:#222;">
-            <th style="padding:10px 12px; color:#999; font-size:12px; text-align:left; text-transform:uppercase;">Description</th>
-            <th style="padding:10px 12px; color:#999; font-size:12px; text-align:right; text-transform:uppercase;">Amount</th>
-          </tr>
-          ${lineItemsHtml}
-          <tr style="background:#222;">
-            <td style="padding:10px 12px; color:#D4A04A; font-size:14px; font-weight:700;">Total</td>
-            <td style="padding:10px 12px; color:#D4A04A; font-size:14px; font-weight:700; text-align:right;">${formatMoney(params.amount)}</td>
-          </tr>
-        </table>
-        ` : ''}
-        <p style="margin:16px 0; color:#737373; font-size:13px;">
-          Please remit payment at your earliest convenience. If you have questions about this invoice, reply to this email or contact us at support@firmfunds.ca.
-        </p>
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/agent" style="display:inline-block; padding:12px 28px; background:#D4A04A; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-            View My Account
-          </a>
-        </div>
-      `, branding),
+    html: renderInvoiceEmail({
+      invoiceNumber: params.invoiceNumber,
+      agentName: params.agentName,
+      amountDue: params.amount,
+      dueDate: formatDateStr(params.dueDate),
+      lineItems: params.lineItems.map((item) => ({ description: item.description, amount: item.amount })),
+      branding,
+    }),
   })
 }
 
 // ============================================================================
-// Brokerage message notification — sent to admin when brokerage sends a message
+// Brokerage message notification: sent to admin when brokerage sends a message
 // ============================================================================
+
+/**
+ * PURE renderer for the admin "New Message from Brokerage" notification.
+ * Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead, a
+ * details card (Deal Number when present, Property, From) carrying the context
+ * the original lead sentence held, the quoted message in a neutral callout
+ * (pre-wrap so line breaks survive), then the hero CTA. Admin-only, so no
+ * branding; carries a preheader and the fallback shelf for the deep link.
+ */
+export function renderBrokerageMessageEmail(params: {
+  dealId: string
+  propertyAddress: string
+  senderName: string
+  message: string
+  dealNumber?: string | null
+}): string {
+  const replyUrl = `${APP_URL}/admin/deals/${params.dealId}#messages`
+
+  const body = `${emailKicker('New message')}
+
+                    ${emailHeadline('New message from brokerage.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${escapeHtml(params.senderName)} sent a message about ${escapeHtml(params.propertyAddress)}.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'From', value: params.senderName ?? '' },
+                    ])}
+
+                    ${emailCallout({ tone: 'neutral', title: 'Message', body: `<span style="white-space:pre-wrap;">${escapeHtml(params.message)}</span>` })}${emailButton('View Deal & Reply', replyUrl)}`
+
+  const preheader = `${params.senderName ?? ''} messaged about ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, null, preheader, emailFallbackLink(replyUrl))
+}
 
 export async function sendBrokerageMessageNotification(params: {
   dealId: string
@@ -1434,29 +1782,84 @@ export async function sendBrokerageMessageNotification(params: {
   message: string
   dealNumber?: string | null
 }) {
-  // Internal admin notification — transactional.
+  // Internal admin notification: transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Brokerage message: ${params.propertyAddress}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">New Message from Brokerage</h2>
-        <p style="margin:0 0 8px; color:#E5E5E5;">${escapeHtml(params.senderName)} sent a message about <strong>${escapeHtml(params.propertyAddress)}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''}:</p>
-        <div style="margin:16px 0; padding:16px; background:#1A1A1A; border-left:3px solid #5FA873; border-radius:0 8px 8px 0;">
-          <p style="margin:0; color:#E5E5E5; font-size:14px; white-space:pre-wrap;">${escapeHtml(params.message)}</p>
-        </div>
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/admin/deals/${params.dealId}#messages" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-            View Deal & Reply
-          </a>
-        </div>
-      `),
+    html: renderBrokerageMessageEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      senderName: params.senderName,
+      message: params.message,
+      dealNumber: params.dealNumber,
+    }),
   })
 }
 
 // ============================================================================
-// Brokerage deal status notification — sent to brokerage when deal status changes
+// Brokerage deal status notification: sent to brokerage when deal status changes
 // ============================================================================
+
+/**
+ * PURE renderer for the brokerage "Deal Status Update" notification. Synchronous,
+ * no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead, then a details
+ * card (Deal Number when present, Property, Agent, New Status) and the hero CTA.
+ * Preserves this email's OWN status label/color maps: the New Status row is shown
+ * strong in that map's color, the card-row equivalent of the original status pill.
+ * Carries branding through to wrap(), plus a preheader and the fallback shelf for
+ * the Brokerage Portal CTA.
+ */
+export function renderBrokerageStatusEmail(params: {
+  propertyAddress: string
+  agentName: string
+  newStatus: string
+  dealId: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const statusLabels: Record<string, string> = {
+    under_review: 'Under Review',
+    approved: 'Approved',
+    funded: 'Funded',
+    completed: 'Completed',
+    denied: 'Denied',
+    cancelled: 'Cancelled',
+  }
+  const statusColors: Record<string, string> = {
+    under_review: '#D4A04A',
+    approved: '#5FA873',
+    funded: '#57BE73',
+    completed: '#5FB8A0',
+    denied: '#EF4444',
+    cancelled: '#9CA3AF',
+  }
+
+  const label = statusLabels[params.newStatus] || params.newStatus
+  const color = statusColors[params.newStatus] || '#D4A04A'
+  const portalUrl = `${APP_URL}/brokerage`
+
+  const body = `${emailKicker('Deal update')}
+
+                    ${emailHeadline('Deal status update.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      A deal submitted by one of your agents has been updated.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Agent', value: params.agentName ?? '' },
+                      { label: 'New Status', value: label, valueColor: color, strong: true },
+                    ])}
+
+                    ${emailButton('View in Brokerage Portal', portalUrl)}`
+
+  const preheader = `${params.propertyAddress ?? ''} is now ${label}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(portalUrl))
+}
 
 export async function sendBrokerageStatusNotification(params: {
   brokerageEmail: string
@@ -1477,17 +1880,8 @@ export async function sendBrokerageStatusNotification(params: {
     denied: 'Denied',
     cancelled: 'Cancelled',
   }
-  const statusColors: Record<string, string> = {
-    under_review: '#D4A04A',
-    approved: '#5FA873',
-    funded: '#1A7A2E',
-    completed: '#5FB8A0',
-    denied: '#EF4444',
-    cancelled: '#9CA3AF',
-  }
 
   const label = statusLabels[params.newStatus] || params.newStatus
-  const color = statusColors[params.newStatus] || '#D4A04A'
 
   const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
@@ -1495,47 +1889,61 @@ export async function sendBrokerageStatusNotification(params: {
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Deal ${label}: ${params.propertyAddress}`),
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; font-size:20px; color:#fff;">Deal Status Update</h2>
-        <p style="margin:0 0 16px; color:#E5E5E5;">A deal submitted by one of your agents has been updated.</p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:12px 16px; background:#1A1A1A; border-radius:8px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:4px 0; color:#737373; font-size:13px;">Deal Number</td>
-                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right; font-weight:600;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:4px 0; color:#737373; font-size:13px;">Property</td>
-                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0; color:#737373; font-size:13px;">Agent</td>
-                  <td style="padding:4px 0; color:#fff; font-size:13px; text-align:right;">${escapeHtml(params.agentName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0; color:#737373; font-size:13px;">New Status</td>
-                  <td style="padding:4px 0; font-size:13px; text-align:right;">
-                    <span style="display:inline-block; padding:4px 12px; background:${color}20; color:${color}; border-radius:4px; font-weight:600; font-size:12px;">${escapeHtml(label)}</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <div style="margin-top:24px;">
-          <a href="${APP_URL}/brokerage" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-            View in Brokerage Portal
-          </a>
-        </div>
-      `, branding),
+    html: renderBrokerageStatusEmail({
+      propertyAddress: params.propertyAddress,
+      agentName: params.agentName,
+      newStatus: params.newStatus,
+      dealId: params.dealId,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Brokerage Admin Invite Email
 // ============================================================================
+
+/**
+ * PURE renderer for the brokerage-admin onboarding invite. Synchronous, no I/O.
+ * Mirrors renderAgentInviteEmail (the Welcome email): kicker, headline, lead, a
+ * details card (Brokerage, Email), the hero CTA, and a trailing expiry note.
+ * Carries a preheader and the fallback shelf for the unique invite link, and
+ * takes the resolved brokerage branding the send fn passes through.
+ */
+export function renderBrokerageInviteEmail(params: {
+  adminName: string
+  brokerageName: string
+  adminEmail: string
+  inviteUrl: string
+  branding?: BrokerageBranding | null
+}): string {
+  const adminName = escapeHtml(params.adminName ?? '')
+  const brokerage = escapeHtml(params.brokerageName ?? '')
+
+  const body = `${emailKicker('Account setup')}
+
+                    ${emailHeadline('Welcome to Firm Funds.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${adminName}, your Firm Funds Brokerage Portal account has been created for ${brokerage}. You can now manage your agents&rsquo; commission advance activity online. Set your password to activate it.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Brokerage', value: params.brokerageName ?? '' },
+                      { label: 'Email', value: params.adminEmail ?? '' },
+                    ])}
+
+                    ${emailButton('Set Up My Account', params.inviteUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      This link expires in 72 hours.
+                    </p>`
+
+  const preheader = `Your ${params.brokerageName ?? ''} brokerage portal is ready. Set your password to get started.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(params.inviteUrl))
+}
 
 export async function sendBrokerageInviteNotification(params: {
   adminName: string
@@ -1547,7 +1955,7 @@ export async function sendBrokerageInviteNotification(params: {
 }): Promise<void> {
   const inviteUrl = `${APP_URL}/invite/${params.inviteToken}`
 
-  // Account-setup email — transactional, recipient cannot opt out of getting
+  // Account-setup email: transactional, recipient cannot opt out of getting
   // invited.
   const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
@@ -1556,39 +1964,13 @@ export async function sendBrokerageInviteNotification(params: {
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Welcome to Firm Funds!</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.adminName ?? '')}, your Firm Funds Brokerage Portal account has been created for <strong>${escapeHtml(params.brokerageName ?? '')}</strong>. You can now manage your agents' commission advance activity online.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Email</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.adminEmail ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          Click the button below to set your password and access your brokerage portal. This link expires in 72 hours.
-        </p>
-        <div style="text-align:center; margin:28px 0;">
-          <a href="${inviteUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
-            Set Up My Account
-          </a>
-        </div>
-        <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
-          <a href="${inviteUrl}" style="color:#5FA873; word-break:break-all;">${inviteUrl}</a>
-        </p>
-      `, branding),
+    html: renderBrokerageInviteEmail({
+      adminName: params.adminName,
+      brokerageName: params.brokerageName,
+      adminEmail: params.adminEmail,
+      inviteUrl,
+      branding,
+    }),
   })
 }
 
@@ -1596,19 +1978,52 @@ export async function sendBrokerageInviteNotification(params: {
 // Password Reset Email (admin-triggered)
 // ============================================================================
 
+/**
+ * PURE renderer for the admin-triggered password reset. Synchronous, no I/O.
+ * Mirrors renderAgentInviteEmail: kicker, headline, lead, the hero CTA, and a
+ * trailing note carrying the original "expires / if you didn't request this"
+ * copy. Carries a preheader and the fallback shelf for the unique reset link,
+ * and takes the resolved branding the send fn passes through.
+ */
+export function renderPasswordResetEmail(params: {
+  recipientName: string
+  resetUrl: string
+  branding?: BrokerageBranding | null
+}): string {
+  const recipientName = escapeHtml(params.recipientName ?? '')
+
+  const body = `${emailKicker('Password reset')}
+
+                    ${emailHeadline('Reset your password.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${recipientName}, a Firm Funds administrator has reset your password. Use the button below to set a new one.
+                    </p>
+
+                    ${emailButton('Set New Password', params.resetUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      This link expires in 72 hours. If you did not request this, please contact your administrator.
+                    </p>`
+
+  const preheader = 'A Firm Funds administrator reset your password. Set a new one to sign in.'
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(params.resetUrl))
+}
+
 export async function sendPasswordResetNotification(params: {
   recipientName: string
   recipientEmail: string
   inviteToken: string
   roleName: string // e.g. "Agent" or "Brokerage Admin"
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   brokerageId?: string | null
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   agentId?: string | null
 }): Promise<void> {
   const resetUrl = `${APP_URL}/invite/${params.inviteToken}`
 
-  // Password resets are security-critical — transactional. We do not attach
+  // Password resets are security-critical: transactional. We do not attach
   // an entity here because the same reset flow services both agents and
   // brokerage admins and the caller doesn't necessarily know which.
   const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
@@ -1616,23 +2031,11 @@ export async function sendPasswordResetNotification(params: {
     to: params.recipientEmail,
     subject: sanitizeSubject(`Firm Funds: Password Reset`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Password Reset</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.recipientName ?? '')}, a Firm Funds administrator has reset your password. Please click the button below to set a new password.
-        </p>
-        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          This link expires in 72 hours. If you did not request this, please contact your administrator.
-        </p>
-        <div style="text-align:center; margin:28px 0;">
-          <a href="${resetUrl}" style="display:inline-block; padding:16px 44px; background:#5FA873; color:#fff; text-decoration:none; border-radius:12px; font-weight:700; font-size:16px; letter-spacing:0.02em;">
-            Set New Password
-          </a>
-        </div>
-        <p style="color:#666; font-size:12px;">If the button doesn't work, copy and paste this link into your browser:<br/>
-          <a href="${resetUrl}" style="color:#5FA873; word-break:break-all;">${resetUrl}</a>
-        </p>
-      `, branding),
+    html: renderPasswordResetEmail({
+      recipientName: params.recipientName,
+      resetUrl,
+      branding,
+    }),
   })
 }
 
@@ -1640,47 +2043,67 @@ export async function sendPasswordResetNotification(params: {
 // Email Change Notification
 // ============================================================================
 
+/**
+ * PURE renderer for the "login email changed" security notice (sent to the OLD
+ * address). Synchronous, no I/O. Security-only, so NO button and NO fallback
+ * shelf. Kicker, headline, lead, a details card (Old Email in red, New Email in
+ * green), then a danger callout carrying the "if you did not request this"
+ * line. Takes the resolved branding the send fn passes through.
+ */
+export function renderEmailChangeEmail(params: {
+  recipientName: string
+  oldEmail: string
+  newEmail: string
+  branding?: BrokerageBranding | null
+}): string {
+  const recipientName = escapeHtml(params.recipientName ?? '')
+
+  const body = `${emailKicker('Security alert')}
+
+                    ${emailHeadline('Your login email changed.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${recipientName}, your Firm Funds login email has been changed by an administrator. Please use your new email address to sign in going forward.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Old Email', value: params.oldEmail ?? '', valueColor: '#F08C8C' },
+                      { label: 'New Email', value: params.newEmail ?? '', valueColor: '#6FB783' },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Did not expect this?',
+                      body: `If you did not request this change, contact Firm Funds immediately at <a href="mailto:${escapeHtml(ADMIN_EMAIL)}" style="color:#F08C8C; text-decoration:underline;">${escapeHtml(ADMIN_EMAIL)}</a>.`,
+                    })}`
+
+  const preheader = 'Your Firm Funds login email was changed by an administrator.'
+
+  return wrap(body, params.branding, preheader)
+}
+
 export async function sendEmailChangeNotification(params: {
   recipientName: string
   oldEmail: string
   newEmail: string
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   brokerageId?: string | null
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   agentId?: string | null
 }): Promise<void> {
-  // Security notification to the OLD email — transactional, no preference
+  // Security notification to the OLD email: transactional, no preference
   // check (we never want to suppress a "your account changed" warning).
   const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.oldEmail,
     subject: sanitizeSubject(`Firm Funds: Your Login Email Has Been Changed`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Email Address Changed</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.recipientName ?? '')}, your Firm Funds login email has been changed by an administrator.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Old Email</td>
-                  <td style="padding:6px 0; color:#EF4444; font-size:14px;">${escapeHtml(params.oldEmail ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">New Email</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(params.newEmail ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          Please use your new email address to log in going forward. If you did not expect this change, contact Firm Funds immediately.
-        </p>
-      `, branding),
+    html: renderEmailChangeEmail({
+      recipientName: params.recipientName,
+      oldEmail: params.oldEmail,
+      newEmail: params.newEmail,
+      branding,
+    }),
   })
 }
 
@@ -1693,54 +2116,74 @@ export async function sendEmailChangeNotification(params: {
 // useful for detecting tampering without re-leaking the PII back to whichever
 // inbox the email lands in (forwarded mail, mailing lists, etc).
 
+/**
+ * PURE renderer for the "phone number updated" security notice. Synchronous, no
+ * I/O. Security-only, so NO button and NO fallback shelf. Kicker, headline,
+ * lead, a details card (Previous masked last-4 in red, Updated To masked last-4
+ * in green, When), then a danger callout carrying the "if this wasn't you"
+ * line. The masked displays and the When timestamp are computed by the send fn
+ * exactly as before and passed in. Takes the resolved agent branding.
+ */
+export function renderAgentPhoneChangedEmail(params: {
+  recipientName: string
+  oldDisplay: string
+  newDisplay: string
+  whenDisplay: string
+  branding?: BrokerageBranding | null
+}): string {
+  const recipientName = escapeHtml(params.recipientName ?? '')
+
+  const body = `${emailKicker('Security alert')}
+
+                    ${emailHeadline('Your phone number was updated.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${recipientName}, the phone number on your Firm Funds agent profile was just updated.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Previous', value: params.oldDisplay, valueColor: '#F08C8C' },
+                      { label: 'Updated To', value: params.newDisplay, valueColor: '#6FB783' },
+                      { label: 'When', value: params.whenDisplay },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Was this you?',
+                      body: `If you didn&rsquo;t make this change, sign in, reset your password, and contact Firm Funds support at <a href="mailto:${escapeHtml(ADMIN_EMAIL)}" style="color:#F08C8C; text-decoration:underline;">${escapeHtml(ADMIN_EMAIL)}</a>. Your session may be compromised.`,
+                    })}`
+
+  const preheader = 'The phone number on your Firm Funds profile was just updated.'
+
+  return wrap(body, params.branding, preheader)
+}
+
 export async function sendAgentPhoneChangedNotification(params: {
   recipientEmail: string
   recipientName: string
   oldPhoneLast4: string | null
   newPhoneLast4: string | null
   changedAtIso: string
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   agentId?: string | null
 }): Promise<void> {
   const oldDisplay = params.oldPhoneLast4 ? `*** *** ${params.oldPhoneLast4}` : 'not on file'
   const newDisplay = params.newPhoneLast4 ? `*** *** ${params.newPhoneLast4}` : 'cleared'
 
-  // Security warning — transactional. Recipient must NOT be able to silence
+  // Security warning: transactional. Recipient must NOT be able to silence
   // these by unsubscribing.
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.recipientEmail,
     subject: sanitizeSubject('Your Firm Funds phone number was updated'),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Phone Number Updated</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi ${escapeHtml(params.recipientName)}, the phone number on your Firm Funds agent profile was just updated.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Previous</td>
-                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(oldDisplay)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Updated To</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(newDisplay)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">When</td>
-                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(new Date(params.changedAtIso).toUTCString())}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
-          If you didn't make this change, sign in, reset your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your session may be compromised.
-        </p>
-      `, branding),
+    html: renderAgentPhoneChangedEmail({
+      recipientName: params.recipientName,
+      oldDisplay,
+      newDisplay,
+      whenDisplay: new Date(params.changedAtIso).toUTCString(),
+      branding,
+    }),
   })
 }
 
@@ -1753,17 +2196,55 @@ export async function sendAgentPhoneChangedNotification(params: {
 // Until the recipient acts, the brokerage continues to receive notifications
 // at the previously-verified address.
 
+/**
+ * PURE renderer for the "confirm your new contact email" message (sent to the
+ * NEW address). Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker,
+ * headline, lead, the hero CTA, and a trailing note carrying the expiry plus
+ * the "if you didn't request this, ignore" copy. Carries a preheader and the
+ * fallback shelf for the unique confirm link, and takes the resolved brokerage
+ * branding the send fn passes through.
+ */
+export function renderBrokerageContactEmailConfirmEmail(params: {
+  brokerageName: string
+  newEmail: string
+  confirmUrl: string
+  expiresLabel: string
+  branding?: BrokerageBranding | null
+}): string {
+  const brokerage = escapeHtml(params.brokerageName ?? '')
+  const newEmail = escapeHtml(params.newEmail ?? '')
+  const expiresLabel = escapeHtml(params.expiresLabel ?? '')
+
+  const body = `${emailKicker('Confirm email')}
+
+                    ${emailHeadline('Confirm your email.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      A Firm Funds administrator at ${brokerage} requested that this address (${newEmail}) become the brokerage&rsquo;s primary contact email. Use the button below to confirm.
+                    </p>
+
+                    ${emailButton('Confirm Email Change', params.confirmUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      This link expires on ${expiresLabel}. If you didn&rsquo;t request this change, simply ignore this email and the brokerage&rsquo;s contact address will remain unchanged.
+                    </p>`
+
+  const preheader = `Confirm this address as the primary contact email for ${params.brokerageName ?? ''}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(params.confirmUrl))
+}
+
 export async function sendBrokerageContactEmailConfirm(params: {
   brokerageName: string
   newEmail: string
   confirmUrl: string
   expiresAtIso: string
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   brokerageId?: string | null
 }): Promise<void> {
   const expiresLabel = new Date(params.expiresAtIso).toUTCString()
 
-  // Email address change confirmation — transactional. Note we do NOT mint a
+  // Email address change confirmation: transactional. Note we do NOT mint a
   // brokerage unsubscribe token here because the recipient may not yet be
   // the brokerage's confirmed contact.
   const branding = await getBrandingForBrokerage(params.brokerageId)
@@ -1771,25 +2252,13 @@ export async function sendBrokerageContactEmailConfirm(params: {
     to: params.newEmail,
     subject: sanitizeSubject(`Confirm new contact email for ${params.brokerageName}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Confirm Your Email</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          A Firm Funds administrator at <strong>${escapeHtml(params.brokerageName)}</strong> requested that this address (${escapeHtml(params.newEmail)}) become the brokerage's primary contact email.
-        </p>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Click the button below to confirm. The link expires on ${escapeHtml(expiresLabel)}.
-        </p>
-        <table cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
-          <tr>
-            <td style="background:#5FA873; border-radius:8px;">
-              <a href="${escapeHtml(params.confirmUrl)}" style="display:inline-block; padding:12px 24px; color:#0A0A0A; font-weight:600; text-decoration:none;">Confirm Email Change</a>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 8px; color:#737373; font-size:13px;">
-          If you didn't request this change, simply ignore this email. The brokerage's contact address will remain unchanged.
-        </p>
-      `, branding),
+    html: renderBrokerageContactEmailConfirmEmail({
+      brokerageName: params.brokerageName,
+      newEmail: params.newEmail,
+      confirmUrl: params.confirmUrl,
+      expiresLabel,
+      branding,
+    }),
   })
 }
 
@@ -1801,54 +2270,72 @@ export async function sendBrokerageContactEmailConfirm(params: {
 // confirms. Gives the legitimate owner early warning of a possible stolen
 // session even though the actual flip hasn't happened yet.
 
+/**
+ * PURE renderer for the "contact email change requested" security warning (sent
+ * to the OLD address, before the new one confirms). Synchronous, no I/O.
+ * Security-only, so NO button and NO fallback shelf. Kicker, headline, lead, a
+ * details card (Current Email, Requested Email in green, Action Expires), the
+ * "only takes effect once confirmed" reassurance line, then a danger callout
+ * carrying the "if you didn't request this" copy. Takes the resolved brokerage
+ * branding the send fn passes through.
+ */
+export function renderBrokerageContactEmailChangeRequestedEmail(params: {
+  brokerageName: string
+  oldEmail: string
+  newEmail: string
+  expiresLabel: string
+  branding?: BrokerageBranding | null
+}): string {
+  const brokerage = escapeHtml(params.brokerageName ?? '')
+
+  const body = `${emailKicker('Security alert')}
+
+                    ${emailHeadline('Contact email change requested.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      A request was made to change the contact email for ${brokerage}. The change will only take effect once someone at the requested address clicks the confirmation link in their inbox. Your current address will keep receiving all brokerage notifications until then.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Current Email', value: params.oldEmail ?? '' },
+                      { label: 'Requested Email', value: params.newEmail ?? '', valueColor: '#6FB783' },
+                      { label: 'Action Expires', value: params.expiresLabel ?? '' },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Did not request this?',
+                      body: `If you didn&rsquo;t request this change, sign in immediately, change your password, and contact Firm Funds support at <a href="mailto:${escapeHtml(ADMIN_EMAIL)}" style="color:#F08C8C; text-decoration:underline;">${escapeHtml(ADMIN_EMAIL)}</a>. Your administrator session may be compromised.`,
+                    })}`
+
+  const preheader = `A request was made to change the contact email for ${params.brokerageName ?? ''}.`
+
+  return wrap(body, params.branding, preheader)
+}
+
 export async function sendBrokerageContactEmailChangeRequested(params: {
   brokerageName: string
   oldEmail: string
   newEmail: string
   expiresAtIso: string
-  /** Optional — when known, used to render the brokerage's logo in the header. Migration 096. */
+  /** Optional: when known, used to render the brokerage's logo in the header. Migration 096. */
   brokerageId?: string | null
 }): Promise<void> {
   const expiresLabel = new Date(params.expiresAtIso).toUTCString()
 
-  // Security warning to the OLD email — transactional, no preference check.
+  // Security warning to the OLD email: transactional, no preference check.
   const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.oldEmail,
     subject: sanitizeSubject(`Contact email change requested for ${params.brokerageName}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Contact Email Change Requested</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          Hi, a request was made to change the contact email for <strong>${escapeHtml(params.brokerageName)}</strong>.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:140px;">Current Email</td>
-                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.oldEmail)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Requested Email</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:14px;">${escapeHtml(params.newEmail)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Action Expires</td>
-                  <td style="padding:6px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(expiresLabel)}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          The change will only take effect once someone at the requested address clicks the confirmation link in their inbox. Your current address will continue receiving all brokerage notifications until then.
-        </p>
-        <p style="margin:0 0 8px; color:#EF4444; font-size:13px;">
-          If you didn't request this change, sign in immediately, change your password, and contact Firm Funds support at ${escapeHtml(ADMIN_EMAIL)}. Your administrator session may be compromised.
-        </p>
-      `, branding),
+    html: renderBrokerageContactEmailChangeRequestedEmail({
+      brokerageName: params.brokerageName,
+      oldEmail: params.oldEmail,
+      newEmail: params.newEmail,
+      expiresLabel,
+      branding,
+    }),
   })
 }
 
@@ -1856,38 +2343,112 @@ export async function sendBrokerageContactEmailChangeRequested(params: {
 // Banking Submission Notification (to Admin)
 // ============================================================================
 
+/**
+ * PURE renderer for the admin "banking info submitted" notification.
+ * Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead,
+ * the hero CTA to the admin review page. Admin-only, so no branding and no
+ * fallback shelf (the CTA is a stable internal page, not a unique action link);
+ * carries a preheader. The agent name + email are interpolated into the lead
+ * exactly as before.
+ */
+export function renderBankingSubmittedEmail(params: {
+  agentName: string
+  agentEmail: string
+}): string {
+  const agentName = escapeHtml(params.agentName ?? '')
+  const agentEmail = escapeHtml(params.agentEmail ?? '')
+
+  const body = `${emailKicker('Banking')}
+
+                    ${emailHeadline('Banking info submitted.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${agentName} (${agentEmail}) has submitted their banking information for review and approval.
+                    </p>
+
+                    ${emailButton('Review Banking Info', `${APP_URL}/admin`)}`
+
+  const preheader = `${params.agentName ?? ''} submitted banking information for review.`
+
+  return wrap(body, null, preheader)
+}
+
 export async function sendBankingSubmittedNotification(params: {
   agentName: string
   agentEmail: string
 }) {
-  // Internal admin notification — transactional.
+  // Internal admin notification: transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`Banking Info Submitted: ${params.agentName}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
-          Banking Info Submitted
-        </h2>
-        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          <strong style="color:#E5E5E5;">${escapeHtml(params.agentName ?? '')}</strong> (${escapeHtml(params.agentEmail ?? '')}) has submitted their banking information for review and approval.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/admin" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                Review Banking Info
-              </a>
-            </td>
-          </tr>
-        </table>
-      `),
+    html: renderBankingSubmittedEmail({
+      agentName: params.agentName,
+      agentEmail: params.agentEmail,
+    }),
   })
 }
 
 // ============================================================================
 // Banking Approval/Rejection Notification (to Agent)
 // ============================================================================
+
+/**
+ * PURE renderer for the agent "banking approved / action required" notice.
+ * Synchronous, no I/O. Conditional on `approved`: the APPROVED branch is a
+ * success callout confirming verification, with NO button (mirrors the
+ * original). The REJECTED branch is a danger callout (carrying the optional
+ * reason only when present), a "please update and resubmit" line, and the
+ * "Update Banking Info" CTA. No fallback shelf either way (the CTA targets a
+ * stable internal page, not a unique action link). Takes the resolved agent
+ * branding the send fn passes through.
+ */
+export function renderBankingApprovalEmail(params: {
+  agentName: string
+  approved: boolean
+  reason?: string
+  branding?: BrokerageBranding | null
+}): string {
+  const agentName = escapeHtml(params.agentName ?? '')
+
+  const body = params.approved
+    ? `${emailKicker('Banking')}
+
+                    ${emailHeadline('Banking info approved.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${agentName}, your banking information has been verified and approved.
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'success',
+                      title: 'You are all set',
+                      body: `Your banking details are verified, so you&rsquo;re all set to receive commission advances.`,
+                    })}`
+    : `${emailKicker('Banking')}
+
+                    ${emailHeadline('Action required.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${agentName}, your banking information could not be approved at this time. Please update your banking information and resubmit.
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Banking info not approved',
+                      body: params.reason
+                        ? `<strong style="color:#F08C8C;">Reason:</strong> ${escapeHtml(params.reason)}`
+                        : `Your banking information could not be approved at this time. Update your details and resubmit to continue.`,
+                    })}
+
+                    ${emailButton('Update Banking Info', `${APP_URL}/agent/profile`)}`
+
+  const preheader = params.approved
+    ? 'Your banking information has been verified and approved.'
+    : 'Your banking information needs an update before it can be approved.'
+
+  return wrap(body, params.branding, preheader)
+}
 
 export async function sendBankingApprovalNotification(params: {
   agentEmail: string
@@ -1901,47 +2462,7 @@ export async function sendBankingApprovalNotification(params: {
     ? 'Banking Info Approved'
     : 'Banking Info: Action Required'
 
-  const body = params.approved
-    ? `
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em; font-weight:600;">
-          Banking Info Approved
-        </h2>
-        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          Hi ${escapeHtml(params.agentName ?? '')}, your banking information has been verified and approved. You're all set to receive commission advances!
-        </p>
-      `
-      : `
-        <h2 style="margin:0 0 16px; color:#EF4444; font-size:20px; font-weight:600;">
-          Banking Info Not Approved
-        </h2>
-        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          Hi ${escapeHtml(params.agentName ?? '')}, your banking information could not be approved at this time.
-        </p>
-        ${params.reason ? `
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
-          <tr>
-            <td style="padding:12px 16px; background:#2A1212; border:1px solid #4A2020; border-radius:8px;">
-              <p style="margin:0; color:#E07B7B; font-size:13px; font-weight:600;">Reason:</p>
-              <p style="margin:4px 0 0; color:#BCBBB8; font-size:14px;">${escapeHtml(params.reason)}</p>
-            </td>
-          </tr>
-        </table>
-        ` : ''}
-        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px;">
-          Please update your banking information and resubmit.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/agent/profile" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                Update Banking Info
-              </a>
-            </td>
-          </tr>
-        </table>
-      `
-
-  // Banking approval/rejection is an account-status notice — transactional.
+  // Banking approval/rejection is an account-status notice: transactional.
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
@@ -1949,13 +2470,57 @@ export async function sendBankingApprovalNotification(params: {
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(body, branding),
+    html: renderBankingApprovalEmail({
+      agentName: params.agentName,
+      approved: params.approved,
+      reason: params.reason,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
-// Agent Message Notification (to Admin — agent sent a message)
+// Agent Message Notification (to Admin: agent sent a message)
 // ============================================================================
+
+/**
+ * PURE renderer for the admin "New Message from Agent" notification.
+ * Synchronous, no I/O. Mirrors renderAgentInviteEmail: kicker, headline, lead, a
+ * details card (Deal Number when present, Property, From) carrying the context
+ * the original lead sentence held, the quoted message in a neutral callout
+ * (pre-wrap so line breaks survive), then the hero CTA. The original was NOT
+ * monospaced (it used the default sans body font and only pre-wrap to keep line
+ * breaks), so normal text in the callout is faithful. Admin-only, so no branding;
+ * carries a preheader and the fallback shelf for the messages CTA.
+ */
+export function renderAgentMessageEmail(params: {
+  propertyAddress: string
+  agentName: string
+  message: string
+  dealNumber?: string | null
+}): string {
+  const replyUrl = `${APP_URL}/admin/messages`
+
+  const body = `${emailKicker('New message')}
+
+                    ${emailHeadline('New message from agent.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${escapeHtml(params.agentName)} sent a message about ${escapeHtml(params.propertyAddress)}.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'From', value: params.agentName ?? '' },
+                    ])}
+
+                    ${emailCallout({ tone: 'neutral', title: 'Message', body: `<span style="white-space:pre-wrap;">${escapeHtml(params.message)}</span>` })}${emailButton('View & Reply', replyUrl)}`
+
+  const preheader = `${params.agentName ?? ''} messaged about ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, null, preheader, emailFallbackLink(replyUrl))
+}
 
 export async function sendAgentMessageNotification(params: {
   dealId: string
@@ -1964,35 +2529,17 @@ export async function sendAgentMessageNotification(params: {
   message: string
   dealNumber?: string | null
 }) {
-  // Internal admin notification — transactional.
+  // Internal admin notification: transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Message from ${params.agentName}: ${params.propertyAddress}`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px; font-weight:600;">
-          New Message from Agent
-        </h2>
-        <p style="margin:0 0 8px; color:#BCBBB8; font-size:14px;">
-          <strong style="color:#7B9FE0;">${escapeHtml(params.agentName)}</strong> sent a message about <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress)}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''}:
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;">
-          <tr>
-            <td style="padding:12px 16px; background:#1A2240; border-left:3px solid #7B9FE0; border-radius:0 8px 8px 0;">
-              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5; white-space:pre-wrap;">${escapeHtml(params.message).replace(/\n/g, '<br/>')}</p>
-            </td>
-          </tr>
-        </table>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/admin/messages" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                View &amp; Reply
-              </a>
-            </td>
-          </tr>
-        </table>
-      `),
+    html: renderAgentMessageEmail({
+      propertyAddress: params.propertyAddress,
+      agentName: params.agentName,
+      message: params.message,
+      dealNumber: params.dealNumber,
+    }),
   })
 }
 
@@ -2013,7 +2560,7 @@ interface SettlementReminderParams {
   daysRemaining: number // 14, 7, or 0 (closing day)
   /**
    * Days elapsed since the settlement due date. Only used by the
-   * payment check-in variant (always positive — by definition the check-in
+   * payment check-in variant (always positive, by definition the check-in
    * fires after the due date has passed). Closing-day variant ignores it.
    */
   daysSinceDue?: number
@@ -2033,52 +2580,113 @@ function formatReminderCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount)
 }
 
-/** Closing day reminder — "Deal closed! Brokerage has the settlement window to remit payment." */
+/**
+ * PURE renderer for the closing-day settlement reminder. ONE renderer covers
+ * both recipients via `audience`, reproducing each variant's exact copy + link:
+ *
+ * - agent: greeting by first name, the closing-date-arrived + days-to-remit
+ *   lead, a detail card (Deal Number when present, Amount Due as a green strong
+ *   value), the Payment Due Date as an info callout, a late-interest caution as
+ *   a warning callout, and a View Deal CTA into the agent deal page (with the
+ *   fallback shelf).
+ * - brokerage: the shorter "closing date for {property} ({agent}'s deal) has
+ *   arrived" + please-remit-by-{date} copy, a detail card (Deal Number when
+ *   present, Amount Due green strong), and NO callouts and NO button, exactly as
+ *   the original brokerage variant.
+ *
+ * Both recipients share the brokerage's branding (passed in by the send fn).
+ */
+export function renderSettlementReminderClosingDayEmail(params: {
+  audience: 'agent' | 'brokerage'
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  amountDueFromBrokerage: number
+  dueDate: string
+  daysRemaining: number
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const firstName = escapeHtml(params.agentFirstName ?? '')
+  const property = escapeHtml(params.propertyAddress ?? '')
+  const amount = formatReminderCurrency(params.amountDueFromBrokerage)
+  const dueDateLabel = formatReminderDate(params.dueDate)
+  const dealNumberRow = params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []
+
+  if (params.audience === 'brokerage') {
+    const body = `${emailKicker('Payment due')}
+
+                    ${emailHeadline('Closing day payment reminder.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      The expected closing date for ${property} (${firstName}&rsquo;s deal) has arrived. Please remit payment of ${amount} to Firm Funds by ${escapeHtml(dueDateLabel)}.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...dealNumberRow,
+                      { label: 'Amount Due', value: amount, valueColor: '#6FB783', strong: true },
+                    ])}`
+
+    const preheader = `Closing day for ${params.propertyAddress ?? ''}: remit ${amount} by ${dueDateLabel}.`
+    return wrap(body, params.branding, preheader)
+  }
+
+  // audience === 'agent'
+  const viewUrl = `${APP_URL}/agent/deals/${params.dealId}`
+  const body = `${emailKicker('Payment due')}
+
+                    ${emailHeadline('Closing day payment reminder.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${firstName}, the expected closing date for ${property} has arrived. Your brokerage has ${params.daysRemaining} days to remit payment of ${amount} to Firm Funds.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...dealNumberRow,
+                      { label: 'Amount Due', value: amount, valueColor: '#6FB783', strong: true },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'info',
+                      title: 'Payment Due Date',
+                      body: escapeHtml(dueDateLabel),
+                    })}
+
+                    ${emailCallout({
+                      tone: 'warning',
+                      body: 'Late payment interest at 24% per annum (compounded daily) only begins accruing if the payment remains outstanding 30 days after closing. We will be in touch with your brokerage if payment is delayed.',
+                    })}
+
+                    ${emailButton('View Deal', viewUrl)}`
+
+  const preheader = `Closing day for ${params.propertyAddress ?? ''}: ${amount} due by ${dueDateLabel}.`
+  return wrap(body, params.branding, preheader, emailFallbackLink(viewUrl))
+}
+
+/** Closing day reminder: "Deal closed, brokerage has the settlement window to remit payment." */
 export async function sendSettlementReminderClosingDay(params: SettlementReminderParams) {
   // Both the agent body and the brokerage body should show the brokerage's
   // logo (same brokerage for both, so one lookup covers it).
   const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
-  const agentBody = wrap(`
-    <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-      Closing Day: Payment Reminder
-    </h2>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${escapeHtml(params.agentFirstName ?? '')}, the expected closing date for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> has arrived.
-    </p>
-    ${params.dealNumber ? `<p style="margin:0 0 12px; color:#737373; font-size:13px;">Deal Number: <strong style="color:#E5E5E5;">${escapeHtml(params.dealNumber)}</strong></p>` : ''}
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Your brokerage has <strong style="color:#5FA873;">${params.daysRemaining} days</strong> to remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds.
-    </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-      <tr>
-        <td style="padding:16px;">
-          <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Due Date</p>
-          <p style="margin:0; color:#5FA873; font-size:18px; font-weight:600;">${escapeHtml(formatReminderDate(params.dueDate))}</p>
-        </td>
-      </tr>
-    </table>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-      Late payment interest at 24% per annum (compounded daily) only begins accruing if the payment remains outstanding 30 days after closing. We will be in touch with your brokerage if payment is delayed.
-    </p>
-    <table width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td align="center" style="padding:12px 0;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-            View Deal
-          </a>
-        </td>
-      </tr>
-    </table>
-  `, branding)
 
-  // Send to agent. Promotional-class reminder — entity preference is
-  // honoured. If the agent has unsubscribed they won't get the nag.
+  // Send to agent. Promotional-class reminder, entity preference is honoured.
+  // If the agent has unsubscribed they won't get the nag.
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Closing Day: Payment due by ${formatReminderDate(params.dueDate)} (${params.propertyAddress})`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: agentBody,
+    html: renderSettlementReminderClosingDayEmail({
+      audience: 'agent',
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      amountDueFromBrokerage: params.amountDueFromBrokerage,
+      dueDate: params.dueDate,
+      daysRemaining: params.daysRemaining,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 
   // Send to brokerage (when a primary contact email is on file).
@@ -2088,24 +2696,23 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
       subject: sanitizeSubject(`${dealTag(params.dealNumber)}Closing Day: Payment due by ${formatReminderDate(params.dueDate)} (${params.propertyAddress})`),
       entityType: params.brokerageId ? 'brokerage' : undefined,
       entityId: params.brokerageId ?? undefined,
-      html: wrap(`
-          <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-            Closing Day: Payment Reminder
-          </h2>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            The expected closing date for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> (${escapeHtml(params.agentFirstName ?? '')}'s deal) has arrived.
-          </p>
-          ${params.dealNumber ? `<p style="margin:0 0 12px; color:#737373; font-size:13px;">Deal Number: <strong style="color:#E5E5E5;">${escapeHtml(params.dealNumber)}</strong></p>` : ''}
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            Please remit payment of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> to Firm Funds by <strong style="color:#5FA873;">${escapeHtml(formatReminderDate(params.dueDate))}</strong>.
-          </p>
-        `, branding),
+      html: renderSettlementReminderClosingDayEmail({
+        audience: 'brokerage',
+        dealId: params.dealId,
+        propertyAddress: params.propertyAddress,
+        agentFirstName: params.agentFirstName,
+        amountDueFromBrokerage: params.amountDueFromBrokerage,
+        dueDate: params.dueDate,
+        daysRemaining: params.daysRemaining,
+        dealNumber: params.dealNumber,
+        branding,
+      }),
     })
   }
 }
 
 /**
- * Payment check-in — fires after the brokerage's settlement window has
+ * Payment check-in: fires after the brokerage's settlement window has
  * passed and the payment has not yet been received. Toned-down, informational
  * ("we're checking in") rather than accusatory or urgent. Sent both to the
  * agent and (when on file) the brokerage's primary contact.
@@ -2116,55 +2723,128 @@ export async function sendSettlementReminderClosingDay(params: SettlementReminde
  * brokerages get it on day 15 (1 day past due). Caller computes
  * `daysSinceDue` and passes it through for the body copy.
  */
-export async function sendSettlementReminderPaymentCheckIn(params: SettlementReminderParams) {
+/**
+ * PURE renderer for the post-window payment check-in. ONE renderer covers both
+ * recipients via `audience`, reproducing each variant's exact copy + link:
+ *
+ * - agent: "Hi {firstName}, we wanted to follow up..." + the "we haven't yet
+ *   received the {amount} remittance from {brokerage}..." line + the "already
+ *   sent, please disregard / else follow up with your brokerage administrator"
+ *   note, plus a View Deal CTA into the agent deal page (with the fallback shelf).
+ * - brokerage: "Hi {brokerageName}, following up on the advance payment..." + the
+ *   "we haven't yet received your remittance of {amount}..." line + the "already
+ *   sent, disregard / else remit at your earliest convenience" note, and NO
+ *   button, exactly as the original brokerage variant.
+ *
+ * Both variants share the same Deal Number row (when present) and the same
+ * late-payment-interest explanation, rendered as an info callout. That legal /
+ * financial wording is preserved verbatim. The day-count phrasing and the
+ * "your brokerage" name fallback are derived here exactly as the send fn did.
+ * Both recipients share the brokerage's branding (passed in by the send fn).
+ */
+export function renderSettlementReminderPaymentCheckInEmail(params: {
+  audience: 'agent' | 'brokerage'
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  brokerageName?: string
+  amountDueFromBrokerage: number
+  dueDate: string
+  daysSinceDue?: number
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
   const daysSinceDue = params.daysSinceDue ?? 0
   const daysAgoText = daysSinceDue === 1 ? '1 day ago' : `${daysSinceDue} days ago`
   const dueDateLabel = formatReminderDate(params.dueDate)
   const brokerageName = params.brokerageName ?? 'your brokerage'
 
-  const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
-  const agentBody = wrap(`
-    <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-      Payment Check-In
-    </h2>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to follow up on the payment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>.
-    </p>
-    ${params.dealNumber ? `<p style="margin:0 0 12px; color:#737373; font-size:13px;">Deal Number: <strong style="color:#E5E5E5;">${escapeHtml(params.dealNumber)}</strong></p>` : ''}
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      We haven't yet received the <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong> remittance from <strong style="color:#E5E5E5;">${escapeHtml(brokerageName)}</strong> for this advance. The settlement deadline was <strong style="color:#E5E5E5;">${escapeHtml(dueDateLabel)}</strong> (${daysAgoText}).
-    </p>
-    <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-      If the payment has already been sent, please disregard (there can be a 1-2 day delay in processing). If not, please follow up with your brokerage administrator.
-    </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-      <tr>
-        <td style="padding:16px;">
-          <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-            Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing. There's still time to remit before that kicks in.
-          </p>
-        </td>
-      </tr>
-    </table>
-    <table width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td align="center" style="padding:12px 0;">
-          <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-            View Deal
-          </a>
-        </td>
-      </tr>
-    </table>
-  `, branding)
+  const firstName = escapeHtml(params.agentFirstName ?? '')
+  const property = escapeHtml(params.propertyAddress ?? '')
+  const amount = formatReminderCurrency(params.amountDueFromBrokerage)
+  const dealNumberRow = params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []
 
-  // Send to agent. Promotional-class reminder — entity preference is
-  // honoured. If the agent has unsubscribed they won't get the nag.
+  // Identical legal / financial copy for both recipients. Preserved verbatim.
+  const lateInterestCallout = emailCallout({
+    tone: 'info',
+    body: 'Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing. There&rsquo;s still time to remit before that kicks in.',
+  })
+
+  if (params.audience === 'brokerage') {
+    const body = `${emailKicker('Payment check-in')}
+
+                    ${emailHeadline('Payment check-in.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(brokerageName)}, following up on the advance payment for ${property} (agent: ${firstName}).
+                    </p>
+
+                    ${dealNumberRow.length ? emailDetailCard(dealNumberRow) : ''}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      We haven&rsquo;t yet received your remittance of ${amount}. The settlement deadline was ${escapeHtml(dueDateLabel)} (${escapeHtml(daysAgoText)}).
+                    </p>
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      If you&rsquo;ve already sent it, please disregard. If not, please remit at your earliest convenience.
+                    </p>
+
+                    ${lateInterestCallout}`
+
+    const preheader = `Following up: ${amount} for ${params.propertyAddress ?? ''} was due ${dueDateLabel}.`
+    return wrap(body, params.branding, preheader)
+  }
+
+  // audience === 'agent'
+  const viewUrl = `${APP_URL}/agent/deals/${params.dealId}`
+  const body = `${emailKicker('Payment check-in')}
+
+                    ${emailHeadline('Payment check-in.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${firstName}, we wanted to follow up on the payment for ${property}.
+                    </p>
+
+                    ${dealNumberRow.length ? emailDetailCard(dealNumberRow) : ''}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      We haven&rsquo;t yet received the ${amount} remittance from ${escapeHtml(brokerageName)} for this advance. The settlement deadline was ${escapeHtml(dueDateLabel)} (${escapeHtml(daysAgoText)}).
+                    </p>
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      If the payment has already been sent, please disregard (there can be a 1-2 day delay in processing). If not, please follow up with your brokerage administrator.
+                    </p>
+
+                    ${lateInterestCallout}
+
+                    ${emailButton('View Deal', viewUrl)}`
+
+  const preheader = `Following up on the ${amount} payment for ${params.propertyAddress ?? ''}.`
+  return wrap(body, params.branding, preheader, emailFallbackLink(viewUrl))
+}
+
+export async function sendSettlementReminderPaymentCheckIn(params: SettlementReminderParams) {
+  const branding = await getBrandingForBrokerage(params.brokerageId) || await getBrandingForAgent(params.agentId)
+
+  // Send to agent. Promotional-class reminder, entity preference is honoured.
+  // If the agent has unsubscribed they won't get the nag.
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Payment Check-In: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: agentBody,
+    html: renderSettlementReminderPaymentCheckInEmail({
+      audience: 'agent',
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      brokerageName: params.brokerageName,
+      amountDueFromBrokerage: params.amountDueFromBrokerage,
+      dueDate: params.dueDate,
+      daysSinceDue: params.daysSinceDue,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 
   // Send to brokerage (when a primary contact email is on file). Same
@@ -2175,30 +2855,18 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
       subject: sanitizeSubject(`${dealTag(params.dealNumber)}Payment Check-In: ${params.propertyAddress}`),
       entityType: params.brokerageId ? 'brokerage' : undefined,
       entityId: params.brokerageId ?? undefined,
-      html: wrap(`
-          <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-            Payment Check-In
-          </h2>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            Hi ${escapeHtml(brokerageName)}, following up on the advance payment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong> (agent: ${escapeHtml(params.agentFirstName ?? '')}).
-          </p>
-          ${params.dealNumber ? `<p style="margin:0 0 12px; color:#737373; font-size:13px;">Deal Number: <strong style="color:#E5E5E5;">${escapeHtml(params.dealNumber)}</strong></p>` : ''}
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            We haven't yet received your remittance of <strong style="color:#E5E5E5;">${formatReminderCurrency(params.amountDueFromBrokerage)}</strong>. The settlement deadline was <strong style="color:#E5E5E5;">${escapeHtml(dueDateLabel)}</strong> (${daysAgoText}).
-          </p>
-          <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-            If you've already sent it, please disregard. If not, please remit at your earliest convenience.
-          </p>
-          <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-            <tr>
-              <td style="padding:16px;">
-                <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-                  Late payment interest at 24% per annum (compounded daily) begins accruing 30 days after closing. There's still time to remit before that kicks in.
-                </p>
-              </td>
-            </tr>
-          </table>
-        `, branding),
+      html: renderSettlementReminderPaymentCheckInEmail({
+        audience: 'brokerage',
+        dealId: params.dealId,
+        propertyAddress: params.propertyAddress,
+        agentFirstName: params.agentFirstName,
+        brokerageName: params.brokerageName,
+        amountDueFromBrokerage: params.amountDueFromBrokerage,
+        dueDate: params.dueDate,
+        daysSinceDue: params.daysSinceDue,
+        dealNumber: params.dealNumber,
+        branding,
+      }),
     })
   }
 }
@@ -2206,6 +2874,51 @@ export async function sendSettlementReminderPaymentCheckIn(params: SettlementRem
 // ============================================================================
 // Closing Date Amendment Notifications
 // ============================================================================
+
+/**
+ * PURE renderer for the admin "closing date amendment requested" notification.
+ * Synchronous, no I/O, admin-only (no branding). The original blue date box
+ * becomes a two-row detail card (Original Closing Date / Proposed New Closing
+ * Date), both dates in the default value color. Carries a preheader and the
+ * fallback shelf for the Review Amendment CTA into the admin deal page.
+ */
+export function renderAmendmentRequestedEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentName: string
+  oldClosingDate: string
+  newClosingDate: string
+  dealNumber?: string | null
+}): string {
+  const agent = escapeHtml(params.agentName ?? '')
+  const property = escapeHtml(params.propertyAddress ?? '')
+  const dealNumberSuffix = params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''
+  const reviewUrl = `${APP_URL}/admin/deals/${params.dealId}`
+
+  const body = `${emailKicker('Amendment request')}
+
+                    ${emailHeadline('Closing date amendment requested.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${agent} has requested a closing date amendment for ${property}${dealNumberSuffix}.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Original Closing Date', value: formatReminderDate(params.oldClosingDate) },
+                      { label: 'Proposed New Closing Date', value: formatReminderDate(params.newClosingDate) },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'info',
+                      body: 'The agent has uploaded the executed amendment document. Please review and approve or reject the request.',
+                    })}
+
+                    ${emailButton('Review Amendment', reviewUrl)}`
+
+  const preheader = `${params.agentName ?? ''} requested a closing date change for ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, null, preheader, emailFallbackLink(reviewUrl))
+}
 
 /** Notify admin that an agent has requested a closing date amendment */
 export async function sendAmendmentRequestedNotification(params: {
@@ -2216,42 +2929,66 @@ export async function sendAmendmentRequestedNotification(params: {
   newClosingDate: string
   dealNumber?: string | null
 }) {
-  // Internal admin notification — transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Closing Date Amendment Requested: ${params.propertyAddress}`),
-    transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-          Closing Date Amendment Requested
-        </h2>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          <strong style="color:#7B9FE0;">${escapeHtml(params.agentName ?? '')}</strong> has requested a closing date amendment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''}.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-          <tr>
-            <td style="padding:16px;">
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Original Closing Date</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:16px; font-weight:600;">${escapeHtml(formatReminderDate(params.oldClosingDate))}</p>
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Proposed New Closing Date</p>
-              <p style="margin:0; color:#5FA873; font-size:16px; font-weight:600;">${escapeHtml(formatReminderDate(params.newClosingDate))}</p>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-          The agent has uploaded the executed amendment document. Please review and approve or reject the request.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/admin/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                Review Amendment
-              </a>
-            </td>
-          </tr>
-        </table>
-      `),
+    transactional: true, // internal admin notification, transactional class
+    html: renderAmendmentRequestedEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentName: params.agentName,
+      oldClosingDate: params.oldClosingDate,
+      newClosingDate: params.newClosingDate,
+      dealNumber: params.dealNumber,
+    }),
   })
+}
+
+/**
+ * PURE renderer for the agent "closing date amendment approved" notification.
+ * Synchronous, no I/O. The original blue date box becomes a two-row detail card
+ * (New Closing Date in the default value color, Updated Advance Amount as a
+ * green strong money value). The sign-the-amendment instruction sits in an info
+ * callout. Branded with the agent's brokerage logo; carries a preheader and the
+ * fallback shelf for the View Deal CTA into the agent deal page.
+ */
+export function renderAmendmentApprovedEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  newClosingDate: string
+  newAdvanceAmount: number
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const firstName = escapeHtml(params.agentFirstName ?? '')
+  const property = escapeHtml(params.propertyAddress ?? '')
+  const dealNumberSuffix = params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''
+  const viewUrl = `${APP_URL}/agent/deals/${params.dealId}`
+
+  const body = `${emailKicker('Amendment approved')}
+
+                    ${emailHeadline('Closing date amendment approved.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${firstName}, your closing date amendment for ${property}${dealNumberSuffix} has been approved.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'New Closing Date', value: formatReminderDate(params.newClosingDate) },
+                      { label: 'Updated Advance Amount', value: formatReminderCurrency(params.newAdvanceAmount), valueColor: '#6FB783', strong: true },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'info',
+                      body: 'You will receive a separate email to review and sign an Amendment to the Commission Purchase Agreement. Signing it finalizes the change.',
+                    })}
+
+                    ${emailButton('View Deal', viewUrl)}`
+
+  const preheader = `Your closing date change for ${params.propertyAddress ?? ''} was approved.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(viewUrl))
 }
 
 /** Notify agent that their closing date amendment was approved */
@@ -2272,42 +3009,114 @@ export async function sendAmendmentApprovedNotification(params: {
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Amendment Approved: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-          Closing Date Amendment Approved
-        </h2>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, your closing date amendment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''} has been approved.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-          <tr>
-            <td style="padding:16px;">
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">New Closing Date</p>
-              <p style="margin:0 0 12px; color:#5FA873; font-size:16px; font-weight:600;">${escapeHtml(formatReminderDate(params.newClosingDate))}</p>
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Updated Advance Amount</p>
-              <p style="margin:0; color:#E5E5E5; font-size:18px; font-weight:600;">${formatReminderCurrency(params.newAdvanceAmount)}</p>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-          You will receive a separate email from DocuSign with an Amendment to the Commission Purchase Agreement. Please review and sign it to finalize the amendment.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                View Deal
-              </a>
-            </td>
-          </tr>
-        </table>
-      `, branding),
+    html: renderAmendmentApprovedEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      newClosingDate: params.newClosingDate,
+      newAdvanceAmount: params.newAdvanceAmount,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Monthly white-label profit-share statement → Brokerage (Session 34)
 // ============================================================================
+
+/**
+ * PURE renderer for the brokerage "Monthly Profit-Share Statement". Synchronous,
+ * no I/O. Mirrors renderInvoiceEmail's statement table: a header row of uppercase
+ * muted labels, body rows split by 1px #232323 dividers (numerics right-aligned,
+ * money in #D6D6D4, the kept-share column green #6FB783 when still unremitted),
+ * wrapped in the #1C1C1C / #2A2A2A rounded card. The empty-state spans all six
+ * columns exactly as before. The asterisk on each unremitted share and its
+ * footnote are preserved verbatim, and the period summary (Total earned this
+ * period, Pending remittance) renders as an info callout. Branded with the
+ * brokerage logo; carries a preheader and the fallback shelf for the dashboard
+ * CTA. The send fn still resolves branding + builds the rows array + totals.
+ */
+export function renderMonthlyBrokerStatementEmail(params: {
+  brokerageName: string
+  periodLabel: string
+  rows: Array<{
+    propertyAddress: string
+    agentName: string
+    fundingDate: string | null
+    discountFee: number
+    pct: number
+    brokerShare: number
+    remitted: boolean
+  }>
+  totalEarned: number
+  totalUnremitted: number
+  branding?: BrokerageBranding | null
+}): string {
+  const dashboardUrl = `${APP_URL}/brokerage`
+
+  const rowsHtml = params.rows.length === 0
+    ? `<tr>
+                            <td colspan="6" style="padding:18px 16px; color:#8A8A87; font-size:13px; line-height:1.4; text-align:center; border-top:1px solid #232323;">No funded or completed deals this period.</td>
+                          </tr>`
+    : params.rows.map(r => `<tr>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(r.propertyAddress ?? '')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(r.agentName ?? '')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(r.fundingDate ?? '-')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(r.discountFee))}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(r.pct.toFixed(1))}%</td>
+                            <td style="padding:11px 16px; color:${r.remitted ? '#D6D6D4' : '#6FB783'}; font-size:13px; font-weight:600; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(r.brokerShare))}${r.remitted ? '' : ' *'}</td>
+                          </tr>`).join('\n                          ')
+
+  const statementTable = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px; background:#1C1C1C; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
+                          <tr>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Property</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Agent</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Funded</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Discount&nbsp;Fee</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Share&nbsp;%</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Your&nbsp;Share</th>
+                          </tr>
+                          ${rowsHtml}
+                        </table>`
+
+  const summaryCallout = emailCallout({
+    tone: 'info',
+    title: 'Period summary',
+    body: `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td style="color:#D7E1F1; font-size:13px; line-height:1.4;">Total earned this period</td>
+                              <td style="color:#F5F5F4; font-size:18px; font-weight:700; line-height:1.4; text-align:right; white-space:nowrap;">${escapeHtml(formatCurrency(params.totalEarned))}</td>
+                            </tr>
+                            <tr>
+                              <td style="color:#D7E1F1; font-size:13px; line-height:1.4; padding-top:8px;">Pending remittance (kept from commission)</td>
+                              <td style="color:#6FB783; font-size:14px; font-weight:700; line-height:1.4; text-align:right; padding-top:8px; white-space:nowrap;">${escapeHtml(formatCurrency(params.totalUnremitted))}</td>
+                            </tr>
+                          </table>`,
+  })
+
+  const body = `${emailKicker('Monthly statement')}
+
+                    ${emailHeadline('Monthly profit-share statement.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${escapeHtml(params.brokerageName ?? '')}, here is your profit-share statement for ${escapeHtml(params.periodLabel ?? '')}.
+                    </p>
+
+                    ${statementTable}
+
+                    ${summaryCallout}
+
+                    <p style="margin:0 0 30px; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55;">
+                      * Pending remittance: this share has not yet been formally reconciled with Firm Funds. Per your white-label agreement, you retain this share from the commission you control at closing. There is no separate payment.
+                    </p>
+
+                    ${emailButton('View dashboard', dashboardUrl)}`
+
+  const preheader = `Your ${params.periodLabel ?? ''} profit-share statement: ${formatCurrency(params.totalEarned)} earned.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(dashboardUrl))
+}
 
 export async function sendMonthlyBrokerStatement(params: {
   toEmail: string
@@ -2334,71 +3143,69 @@ export async function sendMonthlyBrokerStatement(params: {
     ? { logoUrl: params.brokerageLogoUrl, name: params.brokerageName, logoIncludesTagline: params.brokerageLogoIncludesTagline ?? false }
     : null
 
-  const rowsHtml = params.rows.length === 0
-    ? `<tr><td colspan="6" style="padding:18px; color:#737373; font-size:13px; text-align:center;">No funded or completed deals this period.</td></tr>`
-    : params.rows.map(r => `
-      <tr>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.propertyAddress)}</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.agentName)}</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px;">${escapeHtml(r.fundingDate ?? '-')}</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${formatCurrency(r.discountFee)}</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:#E5E5E5; font-size:13px; text-align:right;">${r.pct.toFixed(1)}%</td>
-        <td style="padding:8px 12px; border-bottom:1px solid #2A2A2A; color:${r.remitted ? '#888' : '#5FA873'}; font-size:13px; text-align:right; font-weight:600;">
-          ${formatCurrency(r.brokerShare)}${r.remitted ? '' : ' *'}
-        </td>
-      </tr>`).join('')
-
-  const body = `
-    <h2 style="margin:0 0 8px; color:#5FA873; font-size:22px; font-weight:700;">Monthly Profit-Share Statement</h2>
-    <p style="margin:0 0 24px; color:#E5E5E5;">${escapeHtml(params.brokerageName)}, ${escapeHtml(params.periodLabel)}</p>
-
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px; overflow:hidden;">
-      <tr>
-        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Property</td>
-        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Agent</td>
-        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Funded</td>
-        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:right;">Discount&nbsp;Fee</td>
-        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:right;">Share&nbsp;%</td>
-        <td style="padding:8px 12px; border-bottom:2px solid #444; color:#999; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; text-align:right;">Your&nbsp;Share</td>
-      </tr>
-      ${rowsHtml}
-    </table>
-
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-      <tr>
-        <td style="padding:14px 18px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-          <table width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="color:#737373; font-size:12px;">Total earned this period</td>
-              <td style="color:#E5E5E5; font-size:18px; font-weight:700; text-align:right;">${formatCurrency(params.totalEarned)}</td>
-            </tr>
-            <tr>
-              <td style="color:#737373; font-size:12px; padding-top:6px;">Pending remittance (kept from commission)</td>
-              <td style="color:#5FA873; font-size:14px; font-weight:600; text-align:right; padding-top:6px;">${formatCurrency(params.totalUnremitted)}</td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-
-    <p style="margin:0 0 16px; color:#737373; font-size:12px; line-height:1.6;">
-      * Pending remittance: this share has not yet been formally reconciled with Firm Funds. Per your white-label agreement, you retain this share from the commission you control at closing. There is no separate payment.
-    </p>
-    <a href="${APP_URL}/brokerage" style="display:inline-block; padding:12px 28px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px;">
-      View dashboard
-    </a>
-  `
-
   await sendEmailWithUnsubscribe({
     to: params.toEmail,
     subject: sanitizeSubject(`${params.brokerageName}: Profit-Share Statement (${params.periodLabel})`),
     entityType: params.brokerageId ? 'brokerage' : undefined,
     entityId: params.brokerageId ?? undefined,
-    html: wrap(body, branding),
+    html: renderMonthlyBrokerStatementEmail({
+      brokerageName: params.brokerageName,
+      periodLabel: params.periodLabel,
+      rows: params.rows,
+      totalEarned: params.totalEarned,
+      totalUnremitted: params.totalUnremitted,
+      branding,
+    }),
   })
 }
 
 /** Notify agent that their closing date amendment was rejected */
+/**
+ * PURE renderer for the agent "closing date amendment rejected" notification.
+ * Synchronous, no I/O. The original red reason box becomes a danger callout
+ * titled "Reason" with the (escaped) rejection reason. Branded with the agent's
+ * brokerage logo; carries a preheader and the fallback shelf for the View Deal
+ * CTA into the agent deal page. The "questions, reply to this email" line is the
+ * quiet trailing note under the button.
+ */
+export function renderAmendmentRejectedEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  reason: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const firstName = escapeHtml(params.agentFirstName ?? '')
+  const property = escapeHtml(params.propertyAddress ?? '')
+  const dealNumberSuffix = params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''
+  const viewUrl = `${APP_URL}/agent/deals/${params.dealId}`
+
+  const body = `${emailKicker('Amendment rejected')}
+
+                    ${emailHeadline('Closing date amendment rejected.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${firstName}, your closing date amendment for ${property}${dealNumberSuffix} was not approved.
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Reason',
+                      body: escapeHtml(params.reason ?? ''),
+                    })}
+
+                    ${emailButton('View Deal', viewUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      If you have any questions, please contact us or reply to this email.
+                    </p>`
+
+  const preheader = `Your closing date change for ${params.propertyAddress ?? ''} was not approved.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(viewUrl))
+}
+
 export async function sendAmendmentRejectedNotification(params: {
   dealId: string
   propertyAddress: string
@@ -2415,40 +3222,83 @@ export async function sendAmendmentRejectedNotification(params: {
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Amendment Rejected: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-          Closing Date Amendment Rejected
-        </h2>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, your closing date amendment for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''} was not approved.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:8px;">
-          <tr>
-            <td style="padding:16px;">
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Reason</p>
-              <p style="margin:0; color:#E5E5E5; font-size:14px; line-height:1.5;">${escapeHtml(params.reason ?? '')}</p>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-          If you have any questions, please contact us or reply to this email.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/agent/deals/${params.dealId}" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                View Deal
-              </a>
-            </td>
-          </tr>
-        </table>
-      `, branding),
+    html: renderAmendmentRejectedEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      reason: params.reason,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Brokerage submitted a payment claim → notify admin
 // ============================================================================
+
+/**
+ * PURE renderer for the admin "new payment claim submitted" notification.
+ * Synchronous, no I/O, admin-only (no branding). The original blue details box
+ * becomes a detail card: Amount (green strong money value), Agent, Payment Date,
+ * Method, and Reference only when present. The method label is derived here from
+ * the raw method code exactly as the send fn did. The "pending status" note is an
+ * info callout. CTA targets the admin payments queue (not a specific deal), so no
+ * fallback shelf.
+ */
+export function renderPaymentClaimSubmittedEmail(params: {
+  propertyAddress: string
+  brokerageName: string
+  agentName: string
+  amount: number
+  paymentDate: string
+  method?: string
+  reference?: string
+  dealNumber?: string | null
+}): string {
+  const methodLabel = (() => {
+    switch (params.method) {
+      case 'eft': return 'EFT'
+      case 'wire': return 'Wire transfer'
+      case 'cheque': return 'Cheque'
+      case 'cash': return 'Cash'
+      case 'other': return 'Other'
+      default: return 'Not specified'
+    }
+  })()
+
+  const brokerage = escapeHtml(params.brokerageName ?? '')
+  const property = escapeHtml(params.propertyAddress ?? '')
+  const dealNumberSuffix = params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''
+  const reviewUrl = `${APP_URL}/admin/payments`
+
+  const body = `${emailKicker('Payment claim')}
+
+                    ${emailHeadline('New payment claim submitted.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${brokerage} has submitted a payment claim for ${property}${dealNumberSuffix}.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Amount', value: formatReminderCurrency(params.amount), valueColor: '#6FB783', strong: true },
+                      { label: 'Agent', value: params.agentName ?? '' },
+                      { label: 'Payment Date', value: formatReminderDate(params.paymentDate) },
+                      { label: 'Method', value: methodLabel },
+                      ...(params.reference ? [{ label: 'Reference', value: params.reference }] : []),
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'info',
+                      body: 'The claim is sitting in pending status until you confirm a bank match or reject it.',
+                    })}
+
+                    ${emailButton('Review Payment Claim', reviewUrl)}`
+
+  const preheader = `${params.brokerageName ?? ''} claims ${formatReminderCurrency(params.amount)} for ${params.propertyAddress ?? ''}.`
+
+  return wrap(body, null, preheader)
+}
 
 export async function sendPaymentClaimSubmittedNotification(params: {
   dealId: string
@@ -2461,67 +3311,109 @@ export async function sendPaymentClaimSubmittedNotification(params: {
   reference?: string
   dealNumber?: string | null
 }) {
-  const methodLabel = (() => {
-    switch (params.method) {
-      case 'eft': return 'EFT'
-      case 'wire': return 'Wire transfer'
-      case 'cheque': return 'Cheque'
-      case 'cash': return 'Cash'
-      case 'other': return 'Other'
-      default: return 'Not specified'
-    }
-  })()
-
-  // Internal admin notification — transactional.
   await sendEmailWithUnsubscribe({
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}New payment claim: ${params.brokerageName} (${formatReminderCurrency(params.amount)})`),
-    transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:18px; font-weight:600;">
-          New Payment Claim Submitted
-        </h2>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:14px; line-height:1.5;">
-          <strong style="color:#7B9FE0;">${escapeHtml(params.brokerageName ?? '')}</strong> has submitted a payment claim for <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''}.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; background:#1A2240; border-radius:8px;">
-          <tr>
-            <td style="padding:16px;">
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Amount</p>
-              <p style="margin:0 0 12px; color:#5FA873; font-size:18px; font-weight:600;">${formatReminderCurrency(params.amount)}</p>
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Agent</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.agentName ?? '')}</p>
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Payment Date</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(formatReminderDate(params.paymentDate))}</p>
-              <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Method</p>
-              <p style="margin:0 0 12px; color:#E5E5E5; font-size:14px; font-weight:600;">${methodLabel}</p>
-              ${params.reference ? `
-                <p style="margin:0 0 8px; color:#BCBBB8; font-size:13px;">Reference</p>
-                <p style="margin:0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.reference)}</p>
-              ` : ''}
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 12px; color:#BCBBB8; font-size:13px; line-height:1.5;">
-          The claim is sitting in pending status until you confirm a bank match or reject it.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center" style="padding:12px 0;">
-              <a href="${APP_URL}/admin/payments" style="display:inline-block; padding:12px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:14px;">
-                Review Payment Claim
-              </a>
-            </td>
-          </tr>
-        </table>
-      `),
+    transactional: true, // internal admin notification, transactional class
+    html: renderPaymentClaimSubmittedEmail({
+      propertyAddress: params.propertyAddress,
+      brokerageName: params.brokerageName,
+      agentName: params.agentName,
+      amount: params.amount,
+      paymentDate: params.paymentDate,
+      method: params.method,
+      reference: params.reference,
+      dealNumber: params.dealNumber,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Failed-to-close cure election notice → Agent
-// CPA Article 5.5 — agent must elect cash or commission assignment within 15 days
+// CPA Article 5.5: agent must elect cash or commission assignment within 15 days
 // ============================================================================
+
+/**
+ * PURE renderer for the agent failed-to-close cure-election notice (CPA Article
+ * 5.5). Synchronous, no I/O. LEGAL email: the contractual copy is preserved
+ * verbatim, including the branch-specific failureExplanation (Article 5.1 for
+ * non_closing, Article 5.2 for commission_deficiency), the election deadline
+ * line, both option bodies, and the deemed-cash-election paragraph. The old red
+ * outstanding-balance box becomes a danger callout (centered) showing the amount
+ * in red; the two option boxes become two callouts (neutral / info) carrying
+ * their copy unchanged. The deadline keeps its green bold emphasis inside the
+ * "you must choose" paragraph. Branded with the agent's brokerage logo; carries
+ * a preheader and the fallback shelf for the cure-election deep link. The send fn
+ * still resolves branding and computes the formatted amount/deadline + labels.
+ */
+export function renderFailedToCloseElectionEmail(params: {
+  dealId: string
+  propertyAddress: string
+  agentFirstName: string
+  failureType: 'non_closing' | 'commission_deficiency'
+  amountFmt: string
+  deadlineFmt: string
+  failureLabel: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const electionUrl = `${APP_URL}/agent/account/cure-election/${params.dealId}`
+
+  const failureExplanation = params.failureType === 'non_closing'
+    ? `Because the transaction did not close, the full Purchase Price you received from Firm Funds is owed back, in accordance with Article 5.1 of your Commission Purchase Agreement.`
+    : `Because the commission received was less than the Face Value, the shortfall is owed back, in accordance with Article 5.2 of your Commission Purchase Agreement.`
+
+  const body = `${emailKicker('Action required')}
+
+                    ${emailHeadline('Choose your repayment method.')}
+
+                    <p style="margin:0 0 20px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to let you know that your funded deal at <strong style="color:#F5F5F4;">${escapeHtml(params.propertyAddress ?? '')}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''} ${escapeHtml(params.failureLabel)}.
+                    </p>
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${escapeHtml(failureExplanation)}
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Outstanding balance',
+                      align: 'center',
+                      body: `<p style="margin:0 0 6px; color:#F08C8C; font-size:28px; font-weight:700; line-height:1.2; letter-spacing:-0.01em;">${escapeHtml(params.amountFmt)}</p>
+                          <p style="margin:0; color:#EFDBDB; font-size:12px; line-height:1.4;">Charged to your Firm Funds account</p>`,
+                    })}
+
+                    <p style="margin:0 0 12px; color:#F5F5F4; font-size:16px; font-weight:600; line-height:1.4;">You must choose one of two repayment methods</p>
+                    <p style="margin:0 0 20px; color:#D6D6D4; font-size:14px; font-weight:400; line-height:1.6;">
+                      Per Article 5.5 of your Commission Purchase Agreement, you have <strong style="color:#6FB783;">until ${escapeHtml(params.deadlineFmt)}</strong> (15 calendar days) to make your election.
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'neutral',
+                      title: 'Option A: Cash repayment',
+                      body: 'Pay the full outstanding balance from your own funds by electronic funds transfer within 30 days.',
+                    })}
+
+                    ${emailCallout({
+                      tone: 'info',
+                      title: 'Option B: Assign next commission(s)',
+                      body: 'Sign a Remediation Direction to Pay that directs your brokerage to remit your next eligible commission(s) to Firm Funds until the balance is satisfied. No discount fee or settlement fee applies. This is not a new advance.',
+                    })}
+
+                    <p style="margin:0 0 30px; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.6;">
+                      If you do not make a written election by ${escapeHtml(params.deadlineFmt)}, you will be deemed to have elected cash repayment, and the full balance will become immediately due. Interest of 24% per annum, compounded daily, will accrue on any unpaid balance starting on the 31st day.
+                    </p>
+
+                    ${emailButton('Make Your Election', electionUrl)}
+
+                    <p style="margin:16px 0 0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55; text-align:center;">
+                      Questions? Reply to this email and we&rsquo;ll help you through it.
+                    </p>`
+
+  const preheader = `Action required: choose how to repay ${params.amountFmt} by ${params.deadlineFmt}.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(electionUrl))
+}
 
 export async function sendFailedToCloseElectionEmail(params: {
   dealId: string
@@ -2551,11 +3443,7 @@ export async function sendFailedToCloseElectionEmail(params: {
     ? 'did not close'
     : 'closed with a commission shortfall'
 
-  const failureExplanation = params.failureType === 'non_closing'
-    ? `Because the transaction did not close, the full Purchase Price you received from Firm Funds is owed back, in accordance with Article 5.1 of your Commission Purchase Agreement.`
-    : `Because the commission received was less than the Face Value, the shortfall is owed back, in accordance with Article 5.2 of your Commission Purchase Agreement.`
-
-  // Cure election is a contractual/legal notice — transactional, bypasses
+  // Cure election is a contractual/legal notice: transactional, bypasses
   // the recipient's promotional opt-out.
   const branding = await getBrandingForAgent(params.agentId)
   await sendEmailWithUnsubscribe({
@@ -2564,82 +3452,78 @@ export async function sendFailedToCloseElectionEmail(params: {
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#E5E5E5; font-size:20px;">Action Required: Choose Your Repayment Method</h2>
-        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
-          Hi ${escapeHtml(params.agentFirstName ?? '')}, we wanted to let you know that your funded deal at <strong style="color:#E5E5E5;">${escapeHtml(params.propertyAddress ?? '')}</strong>${params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''} ${failureLabel}.
-        </p>
-        <p style="margin:0 0 20px; color:#BCBBB8; font-size:14px; line-height:1.6;">
-          ${failureExplanation}
-        </p>
-
-        <!-- Outstanding balance highlight -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#2A1A1A; border:1px solid #E54B4B33; border-radius:10px;">
-          <tr>
-            <td style="padding:18px; text-align:center;">
-              <p style="margin:0 0 4px; color:#BCBBB8; font-size:11px; text-transform:uppercase; letter-spacing:0.06em;">Outstanding Balance</p>
-              <p style="margin:0 0 6px; color:#F87171; font-size:28px; font-weight:700; letter-spacing:-0.01em;">${amountFmt}</p>
-              <p style="margin:0; color:#BCBBB8; font-size:12px;">Charged to your Firm Funds account</p>
-            </td>
-          </tr>
-        </table>
-
-        <h3 style="margin:24px 0 12px; color:#E5E5E5; font-size:16px;">You must choose one of two repayment methods</h3>
-        <p style="margin:0 0 16px; color:#BCBBB8; font-size:13px; line-height:1.6;">
-          Per Article 5.5 of your Commission Purchase Agreement, you have <strong style="color:#5FA873;">until ${deadlineFmt}</strong> (15 calendar days) to make your election.
-        </p>
-
-        <!-- Option A: Cash -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px; background:#1A1A1A; border:1px solid #333; border-radius:10px;">
-          <tr>
-            <td style="padding:18px;">
-              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option A: Cash Repayment</p>
-              <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-                Pay the full outstanding balance from your own funds by electronic funds transfer within 30 days.
-              </p>
-            </td>
-          </tr>
-        </table>
-
-        <!-- Option B: Commission assignment -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#1A1A1A; border:1px solid #333; border-radius:10px;">
-          <tr>
-            <td style="padding:18px;">
-              <p style="margin:0 0 6px; color:#E5E5E5; font-size:14px; font-weight:700;">Option B: Assign Next Commission(s)</p>
-              <p style="margin:0; color:#BCBBB8; font-size:13px; line-height:1.5;">
-                Sign a Remediation Direction to Pay that directs your brokerage to remit your next eligible commission(s) to Firm Funds until the balance is satisfied. No discount fee or settlement fee applies. This is not a new advance.
-              </p>
-            </td>
-          </tr>
-        </table>
-
-        <p style="margin:0 0 16px; color:#BCBBB8; font-size:12px; line-height:1.5;">
-          If you do not make a written election by ${deadlineFmt}, you will be deemed to have elected cash repayment, and the full balance will become immediately due. Interest of 24% per annum, compounded daily, will accrue on any unpaid balance starting on the 31st day.
-        </p>
-
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">
-          <tr>
-            <td align="center" style="padding:8px 0;">
-              <a href="${APP_URL}/agent/account/cure-election/${params.dealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-                Make Your Election
-              </a>
-            </td>
-          </tr>
-        </table>
-
-        <p style="margin:24px 0 0; color:#737373; font-size:12px; line-height:1.5;">
-          Questions? Reply to this email and we'll help you through it.
-        </p>
-      `, branding),
+    html: renderFailedToCloseElectionEmail({
+      dealId: params.dealId,
+      propertyAddress: params.propertyAddress,
+      agentFirstName: params.agentFirstName,
+      failureType: params.failureType,
+      amountFmt,
+      deadlineFmt,
+      failureLabel,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
 }
 
 // ============================================================================
 // Email: Remediation IDP signed → Admin (Bud)
-// Triggered by the DocuSign Connect webhook when a remediation_idp envelope
-// reports status "completed". Mirrors sendPaymentClaimSubmittedNotification —
+// Triggered by the e-signature provider's webhook when a remediation_idp envelope
+// reports status "completed". Mirrors sendPaymentClaimSubmittedNotification:
 // internal-ops mail, transactional, no recipient preference check.
 // ============================================================================
+
+/**
+ * PURE renderer for the admin "Remediation IDP signed" notification. Synchronous,
+ * no I/O, admin-only (no branding). The original details table becomes an
+ * emailDetailCard: Deal Number (when present), Source Property, Curing Failed
+ * Deal, Brokerage, Agent (name + email combined as before), Directed Amount
+ * (green strong), Signed At, Envelope. The "mark the remediation deal remitted"
+ * line is the quiet note above the CTA. Internal ops, so no preheader, but a
+ * fallback shelf is included because the CTA deep-links a specific deal. The send
+ * fn still formats the signed-at timestamp.
+ */
+export function renderRemediationIdpSignedEmail(params: {
+  remediationDealId: string
+  envelopeId: string
+  agentName: string
+  agentEmail: string
+  brokerageName: string
+  failedDealPropertyAddress: string
+  sourcePropertyAddress: string
+  directedAmount: number
+  signedAtFmt: string
+  dealNumber?: string | null
+}): string {
+  const dealUrl = `${APP_URL}/admin/deals/${params.remediationDealId}`
+
+  const body = `${emailKicker('Remediation signed')}
+
+                    ${emailHeadline('Remediation IDP signed.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      <strong style="color:#F5F5F4;">${escapeHtml(params.agentName ?? '')}</strong> has signed the Remediation Direction to Pay. The signed PDF is in storage and the remediation deal is now waiting on the brokerage to remit.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Source Property', value: params.sourcePropertyAddress ?? '' },
+                      { label: 'Curing Failed Deal', value: params.failedDealPropertyAddress ?? '' },
+                      { label: 'Brokerage', value: params.brokerageName ?? '' },
+                      { label: 'Agent', value: `${params.agentName ?? ''} <${params.agentEmail ?? ''}>` },
+                      { label: 'Directed Amount', value: formatCurrency(params.directedAmount), valueColor: '#6FB783', strong: true },
+                      { label: 'Signed At', value: params.signedAtFmt },
+                      { label: 'Envelope', value: params.envelopeId ?? '' },
+                    ])}
+
+                    <p style="margin:0 0 30px; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55;">
+                      When the brokerage remits the directed amount, mark the remediation deal remitted from the admin dashboard to apply the credit to the agent&rsquo;s failed deal.
+                    </p>
+
+                    ${emailButton('Open Remediation Deal', dealUrl)}`
+
+  return wrap(body, null, undefined, emailFallbackLink(dealUrl))
+}
 
 export async function sendRemediationIdpSignedNotification(params: {
   remediationDealId: string
@@ -2666,58 +3550,18 @@ export async function sendRemediationIdpSignedNotification(params: {
     to: ADMIN_EMAIL,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Remediation IDP signed: ${params.agentName} (${params.sourcePropertyAddress})`),
     transactional: true,
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Remediation IDP Signed</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          <strong style="color:#E5E5E5;">${escapeHtml(params.agentName ?? '')}</strong> has signed the Remediation Direction to Pay. The signed PDF is in storage and the remediation deal is now waiting on the brokerage to remit.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Source Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.sourcePropertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Curing Failed Deal</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.failedDealPropertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Agent</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentName ?? '')} &lt;${escapeHtml(params.agentEmail ?? '')}&gt;</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Directed Amount</td>
-                  <td style="padding:6px 0; color:#5FA873; font-size:16px; font-weight:700;">${formatCurrency(params.directedAmount)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Signed At</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(signedAtFmt)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Envelope</td>
-                  <td style="padding:8px 0; color:#737373; font-size:12px; font-family:monospace;">${escapeHtml(params.envelopeId ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0 0 20px; color:#737373; font-size:13px;">
-          When the brokerage remits the directed amount, mark the remediation deal remitted from the admin dashboard to apply the credit to the agent's failed deal.
-        </p>
-        <a href="${APP_URL}/admin/deals/${params.remediationDealId}" style="display:inline-block; padding:14px 32px; background:#5FA873; color:#fff; text-decoration:none; border-radius:10px; font-weight:700; font-size:14px; letter-spacing:0.02em;">
-          Open Remediation Deal
-        </a>
-      `),
+    html: renderRemediationIdpSignedEmail({
+      remediationDealId: params.remediationDealId,
+      envelopeId: params.envelopeId,
+      agentName: params.agentName,
+      agentEmail: params.agentEmail,
+      brokerageName: params.brokerageName,
+      failedDealPropertyAddress: params.failedDealPropertyAddress,
+      sourcePropertyAddress: params.sourcePropertyAddress,
+      directedAmount: params.directedAmount,
+      signedAtFmt,
+      dealNumber: params.dealNumber,
+    }),
   })
 }
 
@@ -2729,12 +3573,12 @@ export async function sendRemediationIdpSignedNotification(params: {
  * Deliver the executed (fully signed) Irrevocable Direction to Pay to the
  * brokerage. This is a legal requirement: the IDP is the brokerage's written
  * authorization to remit the agent's commission to Firm Funds, so the
- * brokerage must receive the executed copy for its records. The old DocuSign
+ * brokerage must receive the executed copy for its records. The old e-signature
  * flow handled this by CC'ing the brokerage on the envelope; SignWell treats
  * every recipient as a signer, so we deliver the copy ourselves here.
  *
  * The attached PDF is the merged completed document. For a deal envelope that
- * currently bundles the signed CPA + IDP together (matching the prior DocuSign
+ * currently bundles the signed CPA + IDP together (matching the prior e-signature
  * CC behaviour, which copied the whole envelope). If a brokerage should only
  * receive the IDP page later, narrow the attachment via
  * `completed_pdf?file_format=zip` upstream and pass just the IDP bytes here.
@@ -2757,6 +3601,9 @@ export async function sendBrokerageExecutedIdpNotification(params: {
   /** File name shown on the attachment. */
   pdfFileName: string
 }): Promise<void> {
+  // White-label: show the brokerage's own logo in the header (falls back to the
+  // Firm Funds default when the brokerage has no logo on file).
+  const branding = await getBrandingForBrokerage(params.brokerageId)
   await sendEmailWithUnsubscribe({
     to: params.to.join(', '),
     subject: sanitizeSubject(
@@ -2766,43 +3613,61 @@ export async function sendBrokerageExecutedIdpNotification(params: {
     entityId: params.brokerageId ?? undefined,
     transactional: true,
     attachments: [{ filename: params.pdfFileName, content: params.pdf }],
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Executed Direction to Pay</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          <strong style="color:#E5E5E5;">${escapeHtml(params.agentName ?? '')}</strong> has executed an Irrevocable Direction to Pay directing <strong style="color:#E5E5E5;">${escapeHtml(params.brokerageName ?? '')}</strong> to remit the commission for ${escapeHtml(params.propertyAddress ?? '')} to Firm Funds Inc.
-        </p>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          The executed agreement is attached for your records. Please honour it and remit the directed commission to Firm Funds Inc. in accordance with the Brokerage Cooperation Agreement between your brokerage and Firm Funds.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                ${params.dealNumber ? `<tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Deal Number</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.dealNumber)}</td>
-                </tr>` : ''}
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Property</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.propertyAddress ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Agent</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.agentName ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Brokerage</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.brokerageName ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:0; color:#737373; font-size:13px;">
-          If you have any questions about this direction to pay, reply to this email or contact us at bud@firmfunds.ca.
-        </p>
-      `),
+    html: renderBrokerageExecutedIdpEmail({
+      brokerageName: params.brokerageName,
+      agentName: params.agentName,
+      propertyAddress: params.propertyAddress,
+      dealNumber: params.dealNumber,
+      branding,
+    }),
   })
+}
+
+/**
+ * PURE renderer for the brokerage "Executed Direction to Pay" notification.
+ * Synchronous, no I/O. The renderer does NOT touch the attachment: the send fn
+ * keeps passing the executed PDF via `attachments`, and the body copy still tells
+ * the recipient the executed agreement is attached (wording preserved). The
+ * original details table becomes an emailDetailCard: Deal Number (when present),
+ * Property, Agent, Brokerage. This email originally had NO button, so none is
+ * added (and therefore no fallback shelf). White-labelled: the send fn resolves
+ * the brokerage's branding and passes it here so the header shows the brokerage's
+ * own logo (falling back to the Firm Funds default when none is on file). A short
+ * preheader is included.
+ */
+export function renderBrokerageExecutedIdpEmail(params: {
+  brokerageName: string
+  agentName: string
+  propertyAddress: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const body = `${emailKicker('Executed direction')}
+
+                    ${emailHeadline('Executed direction to pay.')}
+
+                    <p style="margin:0 0 20px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      <strong style="color:#F5F5F4;">${escapeHtml(params.agentName ?? '')}</strong> has executed an Irrevocable Direction to Pay directing <strong style="color:#F5F5F4;">${escapeHtml(params.brokerageName ?? '')}</strong> to remit the commission for ${escapeHtml(params.propertyAddress ?? '')} to Firm Funds Inc.
+                    </p>
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      The executed agreement is attached for your records. Please honour it and remit the directed commission to Firm Funds Inc. in accordance with the Brokerage Cooperation Agreement between your brokerage and Firm Funds.
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Agent', value: params.agentName ?? '' },
+                      { label: 'Brokerage', value: params.brokerageName ?? '' },
+                    ])}
+
+                    <p style="margin:0; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55;">
+                      If you have any questions about this direction to pay, reply to this email or contact us at bud@firmfunds.ca.
+                    </p>`
+
+  const preheader = `Executed Direction to Pay for ${params.propertyAddress ?? ''} is attached.`
+
+  return wrap(body, params.branding ?? null, preheader)
 }
 
 // ============================================================================
@@ -2816,6 +3681,48 @@ export async function sendBrokerageExecutedIdpNotification(params: {
  * actually looks, not just in the Netlify function logs. Fail-soft: never
  * throws, so a failure to send the alert can't break the retry sweep.
  */
+/**
+ * PURE renderer for the internal "Email permanently failed" dead-letter alert.
+ * Synchronous, no I/O, admin-only (no branding), internal ops. A danger kicker +
+ * danger callout signal the failure; the original details table becomes an
+ * emailDetailCard: Email type, Recipient, Original subject, Attempts, Last error,
+ * Failure row id. No button (and therefore no fallback shelf) and no preheader,
+ * exactly as an internal-ops alert. The send fn owns the fail-soft try/catch.
+ */
+export function renderDeadLetterGiveUpEmail(params: {
+  failureId: string
+  emailType: string
+  recipient: string
+  subject: string | null
+  error: string
+  attemptCount: number
+}): string {
+  const body = `${emailKicker('Delivery failure')}
+
+                    ${emailHeadline('Email permanently failed.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      A queued email exhausted all retry attempts and has been marked given-up in the dead-letter queue. It will not be retried again automatically. Please investigate and re-send by hand if needed.
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Permanently given up',
+                      body: `Email type <strong style="color:#F5F5F4;">${escapeHtml(params.emailType ?? '')}</strong> to ${escapeHtml(params.recipient ?? '')} will no longer be retried automatically.`,
+                    })}
+
+                    ${emailDetailCard([
+                      { label: 'Email type', value: params.emailType ?? '', strong: true },
+                      { label: 'Recipient', value: params.recipient ?? '' },
+                      { label: 'Original subject', value: params.subject ?? '(none)' },
+                      { label: 'Attempts', value: String(params.attemptCount) },
+                      { label: 'Last error', value: params.error ?? '' },
+                      { label: 'Failure row id', value: params.failureId ?? '' },
+                    ])}`
+
+  return wrap(body)
+}
+
 export async function sendDeadLetterGiveUpAlert(params: {
   failureId: string
   emailType: string
@@ -2830,44 +3737,14 @@ export async function sendDeadLetterGiveUpAlert(params: {
     subject: sanitizeSubject(
       `[Firm Funds] Email permanently failed: ${params.emailType}`
     ),
-    html: wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700; letter-spacing:-0.01em;">Email permanently failed</h2>
-        <p style="margin:0 0 20px; color:#E5E5E5;">
-          A queued email exhausted all retry attempts and has been marked given-up in the dead-letter queue. It will not be retried again automatically. Please investigate and re-send by hand if needed.
-        </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td style="padding:16px 20px; background:#1E1E1E; border:1px solid #2A2A2A; border-radius:12px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px; width:160px;">Email type</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px; font-weight:600;">${escapeHtml(params.emailType ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Recipient</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.recipient ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Original subject</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.subject ?? '(none)')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Attempts</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${params.attemptCount}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Last error</td>
-                  <td style="padding:8px 0; color:#E5E5E5; font-size:14px;">${escapeHtml(params.error ?? '')}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0; color:#737373; font-size:13px;">Failure row id</td>
-                  <td style="padding:8px 0; color:#737373; font-size:12px; font-family:monospace;">${escapeHtml(params.failureId ?? '')}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      `),
+    html: renderDeadLetterGiveUpEmail({
+      failureId: params.failureId,
+      emailType: params.emailType,
+      recipient: params.recipient,
+      subject: params.subject,
+      error: params.error,
+      attemptCount: params.attemptCount,
+    }),
   })
 }
 
@@ -2886,6 +3763,62 @@ export interface RemediationOverdueDigestRow {
   escalation_level?: number | null
 }
 
+/**
+ * PURE renderer for the internal "Overdue Remediation Digest (retry)" alert.
+ * Synchronous, no I/O, admin-only (no branding), internal ops. The dynamic table
+ * (Property, Brokerage, Directed, Days Overdue, Escalation) is rebuilt in
+ * renderInvoiceEmail's statement language: uppercase muted header labels, body
+ * rows split by 1px #232323 dividers, numerics right-aligned, money in #D6D6D4.
+ * The danger callout conveys the overdue urgency. No button (and no fallback
+ * shelf) and no preheader. The send fn keeps the Resend send + the throw-on-send-
+ * failure behavior the retry sweep depends on, and pre-computes each row's
+ * formatted directed amount, days-overdue value, and escalation number so this
+ * renderer stays free of Date.now().
+ */
+export function renderRemediationOverdueDigestEmail(params: {
+  count: number
+  rows: { propertyAddress: string; brokerageName: string; directedFmt: string; daysOverdue: number; escalation: number }[]
+}): string {
+  const rowsHtml = params.rows
+    .map((r) => `<tr>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(r.propertyAddress ?? '')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(r.brokerageName ?? '')}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(r.directedFmt)}</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(String(r.daysOverdue))}d</td>
+                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(String(r.escalation))}</td>
+                          </tr>`)
+    .join('\n                          ')
+
+  const statementTable = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 30px; background:#1C1C1C; border:1px solid #582A2A; border-radius:12px; overflow:hidden;">
+                          <tr>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Property</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Brokerage</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Directed</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Days&nbsp;Overdue</th>
+                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Escalation</th>
+                          </tr>
+                          ${rowsHtml}
+                        </table>`
+
+  const body = `${emailKicker('Overdue remediations')}
+
+                    ${emailHeadline('Overdue remediation digest.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      ${escapeHtml(String(params.count))} remediation${params.count === 1 ? '' : 's'} have been waiting more than 14 days since their IDP was signed without remittance. Action needed.
+                    </p>
+
+                    ${emailCallout({
+                      tone: 'danger',
+                      title: 'Action needed',
+                      body: `${escapeHtml(String(params.count))} remediation${params.count === 1 ? '' : 's'} are more than 14 days overdue without remittance.`,
+                    })}
+
+                    ${statementTable}`
+
+  return wrap(body)
+}
+
 export async function sendRemediationOverdueDigest(
   rows: RemediationOverdueDigestRow[]
 ): Promise<void> {
@@ -2900,38 +3833,17 @@ export async function sendRemediationOverdueDigest(
       ? 'n/a'
       : `$${Number(n).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-  const rowsHtml = rows
-    .map((r) => {
-      const daysOverdue = r.created_at
-        ? Math.floor((Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60 * 24))
-        : 0
-      return `
-        <tr>
-          <td style="padding:8px;border-bottom:1px solid #2a2a2a;">${escapeHtml(String(r.property_address ?? ''))}</td>
-          <td style="padding:8px;border-bottom:1px solid #2a2a2a;">${escapeHtml(String(r.brokerage_legal_name ?? ''))}</td>
-          <td style="padding:8px;border-bottom:1px solid #2a2a2a;text-align:right;">${fmtCurrency(r.directed_amount)}</td>
-          <td style="padding:8px;border-bottom:1px solid #2a2a2a;text-align:right;">${daysOverdue}d</td>
-          <td style="padding:8px;border-bottom:1px solid #2a2a2a;text-align:right;">${(r.escalation_level ?? 0) + 1}</td>
-        </tr>`
-    })
-    .join('')
+  const displayRows = rows.map((r) => ({
+    propertyAddress: String(r.property_address ?? ''),
+    brokerageName: String(r.brokerage_legal_name ?? ''),
+    directedFmt: fmtCurrency(r.directed_amount),
+    daysOverdue: r.created_at
+      ? Math.floor((Date.now() - new Date(r.created_at).getTime()) / (1000 * 60 * 60 * 24))
+      : 0,
+    escalation: (r.escalation_level ?? 0) + 1,
+  }))
 
-  const html = wrap(`
-        <h2 style="margin:0 0 16px; color:#5FA873; font-size:22px; font-weight:700;">Overdue Remediation Digest (retry)</h2>
-        <p style="margin:0 0 16px; color:#E5E5E5;">${rows.length} remediation${rows.length === 1 ? '' : 's'} have been waiting more than 14 days since their IDP was signed without remittance. Action needed.</p>
-        <table style="width:100%;border-collapse:collapse;background:#171717;border:1px solid #2a2a2a;margin-top:8px;">
-          <thead>
-            <tr style="background:#1f1f1f;">
-              <th style="padding:8px;text-align:left;">Property</th>
-              <th style="padding:8px;text-align:left;">Brokerage</th>
-              <th style="padding:8px;text-align:right;">Directed</th>
-              <th style="padding:8px;text-align:right;">Days Overdue</th>
-              <th style="padding:8px;text-align:right;">Escalation</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-      `)
+  const html = renderRemediationOverdueDigestEmail({ count: rows.length, rows: displayRows })
 
   const result = (await resend.emails.send({
     from: FROM_ADDRESS,

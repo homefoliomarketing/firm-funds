@@ -64,6 +64,8 @@ supabase/.temp/
 /public/email-prod-welcome.html
 /public/_email-prod-local.html
 /public/_choice-logo.svg
+/public/email-preview-*.html
+/public/sample-choice-logo.svg
 
 # Scratch planning files (not part of the project)
 findings.md
