@@ -364,6 +364,7 @@ export default function AdminMessagesPage() {
                             onClick={(e) => { e.stopPropagation(); handleDismiss(item.deal_id) }}
                             className="px-2 flex items-center text-muted-foreground/40 hover:text-primary transition-colors"
                             title="Mark as read"
+                            aria-label="Mark as read"
                           >
                             <CheckCheck size={16} />
                           </button>

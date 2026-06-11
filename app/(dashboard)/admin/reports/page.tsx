@@ -945,8 +945,12 @@ export default function ReportsPage() {
         {/* Brokerage Performance Table */}
         <Card className="overflow-hidden">
           <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={brokerageExpanded}
             className="px-6 py-5 flex items-center justify-between cursor-pointer hover:bg-muted/20 transition-colors border-b border-border/50"
             onClick={() => setBrokerageExpanded(!brokerageExpanded)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBrokerageExpanded(!brokerageExpanded) } }}
           >
             <div className="flex items-center gap-2">
               <Building2 size={16} className="text-primary" />
@@ -986,8 +990,12 @@ export default function ReportsPage() {
                       {metrics.brokeragePerformance.map((brok, i) => (
                         <tr
                           key={brok.id}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`View ${brok.name} deals`}
                           className="cursor-pointer border-b border-border/30 hover:bg-muted/20 transition-colors last:border-0"
                           onClick={() => handleBrokerageClick(brok.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBrokerageClick(brok.id) } }}
                         >
                           <td className="px-6 py-4 text-sm font-bold text-muted-foreground/40">{i + 1}</td>
                           <td className="px-6 py-4">
@@ -1146,8 +1154,12 @@ export default function ReportsPage() {
                             {selectedBrokerage.recentDeals.map(deal => (
                               <tr
                                 key={deal.id}
+                                tabIndex={0}
+                                role="button"
+                                aria-label={`View deal ${deal.property_address}`}
                                 className="cursor-pointer border-b border-border/30 last:border-0 hover:bg-muted/20 transition-colors"
                                 onClick={() => { setSelectedBrokerage(null); router.push(`/admin/deals/${deal.id}`) }}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedBrokerage(null); router.push(`/admin/deals/${deal.id}`) } }}
                               >
                                 <td className="px-4 py-3"><DealNumber value={deal.deal_number} /></td>
                                 <td className="px-4 py-3 text-sm font-medium text-foreground">{deal.property_address}</td>

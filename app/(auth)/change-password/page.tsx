@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Loader2, Check, X } from 'lucide-react'
 
 export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('')
@@ -166,7 +167,33 @@ export default function ChangePasswordPage() {
                 onChange={(e) => { setNewPassword(e.target.value); setError(null) }}
                 placeholder="Min. 12 chars, upper/lower/number/special"
                 className="focus-visible:ring-primary"
+                aria-describedby="password-requirements"
               />
+
+              {/* Live strength checklist that mirrors the validation in
+                  handleChangePassword. Booleans computed inline each render. */}
+              <ul id="password-requirements" className="space-y-1 mt-2" aria-label="Password requirements">
+                {([
+                  { ok: newPassword.length >= 12, label: 'At least 12 characters' },
+                  { ok: /[A-Z]/.test(newPassword), label: 'One uppercase letter' },
+                  { ok: /[a-z]/.test(newPassword), label: 'One lowercase letter' },
+                  { ok: /\d/.test(newPassword), label: 'One number' },
+                  { ok: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword), label: 'One special character' },
+                  { ok: confirmPassword.length > 0 && newPassword === confirmPassword, label: 'Passwords match' },
+                ] as const).map((req) => (
+                  <li
+                    key={req.label}
+                    className={`flex items-center gap-2 text-xs ${req.ok ? 'text-status-teal' : 'text-muted-foreground'}`}
+                  >
+                    {req.ok
+                      ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      : <X className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                    }
+                    <span>{req.label}</span>
+                    <span className="sr-only">{req.ok ? '(met)' : '(not met)'}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="space-y-1.5">
@@ -187,9 +214,9 @@ export default function ChangePasswordPage() {
             <Button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 text-sm font-bold uppercase tracking-wider bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="w-full py-3.5 text-sm font-bold uppercase tracking-wider bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center gap-2"
             >
-              {loading ? 'Updating...' : 'Set Password & Continue'}
+              {loading ? (<><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Updating...</>) : 'Set Password & Continue'}
             </Button>
           </form>
         </div>

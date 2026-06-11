@@ -10,7 +10,7 @@ import {
   ArrowLeft, CheckCircle2, FileText, DollarSign, MapPin,
   User, Building2, AlertTriangle, XCircle, Shield, ChevronDown,
   ChevronRight, ChevronUp, Banknote, RefreshCw, Trash2, Download, Paperclip,
-  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap, FileSignature
+  StickyNote, AlertCircle, Undo2, Send, Eye, X, Plus, Clock, Edit2, ExternalLink, GripVertical, Link2, Unlink, Zap, FileSignature, SearchX
 } from 'lucide-react'
 import {
   updateDealStatus,
@@ -52,6 +52,7 @@ import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -1345,7 +1346,7 @@ export default function DealDetailPage() {
 
   if (!deal || !agent || !brokerage) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-muted-foreground">Deal not found</div>
+      <EmptyState icon={SearchX} title="Deal not found" description="This deal may have been removed, or you may not have access to it." />
     </div>
   )
 
@@ -2549,8 +2550,12 @@ export default function DealDetailPage() {
         {/* UNDERWRITING — collapsible */}
         <div className="rounded-xl overflow-hidden mb-3 bg-card border border-border/50 ff-card-elevated">
           <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={underwritingExpanded}
             className="flex items-center justify-between px-5 py-3 cursor-pointer bg-primary/5 border-b border-primary/20 transition-colors hover:bg-primary/[0.07]"
             onClick={() => setUnderwritingExpanded(!underwritingExpanded)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setUnderwritingExpanded(!underwritingExpanded) } }}
           >
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <Shield className="w-4 h-4" />
@@ -2648,7 +2653,11 @@ export default function DealDetailPage() {
                         return (
                           <div
                             key={item.id}
+                            role="checkbox"
+                            tabIndex={0}
+                            aria-checked={checked}
                             onClick={() => handleChecklistToggle(item)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleChecklistToggle(item) } }}
                             onDragOver={(e) => handleChecklistDragOver(e, item)}
                             onDragLeave={handleChecklistDragLeave}
                             onDrop={(e) => handleChecklistDrop(e, item)}
@@ -2730,7 +2739,11 @@ export default function DealDetailPage() {
                                   {matchingDocs.map(doc => (
                                     <a
                                       key={doc.id}
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-label={`Download ${doc.file_name || 'document'}`}
                                       onClick={(e) => { e.stopPropagation(); handleDocumentDownload(doc) }}
+                                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleDocumentDownload(doc) } }}
                                       className="text-xs flex items-center gap-1.5 cursor-pointer transition text-primary hover:opacity-70"
                                     >
                                       <FileText className="w-3 h-3" />
@@ -3034,8 +3047,12 @@ export default function DealDetailPage() {
             {/* MESSAGES — sits under documents in the right column */}
             <div id="messages" className={`rounded-xl overflow-hidden bg-card border transition-colors ${hasUnreadMessages ? 'border-status-red/50' : 'border-border/50'}`}>
               <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={messagesExpanded}
                 className={`flex items-center justify-between px-5 py-3 cursor-pointer border-b transition-colors ${hasUnreadMessages ? 'bg-status-red/10 border-status-red/20 hover:bg-status-red/[0.12]' : 'bg-primary/5 border-primary/20 hover:bg-primary/[0.07]'}`}
                 onClick={() => setMessagesExpanded(!messagesExpanded)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMessagesExpanded(!messagesExpanded) } }}
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                   <Send className="w-4 h-4" />
@@ -3108,6 +3125,8 @@ export default function DealDetailPage() {
                       onClick={() => setShowDealQuickReplies(!showDealQuickReplies)}
                       className={`p-1.5 rounded transition-colors flex-shrink-0 border ${showDealQuickReplies ? 'text-primary border-primary' : 'text-muted-foreground border-border/50'}`}
                       title="Quick replies"
+                      aria-label="Quick replies"
+                      aria-expanded={showDealQuickReplies}
                     >
                       <Zap className="w-3 h-3" />
                     </button>
@@ -3276,8 +3295,12 @@ export default function DealDetailPage() {
         {/* ADMIN NOTES */}
         <div className="rounded-xl overflow-hidden mb-3 bg-card border border-border/50 ff-card-elevated">
           <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={notesExpanded}
             className="flex items-center justify-between px-5 py-3 cursor-pointer bg-primary/5 border-b border-primary/20 transition-colors hover:bg-primary/[0.07]"
             onClick={() => setNotesExpanded(!notesExpanded)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNotesExpanded(!notesExpanded) } }}
           >
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <StickyNote className="w-4 h-4" />
@@ -3325,8 +3348,12 @@ export default function DealDetailPage() {
         {deal && (
           <div className="rounded-xl overflow-hidden bg-card border border-border/50 ff-card-elevated">
             <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={auditExpanded}
               className="flex items-center justify-between px-5 py-3 cursor-pointer bg-primary/5 border-b border-primary/20 transition-colors hover:bg-primary/[0.07]"
               onClick={() => setAuditExpanded(!auditExpanded)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAuditExpanded(!auditExpanded) } }}
             >
               <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                 <Shield className="w-4 h-4" />

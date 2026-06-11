@@ -542,9 +542,13 @@ export default function AdminPaymentsPage() {
                 <Card key={summary.brokerage.id} className="overflow-hidden shadow-lg shadow-black/20">
                   {/* Summary Row */}
                   <div
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
                     className="px-6 py-5 cursor-pointer hover:bg-muted/20 transition-colors"
                     style={{ borderBottom: isExpanded ? undefined : 'none' }}
                     onClick={() => setExpandedBrokerage(isExpanded ? null : summary.brokerage.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedBrokerage(isExpanded ? null : summary.brokerage.id) } }}
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">

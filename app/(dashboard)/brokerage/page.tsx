@@ -832,6 +832,21 @@ export default function BrokerageDashboard() {
                       })
                     }
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return
+                    e.preventDefault()
+                    const tabEls = Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+                    if (tabEls.length === 0) return
+                    const current = tabEls.indexOf(e.currentTarget)
+                    let next = current
+                    if (e.key === 'ArrowRight') next = (current + 1) % tabEls.length
+                    else if (e.key === 'ArrowLeft') next = (current - 1 + tabEls.length) % tabEls.length
+                    else if (e.key === 'Home') next = 0
+                    else if (e.key === 'End') next = tabEls.length - 1
+                    const target = tabEls[next]
+                    target.focus()
+                    target.click()
+                  }}
                   className={`px-4 sm:px-5 py-3 text-[13px] font-medium transition-all whitespace-nowrap inline-flex items-center gap-1.5 border-b-2 -mb-px ${
                     activeTab === tab
                       ? 'text-primary border-primary'
@@ -899,8 +914,12 @@ export default function BrokerageDashboard() {
                   })().map((deal) => (
                     <div key={deal.id}>
                       <div
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={expandedDeal === deal.id}
                         className="group px-4 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-all duration-150 hover:bg-white/[0.03] border-b border-border/20"
                         onClick={() => setExpandedDeal(expandedDeal === deal.id ? null : deal.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedDeal(expandedDeal === deal.id ? null : deal.id) } }}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
@@ -1374,16 +1393,24 @@ export default function BrokerageDashboard() {
               {/* Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" aria-label="Profit share summary">
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={referralFilter === 'earned'}
                   className={`rounded-xl px-4 py-3 cursor-pointer transition-all bg-status-green-muted/60 border ${referralFilter === 'earned' ? 'border-status-green ring-1 ring-status-green/20' : 'border-status-green-border/60 hover:border-status-green-border'}`}
                   onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned') } }}
                 >
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-status-green/70">Total Earned</p>
                   <p className="text-xl font-bold mt-1 text-status-green tabular-nums">{formatCurrency(totalReferralFees)}</p>
                   <p className="text-xs text-status-green/70">{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
                 </div>
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={referralFilter === 'pending'}
                   className={`rounded-xl px-4 py-3 cursor-pointer transition-all bg-status-amber-muted/60 border ${referralFilter === 'pending' ? 'border-status-amber ring-1 ring-status-amber/20' : 'border-status-amber-border/60 hover:border-status-amber-border'}`}
                   onClick={() => setReferralFilter(referralFilter === 'pending' ? 'all' : 'pending')}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setReferralFilter(referralFilter === 'pending' ? 'all' : 'pending') } }}
                 >
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-status-amber/70">Pending</p>
                   <p className="text-xl font-bold mt-1 text-status-amber tabular-nums">{formatCurrency(pendingReferralFees)}</p>

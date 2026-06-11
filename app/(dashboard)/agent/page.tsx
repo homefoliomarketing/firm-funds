@@ -952,6 +952,21 @@ function AgentDashboardInner() {
                   role="tab"
                   aria-selected={statusFilter === null}
                   onClick={() => { setStatusFilter(null); setCurrentPage(1) }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return
+                    e.preventDefault()
+                    const tabEls = Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+                    if (tabEls.length === 0) return
+                    const current = tabEls.indexOf(e.currentTarget)
+                    let next = current
+                    if (e.key === 'ArrowRight') next = (current + 1) % tabEls.length
+                    else if (e.key === 'ArrowLeft') next = (current - 1 + tabEls.length) % tabEls.length
+                    else if (e.key === 'Home') next = 0
+                    else if (e.key === 'End') next = tabEls.length - 1
+                    const target = tabEls[next]
+                    target.focus()
+                    target.click()
+                  }}
                   className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
                     statusFilter === null
                       ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
@@ -969,6 +984,21 @@ function AgentDashboardInner() {
                       role="tab"
                       aria-selected={statusFilter === status}
                       onClick={() => { setStatusFilter(statusFilter === status ? null : status); setCurrentPage(1) }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return
+                        e.preventDefault()
+                        const tabEls = Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+                        if (tabEls.length === 0) return
+                        const current = tabEls.indexOf(e.currentTarget)
+                        let next = current
+                        if (e.key === 'ArrowRight') next = (current + 1) % tabEls.length
+                        else if (e.key === 'ArrowLeft') next = (current - 1 + tabEls.length) % tabEls.length
+                        else if (e.key === 'Home') next = 0
+                        else if (e.key === 'End') next = tabEls.length - 1
+                        const target = tabEls[next]
+                        target.focus()
+                        target.click()
+                      }}
                       className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
                         statusFilter === status
                           ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
@@ -1022,12 +1052,15 @@ function AgentDashboardInner() {
                           key={deal.id}
                           ref={(el) => { dealRowRefs.current[deal.id] = el }}
                           role="listitem"
+                          tabIndex={0}
+                          aria-label={`View deal for ${deal.property_address}`}
                           className={`group px-5 sm:px-6 py-4 flex items-center justify-between cursor-pointer transition-all duration-150 hover:bg-white/[0.03] ${
                             i < paged.length - 1 ? 'border-b border-border/20' : ''
                           } ${
                             highlightedDealId === deal.id ? 'bg-primary/10 ring-1 ring-primary/40' : ''
                           }`}
                           onClick={() => router.push(`/agent/deals/${deal.id}`)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/agent/deals/${deal.id}`) } }}
                         >
                           <div className="flex-1 min-w-0 mr-4">
                             <div className="flex items-center gap-2 min-w-0">

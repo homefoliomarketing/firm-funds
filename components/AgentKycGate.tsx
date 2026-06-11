@@ -425,6 +425,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
                   onClick={() => removeFile(i)}
                   className="text-red-400 hover:text-red-300 shrink-0 p-0.5 transition-colors"
                   title="Remove"
+                  aria-label={`Remove ${file.name}`}
                 >
                   <XCircle size={14} />
                 </button>

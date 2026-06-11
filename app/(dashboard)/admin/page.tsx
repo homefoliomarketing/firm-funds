@@ -576,6 +576,7 @@ export default function AdminDashboard() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={revealedBankingIds.has(agent.id) ? 'Hide banking details' : 'Show banking details'}
                           className="h-6 w-6 text-muted-foreground hover:text-foreground"
                           onClick={() => setRevealedBankingIds(prev => {
                             const next = new Set(prev)
@@ -970,8 +971,12 @@ export default function AdminDashboard() {
                       return (
                       <TableRow
                         key={deal.id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`View deal ${deal.property_address}`}
                         className="cursor-pointer border-border/30 hover:bg-white/[0.03] transition-colors group"
                         onClick={() => router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`) } }}
                       >
                         <TableCell className="text-[13px] font-semibold group-hover:text-primary transition-colors">
                           <span className="flex items-center gap-1.5">
@@ -1028,8 +1033,12 @@ export default function AdminDashboard() {
                   return (
                   <Card
                     key={deal.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View deal ${deal.property_address}`}
                     className="cursor-pointer border-border/30 hover:bg-secondary/50 transition-colors"
                     onClick={() => router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/admin/deals/${deal.id}${hasUnread ? '#messages' : ''}`) } }}
                   >
                     <CardContent className="p-3.5">
                       <div className="flex items-start gap-2 mb-2">

@@ -7,7 +7,7 @@ import {
   ArrowLeft, FileText, DollarSign, MapPin, Clock,
   Upload, Download, ChevronDown, ChevronUp, Paperclip,
   CheckCircle2, AlertTriangle, Pencil, Save, X, Send, Loader2,
-  Bell,
+  Bell, SearchX,
 } from 'lucide-react'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
@@ -29,6 +29,7 @@ import { submitClosingDateAmendment, getDealAmendments } from '@/lib/actions/ame
 import { CalendarClock } from 'lucide-react'
 import { AlertCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -563,7 +564,11 @@ export default function AgentDealDetailPage() {
 
   if (!deal) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-lg text-muted-foreground">Deal not found</div>
+      <EmptyState
+        icon={SearchX}
+        title="Deal not found"
+        description="This deal may have been removed, or you may not have access to it."
+      />
     </div>
   )
 
@@ -1191,7 +1196,7 @@ export default function AgentDealDetailPage() {
                     </div>
                     <label className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium text-sm cursor-pointer transition-colors hover:bg-primary/90">
                       <Upload size={16} />{uploading ? 'Uploading...' : 'Choose Files'}
-                      <input type="file" multiple onChange={handleFileUpload} disabled={uploading} className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.xls,.xlsx,.csv,.txt" />
+                      <input type="file" multiple onChange={handleFileUpload} disabled={uploading} className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.xls,.xlsx" />
                     </label>
                     <p className="text-xs mt-2 text-muted-foreground/60">PDF, Word, Excel, Images up to 10MB each</p>
                   </div>
@@ -1221,6 +1226,7 @@ export default function AgentDealDetailPage() {
                             onClick={() => handleDocumentDownload(doc)}
                             className="p-2 rounded-lg transition-colors flex-shrink-0 ml-2 text-muted-foreground hover:text-primary hover:bg-primary/10"
                             title="Download"
+                            aria-label="Download document"
                           >
                             <Download size={16} />
                           </button>

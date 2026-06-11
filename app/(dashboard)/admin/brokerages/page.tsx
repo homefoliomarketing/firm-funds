@@ -2707,6 +2707,7 @@ export default function BrokeragesPage() {
                                               onClick={() => openEditAgent(agent)}
                                               className="text-xs px-2 py-1 rounded transition-colors text-muted-foreground hover:text-primary hover:bg-primary/10"
                                               title="Edit agent"
+                                              aria-label="Edit agent"
                                             >
                                               <Edit2 size={13} />
                                             </button>
@@ -2716,6 +2717,7 @@ export default function BrokeragesPage() {
                                                 disabled={resendingAgentId === agent.id}
                                                 className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 text-muted-foreground hover:text-green-400 hover:bg-green-950/30"
                                                 title="Resend welcome email"
+                                                aria-label="Resend welcome email"
                                               >
                                                 <Mail size={13} />
                                               </button>
@@ -2726,6 +2728,7 @@ export default function BrokeragesPage() {
                                                 disabled={resettingPasswordForUserId === agent.id}
                                                 className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 text-muted-foreground hover:text-yellow-400 hover:bg-yellow-950/30"
                                                 title="Reset password"
+                                                aria-label="Reset password"
                                               >
                                                 <KeyRound size={13} />
                                               </button>
@@ -2737,6 +2740,7 @@ export default function BrokeragesPage() {
                                                   changingEmailForUserId === agent.id ? 'text-primary' : 'text-muted-foreground hover:text-blue-400 hover:bg-blue-950/30'
                                                 }`}
                                                 title="Change login email"
+                                                aria-label="Change login email"
                                               >
                                                 <AtSign size={13} />
                                               </button>
@@ -2747,6 +2751,7 @@ export default function BrokeragesPage() {
                                                 disabled={archivingAgentId === agent.id}
                                                 className="text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 text-muted-foreground hover:text-red-400 hover:bg-red-950/30"
                                                 title="Archive agent"
+                                                aria-label="Archive agent"
                                               >
                                                 <Archive size={13} />
                                               </button>
@@ -3183,6 +3188,7 @@ export default function BrokeragesPage() {
                 onClick={() => { for (const u of kycPreviewPanel.originalUrls) window.open(u, '_blank') }}
                 className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition bg-input text-primary border border-border hover:bg-muted"
                 title="Open in new tab"
+                aria-label="Open in new tab"
               >
                 <ExternalLink size={11} />
               </button>

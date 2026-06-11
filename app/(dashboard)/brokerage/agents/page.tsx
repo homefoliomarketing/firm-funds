@@ -316,7 +316,7 @@ export default function BrokerageAgentsPage() {
                             <div className="flex items-center justify-end gap-2">
                               {isEditing ? (
                                 <>
-                                  <Button size="sm" variant="outline" onClick={() => setEditingId(null)} disabled={editBusy}>
+                                  <Button size="sm" variant="outline" onClick={() => setEditingId(null)} disabled={editBusy} aria-label="Cancel edit">
                                     <X size={12} />
                                   </Button>
                                   <Button size="sm" disabled={editBusy} onClick={handleEditSave}>
@@ -325,7 +325,7 @@ export default function BrokerageAgentsPage() {
                                 </>
                               ) : (
                                 <>
-                                  <Button size="sm" variant="outline" onClick={() => handleEditOpen(a)} title="Edit contact">
+                                  <Button size="sm" variant="outline" onClick={() => handleEditOpen(a)} title="Edit contact" aria-label={`Edit contact for ${a.first_name} ${a.last_name}`}>
                                     <Edit size={12} />
                                   </Button>
                                   <Button
@@ -334,6 +334,7 @@ export default function BrokerageAgentsPage() {
                                     disabled={!a.email || resendingId === a.id || !!a.account_activated_at}
                                     onClick={() => handleResend(a)}
                                     title={!a.email ? 'Add email first' : a.account_activated_at ? 'Already activated' : 'Send welcome email'}
+                                    aria-label={`Send welcome email to ${a.first_name} ${a.last_name}`}
                                   >
                                     {resendingId === a.id ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />}
                                   </Button>
