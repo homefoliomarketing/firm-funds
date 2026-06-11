@@ -59,6 +59,12 @@ supabase/.temp/
 # Local preview artifacts from firm-deal-detection test scripts
 /firm-deal-email-preview.html
 
+# Local email-redesign preview artifacts (regenerated via scripts/render-email-preview.mts)
+/public/email-mockup-welcome.html
+/public/email-prod-welcome.html
+/public/_email-prod-local.html
+/public/_choice-logo.svg
+
 # Scratch planning files (not part of the project)
 findings.md
 progress.md
