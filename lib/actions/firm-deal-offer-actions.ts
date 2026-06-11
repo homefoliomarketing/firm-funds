@@ -3,14 +3,19 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, getAuthenticatedWriter } from '@/lib/auth-helpers'
 import {
-  sendBrokerageOfferNotification,
   sendBrokerageOfferNudge2h,
   sendAgentDeclineNotification,
-  loadBrokerageOfferRecipients,
 } from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
+import {
+  performFirmDealOfferAcceptance,
+  type AcceptFirmDealOfferResult,
+} from '@/lib/firm-deal-detection/offer-acceptance'
 import { logAuditEvent } from '@/lib/audit'
 
 type ActionResult<T = unknown> = { success: boolean; error?: string; data?: T }
+
+// UUID v4-ish sanity check — keep ill-formed strings out of DB queries.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // ============================================================================
 // Agent-facing — fetch the offer details for a firm_deal_events row, but only
@@ -34,8 +39,86 @@ export interface FirmDealOfferSummary {
   brand_name: string | null
   /** Set once a deal record has been linked to this offer; until then null. */
   offer_deal_id: string | null
+  /**
+   * True when this agent has pre-requested the advance (onboarding "All set"
+   * page) but the offer hasn't been accepted yet. The brokerage notification
+   * is held until Firm Funds activates the account; see preRequestFirmDealOffer
+   * and fireQueuedFirmDealOffersForAgent.
+   */
+  pre_requested: boolean
   /** When the offer was sent (email or SMS). null if not yet sent. */
   sent_at: string | null
+}
+
+// Columns every offer-summary read needs. Keep in sync with OfferEventRow +
+// buildOfferSummaryFromEvent.
+const OFFER_EVENT_COLUMNS = `
+  id, brokerage_id, brokerage_pipe_id,
+  parsed, status, matched_agent_id, second_matched_agent_id,
+  offer_deal_id, second_offer_deal_id,
+  agent_pre_request_at, second_agent_pre_request_at,
+  email_sent_at, sms_sent_at, received_at
+`
+
+interface OfferEventRow {
+  id: string
+  brokerage_id: string
+  brokerage_pipe_id: string | null
+  parsed: { address?: string | null; closing_date_iso?: string | null; mls_number?: string | null } | null
+  status: string
+  matched_agent_id: string | null
+  second_matched_agent_id: string | null
+  offer_deal_id: string | null
+  second_offer_deal_id: string | null
+  agent_pre_request_at: string | null
+  second_agent_pre_request_at: string | null
+  email_sent_at: string | null
+  sms_sent_at: string | null
+  received_at: string | null
+}
+
+// Assemble the agent-facing summary for one event row, picking the correct
+// side (primary vs second matched agent). Returns null when the caller isn't
+// matched to this offer at all — callers surface that as "no offer", which is
+// also the leak-safe answer for a hand-crafted event id.
+async function buildOfferSummaryFromEvent(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  row: OfferEventRow,
+  myAgentId: string
+): Promise<FirmDealOfferSummary | null> {
+  const isPrimary = row.matched_agent_id === myAgentId
+  const isSecondary = row.second_matched_agent_id === myAgentId
+  if (!isPrimary && !isSecondary) return null
+
+  // Pipe brand for the banner copy ("Choice Advances" reads better than "Firm
+  // Funds" when the email came from the white-label).
+  const { data: pipe } = await supabase
+    .from('brokerage_pipes')
+    .select('brand_name')
+    .eq('id', row.brokerage_pipe_id)
+    .maybeSingle()
+
+  const parsed = (row.parsed ?? {}) as {
+    address?: string | null
+    closing_date_iso?: string | null
+    mls_number?: string | null
+  }
+  // Pick whichever side this agent is on so the linked deal / pre-request flag
+  // belong to them, not the co-agent on a dual-side deal.
+  const offerDealId = isPrimary ? row.offer_deal_id : row.second_offer_deal_id
+  const preReqAt = isPrimary ? row.agent_pre_request_at : row.second_agent_pre_request_at
+
+  return {
+    event_id: row.id,
+    brokerage_id: row.brokerage_id,
+    address: parsed.address ?? null,
+    closing_date_iso: parsed.closing_date_iso ?? null,
+    mls_number: parsed.mls_number ?? null,
+    brand_name: pipe?.brand_name ?? null,
+    offer_deal_id: (offerDealId as string | null) ?? null,
+    pre_requested: !!preReqAt,
+    sent_at: row.email_sent_at ?? row.sms_sent_at ?? null,
+  }
 }
 
 export async function getFirmDealOfferForCurrentAgent(
@@ -44,8 +127,7 @@ export async function getFirmDealOfferForCurrentAgent(
   if (!eventId || typeof eventId !== 'string') {
     return { success: false, error: 'Missing event id.' }
   }
-  // UUID v4 sanity check — keep ill-formed strings out of the DB query.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)) {
+  if (!UUID_RE.test(eventId)) {
     return { success: false, error: 'Invalid event id.' }
   }
 
@@ -57,60 +139,85 @@ export async function getFirmDealOfferForCurrentAgent(
   const supabase = createServiceRoleClient()
   const { data, error } = await supabase
     .from('firm_deal_events')
-    .select(`
-      id, brokerage_id, brokerage_pipe_id,
-      parsed, status, matched_agent_id, second_matched_agent_id,
-      offer_deal_id, second_offer_deal_id,
-      email_sent_at, sms_sent_at
-    `)
+    .select(OFFER_EVENT_COLUMNS)
     .eq('id', eventId)
     .maybeSingle()
 
   if (error) return { success: false, error: error.message }
   if (!data) return { success: true, data: null }
 
+  // buildOfferSummaryFromEvent returns null when the caller isn't the matched
+  // agent, so a guessed id leaks nothing about other agents' offers.
+  const summary = await buildOfferSummaryFromEvent(
+    supabase,
+    data as OfferEventRow,
+    auth.profile.agent_id as string
+  )
+  return { success: true, data: summary }
+}
+
+// ============================================================================
+// getLatestOutstandingFirmDealOfferForCurrentAgent
+//
+// Surfaces a firm-deal offer for the logged-in agent WITHOUT needing the
+// ?firm_deal=<id> URL param. This is what makes an offer persist on the agent
+// dashboard + setup page after the agent navigates away from (or never used)
+// the email/SMS magic link. Before this, an offer the agent hadn't accepted
+// was invisible once the magic-link param was gone — the deal that "brought
+// them here" simply vanished.
+//
+// Returns the newest offer that is:
+//   - matched to this agent (primary or second side),
+//   - actually sent to them (email_sent_at or sms_sent_at set),
+//   - NOT yet turned into a deal on their side (offer_deal_id null) — an
+//     accepted offer already shows as an 'offered' row in their list, so
+//     re-surfacing it as a banner on every visit would just be noise,
+//   - not past its closing date (can't be accepted anyway).
+//
+// A pre-requested-but-not-yet-fired offer still qualifies (offer_deal_id is
+// null until activation fires it); the summary's pre_requested flag lets the
+// UI show "requested, waiting for approval" instead of the accept CTA.
+// ============================================================================
+
+export async function getLatestOutstandingFirmDealOfferForCurrentAgent(): Promise<
+  ActionResult<FirmDealOfferSummary | null>
+> {
+  const auth = await getAuthenticatedUser(['agent'])
+  if (auth.error || !auth.profile?.agent_id) {
+    return { success: false, error: auth.error ?? 'Not an agent.' }
+  }
   const myAgentId = auth.profile.agent_id as string
-  const isPrimary = data.matched_agent_id === myAgentId
-  const isSecondary = data.second_matched_agent_id === myAgentId
-  if (!isPrimary && !isSecondary) {
-    // Quietly return null so a guessed id leaks nothing about other agents'
-    // offers. The dashboard treats null the same as "no offer to surface".
-    return { success: true, data: null }
+  const supabase = createServiceRoleClient()
+
+  // Pull this agent's recent matched events (either side), newest first. The
+  // agent id is a validated UUID from the session, so it's safe to interpolate
+  // into the PostgREST .or() filter.
+  const { data: rows, error } = await supabase
+    .from('firm_deal_events')
+    .select(OFFER_EVENT_COLUMNS)
+    .or(`matched_agent_id.eq.${myAgentId},second_matched_agent_id.eq.${myAgentId}`)
+    .order('received_at', { ascending: false })
+    .limit(20)
+
+  if (error) return { success: false, error: error.message }
+  if (!rows || rows.length === 0) return { success: true, data: null }
+
+  const todayInToronto = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+
+  for (const row of rows as OfferEventRow[]) {
+    const isPrimary = row.matched_agent_id === myAgentId
+    const offerDealId = isPrimary ? row.offer_deal_id : row.second_offer_deal_id
+    if (offerDealId) continue // already a deal in their list
+    const sentAt = row.email_sent_at ?? row.sms_sent_at ?? null
+    if (!sentAt) continue // never actually sent to the agent
+    const closing = (row.parsed ?? {}).closing_date_iso ?? null
+    if (closing && /^\d{4}-\d{2}-\d{2}$/.test(closing) && closing < todayInToronto) continue // past closing
+
+    const summary = await buildOfferSummaryFromEvent(supabase, row, myAgentId)
+    if (summary) return { success: true, data: summary }
   }
 
-  // Look up the pipe brand for the banner copy ("Choice Advances" reads
-  // better than "Firm Funds" when the email came from the white-label).
-  const { data: pipe } = await supabase
-    .from('brokerage_pipes')
-    .select('brand_name')
-    .eq('id', data.brokerage_pipe_id)
-    .maybeSingle()
-
-  const parsed = (data.parsed ?? {}) as {
-    address?: string | null
-    closing_date_iso?: string | null
-    mls_number?: string | null
-  }
-
-  // Pick whichever side this agent is on so the offer_deal_id is the one
-  // that belongs to them, not the co-agent on a dual-side deal.
-  const offerDealId = isPrimary ? data.offer_deal_id : data.second_offer_deal_id
-
-  const sentAt = data.email_sent_at ?? data.sms_sent_at ?? null
-
-  return {
-    success: true,
-    data: {
-      event_id: data.id,
-      brokerage_id: data.brokerage_id,
-      address: parsed.address ?? null,
-      closing_date_iso: parsed.closing_date_iso ?? null,
-      mls_number: parsed.mls_number ?? null,
-      brand_name: pipe?.brand_name ?? null,
-      offer_deal_id: (offerDealId as string | null) ?? null,
-      sent_at: sentAt,
-    },
-  }
+  return { success: true, data: null }
 }
 
 // ============================================================================
@@ -134,17 +241,10 @@ export async function getFirmDealOfferForCurrentAgent(
 // event, we return the existing deal id rather than double-creating.
 // ============================================================================
 
-export interface AcceptFirmDealOfferResult {
-  deal_id: string
-  already_accepted: boolean
-  /**
-   * Set to true when the brokerage notification didn't go out cleanly and was
-   * enqueued in cron_email_failures for the retry sweeper. The UI surfaces a
-   * "we'll keep trying" line so the agent isn't left wondering whether their
-   * brokerage was told.
-   */
-  notification_queued_for_retry?: boolean
-}
+// AcceptFirmDealOfferResult is defined alongside the shared acceptance core in
+// lib/firm-deal-detection/offer-acceptance.ts and re-exported via the import
+// above, so both the agent-click path and the pre-request-on-activation path
+// return the identical shape.
 
 // ----------------------------------------------------------------------------
 // Dual-agency behavior (Phase 1) — documented in one place
@@ -188,7 +288,50 @@ export async function acceptFirmDealOffer(
   if (!eventId || typeof eventId !== 'string') {
     return { success: false, error: 'Missing event id.' }
   }
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)) {
+  if (!UUID_RE.test(eventId)) {
+    return { success: false, error: 'Invalid event id.' }
+  }
+
+  const auth = await getAuthenticatedWriter(['agent'])
+  if (auth.error || !auth.profile?.agent_id) {
+    return { success: false, error: auth.error ?? 'Not an agent.' }
+  }
+
+  // All the real work (ownership re-check, closing-date validation, recipient
+  // gate, race-safe insert, brokerage notification + retry enqueue, audit)
+  // lives in the shared core so the pre-request-on-activation path runs the
+  // exact same logic without a user session.
+  const supabase = createServiceRoleClient()
+  return performFirmDealOfferAcceptance(supabase, {
+    eventId,
+    agentId: auth.profile.agent_id as string,
+    actor: { kind: 'agent', userId: auth.user?.id ?? null },
+  })
+}
+
+// ============================================================================
+// preRequestFirmDealOffer — agent opts in to the advance from the onboarding
+// "You're all set" page, BEFORE Firm Funds has activated their account.
+//
+// We don't notify the brokerage yet (the agent isn't approved). Instead we
+// stamp agent_pre_request_at on the event. When Firm Funds approves the
+// account (KYC verified AND banking approved -> account_activated_at set), the
+// approval action calls fireQueuedFirmDealOffersForAgent, which runs the normal
+// acceptance on the agent's behalf — creating the offered deal and notifying
+// the brokerage. The agent never has to log back in to kick it off.
+//
+// Edge case: if the agent is somehow ALREADY activated when they pre-request
+// (e.g. an admin approved them in the same minute), we skip the queue and
+// accept immediately so the request never gets stranded.
+// ============================================================================
+
+export async function preRequestFirmDealOffer(
+  eventId: string
+): Promise<ActionResult<{ pre_requested: boolean; accepted_now: boolean; deal_id?: string }>> {
+  if (!eventId || typeof eventId !== 'string') {
+    return { success: false, error: 'Missing event id.' }
+  }
+  if (!UUID_RE.test(eventId)) {
     return { success: false, error: 'Invalid event id.' }
   }
 
@@ -200,17 +343,11 @@ export async function acceptFirmDealOffer(
 
   const supabase = createServiceRoleClient()
 
-  // Load the event with its parsed payload + matched-agent fields. We re-check
-  // ownership server-side so a hostile caller can't accept someone else's
-  // offer just by knowing the event id. brokerage_pipe_id is loaded so the
-  // recipient gate-check below can read the pipe's notification_recipients
-  // config without a second round-trip.
   const { data: event, error: eventErr } = await supabase
     .from('firm_deal_events')
-    .select(`
-      id, brokerage_id, brokerage_pipe_id, parsed, matched_agent_id, second_matched_agent_id,
-      offer_deal_id, second_offer_deal_id
-    `)
+    .select(
+      'id, matched_agent_id, second_matched_agent_id, offer_deal_id, second_offer_deal_id, agent_pre_request_at, second_agent_pre_request_at'
+    )
     .eq('id', eventId)
     .maybeSingle()
   if (eventErr) return { success: false, error: eventErr.message }
@@ -219,314 +356,64 @@ export async function acceptFirmDealOffer(
   const isPrimary = event.matched_agent_id === myAgentId
   const isSecondary = event.second_matched_agent_id === myAgentId
   if (!isPrimary && !isSecondary) {
-    return { success: false, error: 'This offer is not yours to accept.' }
+    return { success: false, error: 'This offer is not yours to request.' }
   }
 
-  // Fast-path idempotency: if this side already has a deal linked, surface it
-  // instead of creating a duplicate. The banner uses this same field to render
-  // the "We've already started a request" state. This is a hot read — the
-  // real race protection lives in the unique-constraint catch below (the back
-  // -link write isn't transactionally tied to the deal insert, so two near-
-  // simultaneous clicks can both find offer_deal_id null on this read).
+  // Already accepted on this side — the offered deal exists; nothing to queue.
   const existingDealId = isPrimary ? event.offer_deal_id : event.second_offer_deal_id
   if (existingDealId) {
     return {
       success: true,
-      data: { deal_id: existingDealId as string, already_accepted: true },
+      data: { pre_requested: true, accepted_now: false, deal_id: existingDealId as string },
     }
   }
 
-  const parsed = (event.parsed ?? {}) as {
-    address?: string | null
-    closing_date_iso?: string | null
-    mls_number?: string | null
-  }
-  const propertyAddress = (parsed.address ?? '').trim() || 'Address pending'
-
-  // ------------------------------------------------------------------------
-  // Closing-date validation (Task 7)
-  // ------------------------------------------------------------------------
-  // We need a real, parseable, future-or-today ISO date. The dispatcher
-  // already refuses to send offers without one, but a hostile or stale
-  // payload could still reach here, and we'd rather reject cleanly than
-  // create a malformed `deals` row.
-  const closingDate = parsed.closing_date_iso ?? null
-  if (!closingDate) {
-    return {
-      success: false,
-      error: 'This offer is missing a closing date. Please contact Firm Funds support.',
-    }
-  }
-  const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/
-  if (!isoDateRegex.test(closingDate)) {
-    return {
-      success: false,
-      error: 'Invalid closing date format on this offer. Please contact Firm Funds support.',
-    }
-  }
-  // Construct with noon UTC so timezone math never tips us into the previous
-  // day in eastern time. Used for sanity-checking the date is real (not
-  // 2026-02-30 etc.); the actual closing_date column is stored as ISO date
-  // and rendered in local time downstream.
-  const parsedClosingDate = new Date(closingDate + 'T12:00:00Z')
-  if (isNaN(parsedClosingDate.getTime())) {
-    return {
-      success: false,
-      error: 'Invalid closing date on this offer. Please contact Firm Funds support.',
-    }
-  }
-  // Reject offers whose closing has already happened in Toronto local time.
-  // String comparison is safe because both sides are YYYY-MM-DD ISO format.
-  const todayInToronto = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-  if (closingDate < todayInToronto) {
-    return {
-      success: false,
-      error: 'This offer has a closing date in the past and can no longer be accepted.',
-    }
-  }
-
-  // ------------------------------------------------------------------------
-  // Brokerage recipient gate (Task 2)
-  // ------------------------------------------------------------------------
-  // If the brokerage has no email on file AND the pipe has no notification
-  // recipients configured AND FIRM_FUNDS_OFFER_INBOX is not set, creating
-  // this offered deal would lead to a silent black hole — the brokerage
-  // never gets told. Refuse acceptance with a clear human message so the
-  // agent can call support and we surface the configuration gap.
-  //
-  // Uses the SAME helper the dispatcher uses, so the gate and the actual
-  // send agree byte-for-byte on recipient resolution. FIRM_FUNDS_OFFER_INBOX
-  // (default bud@firmfunds.ca) is always added when set, so this gate only
-  // really fires in test/dev or in pathological prod misconfigurations.
-  const recipientsCheck = await loadBrokerageOfferRecipients(
-    supabase,
-    event.brokerage_id,
-    event.brokerage_pipe_id as string | null
-  )
-  if (!recipientsCheck.brokerage_loaded) {
-    return {
-      success: false,
-      error: 'Brokerage record missing for this offer. Please contact Firm Funds support at support@firmfunds.ca.',
-    }
-  }
-  if (recipientsCheck.recipients.length === 0) {
-    return {
-      success: false,
-      error:
-        'Your brokerage is not set up to receive advance offers. Please contact Firm Funds support at support@firmfunds.ca to configure notification recipients.',
-    }
-  }
-
-  // Days until closing — used downstream for stat displays; for offered rows
-  // the real days will be recomputed when the brokerage submits.
-  const today = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' }) + 'T00:00:00Z').getTime()
-  const closingMs = new Date(closingDate + 'T00:00:00Z').getTime()
-  const daysUntilClosing = Math.max(0, Math.ceil((closingMs - today) / (1000 * 60 * 60 * 24)))
-
-  const nowIso = new Date().toISOString()
-
-  // ------------------------------------------------------------------------
-  // Race-safe insert (Task 1)
-  // ------------------------------------------------------------------------
-  // Migration 089 added a partial unique index on
-  // (offered_event_id, agent_id) WHERE status='offered' so two simultaneous
-  // clicks from the same agent on the same offer can't both create a deal.
-  // The fast-path check above handles the common case; this catches the
-  // narrow race window where both calls saw offer_deal_id=null.
-  const { data: inserted, error: insertErr } = await supabase
-    .from('deals')
-    .insert({
-      agent_id: myAgentId,
-      brokerage_id: event.brokerage_id,
-      status: 'offered',
-      property_address: propertyAddress,
-      closing_date: closingDate,
-      // Financial placeholders. UI hides these on 'offered' rows; the
-      // brokerage submission flow overwrites them with the real numbers.
-      gross_commission: 0,
-      brokerage_split_pct: 0,
-      net_commission: 0,
-      days_until_closing: daysUntilClosing,
-      discount_fee: 0,
-      advance_amount: 0,
-      brokerage_referral_fee: 0,
-      amount_due_from_brokerage: 0,
-      source: 'firm_deal_offer',
-      payment_status: 'not_applicable',
-      // New tracking columns from migration 081.
-      offered_at: nowIso,
-      offered_event_id: event.id,
+  // If the account is already activated, accept immediately rather than queue.
+  const { data: agent } = await supabase
+    .from('agents')
+    .select('account_activated_at')
+    .eq('id', myAgentId)
+    .maybeSingle()
+  if (agent?.account_activated_at) {
+    const res = await performFirmDealOfferAcceptance(supabase, {
+      eventId,
+      agentId: myAgentId,
+      actor: { kind: 'agent', userId: auth.user?.id ?? null },
     })
-    .select('id')
-    .single()
-
-  if (insertErr) {
-    // Postgres unique_violation. The constraint name comes from migration 089;
-    // we match on both code and constraint name so an unrelated 23505 (e.g.
-    // some other future unique index) doesn't silently fall into the lookup
-    // branch and return a misleading "already accepted" result.
-    const isUniqueViolation =
-      insertErr.code === '23505' &&
-      (insertErr.message?.includes('deals_unique_offered_per_event_and_agent') ||
-        // PostgREST sometimes surfaces the message in details instead.
-        (insertErr.details ?? '').includes('deals_unique_offered_per_event_and_agent'))
-    if (isUniqueViolation) {
-      const { data: existing } = await supabase
-        .from('deals')
-        .select('id')
-        .eq('offered_event_id', event.id)
-        .eq('agent_id', myAgentId)
-        .eq('status', 'offered')
-        .maybeSingle()
-      if (existing) {
-        return {
-          success: true,
-          data: { deal_id: existing.id as string, already_accepted: true },
-        }
-      }
-      // Index says a row exists, but we can't find it — most likely a
-      // concurrent transaction hasn't committed yet. Surface a soft error
-      // and let the agent retry; the second attempt will see the committed
-      // row via the fast-path.
-      return {
-        success: false,
-        error: 'Acceptance is being processed. Please refresh in a moment.',
-      }
+    if (!res.success || !res.data) {
+      return { success: false, error: res.error || 'We could not submit your request. Please try again.' }
     }
     return {
-      success: false,
-      error: `Failed to record offer acceptance: ${insertErr.message ?? 'unknown'}`,
+      success: true,
+      data: { pre_requested: true, accepted_now: true, deal_id: res.data.deal_id },
     }
   }
 
-  if (!inserted) {
-    return {
-      success: false,
-      error: 'Failed to record offer acceptance: insert returned no row.',
-    }
-  }
-  // From this point on the deal exists with id of type `string`. Pin it to a
-  // const so downstream code (back-link write, dispatcher call, audit log)
-  // gets a non-nullable type without per-call assertions.
-  const insertedDealId: string = inserted.id as string
-
-  // Back-link the event so the banner stops prompting and the cron can find
-  // the row. Pick the right side (primary vs second) so dual-side offers
-  // don't clobber each other.
-  const linkUpdate: Record<string, string> = {}
-  if (isPrimary) linkUpdate.offer_deal_id = insertedDealId
-  else linkUpdate.second_offer_deal_id = insertedDealId
-  const { error: linkErr } = await supabase
-    .from('firm_deal_events')
-    .update(linkUpdate)
-    .eq('id', event.id)
-  if (linkErr) {
-    // Not fatal for the user-facing flow; the deal exists and we'll log it.
-    // The cron uses the deal row's offered_event_id back-link anyway.
-    console.warn('[acceptFirmDealOffer] event link update failed:', linkErr.message)
-  }
-
-  // ------------------------------------------------------------------------
-  // Brokerage notification + retry enqueue (Task 3)
-  // ------------------------------------------------------------------------
-  // sendBrokerageOfferNotification returns one of:
-  //   - sent     : email accepted by Resend, timestamps written
-  //   - skipped  : truly no recipients (Task 2's gate above should have
-  //                prevented this; a 'skipped' result here means recipient
-  //                config changed between gate and send, treat as no-op)
-  //   - errored  : recipients exist but Resend rejected, threw, or env var
-  //                missing in prod — enqueue retry in cron_email_failures
-  //                (table from migration 088) and tell the user we'll keep
-  //                trying. We never roll back the offered deal: it's real,
-  //                we just need the brokerage notified soon.
-  let notificationQueuedForRetry = false
-  try {
-    const dispatch = await sendBrokerageOfferNotification(supabase, insertedDealId)
-    if (dispatch.outcome === 'errored') {
-      console.warn(
-        '[acceptFirmDealOffer] brokerage notification errored, enqueuing retry:',
-        dispatch.error
-      )
-      const { error: retryErr } = await supabase.from('cron_email_failures').insert({
-        cron_job: 'firm-deal-offer-acceptance',
-        email_type: 'firm_deal_offer_notification',
-        recipient: dispatch.recipients?.join(', ') ?? 'unknown',
-        subject: 'Firm Deal Offer (retry)',
-        payload: {
-          deal_id: insertedDealId,
-          event_id: event.id,
-          agent_id: myAgentId,
-        },
-        error: dispatch.error ?? 'unknown',
-      })
-      if (retryErr) {
-        // Failed to enqueue the retry — we lose the automated recovery path,
-        // but the offered deal still exists and the nudge crons (2h/4h/60d)
-        // will eventually surface it. Log loudly.
-        console.error(
-          '[acceptFirmDealOffer] failed to enqueue notification retry:',
-          retryErr.message
-        )
-      } else {
-        notificationQueuedForRetry = true
-      }
-    } else if (dispatch.outcome !== 'sent') {
-      console.warn(
-        '[acceptFirmDealOffer] brokerage notification not sent:',
-        dispatch.error ?? dispatch.outcome
-      )
-    }
-  } catch (err) {
-    console.warn(
-      '[acceptFirmDealOffer] brokerage notification threw:',
-      err instanceof Error ? err.message : err
-    )
-    // Also enqueue when the dispatcher throws — same recovery path.
-    try {
-      await supabase.from('cron_email_failures').insert({
-        cron_job: 'firm-deal-offer-acceptance',
-        email_type: 'firm_deal_offer_notification',
-        recipient: 'unknown',
-        subject: 'Firm Deal Offer (retry)',
-        payload: {
-          deal_id: insertedDealId,
-          event_id: event.id,
-          agent_id: myAgentId,
-        },
-        error: err instanceof Error ? err.message : 'unknown throw',
-      })
-      notificationQueuedForRetry = true
-    } catch (enqueueErr) {
-      console.error(
-        '[acceptFirmDealOffer] failed to enqueue notification retry after throw:',
-        enqueueErr instanceof Error ? enqueueErr.message : enqueueErr
-      )
+  // Otherwise record the pre-request intent on this agent's side of the event.
+  const col = isPrimary ? 'agent_pre_request_at' : 'second_agent_pre_request_at'
+  const alreadyPre = isPrimary ? event.agent_pre_request_at : event.second_agent_pre_request_at
+  if (!alreadyPre) {
+    const { error: updErr } = await supabase
+      .from('firm_deal_events')
+      .update({ [col]: new Date().toISOString() })
+      .eq('id', eventId)
+    if (updErr) {
+      return { success: false, error: `We could not record your request: ${updErr.message}` }
     }
   }
 
   await logAuditEvent({
-    action: 'deal.firm_deal_offer_accepted',
-    entityType: 'deal',
-    entityId: insertedDealId,
+    action: 'deal.firm_deal_offer_pre_requested',
+    entityType: 'firm_deal_event',
+    entityId: eventId,
     metadata: {
-      firm_deal_event_id: event.id,
-      brokerage_id: event.brokerage_id,
       agent_id: myAgentId,
-      property_address: propertyAddress,
-      closing_date: closingDate,
       side: isPrimary ? 'primary' : 'secondary',
-      notification_queued_for_retry: notificationQueuedForRetry,
+      triggered_by_user_id: auth.user?.id ?? null,
     },
   })
 
-  return {
-    success: true,
-    data: {
-      deal_id: insertedDealId,
-      already_accepted: false,
-      notification_queued_for_retry: notificationQueuedForRetry,
-    },
-  }
+  return { success: true, data: { pre_requested: true, accepted_now: false } }
 }
 
 // ============================================================================

@@ -14,6 +14,7 @@ import { markKycModalSeen, markWelcomeSeen } from '@/lib/actions/profile-actions
 import { getAgentBalanceSummary } from '@/lib/actions/account-actions'
 import {
   getFirmDealOfferForCurrentAgent,
+  getLatestOutstandingFirmDealOfferForCurrentAgent,
   acceptFirmDealOffer,
   type FirmDealOfferSummary,
 } from '@/lib/actions/firm-deal-offer-actions'
@@ -184,15 +185,20 @@ function AgentDashboardInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Fetch the firm-deal offer summary when the agent lands via the magic
-  // link. The action enforces that the caller is the matched agent so we
-  // never accidentally reveal someone else's offer if the URL is fiddled
-  // with.
+  // Surface the firm-deal offer. Two paths:
+  //   - With ?firm_deal=<id> (the magic link), fetch that exact offer.
+  //   - Without the param (fresh login, navigated away, pre-requested during
+  //     onboarding), DISCOVER any outstanding offer matched to this agent so
+  //     the deal that "brought them here" never vanishes from the dashboard.
+  // Both actions enforce that the caller is the matched agent, so a fiddled
+  // URL can't reveal someone else's offer.
   useEffect(() => {
-    if (!firmDealParam || !profile?.agent_id) return
+    if (!profile?.agent_id) return
     let cancelled = false
     ;(async () => {
-      const res = await getFirmDealOfferForCurrentAgent(firmDealParam)
+      const res = firmDealParam
+        ? await getFirmDealOfferForCurrentAgent(firmDealParam)
+        : await getLatestOutstandingFirmDealOfferForCurrentAgent()
       if (cancelled) return
       if (res.success && res.data) {
         setFirmDealOffer(res.data)
@@ -607,7 +613,9 @@ function AgentDashboardInner() {
               <span className="flex-1 min-w-0 text-sm font-medium text-foreground truncate">
                 {offerJustAccepted
                   ? `${agent?.brokerages?.name || 'Your brokerage'} has been notified about your advance`
-                  : 'You have an advance offer'}
+                  : firmDealOffer.pre_requested && !firmDealOffer.offer_deal_id
+                    ? 'Advance requested'
+                    : 'You have an advance offer'}
                 {firmDealOffer.address && (
                   <span className="text-muted-foreground font-normal"> ({firmDealOffer.address})</span>
                 )}
@@ -648,7 +656,9 @@ function AgentDashboardInner() {
                       ? `We sent ${agent?.brokerages?.name || 'them'} the details. Your advance request is in their queue and shows below as "Offered" until they submit it. You don't need to do anything else.`
                       : firmDealOffer.offer_deal_id
                         ? "We've already let your brokerage know about this one. See your deal below."
-                        : `Want an advance on this commission? Click below and we'll let ${agent?.brokerages?.name || 'your brokerage'} know to send us the paperwork.`}
+                        : firmDealOffer.pre_requested
+                          ? `You've requested this advance. As soon as Firm Funds approves your account, we'll notify ${agent?.brokerages?.name || 'your brokerage'} to send us the paperwork. Nothing more to do for now.`
+                          : `Want an advance on this commission? Click below and we'll let ${agent?.brokerages?.name || 'your brokerage'} know to send us the paperwork.`}
                   </p>
                   {offerAcceptError && (
                     <p className="text-xs mt-2 text-status-red" role="alert">{offerAcceptError}</p>
@@ -656,7 +666,13 @@ function AgentDashboardInner() {
                 </div>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
-                {!firmDealOffer.offer_deal_id && !offerJustAccepted && (
+                {firmDealOffer.pre_requested && !firmDealOffer.offer_deal_id && !offerJustAccepted && (
+                  <span className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold bg-primary/15 text-primary border border-primary/30 whitespace-nowrap">
+                    <Clock size={12} aria-hidden="true" />
+                    Requested
+                  </span>
+                )}
+                {!firmDealOffer.offer_deal_id && !offerJustAccepted && !firmDealOffer.pre_requested && (
                   <Button
                     onClick={() => {
                       if (kycNotVerified) return

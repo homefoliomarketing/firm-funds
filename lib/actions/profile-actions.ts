@@ -12,6 +12,7 @@ import {
 } from '@/lib/email'
 import { logAuditEventServiceRole } from '@/lib/audit'
 import { normalizeE164, PHONE_VALIDATION_MESSAGE } from '@/lib/phone'
+import { fireQueuedFirmDealOffersForAgent } from '@/lib/firm-deal-detection/offer-acceptance'
 
 // ============================================================================
 // Agent Profile Actions
@@ -324,6 +325,11 @@ export async function brokerageVerifyAgentKyc(input: { agentId: string }) {
     actor_role: 'brokerage_admin',
     metadata: { agent_name: `${agent.first_name} ${agent.last_name}`, verified_by: profile.full_name },
   })
+
+  // If this verification just activated the account (banking already approved),
+  // fire any firm-deal advance the agent pre-requested during onboarding.
+  // No-ops if not yet activated. Best-effort.
+  await fireQueuedFirmDealOffersForAgent(serviceClient, input.agentId)
 
   return { success: true }
 }
@@ -901,6 +907,12 @@ export async function approveAgentBanking(data: { agentId: string }) {
     const emailMessage = emailErr instanceof Error ? emailErr.message : 'Unknown error'
     console.error('Banking approval email error (non-fatal):', emailMessage)
   }
+
+  // Banking approval is the second gate. If KYC is already verified, the agent
+  // is now activated — fire any firm-deal advance they pre-requested during
+  // onboarding (creates the offered deal + notifies their brokerage). No-ops if
+  // KYC is still pending. Best-effort — never blocks the approval.
+  await fireQueuedFirmDealOffersForAgent(serviceClient, data.agentId)
 
   return { success: true }
 }

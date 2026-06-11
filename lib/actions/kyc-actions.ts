@@ -6,6 +6,7 @@ import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, VALID_KYC_DOCUMENT_T
 import { sendKycMobileUploadLink, sendKycApprovedNotification } from '@/lib/email'
 import { randomBytes } from 'crypto'
 import { getAuthenticatedCapable } from '@/lib/auth-helpers'
+import { fireQueuedFirmDealOffersForAgent } from '@/lib/firm-deal-detection/offer-acceptance'
 
 // ============================================================================
 // Types
@@ -366,6 +367,12 @@ export async function verifyAgentKyc(input: {
         agentFirstName: agent.first_name || 'there',
       }).catch(err => console.error('[kyc] Failed to send KYC approval email (non-fatal):', err))
     }
+
+    // If this verification just activated the account (banking already
+    // approved), fire any firm-deal advance the agent pre-requested during
+    // onboarding: creates the offered deal + notifies their brokerage. No-ops
+    // if not yet activated. Best-effort — never blocks KYC verification.
+    await fireQueuedFirmDealOffersForAgent(serviceClient, input.agentId)
 
     return { success: true, data: updatedAgent }
   } catch (err: unknown) {

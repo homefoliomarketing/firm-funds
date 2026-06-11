@@ -1,6 +1,6 @@
 # Deal Lifecycle
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 This document describes the full state machine a commission advance moves through, who can trigger each transition, the underwriting checklist, the settlement window and late-strike behavior, and the failed-deal cure path.
 
@@ -68,7 +68,7 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 
 | From | To | Triggered by | How |
 | --- | --- | --- | --- |
-| (new) | `offered` | Agent | Accepts a firm-deal offer (`acceptFirmDealOffer`) |
+| (new) | `offered` | Agent or system | Agent accepts a firm-deal offer (`acceptFirmDealOffer`), or the system auto-accepts a pre-requested offer when the agent's account is activated (`fireQueuedFirmDealOffersForAgent` -> `performFirmDealOfferAcceptance`; see §7) |
 | (new) | `under_review` | Agent or brokerage admin | Submits an advance request (blocked while the agent has an uncovered failed-to-close balance — see §6, "Submission gate") |
 | `offered` | `under_review` | Brokerage admin **or** the agent | Brokerage submits on the agent's behalf (`submitDealAsBrokerage` with `fromOfferDealId`), OR the agent takes the offer over (`agentTakeOverOffer`, sets `agent_self_submit_at`) and submits it themselves (`submitDeal` with `fromOfferDealId`). Both CONVERT the same offered row in place, so there is never a duplicate. While `agent_self_submit_at` is set the brokerage is paused (see `firm-deals.md` §5). |
 | `offered` | `cancelled` | Brokerage admin or system cron | Declines, or the 60-day expiry cron fires. Both are blocked/skipped while `agent_self_submit_at` is set. |
@@ -182,6 +182,10 @@ Both go through the balance-neutral `record_agent_statement_entry` RPC, so they 
 ## 7. Agent onboarding and activation
 
 Before an agent can transact, they pass through onboarding. An agent's `account_activated_at` is set automatically (trigger `set_agent_account_activated()`, migration 043) once their KYC is verified **and** their banking is approved. Until then the deal-approval step is blocked: an admin cannot move a deal `under_review -> approved` while the agent's banking is unverified.
+
+#### Firm-deal pre-request fires on activation
+
+An agent who onboarded via a firm-deal offer link can "pre-request" that advance from the "You're all set" pending page before their account is approved (it records the intent rather than notifying the brokerage). The three approval actions that can flip `account_activated_at` (`verifyAgentKyc`, `brokerageVerifyAgentKyc`, and `approveAgentBanking`) each call `fireQueuedFirmDealOffersForAgent` at the end, which, once the account is fully activated, automatically runs the normal offer acceptance on the agent's behalf (creates the `offered` deal and notifies the brokerage). It is best-effort and no-ops if the account is not yet activated. The migration-043 trigger that sets `account_activated_at` is unchanged. See `firm-deals.md` §5 ("Pre-request: request-on-approval") for the full flow.
 
 ### Banking: void cheque / direct deposit + deposit authorization
 

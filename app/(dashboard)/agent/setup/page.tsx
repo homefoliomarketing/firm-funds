@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, Circle, Landmark, Shield, User, ArrowRight, Loader2, Clock } from 'lucide-react'
+import { CheckCircle, Circle, Landmark, Shield, User, ArrowRight, Loader2, Clock, Sparkles, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import AgentHeader from '@/components/AgentHeader'
 import AgentKycGate from '@/components/AgentKycGate'
@@ -11,6 +11,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { submitAgentBanking } from '@/lib/actions/profile-actions'
+import {
+  getLatestOutstandingFirmDealOfferForCurrentAgent,
+  preRequestFirmDealOffer,
+  type FirmDealOfferSummary,
+} from '@/lib/actions/firm-deal-offer-actions'
 import type { UserProfile } from '@/types/database'
 
 interface AgentForSetup {
@@ -37,6 +42,16 @@ interface AgentForSetup {
 
 type SetupState = 'filling' | 'pending' | 'activated'
 
+/**
+ * Format a bare YYYY-MM-DD date without timezone drift (parsing as UTC midnight
+ * shifts to the previous day in ET). Matches the offer banner on /agent.
+ */
+function formatCalendarDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso)
+  return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 export default function AgentSetupPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -52,6 +67,14 @@ export default function AgentSetupPage() {
   const [bankSubmitting, setBankSubmitting] = useState(false)
   const [bankError, setBankError] = useState<string | null>(null)
   const [depositConsent, setDepositConsent] = useState(false)
+
+  // Firm-deal offer — the deal that brought a brand-new agent here via the
+  // offer link. Surfaced on the "All set" page so they can pre-request the
+  // advance now and have it fire automatically the moment Firm Funds approves
+  // their account, instead of having to log back in to find it.
+  const [offer, setOffer] = useState<FirmDealOfferSummary | null>(null)
+  const [preRequesting, setPreRequesting] = useState(false)
+  const [preRequestMsg, setPreRequestMsg] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
 
   // Preauth upload state
   const [uploading, setUploading] = useState(false)
@@ -86,6 +109,13 @@ export default function AgentSetupPage() {
         setBankAccount(a.banking_submitted_account || '')
         setDepositConsent(!!a.deposit_authorized_at)
       }
+
+      // Pull any outstanding firm-deal offer for this agent so the "All set"
+      // page can let them pre-request it. Best-effort — a failure here just
+      // means no offer card shows.
+      const offerRes = await getLatestOutstandingFirmDealOfferForCurrentAgent()
+      if (offerRes.success && offerRes.data) setOffer(offerRes.data)
+
       setLoading(false)
     }
     load()
@@ -104,6 +134,32 @@ export default function AgentSetupPage() {
       setAgent(agentData as AgentForSetup)
       setBrokerage(((agentData as AgentForSetup).brokerages) || null)
     }
+  }
+
+  // Agent opts in to the advance from the "All set" page. We don't notify the
+  // brokerage yet (the account isn't approved); the request fires automatically
+  // when Firm Funds activates the account.
+  const handlePreRequest = async () => {
+    if (!offer || preRequesting) return
+    setPreRequesting(true)
+    setPreRequestMsg(null)
+    const res = await preRequestFirmDealOffer(offer.event_id)
+    if (res.success && res.data) {
+      setOffer({
+        ...offer,
+        pre_requested: true,
+        offer_deal_id: res.data.deal_id ?? offer.offer_deal_id,
+      })
+      setPreRequestMsg({
+        kind: 'success',
+        text: res.data.accepted_now
+          ? `Done. We've notified ${brokerage?.name || 'your brokerage'} to send us the paperwork.`
+          : `Got it. We'll notify ${brokerage?.name || 'your brokerage'} the moment your account is approved.`,
+      })
+    } else {
+      setPreRequestMsg({ kind: 'error', text: res.error || 'Could not submit your request. Please try again.' })
+    }
+    setPreRequesting(false)
   }
 
   const handleSubmitBanking = async () => {
@@ -407,17 +463,77 @@ export default function AgentSetupPage() {
 
         {setupState === 'pending' && (
           <Card className="border-primary/40 bg-primary/5">
-            <CardContent className="p-8 text-center">
-              <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-primary/15 flex items-center justify-center">
-                <Clock className="h-7 w-7 text-primary" />
+            <CardContent className="p-8">
+              <div className="text-center">
+                <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Clock className="h-7 w-7 text-primary" />
+                </div>
+                <h2 className="text-xl font-bold text-foreground mb-2">You&apos;re all set</h2>
+                <p className="text-sm text-muted-foreground">
+                  We&apos;re reviewing your ID and banking details and will email you once your account is approved.
+                </p>
               </div>
-              <h2 className="text-xl font-bold text-foreground mb-2">You&apos;re all set</h2>
-              <p className="text-sm text-muted-foreground mb-2">
-                We&apos;re reviewing your ID and banking details and will email you once your account is approved.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Nothing else is needed from you right now. You can close this page.
-              </p>
+
+              {offer ? (
+                <div className="mt-6 rounded-xl border border-primary/30 bg-primary/5 p-5 text-left">
+                  <div className="flex items-start gap-3">
+                    <Sparkles className="h-5 w-5 text-primary shrink-0 mt-0.5" aria-hidden="true" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground">
+                        {offer.brand_name ? `${offer.brand_name}: ` : ''}Your advance is ready to request
+                      </p>
+                      <p className="text-xs mt-1 text-muted-foreground">
+                        {offer.address
+                          ? <span className="font-medium text-foreground">{offer.address}</span>
+                          : 'Your firm deal'}
+                        {offer.closing_date_iso && (
+                          <>
+                            <span aria-hidden="true"> · </span>
+                            Closing {formatCalendarDate(offer.closing_date_iso)}
+                          </>
+                        )}
+                      </p>
+
+                      {(offer.pre_requested || offer.offer_deal_id) ? (
+                        <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
+                          <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" aria-hidden="true" />
+                          <p className="text-xs text-foreground">
+                            Requested. As soon as Firm Funds approves your account, we&apos;ll notify {brokerage?.name || 'your brokerage'} to send us the paperwork. Nothing else to do.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-xs mt-2 text-muted-foreground">
+                            Want to get a jump on it? Request your advance now and we&apos;ll send it to {brokerage?.name || 'your brokerage'} automatically the moment your account is approved, so you don&apos;t have to log back in.
+                          </p>
+                          <Button
+                            onClick={handlePreRequest}
+                            disabled={preRequesting}
+                            className="mt-3 bg-primary text-primary-foreground hover:bg-primary/90"
+                            size="sm"
+                          >
+                            {preRequesting ? 'Submitting…' : 'Request my advance now'}
+                            <ChevronRight className="ml-1 h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+
+                      {preRequestMsg && (
+                        <p
+                          className={`text-xs mt-2 ${preRequestMsg.kind === 'success' ? 'text-primary' : 'text-destructive'}`}
+                          role="status"
+                        >
+                          {preRequestMsg.text}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center mt-2">
+                  Nothing else is needed from you right now. You can close this page.
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
