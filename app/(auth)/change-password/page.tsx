@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Check, X } from 'lucide-react'
+import { Loader2, Check, X, Eye, EyeOff } from 'lucide-react'
 
 export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
@@ -159,16 +161,27 @@ export default function ChangePasswordPage() {
               <Label htmlFor="newPassword" className="text-xs font-semibold uppercase tracking-wider">
                 New Password
               </Label>
-              <Input
-                id="newPassword"
-                type="password"
-                required
-                value={newPassword}
-                onChange={(e) => { setNewPassword(e.target.value); setError(null) }}
-                placeholder="Min. 12 chars, upper/lower/number/special"
-                className="focus-visible:ring-primary"
-                aria-describedby="password-requirements"
-              />
+              <div className="relative">
+                <Input
+                  id="newPassword"
+                  type={showNewPassword ? 'text' : 'password'}
+                  required
+                  value={newPassword}
+                  onChange={(e) => { setNewPassword(e.target.value); setError(null) }}
+                  placeholder="Min. 12 chars, upper/lower/number/special"
+                  className="pr-10 focus-visible:ring-primary"
+                  aria-describedby="password-requirements"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                  tabIndex={-1}
+                  aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
 
               {/* Live strength checklist that mirrors the validation in
                   handleChangePassword. Booleans computed inline each render. */}
@@ -200,15 +213,26 @@ export default function ChangePasswordPage() {
               <Label htmlFor="confirmPassword" className="text-xs font-semibold uppercase tracking-wider">
                 Confirm Password
               </Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
-                placeholder="Re-enter your new password"
-                className="focus-visible:ring-primary"
-              />
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setError(null) }}
+                  placeholder="Re-enter your new password"
+                  className="pr-10 focus-visible:ring-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                  tabIndex={-1}
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
 
             <Button
