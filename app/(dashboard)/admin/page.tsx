@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import Image from 'next/image'
 import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '@/types/database'
@@ -9,13 +9,12 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
-  CreditCard, Eye, EyeOff, ClipboardList, TimerReset, Inbox,
+  CreditCard, ClipboardList, TimerReset, Inbox,
   TrendingUp, Mail, ChevronDown, CalendarClock, Wallet,
 } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
-import { LoadingSpinner } from '@/components/ui/loading-spinner'
-import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
-import { getAgentPreauthFormSignedUrl, getOverdueSettlementDeals, getPendingPaymentClaimCount, getAgentsOwedRefund } from '@/lib/actions/admin-actions'
+import { AgentVerificationDialog } from '@/components/admin/AgentVerificationDialog'
+import { getOverdueSettlementDeals, getPendingPaymentClaimCount, getAgentsOwedRefund } from '@/lib/actions/admin-actions'
 import { getPendingAmendments } from '@/lib/actions/amendment-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/formatting'
@@ -32,9 +31,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -155,11 +151,7 @@ export default function AdminDashboard() {
   const [agentsOwedRefund, setAgentsOwedRefund] = useState<AgentRefundRow[]>([])
   const [pendingBankingAgents, setPendingBankingAgents] = useState<DashboardBankingAgent[]>([])
   const [pendingKycAgents, setPendingKycAgents] = useState<DashboardKycAgent[]>([])
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [rejectingAgentId, setRejectingAgentId] = useState<string | null>(null)
-  const [rejectReason, setRejectReason] = useState('')
-  const [preauthViewUrl, setPreauthViewUrl] = useState<string | null>(null)
-  const [revealedBankingIds, setRevealedBankingIds] = useState<Set<string>>(new Set())
+  const [verifyAgentId, setVerifyAgentId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -168,6 +160,62 @@ export default function AdminDashboard() {
   const DEALS_PER_PAGE = 15
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
+
+  // Re-pull the two "needs review" queues after a verify/approve/reject so the
+  // dialog's change drops the agent off the list. Keeps the metric counts in
+  // sync too. Runs the same SELECTs as the initial dashboard load.
+  const refreshPending = useCallback(async () => {
+    const [{ data: bankingRes }, { data: kycRes }] = await Promise.all([
+      supabase.from('agents').select('id, first_name, last_name, email, banking_submitted_at, banking_approval_status, preauth_form_path, brokerage_id, brokerages(name)').eq('banking_approval_status', 'pending').limit(500),
+      supabase.from('agents').select('id, first_name, last_name, email, kyc_status, kyc_submitted_at, kyc_document_path, kyc_document_type, brokerage_id, brokerages(name)').eq('kyc_status', 'submitted').limit(500),
+    ])
+    const banking = (bankingRes || []) as DashboardBankingAgent[]
+    const kyc = (kycRes || []) as DashboardKycAgent[]
+    setPendingBankingAgents(banking)
+    setPendingKycAgents(kyc)
+    setStats(prev => ({ ...prev, pendingBankingCount: banking.length, pendingKycCount: kyc.length }))
+  }, [supabase])
+
+  // Merge the banking + KYC queues into one per-agent review list. An agent can
+  // need ID review, banking review, or both — we show one row per agent with
+  // badges for what's outstanding and a single "Review & verify" entry point.
+  const pendingVerifications = useMemo(() => {
+    const brokerageName = (a: DashboardBankingAgent | DashboardKycAgent) =>
+      (Array.isArray(a.brokerages) ? a.brokerages[0]?.name : a.brokerages?.name) || ''
+    const map = new Map<string, {
+      id: string; name: string; brokerage: string; email: string | null
+      needsId: boolean; needsBanking: boolean; submittedAt: string | null
+    }>()
+    for (const a of pendingKycAgents) {
+      map.set(a.id, {
+        id: a.id,
+        name: `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || 'Unnamed agent',
+        brokerage: brokerageName(a),
+        email: a.email,
+        needsId: true,
+        needsBanking: false,
+        submittedAt: a.kyc_submitted_at,
+      })
+    }
+    for (const a of pendingBankingAgents) {
+      const existing = map.get(a.id)
+      if (existing) {
+        existing.needsBanking = true
+        if (!existing.submittedAt) existing.submittedAt = a.banking_submitted_at
+      } else {
+        map.set(a.id, {
+          id: a.id,
+          name: `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || 'Unnamed agent',
+          brokerage: brokerageName(a),
+          email: a.email,
+          needsId: false,
+          needsBanking: true,
+          submittedAt: a.banking_submitted_at,
+        })
+      }
+    }
+    return Array.from(map.values())
+  }, [pendingKycAgents, pendingBankingAgents])
 
   useEffect(() => {
     async function loadDashboard() {
@@ -541,169 +589,53 @@ export default function AdminDashboard() {
           ))}
         </section>
 
-        {/* PENDING ACTIONS */}
-        {(pendingBankingAgents.length > 0 || pendingKycAgents.length > 0) && (
-          <section aria-label="Pending approvals">
+        {/* PENDING VERIFICATIONS — one row per agent, ID + banking reviewed
+            together in a single dialog (consistent surface, no "go to
+            brokerages" punt). */}
+        {pendingVerifications.length > 0 && (
+          <section aria-label="Pending verifications">
           <Card className="mb-6 border-amber-500/40">
             <CardHeader className="py-3 px-4 bg-amber-500/5 border-b border-amber-500/20">
               <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-400">
                 <AlertTriangle size={16} />
-                Pending Actions ({pendingBankingAgents.length + pendingKycAgents.length})
+                Pending Verifications ({pendingVerifications.length})
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 divide-y divide-border/50">
-              {pendingBankingAgents.map(agent => (
-                <div key={agent.id} className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex-1 min-w-[250px]">
-                      <div className="flex items-center gap-2 mb-1">
-                        <CreditCard size={14} className="text-blue-400" />
-                        <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Banking Approval</span>
-                      </div>
-                      <p className="text-sm font-medium text-foreground">
-                        {agent.first_name} {agent.last_name}
-                        <span className="text-xs font-normal ml-2 text-muted-foreground">
-                          {(Array.isArray(agent.brokerages) ? agent.brokerages[0]?.name : agent.brokerages?.name) || ''} · {agent.email || 'No email'}
+              {pendingVerifications.map(item => (
+                <div key={item.id} className="px-4 py-3 flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex-1 min-w-[250px]">
+                    <p className="text-sm font-medium text-foreground">
+                      {item.name}
+                      <span className="text-xs font-normal ml-2 text-muted-foreground">
+                        {item.brokerage ? `${item.brokerage} · ` : ''}{item.email || 'No email'}
+                      </span>
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      {item.needsId && (
+                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                          <Shield size={9} /> ID needs review
                         </span>
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="text-xs font-mono text-muted-foreground">
-                          {revealedBankingIds.has(agent.id)
-                            ? `Transit: ${agent.banking_submitted_transit} · Inst: ${agent.banking_submitted_institution} · Acct: ${agent.banking_submitted_account}`
-                            : 'Transit: ••••• · Inst: ••• · Acct: •••••••'
-                          }
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={revealedBankingIds.has(agent.id) ? 'Hide banking details' : 'Show banking details'}
-                          className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                          onClick={() => setRevealedBankingIds(prev => {
-                            const next = new Set(prev)
-                            if (next.has(agent.id)) next.delete(agent.id); else next.add(agent.id)
-                            return next
-                          })}
-                        >
-                          {revealedBankingIds.has(agent.id) ? <EyeOff size={14} /> : <Eye size={14} />}
-                        </Button>
-                      </div>
-                      {agent.banking_submitted_at && (
-                        <p className="text-[10px] mt-0.5 text-muted-foreground/60">
-                          Submitted {new Date(agent.banking_submitted_at).toLocaleDateString('en-CA')}
-                        </p>
                       )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {agent.preauth_form_path && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-1 text-xs"
-                          onClick={async () => {
-                            const result = await getAgentPreauthFormSignedUrl({ agentId: agent.id })
-                            if (result.success && typeof result.data?.signedUrl === 'string') {
-                              setPreauthViewUrl(result.data.signedUrl)
-                            }
-                          }}
-                        >
-                          <Eye size={12} />
-                          Pre-Auth Form
-                        </Button>
+                      {item.needsBanking && (
+                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                          <CreditCard size={9} /> Banking needs review
+                        </span>
                       )}
-                      {rejectingAgentId === agent.id ? (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            value={rejectReason}
-                            onChange={(e) => setRejectReason(e.target.value)}
-                            placeholder="Reason..."
-                            className="w-48 h-8 text-xs"
-                            autoFocus
-                          />
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={!rejectReason.trim() || actionLoading === agent.id}
-                            onClick={async () => {
-                              setActionLoading(agent.id)
-                              const res = await rejectAgentBanking({ agentId: agent.id, reason: rejectReason })
-                              if (res.success) {
-                                setPendingBankingAgents(prev => prev.filter(a => a.id !== agent.id))
-                                setStats(prev => ({ ...prev, pendingBankingCount: prev.pendingBankingCount - 1 }))
-                                setRejectingAgentId(null)
-                                setRejectReason('')
-                              }
-                              setActionLoading(null)
-                            }}
-                            className="text-xs"
-                          >
-                            Confirm
-                          </Button>
-                          <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setRejectingAgentId(null); setRejectReason('') }}>
-                            Cancel
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={actionLoading === agent.id}
-                            onClick={async () => {
-                              setActionLoading(agent.id)
-                              const res = await approveAgentBanking({ agentId: agent.id })
-                              if (res.success) {
-                                setPendingBankingAgents(prev => prev.filter(a => a.id !== agent.id))
-                                setStats(prev => ({ ...prev, pendingBankingCount: prev.pendingBankingCount - 1 }))
-                              }
-                              setActionLoading(null)
-                            }}
-                            className="text-xs bg-emerald-600 hover:bg-emerald-700"
-                          >
-                            {actionLoading === agent.id ? <><LoadingSpinner label="" /><span className="ml-1">Approving...</span></> : 'Approve'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setRejectingAgentId(agent.id)}
-                            className="text-xs text-red-400 border-red-400/30 hover:bg-red-400/10"
-                          >
-                            Reject
-                          </Button>
-                        </>
+                      {item.submittedAt && (
+                        <span className="text-[10px] text-muted-foreground/60">
+                          Submitted {new Date(item.submittedAt).toLocaleDateString('en-CA')}
+                        </span>
                       )}
                     </div>
                   </div>
-                </div>
-              ))}
-
-              {pendingKycAgents.map(agent => (
-                <div key={agent.id} className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex-1 min-w-[250px]">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Shield size={14} className="text-purple-400" />
-                        <span className="text-xs font-bold uppercase tracking-wider text-purple-400">KYC Review</span>
-                      </div>
-                      <p className="text-sm font-medium text-foreground">
-                        {agent.first_name} {agent.last_name}
-                        <span className="text-xs font-normal ml-2 text-muted-foreground">
-                          {(Array.isArray(agent.brokerages) ? agent.brokerages[0]?.name : agent.brokerages?.name) || ''} · {agent.email || 'No email'}
-                        </span>
-                      </p>
-                      {agent.kyc_submitted_at && (
-                        <p className="text-[10px] mt-0.5 text-muted-foreground/60">
-                          Submitted {new Date(agent.kyc_submitted_at).toLocaleDateString('en-CA')}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => router.push('/admin/brokerages')}
-                      className="text-xs text-purple-400 border-purple-400/30 hover:bg-purple-400/10"
-                    >
-                      Review in Brokerages
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setVerifyAgentId(item.id)}
+                    className="text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    Review &amp; verify
+                  </Button>
                 </div>
               ))}
             </CardContent>
@@ -711,17 +643,13 @@ export default function AdminDashboard() {
           </section>
         )}
 
-        {/* Pre-auth form viewer */}
-        <Dialog open={!!preauthViewUrl} onOpenChange={() => setPreauthViewUrl(null)}>
-          <DialogContent className="max-w-3xl h-[80vh] p-0">
-            <DialogHeader className="px-4 py-3 border-b border-border/50">
-              <DialogTitle>Pre-Authorization Form</DialogTitle>
-            </DialogHeader>
-            {preauthViewUrl && (
-              <iframe src={preauthViewUrl} className="w-full flex-1 rounded-b-lg" style={{ height: 'calc(80vh - 60px)' }} />
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Unified ID + banking verification — view documents, cross-check the
+            account details, and verify/approve/reject on the fly. */}
+        <AgentVerificationDialog
+          agentId={verifyAgentId}
+          onClose={() => setVerifyAgentId(null)}
+          onChanged={refreshPending}
+        />
 
         {/* Late Settlement Alerts — deals past their Payment Due Date that
             still need a human strike-or-skip decision */}

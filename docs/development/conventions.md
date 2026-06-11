@@ -1,6 +1,6 @@
 # Coding Conventions and Gotchas
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 Project-specific rules and known traps. Read this before writing code, because several conventions here override defaults you might assume from older Next.js or Supabase versions.
 
@@ -57,6 +57,7 @@ External POST endpoints (webhooks, callbacks) must be in the `PUBLIC_PATHS` arra
 
 - Always `await` async operations in serverless functions or they get killed mid-flight.
 - File uploads must use signed URLs.
+- **Previewing a private-bucket file in the admin UI** (KYC ID, void cheque / pre-auth form): fetch the signed URL as a blob and render the local object URL - do NOT point an `<img>`/`<iframe>` straight at the signed URL. Supabase serves storage objects with headers that block inline rendering, and an upload can land as `application/octet-stream`; either one makes a naive `<iframe src={signedUrl}>` render a blank box (this was the "admin can't view the pre-auth form" bug). The shared helper is `loadSignedUrlAsBlob()` in `components/admin/AgentVerificationDialog.tsx`; it re-tags the blob from the file extension so PDFs and images both render. Always pair the inline preview with an "Open in new tab" link as a fallback.
 - Netlify TypeScript checking is stricter than local `tsc --noEmit`. Watch null checks and unused imports.
 
 ## SheetJS (`xlsx`) is pinned to the SheetJS CDN, not the npm registry

@@ -3406,6 +3406,131 @@ export async function getAgentPreauthFormSignedUrl(input: {
   }
 }
 
+interface AgentVerificationRow {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  phone: string | null
+  reco_number: string | null
+  address_street: string | null
+  address_city: string | null
+  address_province: string | null
+  address_postal_code: string | null
+  brokerage_id: string | null
+  kyc_status: string | null
+  kyc_document_type: string | null
+  kyc_document_path: string | null
+  kyc_submitted_at: string | null
+  kyc_verified_at: string | null
+  kyc_verified_by: string | null
+  kyc_rejection_reason: string | null
+  banking_approval_status: string | null
+  banking_submitted_transit: string | null
+  banking_submitted_institution: string | null
+  banking_submitted_account: string | null
+  banking_submitted_at: string | null
+  bank_transit_number: string | null
+  bank_institution_number: string | null
+  bank_account_number: string | null
+  banking_verified: boolean | null
+  banking_verified_at: string | null
+  banking_rejection_reason: string | null
+  preauth_form_path: string | null
+  preauth_form_uploaded_at: string | null
+  deposit_authorized_at: string | null
+  brokerages: { name: string | null } | { name: string | null }[] | null
+}
+
+/**
+ * One-shot fetch of everything the admin needs to review an agent's identity
+ * (KYC) and banking in a single surface. Powers AgentVerificationDialog, which
+ * is shared by the admin dashboard "Pending verifications" list and the
+ * brokerages page agent rows. Returns the actual submitted/verified banking
+ * numbers (PII) so it is gated on kyc.verify like the verify/approve actions.
+ * The signed document URLs themselves are fetched separately (and audited) via
+ * getAgentKycDocumentUrl / getAgentPreauthFormSignedUrl.
+ */
+export async function getAgentVerificationDetail(input: {
+  agentId: string
+}): Promise<ActionResult> {
+  const { error: authErr } = await getAuthenticatedCapable('kyc.verify')
+  if (authErr) return { success: false, error: authErr }
+  if (!input.agentId) return { success: false, error: 'Agent id is required' }
+
+  try {
+    const serviceClient = createServiceRoleClient()
+    const { data, error } = await serviceClient
+      .from('agents')
+      .select(
+        'id, first_name, last_name, email, phone, reco_number, ' +
+          'address_street, address_city, address_province, address_postal_code, brokerage_id, ' +
+          'kyc_status, kyc_document_type, kyc_document_path, kyc_submitted_at, kyc_verified_at, kyc_verified_by, kyc_rejection_reason, ' +
+          'banking_approval_status, banking_submitted_transit, banking_submitted_institution, banking_submitted_account, banking_submitted_at, ' +
+          'bank_transit_number, bank_institution_number, bank_account_number, banking_verified, banking_verified_at, banking_rejection_reason, ' +
+          'preauth_form_path, preauth_form_uploaded_at, deposit_authorized_at, ' +
+          'brokerages(name)'
+      )
+      .eq('id', input.agentId)
+      .single()
+
+    if (error || !data) return { success: false, error: 'Agent not found' }
+
+    // The concatenated (non-literal) select string defeats supabase-js column
+    // inference, so the row comes back loosely typed. We read known columns off
+    // a local shape.
+    const agent = data as unknown as AgentVerificationRow
+
+    const brokerageRel = agent.brokerages as { name?: string } | { name?: string }[] | null
+    const brokerage_name = Array.isArray(brokerageRel)
+      ? brokerageRel[0]?.name ?? null
+      : brokerageRel?.name ?? null
+
+    return {
+      success: true,
+      data: {
+        id: agent.id,
+        first_name: agent.first_name,
+        last_name: agent.last_name,
+        email: agent.email,
+        phone: agent.phone,
+        reco_number: agent.reco_number,
+        address_street: agent.address_street,
+        address_city: agent.address_city,
+        address_province: agent.address_province,
+        address_postal_code: agent.address_postal_code,
+        brokerage_id: agent.brokerage_id,
+        brokerage_name,
+        kyc_status: agent.kyc_status,
+        kyc_document_type: agent.kyc_document_type,
+        has_kyc_document: !!agent.kyc_document_path,
+        kyc_submitted_at: agent.kyc_submitted_at,
+        kyc_verified_at: agent.kyc_verified_at,
+        kyc_verified_by: agent.kyc_verified_by,
+        kyc_rejection_reason: agent.kyc_rejection_reason,
+        banking_approval_status: agent.banking_approval_status,
+        banking_submitted_transit: agent.banking_submitted_transit,
+        banking_submitted_institution: agent.banking_submitted_institution,
+        banking_submitted_account: agent.banking_submitted_account,
+        banking_submitted_at: agent.banking_submitted_at,
+        bank_transit_number: agent.bank_transit_number,
+        bank_institution_number: agent.bank_institution_number,
+        bank_account_number: agent.bank_account_number,
+        banking_verified: agent.banking_verified,
+        banking_verified_at: agent.banking_verified_at,
+        banking_rejection_reason: agent.banking_rejection_reason,
+        has_preauth_form: !!agent.preauth_form_path,
+        preauth_form_uploaded_at: agent.preauth_form_uploaded_at,
+        deposit_authorized_at: agent.deposit_authorized_at,
+      },
+    }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getAgentVerificationDetail error:', _msg)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
 /**
  * Signed URL for a brokerage's signed BCA PDF. The signed copy is stored by the
  * DocuSign webhook at brokerage-bca/{brokerageId}/... in the deal-documents

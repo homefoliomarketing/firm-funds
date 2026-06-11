@@ -162,14 +162,15 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
   // Subjects are tier-aware. Tier A leads with "possible deal" because
   // the agent may not have closed it yet (or it may not even be theirs).
   // Tier B name-drops the closing date so the agent sees timing up front.
-  // Tier C quotes the dollar amount.
+  // Tier C congratulates the sale and quotes the "get paid today" figure
+  // (the pre-split advance estimate) right in the subject.
   let subject: string
   if (input.variant === 'sparse') {
     subject = `We spotted a possible deal at ${input.property_address}`
   } else if (input.variant === 'sparse_with_date' && closingHuman) {
     subject = `Your deal at ${input.property_address} is closing ${closingHuman}. Want an advance?`
   } else if (input.variant === 'detailed' && input.commission_amount && input.advance_estimate && closingHuman) {
-    subject = `${formatMoney(input.advance_estimate)} ready for ${input.property_address}, closing ${closingHuman}`
+    subject = `Congrats on your sale! Want ${formatMoney(input.advance_estimate)} today?`
   } else {
     subject = `Your deal at ${input.property_address} went firm`
   }

@@ -6,19 +6,18 @@ import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox, Wand2, Sparkles } from 'lucide-react'
+import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, DollarSign, Inbox, Wand2, Sparkles } from 'lucide-react'
 import { generateBrokerageLogoSvg, svgToFile } from '@/lib/brokerage-logo-generator'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { StatusToast } from '@/components/StatusToast'
-import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, getAgentPreauthFormSignedUrl, getSignedBcaUrl } from '@/lib/actions/admin-actions'
+import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, getSignedBcaUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
 import type { AgentAccountTransaction } from '@/types/database'
 import { sendBcaForSignature, voidBcaEnvelope, getBcaSignatureStatus } from '@/lib/actions/esign-actions'
-import { updateAgentBanking, approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
-import { verifyBrokerageKyc, revokeBrokerageKyc, verifyAgentKyc, rejectAgentKyc, getAgentKycDocumentUrl } from '@/lib/actions/kyc-actions'
+import { verifyBrokerageKyc, revokeBrokerageKyc } from '@/lib/actions/kyc-actions'
 import { getStatusBadgeClass as getSharedStatusBadgeClass, formatStatusLabel, getKycBadgeClass, RECO_PUBLIC_REGISTER_URL, BROKERAGE_LATE_STRIKE_THRESHOLD, SETTLEMENT_PERIOD_DAYS, BROKERAGE_BUMPED_SETTLEMENT_DAYS, BRAND_GREEN_HEX } from '@/lib/constants'
 import SignOutModal from '@/components/SignOutModal'
-import { KycMediaPreview } from '@/components/admin/KycMediaPreview'
+import { AgentVerificationDialog } from '@/components/admin/AgentVerificationDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -689,25 +688,11 @@ export default function BrokeragesPage() {
   // KYC state
   const [kycRecoNumber, setKycRecoNumber] = useState('')
   const [kycNotes, setKycNotes] = useState('')
+  // kycSubmitting is still used by the brokerage-level KYC verify flow below.
   const [kycSubmitting, setKycSubmitting] = useState(false)
-  const [kycChecks, setKycChecks] = useState({ nameMatch: false, addressMatch: false, idValid: false })
-  const [kycRejectingAgentId, setKycRejectingAgentId] = useState<string | null>(null)
-  const [kycRejectReason, setKycRejectReason] = useState('')
-  // Legacy single-URL preview state removed — KYC preview now flows through
-  // kycPreviewPanel, which manages multiple blob URLs and lifecycle.
-  const [kycPreviewPanel, setKycPreviewPanel] = useState<{ blobUrls: string[]; originalUrls: string[]; fileName: string; agentName: string; agentId: string; agentPhone: string | null; agentAddress: string | null } | null>(null)
-  const [kycPreviewLoading, setKycPreviewLoading] = useState<string | null>(null)
-  // Banking state
-  const [bankingForm, setBankingForm] = useState<{ transit: string; institution: string; account: string }>({ transit: '', institution: '', account: '' })
-  const [bankingEditingAgentId, setBankingEditingAgentId] = useState<string | null>(null)
-  const [bankingSaving, setBankingSaving] = useState(false)
-  const [bankingMessage, setBankingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [bankingApprovingId, setBankingApprovingId] = useState<string | null>(null)
-  const [bankingRejectingId, setBankingRejectingId] = useState<string | null>(null)
-  const [bankingRejectReason, setBankingRejectReason] = useState('')
-  const [preauthViewingAgentId, setPreauthViewingAgentId] = useState<string | null>(null)
-  const [preauthViewUrl, setPreauthViewUrl] = useState<string | null>(null)
-  const [preauthViewType, setPreauthViewType] = useState<'pdf' | 'image'>('pdf')
+  // Agent ID + banking verification now lives entirely in the shared
+  // AgentVerificationDialog; this id drives it (non-null = open).
+  const [verifyAgentId, setVerifyAgentId] = useState<string | null>(null)
   // User management state (password reset, email change)
   const [resettingPasswordForUserId, setResettingPasswordForUserId] = useState<string | null>(null)
   const [changingEmailForUserId, setChangingEmailForUserId] = useState<string | null>(null)
@@ -796,14 +781,6 @@ export default function BrokeragesPage() {
     } finally {
       setAdjustSubmitting(false)
     }
-  }
-
-  const kycPanelWidth = 520
-  const closeKycPanel = () => {
-    if (kycPreviewPanel) {
-      for (const url of kycPreviewPanel.blobUrls) URL.revokeObjectURL(url)
-    }
-    setKycPreviewPanel(null)
   }
 
   const router = useRouter()
@@ -1480,7 +1457,6 @@ export default function BrokeragesPage() {
 
   // ---- Input class helper (replaces inputStyle object) ----
   const inputCls = 'w-full px-3 py-2 rounded-lg text-sm bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors'
-  const inputSmCls = 'rounded px-2 py-1.5 text-xs bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary transition-colors font-mono'
 
   // ---- Render a form input (DRY helper) ----
   const renderInput = (
@@ -1537,8 +1513,7 @@ export default function BrokeragesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Main content area - shrinks when KYC panel is open */}
-      <div style={{ marginRight: kycPreviewPanel ? kycPanelWidth : 0, transition: 'margin-right 0.2s ease-out' }}>
+      <div>
       {/* Header */}
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -2595,107 +2570,14 @@ export default function BrokeragesPage() {
                                                   <Shield size={10} />
                                                   {kycStatus === 'pending' ? 'Pending' : kycStatus === 'submitted' ? 'Submitted' : kycStatus === 'verified' ? 'Verified' : 'Rejected'}
                                                 </span>
-                                                {kycStatus === 'submitted' && (
-                                                  <div className="flex flex-col gap-1.5 mt-1.5">
-                                                    {/* VIEW ID - large button */}
-                                                    <button
-                                                      onClick={async (e) => {
-                                                        e.stopPropagation()
-                                                        setKycPreviewLoading(agent.id)
-                                                        const urlRes = await getAgentKycDocumentUrl({ agentId: agent.id })
-                                                        if (urlRes.success && urlRes.data?.urls) {
-                                                          const urls: string[] = urlRes.data.urls
-                                                          try {
-                                                            // Fetch all as blobs to bypass content-blocking headers
-                                                            const blobUrls: string[] = []
-                                                            for (const url of urls) {
-                                                              const response = await fetch(url)
-                                                              const arrayBuffer = await response.arrayBuffer()
-                                                              const mimeType = response.headers.get('content-type') || 'image/png'
-                                                              const blob = new Blob([arrayBuffer], { type: mimeType })
-                                                              blobUrls.push(URL.createObjectURL(blob))
-                                                            }
-                                                            if (kycPreviewPanel) {
-                                                              for (const u of kycPreviewPanel.blobUrls) URL.revokeObjectURL(u)
-                                                            }
-                                                            setKycChecks({ nameMatch: false, addressMatch: false, idValid: false })
-                                                            // Build address string from agent fields
-                                                            const addrParts = [
-                                                              agent.address_street,
-                                                              agent.address_city,
-                                                              agent.address_province,
-                                                              agent.address_postal_code,
-                                                            ].filter(Boolean)
-                                                            setKycPreviewPanel({
-                                                              blobUrls,
-                                                              originalUrls: urls,
-                                                              fileName: `${agent.first_name}_${agent.last_name}_ID`,
-                                                              agentName: `${agent.first_name} ${agent.last_name}`,
-                                                              agentId: agent.id,
-                                                              agentPhone: agent.phone || null,
-                                                              agentAddress: addrParts.length > 0 ? addrParts.join(', ') : null,
-                                                            })
-                                                          } catch {
-                                                            window.open(urls[0], '_blank')
-                                                          }
-                                                        } else {
-                                                          setStatusMessage({ type: 'error', text: urlRes.error || 'Failed to load ID' })
-                                                        }
-                                                        setKycPreviewLoading(null)
-                                                      }}
-                                                      disabled={kycPreviewLoading === agent.id}
-                                                      className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all disabled:opacity-50 hover:opacity-90"
-                                                      style={{ color: 'var(--status-blue)', background: 'var(--status-blue-muted)', border: '1px solid var(--status-blue-border)' }}
-                                                    >
-                                                      <Eye size={13} />
-                                                      {kycPreviewLoading === agent.id ? 'Loading...' : 'View ID'}
-                                                    </button>
-                                                    {/* Approve/Reject only available through View ID panel (requires verification checklist) */}
-                                                    <p className="text-[10px] text-muted-foreground italic">View ID to approve or reject</p>
-                                                  </div>
-                                                )}
-                                                {kycRejectingAgentId === agent.id && (
-                                                  <div className="flex flex-col gap-1.5 mt-1.5" onClick={(e) => e.stopPropagation()}>
-                                                    <input
-                                                      type="text"
-                                                      value={kycRejectReason}
-                                                      onChange={(e) => setKycRejectReason(e.target.value)}
-                                                      placeholder="Reason for rejection..."
-                                                      className="text-xs px-3 py-2 rounded-md bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary w-full"
-                                                      autoFocus
-                                                      onKeyDown={(e) => {
-                                                        if (e.key === 'Escape') setKycRejectingAgentId(null)
-                                                      }}
-                                                    />
-                                                    <div className="flex items-center gap-1.5">
-                                                      <button
-                                                        onClick={async () => {
-                                                          if (!kycRejectReason.trim()) return
-                                                          setKycSubmitting(true)
-                                                          const result = await rejectAgentKyc({ agentId: agent.id, reason: kycRejectReason })
-                                                          if (result.success) {
-                                                            setStatusMessage({ type: 'success', text: `${agent.first_name} ${agent.last_name} KYC rejected` })
-                                                            setKycRejectingAgentId(null)
-                                                            await loadBrokerages()
-                                                          } else {
-                                                            setStatusMessage({ type: 'error', text: result.error || 'Rejection failed' })
-                                                          }
-                                                          setKycSubmitting(false)
-                                                        }}
-                                                        disabled={kycSubmitting || !kycRejectReason.trim()}
-                                                        className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold disabled:opacity-50 transition-all text-white hover:opacity-90"
-                                                        style={{ background: 'var(--action-red)', border: '1px solid var(--action-red-border)' }}
-                                                      >
-                                                        Confirm Reject
-                                                      </button>
-                                                      <button
-                                                        onClick={() => setKycRejectingAgentId(null)}
-                                                        className="px-3 py-1.5 rounded-md text-xs transition-all text-muted-foreground border border-border hover:bg-muted"
-                                                      >
-                                                        Cancel
-                                                      </button>
-                                                    </div>
-                                                  </div>
+                                                {(kycStatus === 'submitted' || agent.banking_approval_status === 'pending') && (
+                                                  <button
+                                                    onClick={(e) => { e.stopPropagation(); setVerifyAgentId(agent.id) }}
+                                                    className="inline-flex items-center gap-1.5 mt-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+                                                  >
+                                                    <Eye size={13} />
+                                                    Review &amp; verify
+                                                  </button>
                                                 )}
                                               </div>
                                             )
@@ -2805,46 +2687,21 @@ export default function BrokeragesPage() {
                                         <tr key={`deals-${agent.id}`} className={`bg-card ${idx < agentCount - 1 ? 'border-b border-border' : ''}`}>
                                           <td colSpan={8} className="px-4 py-4">
                                             <div style={{ marginLeft: '20px' }}>
-                                              {/* Banking Information */}
+                                              {/* Banking Information — read-only summary; review/approve happens in the verification dialog */}
                                               <div className="mb-5 p-3 rounded-lg bg-muted/20 border border-border">
-                                                <div className="flex items-center justify-between mb-2">
+                                                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                                                   <h4 className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
                                                     <CreditCard size={13} className="text-primary" />
                                                     Banking Information
                                                   </h4>
-                                                  <div className="flex items-center gap-2">
-                                                    {agent.preauth_form_path && (
-                                                      <button
-                                                        onClick={async () => {
-                                                          try {
-                                                            setPreauthViewingAgentId(agent.id)
-                                                            const result = await getAgentPreauthFormSignedUrl({ agentId: agent.id })
-                                                            if (result.success && typeof result.data?.signedUrl === 'string') {
-                                                              // Fetch as blob to bypass content-blocking headers
-                                                              const response = await fetch(result.data.signedUrl)
-                                                              const arrayBuffer = await response.arrayBuffer()
-                                                              const mimeType = response.headers.get('content-type') || 'application/pdf'
-                                                              const blob = new Blob([arrayBuffer], { type: mimeType })
-                                                              const blobUrl = URL.createObjectURL(blob)
-                                                              setPreauthViewType(mimeType.startsWith('image/') ? 'image' : 'pdf')
-                                                              setPreauthViewUrl(blobUrl)
-                                                            }
-                                                          } catch { /* ignore */ }
-                                                          setPreauthViewingAgentId(null)
-                                                        }}
-                                                        disabled={preauthViewingAgentId === agent.id}
-                                                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors bg-input text-primary border border-border hover:bg-muted disabled:opacity-50"
-                                                      >
-                                                        <Eye size={12} />
-                                                        {preauthViewingAgentId === agent.id ? 'Loading...' : 'View void cheque / direct deposit'}
-                                                      </button>
-                                                    )}
-                                                    {!agent.preauth_form_path && (
-                                                      <span className="text-xs text-muted-foreground">No void cheque / direct deposit form uploaded</span>
-                                                    )}
-                                                  </div>
+                                                  <button
+                                                    onClick={() => setVerifyAgentId(agent.id)}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+                                                  >
+                                                    <Eye size={13} />
+                                                    Review &amp; verify
+                                                  </button>
                                                 </div>
-                                                {/* Direct-deposit authorization consent (migration 107) */}
                                                 <p className="text-xs mb-2">
                                                   {agent.deposit_authorized_at ? (
                                                     <span className="inline-flex items-center gap-1.5 text-green-400">
@@ -2856,210 +2713,21 @@ export default function BrokeragesPage() {
                                                     </span>
                                                   )}
                                                 </p>
-                                                {/* Pending banking approval banner */}
-                                                {agent.banking_approval_status === 'pending' && agent.banking_submitted_transit && (
-                                                  <div className="mb-2 rounded-lg p-3" style={{ background: 'var(--status-blue-muted)', border: '1px solid var(--status-blue-border)' }}>
-                                                    <div className="flex items-center justify-between mb-2">
-                                                      <div className="flex items-center gap-1.5">
-                                                        <AlertCircle size={13} style={{ color: 'var(--status-blue)' }} />
-                                                        <span className="text-xs font-semibold" style={{ color: 'var(--status-blue)' }}>Pending Approval</span>
-                                                        <span className="text-[10px] text-muted-foreground">
-                                                          Submitted {agent.banking_submitted_at ? new Date(agent.banking_submitted_at).toLocaleDateString('en-CA') : ''}
-                                                        </span>
-                                                      </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-4 mb-2">
-                                                      <span className="text-xs font-mono text-muted-foreground">
-                                                        Transit: {agent.banking_submitted_transit} - Inst: {agent.banking_submitted_institution} - Acct: {agent.banking_submitted_account}
-                                                      </span>
-                                                    </div>
-                                                    {bankingRejectingId === agent.id ? (
-                                                      <div className="flex items-center gap-2 flex-wrap">
-                                                        <input
-                                                          type="text"
-                                                          value={bankingRejectReason}
-                                                          onChange={(e) => setBankingRejectReason(e.target.value)}
-                                                          placeholder="Reason for rejection..."
-                                                          className="flex-1 min-w-[200px] rounded px-2 py-1.5 text-xs bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-                                                        />
-                                                        <button
-                                                          disabled={!bankingRejectReason.trim() || bankingApprovingId === agent.id}
-                                                          onClick={async () => {
-                                                            setBankingApprovingId(agent.id)
-                                                            const res = await rejectAgentBanking({ agentId: agent.id, reason: bankingRejectReason })
-                                                            if (res.success) {
-                                                              setBrokerages(prev => prev.map(b => ({
-                                                                ...b,
-                                                                agents: b.agents.map((a: Agent) => a.id === agent.id ? { ...a, banking_approval_status: 'rejected' as const, banking_rejection_reason: bankingRejectReason } : a),
-                                                              })))
-                                                              setBankingRejectingId(null)
-                                                              setBankingRejectReason('')
-                                                            }
-                                                            setBankingApprovingId(null)
-                                                          }}
-                                                          className="px-3 py-1.5 rounded text-xs font-semibold text-white disabled:opacity-40 hover:opacity-90"
-                                                          style={{ background: 'var(--action-red)' }}
-                                                        >
-                                                          Confirm Reject
-                                                        </button>
-                                                        <button onClick={() => { setBankingRejectingId(null); setBankingRejectReason('') }} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
-                                                      </div>
-                                                    ) : (
-                                                      <div className="flex items-center gap-2">
-                                                        <button
-                                                          disabled={bankingApprovingId === agent.id}
-                                                          onClick={async () => {
-                                                            setBankingApprovingId(agent.id)
-                                                            const res = await approveAgentBanking({ agentId: agent.id })
-                                                            if (res.success) {
-                                                              setBrokerages(prev => prev.map(b => ({
-                                                                ...b,
-                                                                agents: b.agents.map((a: Agent) => a.id === agent.id ? {
-                                                                  ...a,
-                                                                  bank_transit_number: a.banking_submitted_transit,
-                                                                  bank_institution_number: a.banking_submitted_institution,
-                                                                  bank_account_number: a.banking_submitted_account,
-                                                                  banking_verified: true,
-                                                                  banking_approval_status: 'approved' as const,
-                                                                } : a),
-                                                              })))
-                                                            }
-                                                            setBankingApprovingId(null)
-                                                          }}
-                                                          className="px-3 py-1.5 rounded text-xs font-semibold text-white disabled:opacity-40 hover:opacity-90"
-                                                          style={{ background: 'var(--action-green)' }}
-                                                        >
-                                                          {bankingApprovingId === agent.id ? 'Approving...' : 'Approve'}
-                                                        </button>
-                                                        <button
-                                                          onClick={() => setBankingRejectingId(agent.id)}
-                                                          className="px-3 py-1.5 rounded text-xs font-semibold transition-colors"
-                                                          style={{ background: 'var(--status-red-muted)', color: 'var(--status-red)', border: '1px solid var(--status-red-border)' }}
-                                                        >
-                                                          Reject
-                                                        </button>
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                )}
                                                 {agent.banking_verified && agent.bank_transit_number ? (
-                                                  <div className="flex items-center gap-4">
-                                                    <div className="flex items-center gap-1.5">
-                                                      <CheckCircle size={13} className="text-primary" />
-                                                      <span className="text-xs font-medium text-primary">Verified</span>
-                                                    </div>
-                                                    <span className="text-xs font-mono text-muted-foreground">
-                                                      Transit: {agent.bank_transit_number} - Inst: {agent.bank_institution_number} - Acct: {'*'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
+                                                  <div className="flex items-center gap-3 flex-wrap">
+                                                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                                                      <CheckCircle size={13} /> Verified
                                                     </span>
-                                                    <button
-                                                      onClick={() => {
-                                                        setBankingEditingAgentId(agent.id)
-                                                        setBankingForm({
-                                                          transit: agent.bank_transit_number || '',
-                                                          institution: agent.bank_institution_number || '',
-                                                          account: agent.bank_account_number || '',
-                                                        })
-                                                        setBankingMessage(null)
-                                                      }}
-                                                      className="text-xs font-medium transition-colors text-muted-foreground hover:text-primary"
-                                                    >
-                                                      Edit
-                                                    </button>
+                                                    <span className="text-xs font-mono text-muted-foreground">
+                                                      Transit: {agent.bank_transit_number} · Inst: {agent.bank_institution_number} · Acct: {'*'.repeat(Math.max(0, (agent.bank_account_number?.length || 4) - 4))}{agent.bank_account_number?.slice(-4)}
+                                                    </span>
                                                   </div>
-                                                ) : bankingEditingAgentId === agent.id ? null : (
-                                                  <button
-                                                    onClick={() => {
-                                                      setBankingEditingAgentId(agent.id)
-                                                      setBankingForm({ transit: '', institution: '', account: '' })
-                                                      setBankingMessage(null)
-                                                    }}
-                                                    className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors bg-primary text-primary-foreground hover:bg-primary/90"
-                                                  >
-                                                    Enter Banking Info
-                                                  </button>
-                                                )}
-                                                {bankingEditingAgentId === agent.id && (
-                                                  <div className="mt-3 flex items-end gap-2 flex-wrap">
-                                                    <div>
-                                                      <label className="block text-xs font-semibold mb-1 text-muted-foreground">Transit (5 digits)</label>
-                                                      <input
-                                                        type="text"
-                                                        maxLength={5}
-                                                        value={bankingForm.transit}
-                                                        onChange={(e) => setBankingForm(f => ({ ...f, transit: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
-                                                        placeholder="12345"
-                                                        className={`w-24 ${inputSmCls}`}
-                                                      />
-                                                    </div>
-                                                    <div>
-                                                      <label className="block text-xs font-semibold mb-1 text-muted-foreground">Institution (3 digits)</label>
-                                                      <input
-                                                        type="text"
-                                                        maxLength={3}
-                                                        value={bankingForm.institution}
-                                                        onChange={(e) => setBankingForm(f => ({ ...f, institution: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
-                                                        placeholder="001"
-                                                        className={`w-16 ${inputSmCls}`}
-                                                      />
-                                                    </div>
-                                                    <div>
-                                                      <label className="block text-xs font-semibold mb-1 text-muted-foreground">Account (7-12 digits)</label>
-                                                      <input
-                                                        type="text"
-                                                        maxLength={12}
-                                                        value={bankingForm.account}
-                                                        onChange={(e) => setBankingForm(f => ({ ...f, account: e.target.value.replace(/\D/g, '').slice(0, 12) }))}
-                                                        placeholder="1234567"
-                                                        className={`w-36 ${inputSmCls}`}
-                                                      />
-                                                    </div>
-                                                    <button
-                                                      disabled={bankingSaving || bankingForm.transit.length !== 5 || bankingForm.institution.length !== 3 || bankingForm.account.length < 7}
-                                                      onClick={async () => {
-                                                        setBankingSaving(true)
-                                                        setBankingMessage(null)
-                                                        const res = await updateAgentBanking({
-                                                          agentId: agent.id,
-                                                          transitNumber: bankingForm.transit,
-                                                          institutionNumber: bankingForm.institution,
-                                                          accountNumber: bankingForm.account,
-                                                        })
-                                                        if (res.success) {
-                                                          // Update local state
-                                                          setBrokerages(prev => prev.map(b => ({
-                                                            ...b,
-                                                            agents: b.agents.map((a: Agent) => a.id === agent.id ? {
-                                                              ...a,
-                                                              bank_transit_number: bankingForm.transit,
-                                                              bank_institution_number: bankingForm.institution,
-                                                              bank_account_number: bankingForm.account,
-                                                              banking_verified: true,
-                                                            } : a),
-                                                          })))
-                                                          setBankingEditingAgentId(null)
-                                                          setBankingMessage({ type: 'success', text: 'Banking info saved' })
-                                                          setTimeout(() => setBankingMessage(null), 3000)
-                                                        } else {
-                                                          setBankingMessage({ type: 'error', text: res.error || 'Failed to save' })
-                                                        }
-                                                        setBankingSaving(false)
-                                                      }}
-                                                      className="px-3 py-1.5 rounded text-xs font-semibold text-white transition-colors disabled:opacity-40 bg-primary hover:bg-primary/90"
-                                                    >
-                                                      {bankingSaving ? 'Saving...' : 'Save'}
-                                                    </button>
-                                                    <button
-                                                      onClick={() => setBankingEditingAgentId(null)}
-                                                      className="px-2 py-1.5 rounded text-xs font-medium transition-colors text-muted-foreground hover:text-foreground"
-                                                    >
-                                                      Cancel
-                                                    </button>
-                                                    {bankingMessage && (
-                                                      <span className={`text-xs font-medium ${bankingMessage.type === 'success' ? 'text-primary' : 'text-red-400'}`}>
-                                                        {bankingMessage.text}
-                                                      </span>
-                                                    )}
-                                                  </div>
+                                                ) : agent.banking_approval_status === 'pending' ? (
+                                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--status-blue)' }}>
+                                                    <AlertCircle size={13} /> Banking submitted — needs review
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-xs text-muted-foreground">No banking on file yet.</span>
                                                 )}
                                               </div>
 
@@ -3162,162 +2830,12 @@ export default function BrokeragesPage() {
       </main>
       </div>{/* end of content area that shrinks */}
 
-      {/* KYC Document Side Panel - sits beside main content, not on top */}
-      {kycPreviewPanel && (
-        <div
-          className="fixed top-0 right-0 z-30 h-full flex flex-col shadow-xl bg-card border-l-2 border-l-primary"
-          style={{
-            width: kycPanelWidth,
-            animation: 'slideInRight 0.2s ease-out',
-          }}
-        >
-          {/* Panel Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 flex-shrink-0 border-b border-border">
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <p className="text-sm font-semibold truncate text-foreground">
-                <Shield size={13} className="inline mr-1 text-primary" />
-                {kycPreviewPanel.agentName}
-              </p>
-              <p className="text-xs text-muted-foreground">ID Verification</p>
-              {kycPreviewPanel.agentPhone && (
-                <p className="text-xs text-muted-foreground truncate"><Phone size={10} className="inline mr-1" />{kycPreviewPanel.agentPhone}</p>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={() => { for (const u of kycPreviewPanel.originalUrls) window.open(u, '_blank') }}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition bg-input text-primary border border-border hover:bg-muted"
-                title="Open in new tab"
-                aria-label="Open in new tab"
-              >
-                <ExternalLink size={11} />
-              </button>
-              <button
-                onClick={closeKycPanel}
-                className="p-1 rounded transition text-muted-foreground hover:bg-red-950/50 hover:text-red-400"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-          {/* Agent Address - for cross-referencing with ID */}
-          {kycPreviewPanel.agentAddress && (
-            <div className="px-3 py-2 border-b border-border bg-primary/5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-0.5">Address on File</p>
-              <p className="text-xs text-foreground leading-relaxed">{kycPreviewPanel.agentAddress}</p>
-            </div>
-          )}
-          {!kycPreviewPanel.agentAddress && (
-            <div className="px-3 py-2 border-b border-border bg-status-amber-muted/30">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-status-amber mb-0.5">No Address on File</p>
-              <p className="text-[11px] text-muted-foreground">Agent hasn&apos;t submitted their address yet</p>
-            </div>
-          )}
-          {/* Panel Content - shows all uploaded ID images */}
-          <div className="flex-1 overflow-auto p-3">
-            {kycPreviewPanel.blobUrls.map((blobUrl, i) => {
-              const ext = kycPreviewPanel.originalUrls[i]?.split('?')[0].split('.').pop()?.toLowerCase() || ''
-              const isPdf = ext === 'pdf'
-              return (
-                <div key={i} style={{ marginBottom: i < kycPreviewPanel.blobUrls.length - 1 ? 12 : 0 }}>
-                  {kycPreviewPanel.blobUrls.length > 1 && (
-                    <p className="text-xs font-semibold mb-1.5 text-muted-foreground">
-                      {i === 0 ? 'Front' : i === 1 ? 'Back' : `Photo ${i + 1}`}
-                    </p>
-                  )}
-                  <KycMediaPreview
-                    src={blobUrl}
-                    alt={`${kycPreviewPanel.fileName} ${i + 1}`}
-                    isPdf={isPdf}
-                  />
-                </div>
-              )
-            })}
-          </div>
-          {/* Verification checklist */}
-          <div className="px-3 py-2.5 flex-shrink-0 border-t border-border bg-muted/30 space-y-1.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Verification Checklist</p>
-            {([
-              { key: 'nameMatch' as const, label: 'Name matches agent profile' },
-              { key: 'addressMatch' as const, label: 'Address matches records' },
-              { key: 'idValid' as const, label: 'ID is valid and not expired' },
-            ]).map(({ key, label }) => (
-              <label key={key} className="flex items-center gap-2 cursor-pointer group">
-                <input
-                  type="checkbox"
-                  checked={kycChecks[key]}
-                  onChange={(e) => setKycChecks(prev => ({ ...prev, [key]: e.target.checked }))}
-                  className="w-4 h-4 rounded border-border accent-[var(--action-green)]"
-                />
-                <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
-              </label>
-            ))}
-          </div>
-          {/* Panel Footer - Approve/Reject actions */}
-          <div className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0 border-t border-border bg-background">
-            <button
-              onClick={async () => {
-                setKycSubmitting(true)
-                const result = await verifyAgentKyc({ agentId: kycPreviewPanel.agentId })
-                if (result.success) {
-                  setStatusMessage({ type: 'success', text: `${kycPreviewPanel.agentName} KYC verified` })
-                  closeKycPanel()
-                  await loadBrokerages()
-                } else {
-                  setStatusMessage({ type: 'error', text: result.error || 'Verification failed' })
-                }
-                setKycSubmitting(false)
-              }}
-              disabled={kycSubmitting || !kycChecks.nameMatch || !kycChecks.addressMatch || !kycChecks.idValid}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-50 text-white hover:opacity-90"
-              style={{ background: 'var(--action-green)', border: '1px solid var(--action-green-border)' }}
-            >
-              <CheckCircle size={16} />
-              Approve ID
-            </button>
-            <button
-              onClick={() => {
-                setKycRejectingAgentId(kycPreviewPanel.agentId)
-                setKycRejectReason('')
-                closeKycPanel()
-              }}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all text-white hover:opacity-90"
-              style={{ background: 'var(--action-red)', border: '1px solid var(--action-red-border)' }}
-            >
-              <XCircle size={16} />
-              Reject ID
-            </button>
-          </div>
-        </div>
-      )}
-      {/* Pre-auth form inline viewer */}
-      <Dialog
-        open={!!preauthViewUrl}
-        onOpenChange={(open) => {
-          if (!open) {
-            if (preauthViewUrl) URL.revokeObjectURL(preauthViewUrl)
-            setPreauthViewUrl(null)
-          }
-        }}
-      >
-        <DialogContent className="max-w-3xl h-[80vh] p-0 gap-0">
-          <DialogHeader className="px-4 py-3 border-b border-border/50">
-            <DialogTitle>Void Cheque / Direct Deposit Authorization</DialogTitle>
-          </DialogHeader>
-          {preauthViewUrl && (
-            preauthViewType === 'image' ? (
-              <div className="w-full overflow-auto p-4" style={{ height: 'calc(80vh - 60px)' }}>
-                {/* Supabase signed URL — next/image domain config would
-                    require knowing the project ref at build time. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={preauthViewUrl} alt="Void Cheque / Direct Deposit Authorization" className="w-full rounded-lg" />
-              </div>
-            ) : (
-              <iframe src={preauthViewUrl} className="w-full" style={{ height: 'calc(80vh - 60px)' }} />
-            )
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Shared agent ID + banking verification dialog (replaces the old KYC side panel + inline banking review + preauth viewer) */}
+      <AgentVerificationDialog
+        agentId={verifyAgentId}
+        onClose={() => setVerifyAgentId(null)}
+        onChanged={loadBrokerages}
+      />
       {/* Balance Adjustment Modal */}
       <Dialog
         open={!!adjustBalanceForAgentId}
