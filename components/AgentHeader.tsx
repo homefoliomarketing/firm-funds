@@ -8,14 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import SignOutModal from '@/components/SignOutModal'
 import { getAgentNotificationCounts } from '@/lib/actions/notification-actions'
 import { brokerageLogoDataUri } from '@/lib/brokerage-logo-generator'
-
-function NotificationBadge({ count }: { count: number }) {
-  return (
-    <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
-      {count > 99 ? '99+' : count}
-    </span>
-  )
-}
+import { NotificationBadge } from '@/components/ui/notification-badge'
 
 interface AgentHeaderProps {
   agentName: string
@@ -323,15 +316,11 @@ export default function AgentHeader({
                       <Icon size={14} aria-hidden="true" />
                       {label}
                       {badge && badge > 0 && (
-                        badgeTone === 'amber' ? (
-                          <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-amber-950">
-                            {badge > 99 ? '99+' : badge}
-                          </span>
-                        ) : (
-                          <span className="ml-1">
-                            <NotificationBadge count={badge} />
-                          </span>
-                        )
+                        <NotificationBadge
+                          count={badge}
+                          tone={badgeTone === 'amber' ? 'pending' : 'attention'}
+                          className="ml-1"
+                        />
                       )}
                     </button>
                   ))}
@@ -438,13 +427,10 @@ export default function AgentHeader({
                 <Icon size={16} aria-hidden="true" />
                 <span className="flex-1 text-left">{label}</span>
                 {badge && badge > 0 && (
-                  badgeTone === 'amber' ? (
-                    <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-amber-950">
-                      {badge > 99 ? '99+' : badge}
-                    </span>
-                  ) : (
-                    <NotificationBadge count={badge} />
-                  )
+                  <NotificationBadge
+                    count={badge}
+                    tone={badgeTone === 'amber' ? 'pending' : 'attention'}
+                  />
                 )}
               </button>
             ))}

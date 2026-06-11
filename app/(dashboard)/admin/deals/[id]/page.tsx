@@ -220,7 +220,7 @@ function PdfCanvasViewer({ pdfData }: { pdfData: ArrayBuffer }) {
           const sep = document.createElement('div')
           sep.className = 'pdf-page-sep'
           sep.style.height = '4px'
-          sep.style.background = 'hsl(var(--border))'
+          sep.style.background = 'var(--border)'
           container.appendChild(sep)
         }
         container.appendChild(canvas)
@@ -1385,9 +1385,9 @@ export default function DealDetailPage() {
       {/* FLAGGED AGENT WARNING BANNER */}
       {agent?.flagged_by_brokerage && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-red-muted border-2 border-red-600 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-500" />
-            <p className="font-bold text-sm text-red-500">
+          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-red-muted border-2 border-status-red-border shadow-[0_0_15px_color-mix(in_srgb,var(--status-red)_30%,transparent)]">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-status-red" />
+            <p className="font-bold text-sm text-status-red">
               AGENT FLAGGED BY BROKERAGE: {agent.first_name} {agent.last_name}. Review carefully.
             </p>
           </div>
@@ -1397,9 +1397,9 @@ export default function DealDetailPage() {
       {/* OUTSTANDING RECOVERY WARNING BANNER */}
       {agent && agent.outstanding_recovery && agent.outstanding_recovery > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2">
-          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-amber-muted border-2 border-amber-600 shadow-[0_0_15px_rgba(217,119,6,0.2)]">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-500" />
-            <p className="font-bold text-sm text-amber-500">
+          <div className="rounded-md px-3 py-2 flex items-center gap-2 bg-status-amber-muted border-2 border-status-amber-border shadow-[0_0_15px_color-mix(in_srgb,var(--status-amber)_20%,transparent)]">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-status-amber" />
+            <p className="font-bold text-sm text-status-amber">
               OUTSTANDING RECOVERY: ${agent.outstanding_recovery.toLocaleString('en-CA', { minimumFractionDigits: 2 })} ({agent.first_name} {agent.last_name})
             </p>
           </div>
@@ -1489,7 +1489,7 @@ export default function DealDetailPage() {
                     setShowFailedToCloseModal(true)
                   }}
                   disabled={updating}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-red-950/30 text-red-400 border border-red-800/50 hover:bg-red-950/50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-status-red-muted/30 text-status-red border border-status-red-border/50 hover:bg-status-red-muted/50"
                 >
                   <AlertTriangle className="w-4 h-4" />
                   Mark Failed to Close
@@ -1538,14 +1538,14 @@ export default function DealDetailPage() {
                 if (hasPending) {
                   return (
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-950/30 text-amber-400 border border-amber-800/50">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-status-amber-muted/30 text-status-amber border border-status-amber-border/50">
                         <Clock className="w-4 h-4" />
                         Awaiting Signature
                       </div>
                       <button
                         onClick={handleVoidEnvelopes}
                         disabled={voidingEnvelopes}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-red-950/30 text-red-400 border border-red-800/50 hover:bg-red-950/50"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-status-red-muted/30 text-status-red border border-status-red-border/50 hover:bg-status-red-muted/50"
                       >
                         {voidingEnvelopes ? 'Cancelling...' : 'Cancel Signing'}
                       </button>
@@ -1556,7 +1556,7 @@ export default function DealDetailPage() {
                   <button
                     onClick={handleSendForSignature}
                     disabled={sendingForSignature}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50 bg-blue-700 hover:bg-blue-800"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition disabled:opacity-50 bg-action-blue hover:bg-action-blue-hover"
                   >
                     <FileSignature className="w-4 h-4" />
                     {sendingForSignature ? 'Sending...' : 'Send for Signature'}
@@ -1576,7 +1576,7 @@ export default function DealDetailPage() {
                     key={status}
                     onClick={() => handleStatusChange(status)}
                     disabled={updating}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-transparent text-muted-foreground border border-border/50 hover:border-amber-600 hover:text-amber-600"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 bg-transparent text-muted-foreground border border-border/50 hover:border-status-amber hover:text-status-amber"
                   >
                     <Undo2 className="w-3.5 h-3.5" />
                     {BACKWARD_LABELS[status] || config.label}
@@ -1589,13 +1589,13 @@ export default function DealDetailPage() {
           {/* BACKWARD TRANSITION WARNING */}
           {pendingBackward && (
             <div className="mt-4 pt-4 border-t border-border/50">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-950/30 border border-amber-800/50">
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600" />
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-status-amber-muted/30 border border-status-amber-border/50">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-status-amber" />
                 <div className="flex-1">
-                  <p className="text-sm font-semibold mb-1 text-amber-400">
+                  <p className="text-sm font-semibold mb-1 text-status-amber">
                     Are you sure you want to revert this deal?
                   </p>
-                  <p className="text-xs mb-3 text-amber-600/80">
+                  <p className="text-xs mb-3 text-status-amber/80">
                     This will move the deal from <strong>{STATUS_LABELS[deal.status]}</strong> back to <strong>{STATUS_LABELS[pendingBackward]}</strong>.
                     {pendingBackward === 'under_review' && ' Any previous approval or denial will be cleared.'}
                     {pendingBackward === 'approved' && ' The funded date and recalculated financials will be preserved but the deal will need to be re-funded.'}
@@ -1605,7 +1605,7 @@ export default function DealDetailPage() {
                     <button
                       onClick={() => handleStatusChange(pendingBackward)}
                       disabled={updating}
-                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors"
+                      className="px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 bg-status-amber hover:bg-status-amber/90 transition-colors"
                     >
                       {updating ? 'Reverting...' : 'Yes, Revert'}
                     </button>
@@ -1624,20 +1624,20 @@ export default function DealDetailPage() {
           {/* APPROVE CONFIRMATION */}
           {showApproveConfirmation && (
             <div className="mt-4 pt-4 border-t border-border/50">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-emerald-950/20 border border-emerald-800/40">
-                <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-500" />
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-status-green-muted/20 border border-status-green-border/40">
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-status-green" />
                 <div className="flex-1">
-                  <p className="text-sm font-semibold mb-1 text-emerald-400">
+                  <p className="text-sm font-semibold mb-1 text-status-green">
                     Approve this deal?
                   </p>
-                  <p className="text-xs mb-3 text-emerald-200/70">
+                  <p className="text-xs mb-3 text-status-green/70">
                     Approving moves the deal forward and automatically sends the agent contract for e-signature. It is now one step. You can still revert to Under Review afterward if needed.
                   </p>
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleStatusChange('approved')}
                       disabled={updating}
-                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-emerald-700 hover:bg-emerald-800"
+                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-action-green hover:bg-action-green-hover"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       {updating ? 'Approving...' : 'Confirm Approval'}
@@ -1688,8 +1688,8 @@ export default function DealDetailPage() {
             const agentReceives = calc.advanceAmount - deduction
             return (
               <div className="mt-4 pt-4 border-t border-border/50">
-                <div className="p-4 rounded-lg bg-purple-950/20 border border-purple-800/40">
-                  <h4 className="text-sm font-bold mb-3 flex items-center gap-2 text-purple-400">
+                <div className="p-4 rounded-lg bg-status-purple-muted/20 border border-status-purple-border/40">
+                  <h4 className="text-sm font-bold mb-3 flex items-center gap-2 text-status-purple">
                     <Banknote className="w-4 h-4" />
                     Confirm Funding
                   </h4>
@@ -1723,7 +1723,7 @@ export default function DealDetailPage() {
                         </tr>
                         <tr>
                           <td className="py-1.5 text-muted-foreground">Days Charged</td>
-                          <td className="py-1.5 text-right font-mono font-bold text-purple-400">{chargeDays} days</td>
+                          <td className="py-1.5 text-right font-mono font-bold text-status-purple">{chargeDays} days</td>
                         </tr>
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
@@ -1783,15 +1783,15 @@ export default function DealDetailPage() {
                               </div>
                               <span className="text-[10px] text-muted-foreground/70">of discount fee</span>
                               {referralPctOverridden && (
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">override</span>
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-status-amber/15 text-status-amber border border-status-amber/30">override</span>
                               )}
                             </div>
                           </td>
                           <td className="py-1.5 text-right font-mono text-muted-foreground">{formatCurrency(calc.brokerageReferralFee)}</td>
                         </tr>
                         <tr>
-                          <td className="py-1.5 font-semibold text-purple-400">Firm Funds Profit</td>
-                          <td className="py-1.5 text-right font-mono font-semibold text-purple-400">{formatCurrency(calc.firmFundsProfit)}</td>
+                          <td className="py-1.5 font-semibold text-status-purple">Firm Funds Profit</td>
+                          <td className="py-1.5 text-right font-mono font-semibold text-status-purple">{formatCurrency(calc.firmFundsProfit)}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1807,7 +1807,7 @@ export default function DealDetailPage() {
                     <button
                       onClick={() => handleStatusChange('funded')}
                       disabled={updating || !overrideValid}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-purple-700 hover:bg-purple-800"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-action-purple hover:bg-action-purple-hover"
                     >
                       <Banknote className="w-4 h-4" />
                       {updating ? 'Funding...' : 'Confirm Funding'}
@@ -1838,7 +1838,7 @@ export default function DealDetailPage() {
                 <button
                   onClick={() => handleStatusChange('denied')}
                   disabled={updating || !denialReason.trim()}
-                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-red-700 hover:bg-red-800 transition-colors"
+                  className="px-4 py-2 rounded-lg font-medium text-white disabled:opacity-50 bg-action-red hover:bg-action-red-hover transition-colors"
                 >
                   Confirm Denial
                 </button>
@@ -1858,15 +1858,15 @@ export default function DealDetailPage() {
             issued. The "Mark refund issued" action is Owner-only (money.write),
             mirroring the impersonation capability gate; the server re-checks. */}
         {deal.refund_owed_amount > 0 && !deal.refund_issued_at && (
-          <div className="mb-4 rounded-xl p-4 bg-amber-950/30 border border-amber-800/50 ff-card-elevated">
+          <div className="mb-4 rounded-xl p-4 bg-status-amber-muted/30 border border-status-amber-border/50 ff-card-elevated">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-500" />
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-status-amber" />
                 <div>
-                  <p className="text-sm font-bold text-amber-400">
+                  <p className="text-sm font-bold text-status-amber">
                     Refund owed to agent: {formatCurrency(deal.refund_owed_amount)}
                   </p>
-                  <p className="text-xs mt-0.5 text-amber-200/70">
+                  <p className="text-xs mt-0.5 text-status-amber/70">
                     Issue this refund to the agent before this deal can be completed.
                   </p>
                 </div>
@@ -1875,7 +1875,7 @@ export default function DealDetailPage() {
                 <button
                   onClick={handleMarkRefundIssued}
                   disabled={refundIssuing}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-amber-600 hover:bg-amber-700"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-status-amber hover:bg-status-amber/90"
                 >
                   <Banknote className="w-4 h-4" />
                   {refundIssuing ? 'Issuing...' : 'Mark refund issued'}
@@ -2032,7 +2032,7 @@ export default function DealDetailPage() {
                               setDeal(prev => prev ? { ...prev, ...result.data } : null)
                             }
                           }}
-                          className="text-amber-400 border-amber-800/40 bg-amber-950/30 hover:bg-amber-950/50 hover:text-amber-300"
+                          className="text-status-amber border-status-amber-border/40 bg-status-amber-muted/30 hover:bg-status-amber-muted/50 hover:text-status-amber"
                         >
                           Confirm
                         </Button>
@@ -2066,14 +2066,14 @@ export default function DealDetailPage() {
           <div className="mb-4 rounded-xl p-4 bg-card border border-border/50 ff-card-elevated">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold flex items-center gap-2 text-foreground">
-                <DollarSign className="w-4 h-4 text-cyan-400" />
+                <DollarSign className="w-4 h-4 text-status-teal" />
                 Brokerage Payments
               </h2>
               <Button
                 onClick={() => setShowPaymentForm(!showPaymentForm)}
                 variant={showPaymentForm ? 'outline' : 'default'}
                 size="sm"
-                className={showPaymentForm ? '' : 'bg-cyan-600 hover:bg-cyan-700'}
+                className={showPaymentForm ? '' : 'bg-action-teal hover:bg-action-teal-hover'}
               >
                 {showPaymentForm ? 'Cancel' : 'Record Payment'}
               </Button>
@@ -2132,7 +2132,7 @@ export default function DealDetailPage() {
                   }}
                   disabled={paymentSaving || !paymentAmount || !paymentDate}
                   size="sm"
-                  className="bg-teal-700 hover:bg-teal-800"
+                  className="bg-action-teal hover:bg-action-teal-hover"
                 >
                   Record Payment
                 </Button>
@@ -2225,7 +2225,7 @@ export default function DealDetailPage() {
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {agent.reco_number && <span className="text-[10px] text-muted-foreground/60">RECO {agent.reco_number}</span>}
                 {agent.flagged_by_brokerage && (
-                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-amber-800/40 text-amber-400 bg-amber-950/30">Flagged</Badge>
+                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-status-amber-border/40 text-status-amber bg-status-amber-muted/30">Flagged</Badge>
                 )}
                 {agent.outstanding_recovery != null && agent.outstanding_recovery > 0 && (
                   <Badge variant="outline" className="text-[10px] py-0 h-4 border-destructive/40 text-destructive bg-destructive/10">Recovery: {formatCurrency(agent.outstanding_recovery)}</Badge>
@@ -2292,10 +2292,10 @@ export default function DealDetailPage() {
                         className="px-2 py-0.5 rounded text-[10px] text-muted-foreground border border-border/50 hover:bg-muted transition-colors">Cancel</button>
                     </div>
                     {closingDateComparison && (
-                      <div className="rounded p-1.5 text-[10px] space-y-0.5 bg-blue-950/20 border border-blue-800/30">
-                        <p className="text-blue-400">Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
-                        <p className="text-blue-400">Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
-                        <p className="text-blue-400">Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
+                      <div className="rounded p-1.5 text-[10px] space-y-0.5 bg-status-blue-muted/20 border border-status-blue-border/30">
+                        <p className="text-status-blue">Days: {closingDateComparison.old.days_until_closing} → {closingDateComparison.new.days_until_closing}</p>
+                        <p className="text-status-blue">Fee: ${closingDateComparison.old.discount_fee.toFixed(2)} → ${closingDateComparison.new.discount_fee.toFixed(2)}</p>
+                        <p className="text-status-blue">Advance: ${closingDateComparison.old.advance_amount.toFixed(2)} → ${closingDateComparison.new.advance_amount.toFixed(2)}</p>
                       </div>
                     )}
                   </div>
@@ -2326,7 +2326,7 @@ export default function DealDetailPage() {
           {/* CLOSING DATE AMENDMENTS */}
           {amendments.length > 0 && (
             <div className="rounded-xl px-4 py-3 mb-3 bg-card border border-border/50 ff-card-elevated">
-              <h2 className="text-xs font-bold mb-3 flex items-center gap-1.5 uppercase tracking-wider text-amber-400">
+              <h2 className="text-xs font-bold mb-3 flex items-center gap-1.5 uppercase tracking-wider text-status-amber">
                 <Clock className="w-3.5 h-3.5" />
                 Closing Date Amendments
               </h2>
@@ -2342,14 +2342,14 @@ export default function DealDetailPage() {
                   const feeAdj = am.fee_adjustment_amount || 0
                   const isFundedScenario = scenario === 'funded_extended' || scenario === 'funded_earlier'
                   return (
-                    <div key={am.id} className={`rounded-lg p-3 border text-xs ${isPending ? 'bg-amber-500/5 border-amber-500/30' : isApproved ? 'bg-green-500/5 border-green-500/30' : 'bg-destructive/5 border-destructive/30'}`}>
+                    <div key={am.id} className={`rounded-lg p-3 border text-xs ${isPending ? 'bg-status-amber/5 border-status-amber/30' : isApproved ? 'bg-status-green/5 border-status-green/30' : 'bg-destructive/5 border-destructive/30'}`}>
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className={`font-bold uppercase tracking-wider ${isPending ? 'text-amber-400' : isApproved ? 'text-green-400' : 'text-destructive'}`}>
+                          <span className={`font-bold uppercase tracking-wider ${isPending ? 'text-status-amber' : isApproved ? 'text-status-green' : 'text-destructive'}`}>
                             {am.status}
                           </span>
                           {isFundedScenario && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 font-semibold uppercase">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-purple/15 text-status-purple border border-status-purple/30 font-semibold uppercase">
                               Funded ({scenario === 'funded_extended' ? 'Extended' : 'Earlier'})
                             </span>
                           )}
@@ -2373,7 +2373,7 @@ export default function DealDetailPage() {
                             </div>
                             <div>
                               <p className="text-muted-foreground">{scenario === 'funded_extended' ? 'Additional Charge' : 'Credit to Agent'}</p>
-                              <p className={`font-semibold ${scenario === 'funded_extended' ? 'text-destructive' : 'text-green-400'}`}>
+                              <p className={`font-semibold ${scenario === 'funded_extended' ? 'text-destructive' : 'text-status-green'}`}>
                                 {scenario === 'funded_extended' ? '+' : '-'}{formatCurrency(Math.abs(feeAdj))}
                               </p>
                             </div>
@@ -2449,7 +2449,7 @@ export default function DealDetailPage() {
                               <button
                                 onClick={() => handleApproveAmendment(am.id)}
                                 disabled={amendmentProcessing === am.id}
-                                className="px-3 py-1.5 rounded text-[11px] font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                                className="px-3 py-1.5 rounded text-[11px] font-medium bg-action-green text-white hover:bg-action-green-hover disabled:opacity-50"
                               >
                                 {amendmentProcessing === am.id ? 'Approving...' : 'Approve & Send Amended CPA'}
                               </button>
@@ -2654,13 +2654,13 @@ export default function DealDetailPage() {
                             onDrop={(e) => handleChecklistDrop(e, item)}
                             className="flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all duration-200 select-none border-b border-border/20"
                             style={{
-                              background: isDropTarget ? 'rgba(95,168,115,0.1)' : na ? 'rgba(100,100,100,0.05)' : checked ? 'rgba(95,168,115,0.05)' : 'transparent',
+                              background: isDropTarget ? 'color-mix(in srgb, var(--primary) 10%, transparent)' : na ? 'color-mix(in srgb, var(--muted-foreground) 5%, transparent)' : checked ? 'color-mix(in srgb, var(--primary) 5%, transparent)' : 'transparent',
                               opacity: na ? 0.6 : 1,
                               outline: isDropTarget ? '2px dashed var(--primary)' : 'none',
                               outlineOffset: '-2px',
                             }}
-                            onMouseEnter={(e) => { if (!checked && !na && !isDropTarget) e.currentTarget.style.background = 'rgba(95,168,115,0.08)' }}
-                            onMouseLeave={(e) => { if (!isDropTarget) e.currentTarget.style.background = na ? 'rgba(100,100,100,0.05)' : checked ? 'rgba(95,168,115,0.05)' : 'transparent' }}
+                            onMouseEnter={(e) => { if (!checked && !na && !isDropTarget) e.currentTarget.style.background = 'color-mix(in srgb, var(--primary) 8%, transparent)' }}
+                            onMouseLeave={(e) => { if (!isDropTarget) e.currentTarget.style.background = na ? 'color-mix(in srgb, var(--muted-foreground) 5%, transparent)' : checked ? 'color-mix(in srgb, var(--primary) 5%, transparent)' : 'transparent' }}
                           >
                             <div className="flex-shrink-0 mt-0.5 transition-transform duration-200" style={{ transform: checked ? 'scale(1.1)' : 'scale(1)' }}>
                               {na ? (
@@ -2678,7 +2678,7 @@ export default function DealDetailPage() {
                             <div className="flex-1 min-w-0">
                               <p className="text-sm transition-colors duration-200"
                                 style={{
-                                  color: na ? 'hsl(var(--muted-foreground)/0.5)' : checked ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))',
+                                  color: na ? 'color-mix(in srgb, var(--muted-foreground) 50%, transparent)' : checked ? 'var(--muted-foreground)' : 'var(--foreground)',
                                   fontWeight: checked || na ? 400 : 500,
                                   textDecoration: na ? 'line-through' : 'none',
                                 }}>
@@ -2697,7 +2697,7 @@ export default function DealDetailPage() {
                                         onClick={(e) => { e.stopPropagation(); handleDocumentDownload(linkedDoc) }}
                                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity hover:opacity-80"
                                         style={{
-                                          background: checked ? 'rgba(95,168,115,0.15)' : 'rgba(95,168,115,0.1)',
+                                          background: checked ? 'color-mix(in srgb, var(--primary) 15%, transparent)' : 'color-mix(in srgb, var(--primary) 10%, transparent)',
                                           color: 'var(--primary)',
                                           border: `1px solid ${checked ? 'var(--primary)' : 'color-mix(in srgb, var(--primary) 25%, transparent)'}`,
                                         }}
@@ -2744,7 +2744,7 @@ export default function DealDetailPage() {
                               onClick={(e) => handleChecklistNA(e, item)}
                               className={`flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded transition-colors border ${
                                 na
-                                  ? 'text-amber-400 bg-amber-950/20 border-amber-700/40'
+                                  ? 'text-status-amber bg-status-amber-muted/20 border-status-amber-border/40'
                                   : 'text-muted-foreground/60 bg-transparent border-transparent hover:text-muted-foreground hover:border-border/50'
                               }`}
                             >
@@ -2974,7 +2974,7 @@ export default function DealDetailPage() {
                           </button>
                           <button
                             onClick={() => { setReturningDocId(returningDocId === doc.id ? null : doc.id); setReturnReason('') }}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-950/30 text-amber-500 border border-amber-800/30"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-amber-muted/30 text-status-amber border border-status-amber-border/30"
                             title="Return to agent"
                             aria-label="Return document to agent"
                           >
@@ -2990,7 +2990,7 @@ export default function DealDetailPage() {
                         </div>
                         {/* Document return form */}
                         {returningDocId === doc.id && (
-                          <div className="mt-2 p-2 rounded bg-amber-950/20 border border-amber-800/30">
+                          <div className="mt-2 p-2 rounded bg-status-amber-muted/20 border border-status-amber-border/30">
                             <Textarea
                               value={returnReason}
                               onChange={(e) => setReturnReason(e.target.value)}
@@ -3001,7 +3001,7 @@ export default function DealDetailPage() {
                               <button
                                 onClick={() => handleReturnDocument(doc.id)}
                                 disabled={returnSending || !returnReason.trim()}
-                                className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors"
+                                className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-status-amber hover:bg-status-amber/90 transition-colors"
                               >
                                 {returnSending ? 'Returning...' : 'Return & Notify Agent'}
                               </button>
@@ -3015,7 +3015,7 @@ export default function DealDetailPage() {
                           </div>
                         )}
                         {docReturns.some(r => r.document_id === doc.id && r.status === 'pending') && (
-                          <div className="mt-1 px-2 py-1 rounded text-xs bg-red-950/20 border border-red-800/30 text-destructive">
+                          <div className="mt-1 px-2 py-1 rounded text-xs bg-status-red-muted/20 border border-status-red-border/30 text-destructive">
                             Returned: {docReturns.find(r => r.document_id === doc.id && r.status === 'pending')?.reason}
                           </div>
                         )}
@@ -3032,16 +3032,16 @@ export default function DealDetailPage() {
             )}
 
             {/* MESSAGES — sits under documents in the right column */}
-            <div id="messages" className={`rounded-xl overflow-hidden bg-card border transition-colors ${hasUnreadMessages ? 'border-red-500/50' : 'border-border/50'}`}>
+            <div id="messages" className={`rounded-xl overflow-hidden bg-card border transition-colors ${hasUnreadMessages ? 'border-status-red/50' : 'border-border/50'}`}>
               <div
-                className={`flex items-center justify-between px-5 py-3 cursor-pointer border-b transition-colors ${hasUnreadMessages ? 'bg-red-500/10 border-red-500/20 hover:bg-red-500/[0.12]' : 'bg-primary/5 border-primary/20 hover:bg-primary/[0.07]'}`}
+                className={`flex items-center justify-between px-5 py-3 cursor-pointer border-b transition-colors ${hasUnreadMessages ? 'bg-status-red/10 border-status-red/20 hover:bg-status-red/[0.12]' : 'bg-primary/5 border-primary/20 hover:bg-primary/[0.07]'}`}
                 onClick={() => setMessagesExpanded(!messagesExpanded)}
               >
                 <div className="flex items-center gap-2 text-sm font-semibold text-primary">
                   <Send className="w-4 h-4" />
                   Messages
                   {hasUnreadMessages && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-status-red text-white">
                       New
                     </span>
                   )}
@@ -3065,15 +3065,15 @@ export default function DealDetailPage() {
                         <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                           <div className="max-w-[80%] rounded-xl px-3 py-2"
                             style={{
-                              background: isOwn ? 'var(--status-green-muted)' : isNew ? 'rgba(239, 68, 68, 0.08)' : 'hsl(var(--muted)/0.5)',
-                              border: `1px solid ${isOwn ? 'var(--status-green-border)' : isNew ? 'rgba(239, 68, 68, 0.3)' : 'hsl(var(--border)/0.5)'}`,
+                              background: isOwn ? 'var(--status-green-muted)' : isNew ? 'color-mix(in srgb, var(--status-red) 8%, transparent)' : 'color-mix(in srgb, var(--muted) 50%, transparent)',
+                              border: `1px solid ${isOwn ? 'var(--status-green-border)' : isNew ? 'color-mix(in srgb, var(--status-red) 30%, transparent)' : 'color-mix(in srgb, var(--border) 50%, transparent)'}`,
                             }}>
                             <div className="flex items-center gap-2 mb-0.5">
                               <span className="text-[10px] font-semibold" style={{ color: isOwn ? 'var(--status-green)' : 'var(--status-blue)' }}>
                                 {isOwn ? 'You' : (msg.sender_name || 'Agent')}
                               </span>
                               {isNew && (
-                                <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-red-600 text-white leading-none">New</span>
+                                <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-status-red text-white leading-none">New</span>
                               )}
                               {msg.is_email_reply && <span className="text-[10px] px-1 rounded bg-status-blue-border text-status-blue">email</span>}
                               <span className="text-[10px] text-muted-foreground/60">{formatDateTime(msg.created_at)}</span>
@@ -3136,13 +3136,13 @@ export default function DealDetailPage() {
           <div className="rounded-xl mb-3 overflow-hidden bg-card border border-border/50 ff-card-elevated">
             <button
               onClick={() => setLateInterestExpanded(!lateInterestExpanded)}
-              className="w-full px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-500/5 transition-colors hover:bg-amber-500/[0.07] border-b border-amber-500/10"
+              className="w-full px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-status-amber bg-status-amber/5 transition-colors hover:bg-status-amber/[0.07] border-b border-status-amber/10"
             >
               <div className="flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Late Closing Interest
                 {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950/30 text-destructive">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-status-red-muted/30 text-destructive">
                     ${deal.late_interest_charged.toFixed(2)} charged
                   </span>
                 )}
@@ -3152,12 +3152,12 @@ export default function DealDetailPage() {
             {lateInterestExpanded && (
               <div className="px-3 py-2">
                 {agentBalance > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-amber-950/20 border border-amber-800/30 text-amber-500">
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-status-amber-muted/20 border border-status-amber-border/30 text-status-amber">
                     Agent balance: <strong>${agentBalance.toFixed(2)}</strong>
                   </div>
                 )}
                 {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-red-950/20 border border-red-800/30 text-destructive">
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-status-red-muted/20 border border-status-red-border/30 text-destructive">
                     Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
                     {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
                   </div>
@@ -3168,7 +3168,7 @@ export default function DealDetailPage() {
                       {deal.late_interest_charged ? 'Interest has been applied.' : 'No late interest charged.'}
                     </p>
                     <button onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
-                      className="px-2 py-1 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 transition-colors">
+                      className="px-2 py-1 rounded text-xs font-medium text-white bg-status-amber hover:bg-status-amber/90 transition-colors">
                       Charge Interest
                     </button>
                   </div>
@@ -3183,7 +3183,7 @@ export default function DealDetailPage() {
                     <p className="text-[10px] text-muted-foreground">24% p.a. compounded daily · starts day {LATE_INTEREST_GRACE_DAYS_FROM_CLOSING + 1} after closing</p>
                     <div className="flex gap-1.5">
                       <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
-                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-amber-600 hover:bg-amber-700 transition-colors">
+                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-status-amber hover:bg-status-amber/90 transition-colors">
                         {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
                       </button>
                       <button onClick={() => setShowLateInterest(false)}
@@ -3204,12 +3204,12 @@ export default function DealDetailPage() {
           if (!isPastDue && !deal.late_strike_recorded) return null
           return (
             <div className="rounded-xl mb-3 overflow-hidden bg-card border border-border/50 ff-card-elevated">
-              <div className="px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-500 bg-amber-500/5 border-b border-amber-500/10">
+              <div className="px-5 py-3 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-status-amber bg-status-amber/5 border-b border-status-amber/10">
                 <div className="flex items-center gap-1.5">
                   <AlertCircle className="w-3.5 h-3.5" />
                   Late Settlement Strike
                   {deal.late_strike_recorded && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950/30 text-destructive">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-status-red-muted/30 text-destructive">
                       Recorded
                     </span>
                   )}
@@ -3220,13 +3220,13 @@ export default function DealDetailPage() {
                   Brokerage settlement was due {formatDate(dueDateStr)} ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}-day window). Recording a strike contributes toward the brokerage&apos;s auto-bump to a {BROKERAGE_BUMPED_SETTLEMENT_DAYS}-day window after {BROKERAGE_LATE_STRIKE_THRESHOLD} total strikes. Only record when you&apos;ve confirmed the brokerage actually paid late (or hasn&apos;t paid).
                 </p>
                 {deal.late_strike_recorded ? (
-                  <p className="text-[11px] text-amber-300/80">
+                  <p className="text-[11px] text-status-amber/80">
                     A strike has already been recorded for this deal. To undo, reset the brokerage&apos;s strikes from /admin/brokerages.
                   </p>
                 ) : !showStrikeForm ? (
                   <button
                     onClick={() => { setShowStrikeForm(true); setStrikeReason(''); setStrikeError(null) }}
-                    className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition-colors"
+                    className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-status-amber hover:bg-status-amber/90 transition-colors"
                   >
                     Record Late Strike
                   </button>
@@ -3255,7 +3255,7 @@ export default function DealDetailPage() {
                           }
                           setStrikeSubmitting(false)
                         }}
-                        className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                        className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-status-amber hover:bg-status-amber/90 disabled:opacity-50 transition-colors"
                       >
                         {strikeSubmitting ? 'Recording…' : 'Confirm strike'}
                       </button>
@@ -3295,7 +3295,7 @@ export default function DealDetailPage() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote() }}
                 />
                 <Button onClick={handleAddNote} disabled={addingNote || !newNoteText.trim()}
-                  size="sm" className="bg-blue-700 hover:bg-blue-800">
+                  size="sm" className="bg-action-blue hover:bg-action-blue-hover">
                   <Plus className="w-3 h-3 mr-1" />{addingNote ? '...' : 'Add'}
                 </Button>
               </div>

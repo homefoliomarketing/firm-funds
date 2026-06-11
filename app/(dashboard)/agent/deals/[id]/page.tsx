@@ -915,8 +915,8 @@ export default function AgentDealDetailPage() {
                 const isActive = status === deal.status
                 const isPast = ['under_review', 'approved', 'funded', 'completed'].indexOf(deal.status) > index
                 const isDenied = deal.status === 'denied'
-                const barColor = isDenied ? 'var(--status-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'hsl(var(--muted))'
-                const labelColor = isDenied ? 'var(--action-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'hsl(var(--muted-foreground))'
+                const barColor = isDenied ? 'var(--status-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'var(--muted)'
+                const labelColor = isDenied ? 'var(--action-red)' : isActive ? 'var(--primary)' : isPast ? 'var(--action-green)' : 'var(--muted-foreground)'
                 return (
                   <div key={status} className="flex-1">
                     <div className="h-1.5 rounded-full" style={{ background: barColor }} />
@@ -1326,19 +1326,19 @@ export default function AgentDealDetailPage() {
                             {!isLast && isCompleted && (
                               <div style={{
                                 position: 'absolute', left: '7px', top: '18px', bottom: '-4px',
-                                width: '2px', background: 'hsl(var(--border))',
+                                width: '2px', background: 'var(--border)',
                               }} />
                             )}
                             <div className="flex-shrink-0 mt-1" style={{
                               width: '16px', height: '16px', borderRadius: '50%',
-                              background: isCompleted ? event.color : 'hsl(var(--muted))',
-                              border: isCompleted ? 'none' : '2px solid hsl(var(--border))',
+                              background: isCompleted ? event.color : 'var(--muted)',
+                              border: isCompleted ? 'none' : '2px solid var(--border)',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                             }}>
                               {isCompleted && <CheckCircle2 size={16} className="text-white" />}
                             </div>
                             <div className="pb-4">
-                              <p className={`text-sm ${event.active ? 'font-bold' : 'font-medium'} ${isCompleted ? 'text-foreground' : 'text-muted-foreground/50'}`}>
+                              <p className={`text-sm ${event.active ? 'font-bold' : 'font-medium'} ${isCompleted ? 'text-foreground' : 'text-muted-foreground/70'}`}>
                                 {event.label}
                               </p>
                               {isCompleted && event.date && (
@@ -1347,7 +1347,7 @@ export default function AgentDealDetailPage() {
                                 </p>
                               )}
                               {!isCompleted && (
-                                <p className="text-xs text-muted-foreground/50">Pending</p>
+                                <p className="text-xs text-muted-foreground/70">Pending</p>
                               )}
                             </div>
                           </div>
@@ -1393,8 +1393,8 @@ export default function AgentDealDetailPage() {
                       return (
                       <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                         <div className="max-w-[80%] rounded-xl px-3 py-2" style={{
-                          background: isOwn ? 'hsl(var(--card))' : 'var(--status-green-muted)',
-                          border: `1px solid ${isOwn ? 'hsl(var(--border))' : 'var(--status-green-border)'}`,
+                          background: isOwn ? 'var(--card)' : 'var(--status-green-muted)',
+                          border: `1px solid ${isOwn ? 'var(--border)' : 'var(--status-green-border)'}`,
                         }}>
                           <div className="flex items-center gap-2 mb-0.5">
                             <span className="text-[10px] font-semibold" style={{ color: isOwn ? 'var(--status-blue)' : 'var(--status-green)' }}>

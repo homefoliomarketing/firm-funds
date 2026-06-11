@@ -26,6 +26,7 @@ import { uploadDocument } from '@/lib/actions/deal-actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { NotificationBadge } from '@/components/ui/notification-badge'
 import { StatusToast } from '@/components/StatusToast'
 import type { UserProfile } from '@/types/database'
 
@@ -335,9 +336,7 @@ export default function AgentMessagesPage() {
                             )}
                             <div className="flex items-center gap-1">
                               {hasUnread && (
-                                <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
-                                  {item.unread_message_count}
-                                </span>
+                                <NotificationBadge count={item.unread_message_count} />
                               )}
                               {hasReturns && (
                                 <span className="inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-destructive text-destructive-foreground" title="Returned documents need attention">!</span>

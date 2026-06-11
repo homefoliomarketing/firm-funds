@@ -10,10 +10,14 @@ export interface StatusToastMessage {
   text: string
 }
 
+// Variants map onto the shared status-color tokens (app/globals.css) so toast
+// feedback matches the badges, alert strips, and ledger entries elsewhere in
+// the app instead of drifting on raw Tailwind palette hex. Backgrounds are kept
+// near-opaque (/95) for legibility over scrolled page content.
 const VARIANTS: Record<StatusToastType, { box: string; text: string; icon: typeof CheckCircle; role: 'status' | 'alert'; live: 'polite' | 'assertive' }> = {
-  success: { box: 'bg-green-950/95 border-green-800', text: 'text-green-400', icon: CheckCircle, role: 'status', live: 'polite' },
-  error:   { box: 'bg-red-950/95 border-red-800',     text: 'text-red-400',   icon: AlertCircle, role: 'alert',  live: 'assertive' },
-  info:    { box: 'bg-blue-950/95 border-blue-800',   text: 'text-blue-400',  icon: Info,        role: 'status', live: 'polite' },
+  success: { box: 'bg-status-teal-muted/95 border-status-teal-border', text: 'text-status-teal', icon: CheckCircle, role: 'status', live: 'polite' },
+  error:   { box: 'bg-status-red-muted/95 border-status-red-border',   text: 'text-status-red',  icon: AlertCircle, role: 'alert',  live: 'assertive' },
+  info:    { box: 'bg-status-blue-muted/95 border-status-blue-border', text: 'text-status-blue', icon: Info,        role: 'status', live: 'polite' },
 }
 
 /**

@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { DealNumber } from '@/components/DealNumber'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { NotificationBadge } from '@/components/ui/notification-badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -434,9 +435,7 @@ export default function AdminDashboard() {
               >
                 <Mail size={22} />
                 {stats.unreadAgentMessages ? (
-                  <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
-                    {stats.unreadAgentMessages}
-                  </Badge>
+                  <NotificationBadge count={stats.unreadAgentMessages} className="absolute -top-0.5 -right-0.5" />
                 ) : null}
               </Button>
               <Button
@@ -489,9 +488,7 @@ export default function AdminDashboard() {
                 <link.icon size={14} className="text-primary/80" />
                 {link.label}
                 {link.badge ? (
-                  <Badge className="ml-1 h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
-                    {link.badge}
-                  </Badge>
+                  <NotificationBadge count={link.badge} className="ml-1" />
                 ) : null}
               </Button>
             ))}
@@ -892,9 +889,7 @@ export default function AdminDashboard() {
               >
                 {tab.label}
                 {showBadge ? (
-                  <Badge className="h-4 min-w-[16px] px-1 text-[10px] font-bold bg-red-600 text-white border-red-600">
-                    {unreadInStatus > 0 ? unreadInStatus : count}
-                  </Badge>
+                  <NotificationBadge count={unreadInStatus > 0 ? unreadInStatus : count} />
                 ) : (
                   <span className="text-xs opacity-50">({count})</span>
                 )}
@@ -983,7 +978,7 @@ export default function AdminDashboard() {
                             {deal.property_address}
                             <DealNumber value={deal.deal_number} />
                             {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                              <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold h-5 bg-red-600 text-white border-red-600">
+                              <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold h-5 bg-destructive text-destructive-foreground">
                                 <MessageSquare size={10} /> New
                               </Badge>
                             )}
@@ -1043,7 +1038,7 @@ export default function AdminDashboard() {
                           <DealNumber value={deal.deal_number} className="mt-1" />
                         </div>
                         {stats.dealsWithUnreadMessages.includes(deal.id) && (
-                          <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold shrink-0 bg-red-600 text-white border-red-600">
+                          <Badge className="gap-0.5 px-1.5 py-0 text-[10px] font-bold shrink-0 bg-destructive text-destructive-foreground">
                             <MessageSquare size={10} /> New
                           </Badge>
                         )}
@@ -1070,7 +1065,7 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Advance</p>
-                          <p className={`text-sm font-bold ${['denied', 'cancelled'].includes(deal.status) ? 'text-red-400' : 'text-emerald-400'}`}>
+                          <p className={`text-sm font-bold tabular-nums ${['denied', 'cancelled'].includes(deal.status) ? 'text-status-red' : 'text-primary'}`}>
                             {deal.status === 'offered'
                               ? <span className="text-muted-foreground/50 font-normal">Pending</span>
                               : formatCurrency(deal.advance_amount ?? 0)}

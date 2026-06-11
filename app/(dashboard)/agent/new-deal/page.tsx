@@ -477,7 +477,7 @@ function NewDealPageInner() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="rounded-2xl p-8 max-w-md mx-auto text-center bg-card border border-border">
-          <Shield size={44} className="text-yellow-500 mx-auto mb-3" />
+          <Shield size={44} className="text-status-amber mx-auto mb-3" />
           <h2 className="text-xl font-bold mb-2 text-foreground">Identity Verification Required</h2>
           <p className="text-sm mb-6 text-muted-foreground">
             You need to complete identity verification before you can submit deals. Please go to your dashboard to upload your government-issued photo ID.
@@ -943,13 +943,13 @@ function NewDealPageInner() {
 
           {/* Validation Hints */}
           {!preview && missingFields.length > 0 && (
-            <div className="rounded-xl p-4 mb-4 text-sm bg-yellow-500/10 border border-yellow-500/30 text-yellow-600 dark:text-yellow-400">
+            <div className="rounded-xl p-4 mb-4 text-sm bg-status-amber-muted border border-status-amber-border text-status-amber">
               <p className="font-semibold mb-1">Complete these fields to see your advance preview:</p>
               <p>{missingFields.join(' · ')}</p>
             </div>
           )}
           {!preview && missingFields.length === 0 && (
-            <div className="rounded-xl p-4 mb-4 text-sm bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400">
+            <div className="rounded-xl p-4 mb-4 text-sm bg-status-blue-muted border border-status-blue-border text-status-blue">
               Calculating your advance preview...
             </div>
           )}
@@ -1024,19 +1024,19 @@ function NewDealPageInner() {
           </Card>
 
           {/* Firmness Confirmation */}
-          <div className={`rounded-xl overflow-hidden mb-6 border ${isFirm ? 'bg-primary/10 border-primary/40' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
+          <div className={`rounded-xl overflow-hidden mb-6 border ${isFirm ? 'bg-primary/10 border-primary/40' : 'bg-status-amber-muted border-status-amber-border'}`}>
             <label className="flex items-start gap-3 p-5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={isFirm}
                 onChange={(e) => setIsFirm(e.target.checked)}
-                className="mt-0.5 w-5 h-5 rounded accent-green-600 shrink-0"
+                className="mt-0.5 w-5 h-5 rounded accent-[var(--primary)] shrink-0"
               />
               <div>
-                <span className={`text-sm font-bold block ${isFirm ? 'text-primary' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                <span className={`text-sm font-bold block ${isFirm ? 'text-primary' : 'text-status-amber'}`}>
                   I confirm this deal is firm with no outstanding conditions
                 </span>
-                <span className={`text-xs mt-1 block opacity-80 ${isFirm ? 'text-primary' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                <span className={`text-xs mt-1 block opacity-80 ${isFirm ? 'text-primary' : 'text-status-amber'}`}>
                   By checking this box, you confirm the Agreement of Purchase &amp; Sale is firm and unconditional, with all conditions having been fulfilled or waived.
                 </span>
               </div>
@@ -1045,12 +1045,12 @@ function NewDealPageInner() {
 
           {/* Document validation hints */}
           {docSlots.aps.length === 0 && (
-            <div className="rounded-xl p-3 mb-4 text-xs bg-yellow-500/10 border border-yellow-500/30 text-yellow-600 dark:text-yellow-400">
+            <div className="rounded-xl p-3 mb-4 text-xs bg-status-amber-muted border border-status-amber-border text-status-amber">
               Please upload your Agreement of Purchase &amp; Sale to submit this advance request.
             </div>
           )}
           {isFirstAdvance && docSlots.banking_info.length === 0 && docSlots.aps.length > 0 && (
-            <div className="rounded-xl p-3 mb-4 text-xs bg-yellow-500/10 border border-yellow-500/30 text-yellow-600 dark:text-yellow-400">
+            <div className="rounded-xl p-3 mb-4 text-xs bg-status-amber-muted border border-status-amber-border text-status-amber">
               Since this is your first advance, please upload your banking information (void cheque or direct deposit form).
             </div>
           )}
@@ -1155,12 +1155,12 @@ function NewDealPageInner() {
                   By submitting, you confirm the above details are accurate and that this deal is firm with no outstanding conditions. Final amounts are subject to underwriting review.
                 </p>
                 {selectedFiles.length > 0 && (
-                  <p className="text-xs text-blue-500">
+                  <p className="text-xs text-status-blue">
                     {selectedFiles.length} document{selectedFiles.length !== 1 ? 's' : ''} will be uploaded with your submission.
                   </p>
                 )}
                 {selectedFiles.length === 0 && (
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                  <p className="text-xs text-status-amber">
                     No documents attached. You can upload your APS and supporting documents after submission from your dashboard.
                   </p>
                 )}

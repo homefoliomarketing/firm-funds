@@ -19,6 +19,7 @@ import type { MessageData } from '@/components/messaging/MessageBubble'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { NotificationBadge } from '@/components/ui/notification-badge'
 import {
   getAdminInbox,
   getAdminDealMessages,
@@ -295,9 +296,7 @@ export default function AdminMessagesPage() {
                     >
                       Needs Reply
                       {needsReplyCount > 0 && (
-                        <span className="ml-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-600 text-white">
-                          {needsReplyCount}
-                        </span>
+                        <NotificationBadge count={needsReplyCount} className="ml-1" />
                       )}
                       {needsReplyCount === 0 && ' (0)'}
                     </button>

@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import { NotificationBadge } from '@/components/ui/notification-badge'
 import type { Brokerage, UserProfile } from '@/types/database'
 
 interface BrokerageInboxDeal {
@@ -580,7 +581,6 @@ export default function BrokerageDashboard() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-3">
             <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
               <div className="w-px h-8 hidden sm:block bg-white/15" />
               <p className="text-xs sm:text-sm font-medium tracking-wide text-white hidden sm:block">
@@ -597,9 +597,7 @@ export default function BrokerageDashboard() {
               >
                 <Bell size={16} />
                 {unreadNotifCount > 0 && (
-                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
-                    {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-                  </span>
+                  <NotificationBadge count={unreadNotifCount} className="absolute -top-1 -right-1" />
                 )}
               </button>
               <button
@@ -654,9 +652,7 @@ export default function BrokerageDashboard() {
                 >
                   <AlertTriangle size={14} className="mr-1.5" /> Failed deals
                   {failedCount > 0 && (
-                    <span className="ml-1.5 inline-flex items-center justify-center min-w-[20px] px-1.5 h-5 rounded-full text-[11px] font-bold bg-amber-500 text-amber-950">
-                      {failedCount}
-                    </span>
+                    <NotificationBadge count={failedCount} tone="pending" className="ml-1.5 h-5 min-w-[20px] px-1.5 text-[11px]" />
                   )}
                 </Button>
               )
@@ -844,14 +840,10 @@ export default function BrokerageDashboard() {
                 >
                   {tabLabels[tab]}
                   {tab === 'deals' && dealsMissingTradeRecord > 0 && (
-                    <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
-                      {dealsMissingTradeRecord}
-                    </span>
+                    <NotificationBadge count={dealsMissingTradeRecord} className="h-5 min-w-[20px] px-1.5 text-[11px]" />
                   )}
                   {tab === 'messages' && unansweredMessageCount > 0 && (
-                    <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
-                      {unansweredMessageCount}
-                    </span>
+                    <NotificationBadge count={unansweredMessageCount} className="h-5 min-w-[20px] px-1.5 text-[11px]" />
                   )}
                 </button>
               )
@@ -924,7 +916,7 @@ export default function BrokerageDashboard() {
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
                           {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
-                            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-red-950/50 text-red-400 border border-red-800">
+                            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-status-red-muted text-status-red border border-status-red-border">
                               <AlertTriangle size={11} />
                               Trade Record Needed
                             </span>
@@ -934,7 +926,7 @@ export default function BrokerageDashboard() {
                           >
                             {formatStatusLabel(deal.status)}
                           </span>
-                          <p className="text-sm font-bold w-24 sm:w-28 text-right text-green-400">{formatCurrency(deal.advance_amount)}</p>
+                          <p className="text-sm font-bold w-24 sm:w-28 text-right text-status-teal tabular-nums">{formatCurrency(deal.advance_amount)}</p>
                           {expandedDeal === deal.id
                             ? <ChevronUp size={16} className="text-muted-foreground/40" />
                             : <ChevronDown size={16} className="text-muted-foreground/40" />
@@ -970,21 +962,21 @@ export default function BrokerageDashboard() {
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Brokerage Info</h4>
                               <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span className="text-muted-foreground">Profit Share</span><span className="font-bold text-green-400">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
-                                <div className="flex justify-between"><span className="text-muted-foreground">Due to Firm Funds</span><span className="font-medium text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Profit Share</span><span className="font-bold text-status-teal tabular-nums">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Due to Firm Funds</span><span className="font-medium text-foreground tabular-nums">{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
                               </div>
                               {deal.status === 'denied' && (
-                                <div className="mt-3 rounded-lg p-3 bg-red-950/50 border border-red-800">
+                                <div className="mt-3 rounded-lg p-3 bg-status-red-muted/70 border border-status-red-border">
                                   {deal.denial_reason && (
                                     <>
-                                      <p className="text-xs font-bold text-red-400">Denial Reason</p>
-                                      <p className="text-xs mt-1 mb-2 text-red-400/90">{deal.denial_reason}</p>
+                                      <p className="text-xs font-bold text-status-red">Denial Reason</p>
+                                      <p className="text-xs mt-1 mb-2 text-status-red/90">{deal.denial_reason}</p>
                                     </>
                                   )}
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="mt-1 text-xs h-7 border-red-700 text-red-200 hover:bg-red-900/40 hover:text-red-100"
+                                    className="mt-1 text-xs h-7 border-status-red-border text-status-red hover:bg-status-red-muted hover:text-status-red"
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       router.push(`/brokerage/deals/new?revisedFrom=${deal.id}`)
@@ -1000,8 +992,8 @@ export default function BrokerageDashboard() {
                                 {dealTradeRecords.has(deal.id) ? (
                                   <>
                                     <div className="flex items-center gap-2 mb-2">
-                                      <CheckCircle size={14} className="text-green-400" />
-                                      <span className="text-xs font-semibold text-green-400">Trade Record Uploaded</span>
+                                      <CheckCircle size={14} className="text-status-teal" />
+                                      <span className="text-xs font-semibold text-status-teal">Trade Record Uploaded</span>
                                     </div>
                                     <div className="flex items-center justify-between rounded-lg px-3 py-2 bg-muted/50 border border-border/50">
                                       <div className="flex items-center gap-2 min-w-0">
@@ -1027,11 +1019,11 @@ export default function BrokerageDashboard() {
                                   </>
                                 ) : !['denied', 'cancelled', 'completed'].includes(deal.status) ? (
                                   <>
-                                    <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 mb-2 bg-red-950/50 border border-red-800">
-                                      <AlertTriangle size={14} className="text-red-400 flex-shrink-0" />
-                                      <span className="text-xs font-semibold text-red-400">Trade Record Required</span>
+                                    <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 mb-2 bg-status-red-muted/70 border border-status-red-border">
+                                      <AlertTriangle size={14} className="text-status-red flex-shrink-0" />
+                                      <span className="text-xs font-semibold text-status-red">Trade Record Required</span>
                                     </div>
-                                    <label className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors bg-red-950/40 text-red-400 border border-red-800 hover:bg-red-950/60">
+                                    <label className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer transition-colors bg-status-red-muted/60 text-status-red border border-status-red-border hover:bg-status-red-muted/80">
                                       {uploadingDeal === deal.id ? (
                                         <span>Uploading...</span>
                                       ) : (
@@ -1387,7 +1379,7 @@ export default function BrokerageDashboard() {
                 >
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-status-green/70">Total Earned</p>
                   <p className="text-xl font-bold mt-1 text-status-green tabular-nums">{formatCurrency(totalReferralFees)}</p>
-                  <p className="text-xs text-status-green/50">{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
+                  <p className="text-xs text-status-green/70">{earnedDeals.length} funded deal{earnedDeals.length !== 1 ? 's' : ''}</p>
                 </div>
                 <div
                   className={`rounded-xl px-4 py-3 cursor-pointer transition-all bg-status-amber-muted/60 border ${referralFilter === 'pending' ? 'border-status-amber ring-1 ring-status-amber/20' : 'border-status-amber-border/60 hover:border-status-amber-border'}`}
@@ -1395,12 +1387,12 @@ export default function BrokerageDashboard() {
                 >
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-status-amber/70">Pending</p>
                   <p className="text-xl font-bold mt-1 text-status-amber tabular-nums">{formatCurrency(pendingReferralFees)}</p>
-                  <p className="text-xs text-status-amber/50">{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
+                  <p className="text-xs text-status-amber/70">{pendingDeals.length} deal{pendingDeals.length !== 1 ? 's' : ''} in progress</p>
                 </div>
                 <div className="rounded-xl px-4 py-3 bg-status-blue-muted/60 border border-status-blue-border/60">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-status-blue/70">Avg Fee / Deal</p>
                   <p className="text-xl font-bold mt-1 text-status-blue tabular-nums">{formatCurrency(avgFeePerDeal)}</p>
-                  <p className="text-xs text-status-blue/50">across funded deals</p>
+                  <p className="text-xs text-status-blue/70">across funded deals</p>
                 </div>
                 <div className="rounded-xl px-4 py-3 bg-card/60 border border-border/40">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">Combined Total</p>

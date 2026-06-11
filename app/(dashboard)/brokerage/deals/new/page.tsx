@@ -292,7 +292,6 @@ function NewBrokerageDealPageInner() {
 
   const handleFileAdd = (slotKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
-    console.log('[doc upload] change fired', slotKey, 'count:', files?.length ?? 0)
     if (!files || files.length === 0) return
     const arr = Array.from(files)
     setDocSlots(prev => ({ ...prev, [slotKey]: [...prev[slotKey], ...arr] }))
@@ -450,8 +449,8 @@ function NewBrokerageDealPageInner() {
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
-            <div className="w-px h-8 bg-white/15" />
-            <p className="text-sm font-medium text-white">Brokerage Portal{brokerage ? `: ${brokerage.name}` : ''}</p>
+            <div className="w-px h-8 bg-border" />
+            <p className="text-sm font-medium text-foreground">Brokerage Portal{brokerage ? `: ${brokerage.name}` : ''}</p>
           </div>
         </header>
         <main className="max-w-2xl mx-auto px-4 sm:px-6 py-12">
@@ -497,13 +496,13 @@ function NewBrokerageDealPageInner() {
       <header className="bg-card/80 backdrop-blur-sm border-b border-border/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/brokerage')} className="p-1.5 rounded-lg text-white/50 hover:text-primary" aria-label="Back">
+            <button onClick={() => router.push('/brokerage')} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary" aria-label="Back">
               <ArrowLeft size={16} />
             </button>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <BrokerageBrandLogo logoUrl={brokerage?.logo_url} brokerageName={brokerage?.name} logoIncludesTagline={brokerage?.logo_includes_tagline} size="md" />
-            <div className="w-px h-8 bg-white/15 hidden sm:block" />
-            <p className="text-sm font-medium text-white hidden sm:block">Submit Advance Request{brokerage ? `: ${brokerage.name}` : ''}</p>
+            <div className="w-px h-8 bg-border hidden sm:block" />
+            <p className="text-sm font-medium text-foreground hidden sm:block">Submit Advance Request{brokerage ? `: ${brokerage.name}` : ''}</p>
           </div>
         </div>
       </header>

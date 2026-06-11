@@ -23,30 +23,33 @@ interface Props {
   onNavigate: (tab: ActionTab) => void
 }
 
+// Tones map onto the shared status-color tokens (see app/globals.css and
+// lib/constants.ts STATUS_BADGE_CLASSES) so this strip stays in lockstep with
+// every other alert/badge surface instead of drifting on raw palette hex.
 const toneClasses: Record<Tone, { bg: string; border: string; hover: string; iconBg: string; iconText: string; count: string }> = {
   red: {
-    bg: 'bg-red-950/30',
-    border: 'border-red-800/50',
-    hover: 'hover:border-red-600 hover:bg-red-950/45',
-    iconBg: 'bg-red-500/15',
-    iconText: 'text-red-400',
-    count: 'text-red-300',
+    bg: 'bg-status-red-muted/40',
+    border: 'border-status-red-border/60',
+    hover: 'hover:border-status-red hover:bg-status-red-muted/60',
+    iconBg: 'bg-status-red/15',
+    iconText: 'text-status-red',
+    count: 'text-status-red',
   },
   amber: {
-    bg: 'bg-amber-950/30',
-    border: 'border-amber-800/50',
-    hover: 'hover:border-amber-600 hover:bg-amber-950/45',
-    iconBg: 'bg-amber-500/15',
-    iconText: 'text-amber-400',
-    count: 'text-amber-300',
+    bg: 'bg-status-amber-muted/40',
+    border: 'border-status-amber-border/60',
+    hover: 'hover:border-status-amber hover:bg-status-amber-muted/60',
+    iconBg: 'bg-status-amber/15',
+    iconText: 'text-status-amber',
+    count: 'text-status-amber',
   },
   blue: {
-    bg: 'bg-blue-950/30',
-    border: 'border-blue-800/50',
-    hover: 'hover:border-blue-600 hover:bg-blue-950/45',
-    iconBg: 'bg-blue-500/15',
-    iconText: 'text-blue-400',
-    count: 'text-blue-300',
+    bg: 'bg-status-blue-muted/40',
+    border: 'border-status-blue-border/60',
+    hover: 'hover:border-status-blue hover:bg-status-blue-muted/60',
+    iconBg: 'bg-status-blue/15',
+    iconText: 'text-status-blue',
+    count: 'text-status-blue',
   },
 }
 

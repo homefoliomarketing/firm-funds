@@ -493,13 +493,13 @@ function AgentDashboardInner() {
                 type="button"
                 onClick={() => router.push('/agent/failed-deals')}
                 aria-label={`${failedDeals.length} failed deal${failedDeals.length === 1 ? '' : 's'} on your account, click to manage`}
-                className="group w-full text-left rounded-xl px-5 py-3.5 transition-all border flex items-center gap-4 bg-amber-950/30 border-amber-800/50 hover:border-amber-600 hover:bg-amber-950/45 focus:outline-none focus:ring-2 focus:ring-ring"
+                className="group w-full text-left rounded-xl px-5 py-3.5 transition-all border flex items-center gap-4 bg-status-amber-muted/40 border-status-amber-border/60 hover:border-status-amber hover:bg-status-amber-muted/60 focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-amber-500/15" aria-hidden="true">
-                  <AlertTriangle size={17} className="text-amber-400" />
+                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-status-amber/15" aria-hidden="true">
+                  <AlertTriangle size={17} className="text-status-amber" />
                 </div>
                 <div className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
-                  <span className="text-xl font-bold tabular-nums leading-none text-amber-300">{failedDeals.length}</span>
+                  <span className="text-xl font-bold tabular-nums leading-none text-status-amber">{failedDeals.length}</span>
                   <span className="text-sm text-foreground/85">
                     {failedDeals.length === 1 ? 'Failed deal on your account' : 'Failed deals on your account'}
                   </span>
@@ -509,7 +509,7 @@ function AgentDashboardInner() {
                 </div>
                 <ChevronRight
                   size={16}
-                  className="opacity-50 group-hover:opacity-100 transition flex-shrink-0 text-amber-400"
+                  className="opacity-50 group-hover:opacity-100 transition flex-shrink-0 text-status-amber"
                   aria-hidden="true"
                 />
               </button>
