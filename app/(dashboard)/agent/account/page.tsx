@@ -136,7 +136,13 @@ export default function AgentAccountPage() {
         agentId={agent?.id || ''}
         backHref="/agent"
         title="Account & Ledger"
-        subtitle={currentBalance > 0 ? `Balance owing: ${formatCurrency(currentBalance)}` : 'No balance owing'}
+        subtitle={
+          currentBalance > 0
+            ? `Balance owing: ${formatCurrency(currentBalance)}`
+            : currentBalance < 0
+              ? `Credit (refund owed to you): ${formatCurrency(Math.abs(currentBalance))}`
+              : 'No balance owing'
+        }
         brokerageLogo={agent?.brokerages?.logo_url}
         brokerageLogoIncludesTagline={agent?.brokerages?.logo_includes_tagline}
         brokerageName={agent?.brokerages?.name}
@@ -224,15 +230,17 @@ export default function AgentAccountPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
-                    Current Balance
+                    {currentBalance < 0 ? 'Credit (refund owed to you)' : 'Current Balance'}
                   </p>
                   <p className={`text-3xl font-bold tabular-nums ${currentBalance > 0 ? 'text-status-amber' : 'text-status-teal'}`}>
-                    {formatCurrency(currentBalance)}
+                    {formatCurrency(Math.abs(currentBalance))}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {currentBalance > 0
                       ? 'This balance is due immediately.'
-                      : 'You have no outstanding charges.'
+                      : currentBalance < 0
+                        ? 'Firm Funds owes you this refund.'
+                        : 'You have no outstanding charges.'
                     }
                   </p>
                 </div>

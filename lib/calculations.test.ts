@@ -67,6 +67,58 @@ describe('calculateDeal — documented worked examples', () => {
   })
 })
 
+describe('calculateDeal — optional brokerage flat fee (migration 110)', () => {
+  it('subtracts a flat fee from net commission, on top of the split', () => {
+    // Worked example A ($50k gross, 5% split, 30 days) plus a $500 flat fee.
+    // net = 50,000 * 0.95 - 500 = 47,000.
+    const result = calculateDeal({
+      grossCommission: 50_000,
+      brokerageSplitPct: 5,
+      brokerageFlatFee: 500,
+      daysUntilClosing: 30,
+      discountRate: 0.8,
+      brokerageReferralPct: 0.2,
+      settlementPeriodDays: 7,
+    })
+    expect(result.netCommission).toBe(47_000.0)
+    expect(result.discountFee).toBe(1_128.0) // 47,000 * 0.0008 * 30
+    expect(result.settlementPeriodFee).toBe(263.2) // 47,000 * 0.0008 * 7
+    expect(result.totalFees).toBe(1_391.2)
+    expect(result.advanceAmount).toBe(45_608.8)
+    expect(result.brokerageReferralFee).toBe(278.24)
+    expect(result.firmFundsProfit).toBe(1_112.96)
+    expect(result.amountDueFromBrokerage).toBe(46_721.76)
+    // Accounting identities still hold exactly with a flat fee in play.
+    expect(result.discountFee + result.settlementPeriodFee).toBe(result.totalFees)
+    expect(result.netCommission - result.totalFees).toBe(result.advanceAmount)
+    expect(result.brokerageReferralFee + result.firmFundsProfit).toBe(result.totalFees)
+    expect(result.netCommission - result.brokerageReferralFee).toBe(result.amountDueFromBrokerage)
+  })
+
+  it('a flat fee of 0 is identical to omitting it (backward compatible)', () => {
+    const base = calculateDeal({ grossCommission: 50_000, brokerageSplitPct: 5, daysUntilClosing: 30 })
+    const withZero = calculateDeal({ grossCommission: 50_000, brokerageSplitPct: 5, brokerageFlatFee: 0, daysUntilClosing: 30 })
+    expect(withZero).toEqual(base)
+  })
+
+  it('a flat-fee-only brokerage (split 0) deducts just the flat fee', () => {
+    const result = calculateDeal({ grossCommission: 10_000, brokerageSplitPct: 0, brokerageFlatFee: 395, daysUntilClosing: 30 })
+    expect(result.netCommission).toBe(9_605.0) // 10,000 - 395
+  })
+
+  it('rejects a flat fee that meets or exceeds the post-split commission', () => {
+    expect(() =>
+      calculateDeal({ grossCommission: 10_000, brokerageSplitPct: 20, brokerageFlatFee: 8_000, daysUntilClosing: 30 }),
+    ).toThrow(/flat fee/i)
+  })
+
+  it('rejects a negative flat fee', () => {
+    expect(() =>
+      calculateDeal({ grossCommission: 10_000, brokerageSplitPct: 5, brokerageFlatFee: -100, daysUntilClosing: 30 }),
+    ).toThrow(/flat fee/i)
+  })
+})
+
 describe('calculateDeal — accounting identities hold exactly', () => {
   const cases: DealCalculation[] = [
     { grossCommission: 50_000, brokerageSplitPct: 5, daysUntilClosing: 30 },

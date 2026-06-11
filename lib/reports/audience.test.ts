@@ -12,6 +12,7 @@ const FIRM_PROFIT = 6666 // Firm Funds gross profit
 const SETTLEMENT_FEE = 5555 // settlement fee - part of what the agent paid
 const REFERRAL = 4321 // the brokerage's referral cut
 const AGENT_BALANCE = 1234
+const BROKERAGE_FLAT_FEE = 9999 // the brokerage's own flat fee - safe for all audiences
 
 function fixture(audience: ReportAudience): ReportPackage {
   const isAgent = audience === 'agent'
@@ -64,6 +65,7 @@ function fixture(audience: ReportAudience): ReportPackage {
         property: '1 Test St',
         grossCommission: 2000,
         netCommission: 1900,
+        brokerageFlatFee: BROKERAGE_FLAT_FEE,
         discountFee: FEE_CHARGED,
         settlementFee: SETTLEMENT_FEE,
         advanceAmount: 1000,
@@ -106,6 +108,8 @@ describe('report exports - audience margin stripping', () => {
     expect(text).toContain(String(FIRM_PROFIT))
     expect(text).toContain(String(SETTLEMENT_FEE))
     expect(text.toLowerCase()).toContain('gross profit')
+    // The brokerage's own flat fee is shown to internal staff.
+    expect(text).toContain(String(BROKERAGE_FLAT_FEE))
   })
 
   it('brokerage Excel hides Firm Funds margin but keeps their referral earnings', () => {
@@ -119,6 +123,8 @@ describe('report exports - audience margin stripping', () => {
     // Their own money is present.
     expect(text).toContain('Referral earnings')
     expect(text).toContain(String(REFERRAL))
+    // The brokerage's own flat fee is their fee, not Firm Funds margin, so it stays.
+    expect(text).toContain(String(BROKERAGE_FLAT_FEE))
   })
 
   it('agent Excel shows the fee they paid but hides our profit and the brokerage cut', () => {
@@ -126,6 +132,9 @@ describe('report exports - audience margin stripping', () => {
     // Fees THEY paid are shown (it's their money / a deductible expense).
     expect(text).toContain(String(FEE_CHARGED))
     expect(text).toContain(String(SETTLEMENT_FEE))
+    // The brokerage flat fee was deducted from the agent's commission, so the
+    // agent sees it on their own deal detail too.
+    expect(text).toContain(String(BROKERAGE_FLAT_FEE))
     expect(text).toContain('Fees you paid')
     expect(text).toContain('Current balance')
     expect(text).toContain(String(AGENT_BALANCE))

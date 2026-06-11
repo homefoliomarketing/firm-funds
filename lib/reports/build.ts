@@ -97,6 +97,7 @@ interface RawDeal {
   days_until_closing: number | null
   gross_commission: number | null
   net_commission: number | null
+  brokerage_flat_fee: number | null
   discount_fee: number | null
   settlement_period_fee: number | null
   advance_amount: number | null
@@ -121,7 +122,7 @@ interface RawDeal {
 
 const DEAL_COLUMNS = `
   id, deal_number, status, property_address, days_until_closing,
-  gross_commission, net_commission, discount_fee, settlement_period_fee,
+  gross_commission, net_commission, brokerage_flat_fee, discount_fee, settlement_period_fee,
   advance_amount, brokerage_referral_fee, amount_due_from_brokerage,
   broker_share_amount, broker_share_remitted, outstanding_balance,
   failed_deal_interest_charged, failed_to_close_at,
@@ -269,6 +270,7 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
       property: d.property_address || '',
       grossCommission: num(d.gross_commission),
       netCommission: num(d.net_commission),
+      brokerageFlatFee: num(d.brokerage_flat_fee),
       discountFee: num(d.discount_fee),
       settlementFee: num(d.settlement_period_fee),
       advanceAmount: num(d.advance_amount),

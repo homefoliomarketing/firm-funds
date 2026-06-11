@@ -84,8 +84,9 @@ The chargeable period from the day after funding through the closing day inclusi
 
 ### The formulas, in order
 
-1. **Net commission** (the agent's share after the brokerage split):
-   `netCommission = grossCommission * (1 - brokerageSplitPct / 100)`
+1. **Net commission** (the agent's share after the brokerage split and any flat fee):
+   `netCommission = grossCommission * (1 - brokerageSplitPct / 100) - brokerageFlatFee`
+   `brokerageFlatFee` (DB column `brokerage_flat_fee`, default `0`, added in migration 110) is an optional flat dollar fee some brokerages charge on top of the percentage split (e.g. a transaction/admin fee). It is `0` for the vast majority of deals, leaving this identical to the original split-only formula. Set `brokerageSplitPct` to 0 for a flat-fee-only brokerage. The engine rejects a flat fee that meets or exceeds the post-split commission (it would zero out the advance).
 2. **Discount fee** (the time-based carrying cost):
    `discountFee = netCommission * (rate / 1000) * effectiveDays`
    where `effectiveDays = getChargeDays(daysUntilClosing)`.
@@ -152,9 +153,9 @@ Inputs: gross commission $20,000, split 20%, 45 days until closing.
 
 The brokerage split is the slice of the gross commission the brokerage keeps before the agent sees a dollar. It is stored as a whole number in `brokerage_split_pct` and divided by 100 exactly once inside `calculateDeal()`:
 
-`netCommission = grossCommission * (1 - brokerageSplitPct / 100)`
+`netCommission = grossCommission * (1 - brokerageSplitPct / 100) - brokerageFlatFee`
 
-So a gross commission of $10,000 with a 30% split leaves a $7,000 net commission. Everything downstream (fees, advance, referral) is computed off the net commission, never the gross. This is separate from the **brokerage referral fee**, which is the partner brokerage's cut of Firm Funds' fees and uses the 0 to 1 decimal convention.
+So a gross commission of $10,000 with a 30% split leaves a $7,000 net commission. If that brokerage also charged a $395 flat transaction fee, the net commission would be $6,605. Everything downstream (fees, advance, referral) is computed off the net commission, never the gross. The flat fee (`brokerage_flat_fee`, migration 110) defaults to 0 and is captured per-deal at submission — it is **not** a brokerage default. This is all separate from the **brokerage referral fee**, which is the partner brokerage's cut of Firm Funds' fees and uses the 0 to 1 decimal convention.
 
 ### Referral fee vs. profit share — one number, two columns
 

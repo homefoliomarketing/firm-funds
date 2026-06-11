@@ -75,6 +75,9 @@ function NewBrokerageDealPageInner() {
   const [closingDate, setClosingDate] = useState('')
   const [grossCommission, setGrossCommission] = useState('')
   const [brokerageSplitPct, setBrokerageSplitPct] = useState('')
+  // Optional flat dollar fee charged in addition to the split. String for the
+  // input; treated as 0 when blank.
+  const [brokerageFlatFee, setBrokerageFlatFee] = useState('')
   const [transactionType, setTransactionType] = useState('buy')
   const [notes, setNotes] = useState('')
 
@@ -200,6 +203,7 @@ function NewBrokerageDealPageInner() {
       }
       setGrossCommission(d.grossCommission?.toString() || '')
       setBrokerageSplitPct(d.brokerageSplitPct?.toString() || '')
+      if (d.brokerageFlatFee) setBrokerageFlatFee(d.brokerageFlatFee.toString())
       if (d.transactionType) setTransactionType(d.transactionType)
       if (d.notes) setNotes(d.notes)
       setRevisedFromBanner({ dealId: d.originalDealId, reason: d.denialReason || null })
@@ -213,7 +217,13 @@ function NewBrokerageDealPageInner() {
   useEffect(() => {
     const gross = parseFloat(grossCommission)
     const splitPct = parseFloat(brokerageSplitPct)
-    if (!agentId || !gross || !closingDate || gross <= 0 || isNaN(splitPct) || splitPct < 0 || splitPct > 100) {
+    // Optional flat fee: blank → 0. Bail (and clear the preview) if it's invalid
+    // — negative, or >= the post-split commission — so we never call the server
+    // with a value it would reject.
+    const flatFee = brokerageFlatFee.trim() === '' ? 0 : parseFloat(brokerageFlatFee)
+    const postSplit = gross * (1 - splitPct / 100)
+    const flatFeeBad = brokerageFlatFee.trim() !== '' && (isNaN(flatFee) || flatFee < 0 || flatFee >= postSplit)
+    if (!agentId || !gross || !closingDate || gross <= 0 || isNaN(splitPct) || splitPct < 0 || splitPct > 100 || flatFeeBad) {
       setPreview(null); setPreviewError(null); return
     }
     let cancelled = false
@@ -221,6 +231,7 @@ function NewBrokerageDealPageInner() {
       const result = await calculateDealPreviewForBrokerage({
         grossCommission: gross,
         brokerageSplitPct: splitPct,
+        brokerageFlatFee: flatFee,
         closingDate,
         agentId,
       })
@@ -244,7 +255,7 @@ function NewBrokerageDealPageInner() {
       }
     }, 400)
     return () => { clearTimeout(t); cancelled = true }
-  }, [agentId, grossCommission, brokerageSplitPct, closingDate])
+  }, [agentId, grossCommission, brokerageSplitPct, brokerageFlatFee, closingDate])
 
   // Failed-deal gate: when an agent is selected, check whether they have an
   // uncovered failed-to-close balance and warn up front (submission is also
@@ -291,6 +302,18 @@ function NewBrokerageDealPageInner() {
   const handleFileRemove = (slotKey: string, idx: number) => {
     setDocSlots(prev => ({ ...prev, [slotKey]: prev[slotKey].filter((_, i) => i !== idx) }))
   }
+
+  // Optional flat fee: blank/whitespace → 0 (no fee). Must be >= 0 and below the
+  // commission left after the split (gross × (1 - split/100)); otherwise the
+  // advance would go negative and the server rejects it. We block submit + skip
+  // the preview while it's invalid so the admin gets immediate feedback.
+  const flatFeeNum = brokerageFlatFee.trim() === '' ? 0 : parseFloat(brokerageFlatFee)
+  const grossNum = parseFloat(grossCommission)
+  const splitNum = parseFloat(brokerageSplitPct)
+  const postSplitCommission = (!isNaN(grossNum) && !isNaN(splitNum)) ? grossNum * (1 - splitNum / 100) : NaN
+  const flatFeeInvalid = brokerageFlatFee.trim() !== '' && (
+    isNaN(flatFeeNum) || flatFeeNum < 0 || (!isNaN(postSplitCommission) && flatFeeNum >= postSplitCommission)
+  )
 
   const missing: string[] = []
   if (!agentId) missing.push('Agent')
@@ -374,6 +397,7 @@ function NewBrokerageDealPageInner() {
         closingDate,
         grossCommission: parseFloat(grossCommission),
         brokerageSplitPct: parseFloat(brokerageSplitPct),
+        brokerageFlatFee: brokerageFlatFee.trim() === '' ? 0 : parseFloat(brokerageFlatFee),
         transactionType,
         notes: notes.trim() || undefined,
         fromOfferDealId: fromOfferId || undefined,
@@ -586,9 +610,9 @@ function NewBrokerageDealPageInner() {
                 <Label htmlFor="txtype">Transaction type</Label>
                 <select id="txtype" value={transactionType} onChange={(e) => setTransactionType(e.target.value)}
                   className="w-full px-4 py-2 rounded-lg text-base sm:text-sm bg-input border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary">
-                  <option value="buy">Buy side</option>
-                  <option value="sell">Sell side</option>
-                  <option value="both">Both sides</option>
+                  <option value="buy">Buying Side</option>
+                  <option value="sell">Listing Side</option>
+                  <option value="both">Both</option>
                 </select>
               </div>
             </CardContent>
@@ -638,6 +662,34 @@ function NewBrokerageDealPageInner() {
                 <Label htmlFor="split">Brokerage split % <span className="text-destructive">*</span></Label>
                 <Input id="split" type="number" step="0.5" min="0" max="100" value={brokerageSplitPct} onChange={(e) => setBrokerageSplitPct(e.target.value)} placeholder="e.g. 5" required />
               </div>
+              <div className="sm:col-span-3">
+                <Label htmlFor="flatfee">Brokerage flat fee (optional)</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                  <Input
+                    id="flatfee"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={brokerageFlatFee}
+                    onChange={(e) => setBrokerageFlatFee(e.target.value)}
+                    placeholder="0.00"
+                    className="pl-6"
+                    aria-invalid={flatFeeInvalid || undefined}
+                    aria-describedby={`flatfee-hint${flatFeeInvalid ? ' flatfee-error' : ''}`}
+                  />
+                </div>
+                <p id="flatfee-hint" className="mt-1 text-xs text-muted-foreground">
+                  A flat dollar fee some brokerages charge (e.g. a transaction fee), deducted in addition to the split. Leave blank or 0 if none.
+                </p>
+                {flatFeeInvalid && (
+                  <p id="flatfee-error" className="mt-1 text-xs text-destructive font-medium">
+                    {flatFeeNum < 0
+                      ? 'Flat fee cannot be negative.'
+                      : 'Flat fee must be less than the commission after the split.'}
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -654,6 +706,12 @@ function NewBrokerageDealPageInner() {
                       <p className="text-muted-foreground">Net commission</p>
                       <p className="text-base font-bold text-foreground">{formatCurrency(preview.netCommission)}</p>
                     </div>
+                    {flatFeeNum > 0 && (
+                      <div>
+                        <p className="text-muted-foreground">Brokerage flat fee</p>
+                        <p className="text-base font-bold text-foreground">-{formatCurrency(flatFeeNum)}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-muted-foreground">Discount fee ({preview.daysUntilClosing} days)</p>
                       <p className="text-base font-bold text-foreground">{formatCurrency(preview.discountFee)}</p>
@@ -745,10 +803,17 @@ function NewBrokerageDealPageInner() {
               </AlertDescription>
             </Alert>
           )}
+          {flatFeeInvalid && (
+            <Alert variant="destructive">
+              <AlertDescription className="text-xs">
+                The brokerage flat fee must be less than the commission after the split. Adjust it to submit.
+              </AlertDescription>
+            </Alert>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => router.push('/brokerage')}>Cancel</Button>
-            <Button type="submit" disabled={submitting || uploadingDocs || !preview || !agentActivated || missing.length > 0 || !!submissionBlock} className="bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button type="submit" disabled={submitting || uploadingDocs || !preview || !agentActivated || missing.length > 0 || flatFeeInvalid || !!submissionBlock} className="bg-primary text-primary-foreground hover:bg-primary/90">
               {submitting ? 'Submitting…' : uploadingDocs ? 'Uploading docs…' : <>Submit deal <Send size={14} className="ml-1" /></>}
             </Button>
           </div>

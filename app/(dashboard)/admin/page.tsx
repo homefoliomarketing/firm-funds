@@ -10,12 +10,13 @@ import {
   FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
   CreditCard, Eye, EyeOff, ClipboardList, TimerReset, Inbox,
-  TrendingUp, Mail, ChevronDown,
+  TrendingUp, Mail, ChevronDown, CalendarClock, Wallet,
 } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { approveAgentBanking, rejectAgentBanking } from '@/lib/actions/profile-actions'
-import { getAgentPreauthFormSignedUrl, getOverdueSettlementDeals } from '@/lib/actions/admin-actions'
+import { getAgentPreauthFormSignedUrl, getOverdueSettlementDeals, getPendingPaymentClaimCount, getAgentsOwedRefund } from '@/lib/actions/admin-actions'
+import { getPendingAmendments } from '@/lib/actions/amendment-actions'
 import { getStatusBadgeClass, formatStatusLabel } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { hasCapability } from '@/lib/access'
@@ -45,6 +46,7 @@ interface DashboardStats {
   unreadAgentMessages: number
   dealsWithUnreadMessages: string[]
   firmDealPending: number
+  pendingPaymentClaims: number
 }
 
 // Shapes returned by the dashboard SELECTs. PostgREST nests one-to-many
@@ -59,6 +61,7 @@ type DashboardDeal = {
   closing_date: string | null
   advance_amount: number | null
   gross_commission: number | null
+  net_commission: number | null
   created_at: string
   assigned_to_user_id: string | null
   // See note on `brokerages`. We pick the first element defensively below.
@@ -108,6 +111,30 @@ type OverdueSettlementRow = {
   amount_due: number
 }
 
+// A pending closing-date amendment awaiting admin review. Shape mirrors the
+// `getPendingAmendments()` SELECT in amendment-actions.ts: the amendment row
+// plus its joined deal (and the deal's agent). PostgREST nests the singular
+// FK as an object here (deal -> single agent), but we normalize defensively.
+type PendingAmendmentRow = {
+  id: string
+  deal_id: string
+  old_closing_date: string | null
+  new_closing_date: string | null
+  fee_adjustment_amount: number | string | null
+  deals?: {
+    id: string
+    property_address: string | null
+    status: string | null
+    agents?: { first_name: string | null; last_name: string | null }[] | { first_name: string | null; last_name: string | null } | null
+  } | null
+}
+
+type AgentRefundRow = {
+  agent_id: string
+  agent_name: string
+  credit_amount: number
+}
+
 export default function AdminDashboard() {
   // `user` is captured for parity with other pages; not currently rendered.
   const [, setUser] = useState<User | null>(null)
@@ -119,9 +146,12 @@ export default function AdminDashboard() {
     unreadAgentMessages: 0,
     dealsWithUnreadMessages: [],
     firmDealPending: 0,
+    pendingPaymentClaims: 0,
   })
   const [allDeals, setAllDeals] = useState<DashboardDeal[]>([])
   const [overdueSettlements, setOverdueSettlements] = useState<OverdueSettlementRow[]>([])
+  const [pendingAmendments, setPendingAmendments] = useState<PendingAmendmentRow[]>([])
+  const [agentsOwedRefund, setAgentsOwedRefund] = useState<AgentRefundRow[]>([])
   const [pendingBankingAgents, setPendingBankingAgents] = useState<DashboardBankingAgent[]>([])
   const [pendingKycAgents, setPendingKycAgents] = useState<DashboardKycAgent[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -230,6 +260,22 @@ export default function AdminDashboard() {
 
       const underReviewList = allDealsList.filter(d => d.status === 'under_review')
 
+      // Admin "needs attention" feeds, fetched in parallel: settlement-overdue
+      // deals, pending closing-date amendments, the pending payment-claim count,
+      // and agents carrying a credit (refund owed). Each is an admin-gated
+      // server action; a failure on any one leaves that surface empty rather
+      // than blocking the dashboard.
+      const [overdueResult, amendmentsResult, paymentClaimResult, refundResult] = await Promise.all([
+        getOverdueSettlementDeals(),
+        getPendingAmendments(),
+        getPendingPaymentClaimCount(),
+        getAgentsOwedRefund(),
+      ])
+      if (overdueResult.success) setOverdueSettlements((overdueResult.data as OverdueSettlementRow[]) || [])
+      if (amendmentsResult.success) setPendingAmendments((amendmentsResult.data as PendingAmendmentRow[]) || [])
+      if (refundResult.success) setAgentsOwedRefund((refundResult.data as AgentRefundRow[]) || [])
+      const pendingPaymentClaims = paymentClaimResult.success ? Number(paymentClaimResult.data?.count ?? 0) : 0
+
       setStats({
         underReviewDeals: underReviewList.length,
         pendingKycCount: kycAgents?.length || 0,
@@ -237,20 +283,19 @@ export default function AdminDashboard() {
         unreadAgentMessages: dealsWithUnread.length,
         dealsWithUnreadMessages: dealsWithUnread,
         firmDealPending: firmDealPendingCount ?? 0,
+        pendingPaymentClaims,
       })
       setAllDeals(allDealsList)
-
-      // Settlement-overdue deals (funded, past due_date, no strike yet)
-      const overdueResult = await getOverdueSettlementDeals()
-      if (overdueResult.success) setOverdueSettlements((overdueResult.data as OverdueSettlementRow[]) || [])
 
       setLoading(false)
     }
     loadDashboard()
   }, [router, supabase])
 
-  // Poll for new messages + firm-deal review queue every 30 seconds. Cheap
-  // count queries — no row payload pulled across the wire for either.
+  // Poll every 30 seconds for the live "needs attention" surfaces: new
+  // messages, the firm-deal review queue, the pending payment-claim count,
+  // pending closing-date amendments, and agents owed a refund. Counts are
+  // head-only; the amendment/refund lists are small admin-gated reads.
   useEffect(() => {
     if (loading) return
     const interval = setInterval(async () => {
@@ -259,6 +304,9 @@ export default function AdminDashboard() {
           { data: allMsgs },
           { data: dismissals },
           { count: firmDealPendingCount },
+          amendmentsResult,
+          paymentClaimResult,
+          refundResult,
         ] = await Promise.all([
           supabase.from('deal_messages').select('deal_id, sender_role, created_at').order('created_at', { ascending: false }),
           supabase.from('admin_message_dismissals').select('deal_id, dismissed_at'),
@@ -266,6 +314,9 @@ export default function AdminDashboard() {
             .from('firm_deal_events')
             .select('id', { count: 'exact', head: true })
             .in('status', ['unmatched', 'awaiting_approval', 'errored']),
+          getPendingAmendments(),
+          getPendingPaymentClaimCount(),
+          getAgentsOwedRefund(),
         ])
         const dismissMap = new Map<string, string>()
         if (dismissals) {
@@ -283,11 +334,14 @@ export default function AdminDashboard() {
             dealsWithUnread.push(dealId)
           }
         })
+        if (amendmentsResult.success) setPendingAmendments((amendmentsResult.data as PendingAmendmentRow[]) || [])
+        if (refundResult.success) setAgentsOwedRefund((refundResult.data as AgentRefundRow[]) || [])
         setStats(prev => ({
           ...prev,
           unreadAgentMessages: dealsWithUnread.length,
           dealsWithUnreadMessages: dealsWithUnread,
           firmDealPending: firmDealPendingCount ?? prev.firmDealPending,
+          pendingPaymentClaims: paymentClaimResult.success ? Number(paymentClaimResult.data?.count ?? 0) : prev.pendingPaymentClaims,
         }))
       } catch {
         // Silently fail — don't break the dashboard
@@ -421,7 +475,7 @@ export default function AdminDashboard() {
               // /admin/assignments page + assignment-actions remain in the repo
               // so this is a one-line re-enable when the feature is picked up.
               ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' }] : []),
-              ...(hasCapability(profile, 'money.write') ? [{ label: 'Payments', icon: DollarSign, path: '/admin/payments' }] : []),
+              ...(hasCapability(profile, 'money.write') ? [{ label: 'Payments', icon: DollarSign, path: '/admin/payments', badge: stats.pendingPaymentClaims }] : []),
               // Audit Trail + Staff & Roles now live under Settings; Messages moved
               // to the Mail icon in the header.
             ].map(link => (
@@ -715,6 +769,99 @@ export default function AdminDashboard() {
           </section>
         )}
 
+        {/* Closing-date amendments awaiting review — admin amended (or an agent/
+            brokerage requested) a new closing date and it needs a human review
+            before the fee adjustment is applied. Fed by getPendingAmendments(). */}
+        {pendingAmendments.length > 0 && (
+          <section aria-label="Closing-date amendments" className="mb-6">
+            <Card className="border-amber-500/40 bg-amber-500/5">
+              <CardHeader className="py-3 px-4 bg-amber-500/5 border-b border-amber-500/20">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-400">
+                  <CalendarClock size={16} />
+                  {pendingAmendments.length} closing-date amendment{pendingAmendments.length === 1 ? '' : 's'} awaiting review
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 divide-y divide-border/50">
+                {pendingAmendments.map(a => {
+                  const dealRel = a.deals
+                  const agentRel = dealRel?.agents
+                  const agent = Array.isArray(agentRel) ? agentRel[0] ?? null : agentRel
+                  const agentName = agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : ''
+                  const feeDelta = Number(a.fee_adjustment_amount) || 0
+                  return (
+                    <div key={a.id} className="px-4 py-3 flex items-start justify-between gap-4 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                          {dealRel?.property_address || 'Deal on file'}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {agentName ? `${agentName} · ` : ''}
+                          Closing {a.old_closing_date ? formatDate(a.old_closing_date) : '-'}
+                          {' → '}
+                          {a.new_closing_date ? formatDate(a.new_closing_date) : '-'}
+                        </p>
+                        {feeDelta !== 0 && (
+                          <p className="text-[11px] text-amber-300/80 mt-1">
+                            Fee {feeDelta > 0 ? 'increase' : 'decrease'} of {formatCurrency(Math.abs(feeDelta))}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => router.push(`/admin/deals/${a.deal_id}`)}
+                        className="text-xs gap-1.5 border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                      >
+                        Review deal
+                        <ChevronRight size={12} />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
+        {/* Agents owed a refund — a negative account_balance is a credit Firm
+            Funds owes the agent. Fed by getAgentsOwedRefund(). Positive/teal
+            framing since this is money to return, not a charge owed to us. */}
+        {agentsOwedRefund.length > 0 && (
+          <section aria-label="Agents owed a refund" className="mb-6">
+            <Card className="border-status-teal-border/40 bg-status-teal-muted/20">
+              <CardHeader className="py-3 px-4 bg-status-teal-muted/20 border-b border-status-teal-border/30">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-status-teal">
+                  <Wallet size={16} />
+                  {agentsOwedRefund.length} agent{agentsOwedRefund.length === 1 ? '' : 's'} owed a refund
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 divide-y divide-border/50">
+                {agentsOwedRefund.map(a => (
+                  <div key={a.agent_id} className="px-4 py-3 flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {a.agent_name}
+                      </p>
+                      <p className="text-[11px] text-status-teal mt-0.5">
+                        Credit (refund owed) {formatCurrency(a.credit_amount)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => router.push(`/admin/agents/${a.agent_id}`)}
+                      className="text-xs gap-1.5 border-status-teal-border/40 text-status-teal hover:bg-status-teal-muted/40"
+                    >
+                      View agent
+                      <ChevronRight size={12} />
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
         {/* Deals Section */}
         <section aria-label="Deals">
         {/* Status Filter Tabs */}
@@ -816,7 +963,7 @@ export default function AdminDashboard() {
                       <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Property</TableHead>
                       <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Agent</TableHead>
                       <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Status</TableHead>
-                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Commission</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Net Commission</TableHead>
                       <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Advance</TableHead>
                       <TableHead className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 py-3.5">Closing</TableHead>
                       <TableHead className="w-8"></TableHead>
@@ -859,7 +1006,7 @@ export default function AdminDashboard() {
                             // brokerage submits real numbers — showing
                             // "$0.00" would be misleading.
                             ? <span className="text-muted-foreground/50">Pending</span>
-                            : formatCurrency(deal.gross_commission ?? 0)}
+                            : formatCurrency(deal.net_commission ?? 0)}
                         </TableCell>
                         <TableCell className={`text-sm font-bold tabular-nums ${['denied', 'cancelled'].includes(deal.status) ? 'text-status-red' : 'text-primary'}`}>
                           {deal.status === 'offered'
@@ -914,11 +1061,11 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <p className="text-xs text-muted-foreground">Commission</p>
+                          <p className="text-xs text-muted-foreground">Net Commission</p>
                           <p className="text-sm font-medium">
                             {deal.status === 'offered'
                               ? <span className="text-muted-foreground/50">Pending</span>
-                              : formatCurrency(deal.gross_commission ?? 0)}
+                              : formatCurrency(deal.net_commission ?? 0)}
                           </p>
                         </div>
                         <div>

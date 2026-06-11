@@ -93,6 +93,10 @@ All money math lives in `lib/calculations.ts` and `lib/constants.ts`. Do not har
 
 Full detail in [docs/business/financial-model.md](../business/financial-model.md).
 
+## Dates and timezones
+
+Format date-only values (Postgres `date` columns like `deals.closing_date`, `deals.funding_date`, `deals.repayment_date`) through `formatDate()` in `lib/formatting.ts`. It is timezone-safe: a bare `"YYYY-MM-DD"` is anchored at noon UTC (not UTC midnight) and rendered in `America/Toronto`, so the calendar day does not roll back one day on a host behind UTC. Netlify functions run in UTC, which is exactly where the naive `new Date("2026-08-05").toLocaleDateString()` bug bites (it renders "Aug 4"). Never format a date string with a bare `new Date(dateString).toLocaleDateString()`; route it through `formatDate` (or, in the report exporters, through the existing noon-UTC `ymd()`/`longDate()` helpers in `lib/reports/build.ts`). `formatDateTime()` likewise pins `America/Toronto` so timestamps render in business time. The stored DB values are already correct; this is a display-only concern. Regression coverage lives in `lib/formatting.test.ts` (it forces a non-UTC host TZ).
+
 ## Phone numbers
 
 Phones are stored E.164 (`+1XXXXXXXXXX`), entered in any human format, and formatted for display via `lib/phone.ts`. Users can type `(416) 555-1234`, `416-555-1234`, `4165551234`, and so on; `normalizeE164()` canonicalizes the input on save and `formatPhoneForDisplay()` renders it back. Use `PHONE_VALIDATION_MESSAGE` for the rejection copy. This replaced the old strict "+1XXXXXXXXXX required" rejection in the profile actions and the loose regex in `phoneSchema` (`lib/validations.ts`). Do not re-introduce a strict input format: validate by normalizing through `lib/phone.ts` instead.

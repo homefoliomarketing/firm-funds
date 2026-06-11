@@ -45,6 +45,7 @@ interface ActionResult {
 interface DealPreviewInput {
   grossCommission: number
   brokerageSplitPct: number
+  brokerageFlatFee?: number
   closingDate: string
   agentId: string
 }
@@ -92,6 +93,7 @@ export async function calculateDealPreview(input: DealPreviewInput): Promise<Act
     const result = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
+      brokerageFlatFee: input.brokerageFlatFee,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -213,6 +215,7 @@ export async function submitDeal(formData: {
   closingDate: string
   grossCommission: number
   brokerageSplitPct: number
+  brokerageFlatFee?: number
   transactionType: string
   notes?: string
   // Task 5: when this submission is a revision of a previously denied deal,
@@ -235,6 +238,7 @@ export async function submitDeal(formData: {
     closingDate: formData.closingDate,
     grossCommission: formData.grossCommission,
     brokerageSplitPct: formData.brokerageSplitPct,
+    brokerageFlatFee: formData.brokerageFlatFee,
     notes: formData.notes,
   })
 
@@ -289,6 +293,7 @@ export async function submitDeal(formData: {
     const calc = calculateDeal({
       grossCommission: formData.grossCommission,
       brokerageSplitPct: formData.brokerageSplitPct,
+      brokerageFlatFee: formData.brokerageFlatFee,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -346,6 +351,7 @@ export async function submitDeal(formData: {
           closing_date: formData.closingDate,
           gross_commission: formData.grossCommission,
           brokerage_split_pct: formData.brokerageSplitPct,
+          brokerage_flat_fee: formData.brokerageFlatFee ?? 0,
           net_commission: calc.netCommission,
           days_until_closing: daysUntilClosing,
           discount_fee: calc.discountFee,
@@ -386,6 +392,7 @@ export async function submitDeal(formData: {
           closing_date: formData.closingDate,
           gross_commission: formData.grossCommission,
           brokerage_split_pct: formData.brokerageSplitPct,
+          brokerage_flat_fee: formData.brokerageFlatFee ?? 0,
           net_commission: calc.netCommission,
           days_until_closing: daysUntilClosing,
           discount_fee: calc.discountFee,
@@ -517,6 +524,7 @@ export async function calculateDealPreviewForBrokerage(input: DealPreviewInput):
     const result = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
+      brokerageFlatFee: input.brokerageFlatFee,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -557,6 +565,7 @@ export async function submitDealAsBrokerage(formData: {
   closingDate: string
   grossCommission: number
   brokerageSplitPct: number
+  brokerageFlatFee?: number
   transactionType: string
   notes?: string
   // When set, this submission is converting an existing 'offered' deal
@@ -583,6 +592,7 @@ export async function submitDealAsBrokerage(formData: {
     closingDate: formData.closingDate,
     grossCommission: formData.grossCommission,
     brokerageSplitPct: formData.brokerageSplitPct,
+    brokerageFlatFee: formData.brokerageFlatFee,
     notes: formData.notes,
   })
   if (!validation.success) {
@@ -625,6 +635,7 @@ export async function submitDealAsBrokerage(formData: {
     const calc = calculateDeal({
       grossCommission: formData.grossCommission,
       brokerageSplitPct: formData.brokerageSplitPct,
+      brokerageFlatFee: formData.brokerageFlatFee,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -683,6 +694,7 @@ export async function submitDealAsBrokerage(formData: {
           closing_date: formData.closingDate,
           gross_commission: formData.grossCommission,
           brokerage_split_pct: formData.brokerageSplitPct,
+          brokerage_flat_fee: formData.brokerageFlatFee ?? 0,
           net_commission: calc.netCommission,
           days_until_closing: daysUntilClosing,
           discount_fee: calc.discountFee,
@@ -730,6 +742,7 @@ export async function submitDealAsBrokerage(formData: {
           closing_date: formData.closingDate,
           gross_commission: formData.grossCommission,
           brokerage_split_pct: formData.brokerageSplitPct,
+          brokerage_flat_fee: formData.brokerageFlatFee ?? 0,
           net_commission: calc.netCommission,
           days_until_closing: daysUntilClosing,
           discount_fee: calc.discountFee,
@@ -964,6 +977,21 @@ export async function updateDealStatus(input: {
       }
     }
 
+    // Refund gate: a deal that still owes the agent a refund (an early-closing
+    // or amendment credit that hasn't been paid out) cannot be completed. The
+    // admin must issue it first ("Mark refund issued"). Deal-scoped via
+    // refund_owed_amount so an unrelated credit on another deal never blocks
+    // this one.
+    if (input.newStatus === 'completed') {
+      const refundOwed = Number(deal.refund_owed_amount ?? 0)
+      if (refundOwed > 0.01) {
+        return {
+          success: false,
+          error: `Cannot mark this deal completed: a refund of $${refundOwed.toFixed(2)} is owed to the agent. Issue the refund ("Mark refund issued") before completing this deal.`,
+        }
+      }
+    }
+
     // Build update payload
     const updateData: Record<string, unknown> = { status: input.newStatus }
 
@@ -998,7 +1026,10 @@ export async function updateDealStatus(input: {
     let pendingAdvanceEntry: { agentId: string; amount: number; propertyAddress: string | null } | null = null
 
     if (input.newStatus === 'funded') {
-      updateData.funding_date = new Date().toISOString().split('T')[0]
+      // Stamp the funding date as the Toronto calendar date, NOT the UTC date.
+      // new Date().toISOString() is UTC, so funding late evening Toronto would
+      // record tomorrow's date. en-CA renders YYYY-MM-DD.
+      updateData.funding_date = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 
       // Recalculate financials server-side using actual days from today (Eastern Time) to closing
       const actualDays = Math.max(1, calcDaysUntilClosing(deal.closing_date))
@@ -1038,6 +1069,7 @@ export async function updateDealStatus(input: {
       const calc = calculateDeal({
         grossCommission: deal.gross_commission,
         brokerageSplitPct: deal.brokerage_split_pct,
+        brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
         daysUntilClosing: actualDays,
         discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
         brokerageReferralPct: referralPct,
@@ -1098,7 +1130,9 @@ export async function updateDealStatus(input: {
     }
 
     if (input.newStatus === 'completed') {
-      updateData.repayment_date = new Date().toISOString().split('T')[0]
+      // Toronto calendar date (see funding_date note above) — avoids a UTC
+      // off-by-one when completing late evening Toronto time.
+      updateData.repayment_date = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
       updateData.payment_status = 'paid'
       if (input.repaymentAmount !== undefined) {
         updateData.repayment_amount = input.repaymentAmount
@@ -1350,13 +1384,123 @@ export async function updateDealStatus(input: {
       // Brokerage email failure shouldn't block the status change
     }
 
+    // Approving a deal now ALSO sends the contract for e-signature in one step
+    // (so the admin no longer has to click "Send for signature" separately).
+    // Best-effort: the approval already succeeded above and must NOT be unwound.
+    // A send failure (agent has no email on file, the e-sign provider isn't
+    // configured, an active envelope already exists, etc.) is surfaced as a
+    // warning so the admin can send manually, but the deal stays approved. Only
+    // fire on a genuine forward under_review → approved transition, never on a
+    // funded → approved revert (which must not spawn a fresh envelope).
+    let autoSendWarning: string | undefined
+    if (input.newStatus === 'approved' && deal.status === 'under_review') {
+      try {
+        const { sendForSignature } = await import('@/lib/actions/esign-actions')
+        const sendRes = await sendForSignature(deal.id)
+        if (!sendRes.success) {
+          autoSendWarning = sendRes.error
+            || 'The deal was approved, but the documents could not be sent for signature automatically. Send them manually from the deal page.'
+          console.warn(`[deal-actions] Auto-send on approval did not send for deal ${deal.id}: ${autoSendWarning}`)
+        }
+      } catch (sendErr: unknown) {
+        autoSendWarning = sendErr instanceof Error ? sendErr.message : 'The deal was approved, but sending the documents for signature failed.'
+        console.error(`[deal-actions] Auto-send on approval threw for deal ${deal.id}:`, autoSendWarning)
+      }
+    }
+
     return {
       success: true,
-      data: updateData,
+      data: { ...updateData, autoSendWarning },
     }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Deal status change error:', _msg)
+    return { success: false, error: 'An unexpected error occurred. Please try again.' }
+  }
+}
+
+// ============================================================================
+// Server Action: Mark an agent refund as issued (Owner only)
+// ----------------------------------------------------------------------------
+// Pays out the refund a deal owes the agent. The negative account_balance (the
+// agent's credit) is cleared by a positive balance delta; the deal's
+// refund_owed_amount is zeroed and refund_issued_at stamped, which unblocks
+// completion (the 'completed' gate keys off refund_owed_amount). The actual
+// money movement (e-transfer/cheque) happens out-of-band — this records that it
+// was done and clears the ledger credit. Atomic claim-then-pay prevents a
+// double payout if the button is double-clicked.
+// ============================================================================
+export async function markRefundIssued(input: {
+  dealId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, profile } = await getAuthenticatedUser(['super_admin', 'firm_funds_admin'])
+  if (authErr || !user || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  // Issuing a refund moves money — Owner only.
+  if (!hasCapability(profile, 'money.write')) {
+    return { success: false, error: 'You do not have permission to issue refunds.' }
+  }
+
+  try {
+    const rpcClient = createServiceRoleClient()
+
+    const { data: deal, error: dealErr } = await rpcClient
+      .from('deals')
+      .select('id, agent_id, property_address, refund_owed_amount')
+      .eq('id', input.dealId)
+      .single()
+    if (dealErr || !deal) return { success: false, error: 'Deal not found' }
+
+    const owed = Number(deal.refund_owed_amount ?? 0)
+    if (owed <= 0.01) {
+      return { success: false, error: 'This deal has no refund owed to the agent.' }
+    }
+
+    // 1. Atomically CLAIM the refund: zero refund_owed_amount only while it is
+    //    still > 0. If no row updates, another writer already issued it — abort
+    //    before touching the ledger so we can never double-pay.
+    const issuedAt = new Date().toISOString()
+    const { data: claimed, error: claimErr } = await rpcClient
+      .from('deals')
+      .update({ refund_owed_amount: 0, refund_issued_at: issuedAt, refund_issued_by: user.id })
+      .eq('id', deal.id)
+      .gt('refund_owed_amount', 0)
+      .select('id')
+    if (claimErr) {
+      return { success: false, error: `Failed to issue refund: ${claimErr.message}` }
+    }
+    if (!claimed || claimed.length === 0) {
+      return { success: false, error: 'This refund has already been issued.' }
+    }
+
+    // 2. Pay the agent (clear their credit). On failure, roll the claim back so
+    //    the gate re-engages and the refund can be retried.
+    const { error: rpcErr } = await rpcClient.rpc('apply_agent_balance_delta', {
+      p_agent_id: deal.agent_id,
+      p_delta: owed,
+      p_type: 'refund_issued',
+      p_description: `Refund issued to agent: ${deal.property_address ?? 'deal'}`,
+      p_deal_id: deal.id,
+      p_created_by: user.id,
+    })
+    if (rpcErr) {
+      await rpcClient
+        .from('deals')
+        .update({ refund_owed_amount: owed, refund_issued_at: null, refund_issued_by: null })
+        .eq('id', deal.id)
+      return { success: false, error: `Failed to record the refund payout: ${rpcErr.message}` }
+    }
+
+    await logAuditEvent({
+      action: 'deal.refund_issued',
+      entityType: 'deal',
+      entityId: deal.id,
+      metadata: { agent_id: deal.agent_id, refund_amount: owed },
+    })
+
+    return { success: true, data: { refund_amount: owed } }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('markRefundIssued error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
 }
@@ -1476,30 +1620,38 @@ export async function toggleChecklistItemNA(input: {
 // Server Action: Link/unlink a document to a checklist item (admin only)
 // ============================================================================
 
+// Link a document to a checklist item. Migration 111: appends to the
+// linked_document_ids array so MULTIPLE documents can be attached per checklist
+// line. The scalar linked_document_id is left untouched (it remains the
+// auto-link channel for signed contracts/KYC); the underwriting UI renders the
+// union of the scalar and the array. Idempotent — a doc already linked via
+// either channel is a no-op.
 export async function linkDocumentToChecklist(input: {
   checklistItemId: string
-  documentId: string | null  // null = unlink
+  documentId: string
 }): Promise<ActionResult> {
   const { error: authErr, user, supabase } = await getAuthenticatedCapable('deal.underwrite')
   if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
 
   try {
-    // If unlinking, verify the item is NOT already checked (locked)
-    if (input.documentId === null) {
-      const { data: item } = await supabase
-        .from('underwriting_checklist')
-        .select('is_checked')
-        .eq('id', input.checklistItemId)
-        .single()
+    const { data: item, error: fetchErr } = await supabase
+      .from('underwriting_checklist')
+      .select('linked_document_id, linked_document_ids')
+      .eq('id', input.checklistItemId)
+      .single()
+    if (fetchErr || !item) {
+      return { success: false, error: 'Checklist item not found' }
+    }
 
-      if (item?.is_checked) {
-        return { success: false, error: 'Cannot unlink document from a confirmed checklist item. Uncheck the item first.' }
-      }
+    const existing: string[] = (item.linked_document_ids as string[] | null) ?? []
+    // Already linked (via the scalar auto-link channel or the array)? No-op.
+    if (input.documentId === item.linked_document_id || existing.includes(input.documentId)) {
+      return { success: true }
     }
 
     const { error } = await supabase
       .from('underwriting_checklist')
-      .update({ linked_document_id: input.documentId })
+      .update({ linked_document_ids: [...existing, input.documentId] })
       .eq('id', input.checklistItemId)
 
     if (error) {
@@ -1508,7 +1660,7 @@ export async function linkDocumentToChecklist(input: {
     }
 
     await logAuditEvent({
-      action: input.documentId ? 'checklist.link_document' : 'checklist.unlink_document',
+      action: 'checklist.link_document',
       entityType: 'deal',
       entityId: input.checklistItemId,
       metadata: { documentId: input.documentId },
@@ -1518,6 +1670,67 @@ export async function linkDocumentToChecklist(input: {
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Link document error:', _msg)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+// Unlink ONE specific document from a checklist item (migration 111). Removes it
+// from the linked_document_ids array and/or clears the scalar linked_document_id
+// if it is the auto-linked/primary doc. Blocked while the item is confirmed
+// (checked) — uncheck first — matching the prior single-link behaviour.
+export async function unlinkDocumentFromChecklist(input: {
+  checklistItemId: string
+  documentId: string
+}): Promise<ActionResult> {
+  const { error: authErr, user, supabase } = await getAuthenticatedCapable('deal.underwrite')
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  try {
+    const { data: item, error: fetchErr } = await supabase
+      .from('underwriting_checklist')
+      .select('is_checked, linked_document_id, linked_document_ids')
+      .eq('id', input.checklistItemId)
+      .single()
+    if (fetchErr || !item) {
+      return { success: false, error: 'Checklist item not found' }
+    }
+    if (item.is_checked) {
+      return { success: false, error: 'Cannot unlink a document from a confirmed checklist item. Uncheck the item first.' }
+    }
+
+    const existing: string[] = (item.linked_document_ids as string[] | null) ?? []
+    const updates: Record<string, unknown> = {}
+    if (existing.includes(input.documentId)) {
+      updates.linked_document_ids = existing.filter((id) => id !== input.documentId)
+    }
+    if (item.linked_document_id === input.documentId) {
+      updates.linked_document_id = null
+    }
+    if (Object.keys(updates).length === 0) {
+      return { success: true }  // wasn't linked — no-op
+    }
+
+    const { error } = await supabase
+      .from('underwriting_checklist')
+      .update(updates)
+      .eq('id', input.checklistItemId)
+
+    if (error) {
+      console.error('Unlink document error:', error.message)
+      return { success: false, error: 'Failed to unlink document from checklist item' }
+    }
+
+    await logAuditEvent({
+      action: 'checklist.unlink_document',
+      entityType: 'deal',
+      entityId: input.checklistItemId,
+      metadata: { documentId: input.documentId },
+    })
+
+    return { success: true }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('Unlink document error:', _msg)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
@@ -1557,6 +1770,25 @@ export async function deleteDocument(input: {
     if (dbError) {
       console.error('Document delete error:', dbError.message)
       return { success: false, error: 'Failed to delete document record' }
+    }
+
+    // Prune the deleted document id out of any checklist arrays (migration 111).
+    // A uuid[] has no FK cascade, so unlike the scalar linked_document_id (which
+    // auto-nulls via ON DELETE SET NULL) the array would otherwise keep a
+    // dangling id. Best-effort, non-fatal — the UI also filters missing docs.
+    try {
+      const { data: linkedItems } = await adminSupabase
+        .from('underwriting_checklist')
+        .select('id, linked_document_ids')
+        .eq('deal_id', document.deal_id)
+        .contains('linked_document_ids', [input.documentId])
+      for (const ci of linkedItems ?? []) {
+        const pruned = ((ci.linked_document_ids as string[] | null) ?? []).filter((id) => id !== input.documentId)
+        await adminSupabase.from('underwriting_checklist').update({ linked_document_ids: pruned }).eq('id', ci.id)
+      }
+    } catch (pruneErr: unknown) {
+      const _msg = pruneErr instanceof Error ? pruneErr.message : 'Unknown error'
+      console.error('Checklist array prune after document delete failed (non-fatal):', _msg)
     }
 
     const { error: storageError } = await adminSupabase.storage.from('deal-documents').remove([document.file_path])
@@ -1859,6 +2091,7 @@ export async function updateDealDetails(input: {
   closingDate: string
   grossCommission: number
   brokerageSplitPct: number
+  brokerageFlatFee?: number
   notes?: string
 }): Promise<ActionResult> {
   const { error: authErr, user, profile, supabase } = await getAuthenticatedWriter(['agent'])
@@ -1898,6 +2131,7 @@ export async function updateDealDetails(input: {
     const calc = calculateDeal({
       grossCommission: input.grossCommission,
       brokerageSplitPct: input.brokerageSplitPct,
+      brokerageFlatFee: input.brokerageFlatFee,
       daysUntilClosing,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -1914,6 +2148,7 @@ export async function updateDealDetails(input: {
         closing_date: input.closingDate,
         gross_commission: input.grossCommission,
         brokerage_split_pct: input.brokerageSplitPct,
+        brokerage_flat_fee: input.brokerageFlatFee ?? 0,
         net_commission: calc.netCommission,
         days_until_closing: daysUntilClosing,
         discount_fee: calc.discountFee,
@@ -2482,6 +2717,7 @@ export async function updateClosingDate(input: {
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
+      brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -3057,7 +3293,7 @@ export async function createRevisedDealFromDenied(input: {
   try {
     const { data: original, error: fetchErr } = await supabase
       .from('deals')
-      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, notes, denial_reason')
+      .select('id, agent_id, brokerage_id, status, property_address, closing_date, gross_commission, brokerage_split_pct, brokerage_flat_fee, notes, denial_reason')
       .eq('id', input.originalDealId)
       .single()
 
@@ -3107,6 +3343,7 @@ export async function createRevisedDealFromDenied(input: {
         previousClosingDate: original.closing_date,
         grossCommission: original.gross_commission,
         brokerageSplitPct: original.brokerage_split_pct,
+        brokerageFlatFee: original.brokerage_flat_fee,
         transactionType,
         notes: cleanNotes,
         denialReason: original.denial_reason,

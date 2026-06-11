@@ -178,6 +178,7 @@ export async function submitClosingDateAmendment(formData: FormData): Promise<Ac
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
+      brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -405,6 +406,7 @@ export async function submitClosingDateAmendmentAsBrokerage(formData: FormData):
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
+      brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -571,6 +573,7 @@ export async function approveClosingDateAmendment(input: {
       discount_fee?: number | null
       settlement_period_fee?: number | null
       net_commission?: number | null
+      brokerage_flat_fee?: number | null
       due_date?: string | null
       version?: number
       agents?: {
@@ -593,6 +596,7 @@ export async function approveClosingDateAmendment(input: {
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
+      brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,
@@ -739,6 +743,28 @@ export async function approveClosingDateAmendment(input: {
         if (rpcErr) {
           console.error('Balance RPC error on funded amendment approve:', rpcErr.message)
           return { success: false, error: 'Failed to apply discount fee adjustment' }
+        }
+      }
+
+      // A "funded_earlier" amendment credits the agent (feeAdjustment < 0) — the
+      // deal now owes them a refund. Record it on the deal so completion is gated
+      // until the refund is issued ("Mark refund issued"). Additive so stacked
+      // amendments accumulate. Best-effort: the credit is already posted to the
+      // ledger above, so a failure here is logged, not fatal.
+      if (feeAdjustment < -0.005) {
+        const refundAmt = Math.round(Math.abs(feeAdjustment) * 100) / 100
+        const { data: refDeal } = await serviceClient
+          .from('deals')
+          .select('refund_owed_amount')
+          .eq('id', deal.id)
+          .single()
+        const newOwed = Math.round(((Number(refDeal?.refund_owed_amount ?? 0)) + refundAmt) * 100) / 100
+        const { error: owedErr } = await serviceClient
+          .from('deals')
+          .update({ refund_owed_amount: newOwed })
+          .eq('id', deal.id)
+        if (owedErr) {
+          console.error('Failed to set refund_owed_amount on funded_earlier amendment (non-fatal):', owedErr.message)
         }
       }
     } else {
@@ -1032,7 +1058,7 @@ export async function requestClosingDateAmendment(input: {
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
       .select(
-        'id, status, closing_date, agent_id, brokerage_id, property_address, deal_number, gross_commission, brokerage_split_pct, net_commission, advance_amount, discount_fee, settlement_period_fee, due_date, brokerage_referral_pct, settlement_days_at_funding, version',
+        'id, status, closing_date, agent_id, brokerage_id, property_address, deal_number, gross_commission, brokerage_split_pct, brokerage_flat_fee, net_commission, advance_amount, discount_fee, settlement_period_fee, due_date, brokerage_referral_pct, settlement_days_at_funding, version',
       )
       .eq('id', input.dealId)
       .single()
@@ -1110,6 +1136,7 @@ export async function requestClosingDateAmendment(input: {
     const newCalc = calculateDeal({
       grossCommission: deal.gross_commission,
       brokerageSplitPct: deal.brokerage_split_pct,
+      brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
       daysUntilClosing: newDays,
       discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
       brokerageReferralPct: referralPct,

@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Edit2, Search, ChevronLeft, AlertCircle, CheckCircle, CheckCircle2, Clock, ChevronDown, ChevronRight, Users, UserPlus, X, Upload, Download, FileSpreadsheet, Archive, Eye, EyeOff, FileText, Trash2, Shield, ExternalLink, XCircle, Mail, CreditCard, KeyRound, AtSign, Phone, DollarSign, Inbox, Wand2, Sparkles } from 'lucide-react'
 import { generateBrokerageLogoSvg, svgToFile } from '@/lib/brokerage-logo-generator'
-import { formatCurrency } from '@/lib/formatting'
+import { formatCurrency, formatDate } from '@/lib/formatting'
 import { StatusToast } from '@/components/StatusToast'
 import { createBrokerage, updateBrokerage, createAgent, updateAgent, bulkImportAgentsRoster, inviteAgent, archiveAgent, permanentlyDeleteAgent, permanentlyDeleteBrokerage, archiveBrokerage, resendAgentWelcomeEmail, sendWelcomeToAllBrokerageAgents, adminResetUserPassword, adminChangeUserEmail, getBrokerageUserProfiles, inviteBrokerageAdmin, inviteBrokerageOnboardingContacts, resendBrokerageSetupLink, resetBrokerageLateStrikes, getAgentPreauthFormSignedUrl, getSignedBcaUrl } from '@/lib/actions/admin-actions'
 import { getAgentTransactions, adjustAgentBalance } from '@/lib/actions/account-actions'
@@ -3127,7 +3127,7 @@ export default function BrokeragesPage() {
                                                               Advance: ${deal.advance_amount.toLocaleString('en-CA', { maximumFractionDigits: 0 })}
                                                             </span>
                                                             <span className="text-xs text-muted-foreground">
-                                                              Closing: {new Date(deal.closing_date).toLocaleDateString('en-CA')}
+                                                              Closing: {formatDate(deal.closing_date)}
                                                             </span>
                                                           </div>
                                                         </div>

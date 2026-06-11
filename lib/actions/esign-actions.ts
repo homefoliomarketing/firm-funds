@@ -227,6 +227,13 @@ export async function sendForSignature(dealId: string): Promise<ActionResult> {
       '{{BROKER_OF_RECORD}}': brokerage.broker_of_record_name || 'On file',
       '{{BROKERAGE_REFERRAL_FEE}}': formatCurrency(deal.brokerage_referral_fee),
       '{{BROKERAGE_SPLIT}}': (deal.brokerage_split_pct || 0).toFixed(1),
+      // Optional brokerage flat fee (migration 110). Only set the placeholder
+      // when the deal actually carries a flat fee; the CPA's Schedule "A" shows
+      // the "Brokerage Flat Fee" row only when this key is present, so a
+      // percentage-only deal (brokerage_flat_fee = 0) renders unchanged.
+      ...(Number(deal.brokerage_flat_fee) > 0
+        ? { '{{BROKERAGE_FLAT_FEE}}': formatCurrency(Number(deal.brokerage_flat_fee)) }
+        : {}),
       '{{GROSS_COMMISSION_RATE}}': 'See Trade Record',
       '{{GROSS_COMMISSION_AMOUNT}}': formatCurrency(deal.gross_commission),
       '{{RECO_REGISTRATION_NUMBER}}': agent.reco_number || 'On file',

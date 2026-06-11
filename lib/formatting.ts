@@ -13,14 +13,28 @@ export function formatCurrencyWhole(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(amount)
 }
 
-/** Format an ISO date string as a short date (e.g., "Apr 3, 2026") */
+/**
+ * Format an ISO date string as a short date (e.g., "Apr 3, 2026").
+ * Timezone-safe for date-only values: a bare "YYYY-MM-DD" is anchored at noon
+ * UTC (not UTC midnight) and formatted in America/Toronto, so the calendar day
+ * never rolls back one day on a host behind UTC (e.g. Netlify functions run in
+ * UTC). Same noon-UTC anchor pattern as `ymd()`/`longDate()` in lib/reports/build.ts.
+ */
 export function formatDate(date: string): string {
-  return new Date(date).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(date + 'T12:00:00Z')
+    : new Date(date)
+  return d.toLocaleDateString('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
-/** Format an ISO date string as date + time (e.g., "Apr 3, 2026, 02:30 PM") */
+/** Format an ISO date string as date + time (e.g., "Apr 3, 2026, 02:30 PM"), rendered in Toronto business time */
 export function formatDateTime(date: string): string {
-  return new Date(date).toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(date).toLocaleString('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 /** Format a timestamp as relative time (e.g., "Just now", "5m ago", "2h ago", "Yesterday", "Apr 3") */

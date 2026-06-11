@@ -68,6 +68,9 @@ function NewDealPageInner() {
   const [closingDate, setClosingDate] = useState('')
   const [grossCommission, setGrossCommission] = useState('')
   const [brokerageSplitPct, setBrokerageSplitPct] = useState('')
+  // Optional flat dollar fee some brokerages charge in addition to the split.
+  // Stored as a string for the input; treated as 0 when blank.
+  const [brokerageFlatFee, setBrokerageFlatFee] = useState('')
   const [transactionType, setTransactionType] = useState('buy')
   const [notes, setNotes] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
@@ -115,6 +118,7 @@ function NewDealPageInner() {
         if (draft.closingDate) setClosingDate(draft.closingDate)
         if (draft.grossCommission) setGrossCommission(draft.grossCommission)
         if (draft.brokerageSplitPct) setBrokerageSplitPct(draft.brokerageSplitPct)
+        if (draft.brokerageFlatFee) setBrokerageFlatFee(draft.brokerageFlatFee)
         if (draft.transactionType) setTransactionType(draft.transactionType)
         if (draft.notes) setNotes(draft.notes)
         if (draft.isFirm) setIsFirm(draft.isFirm)
@@ -151,6 +155,7 @@ function NewDealPageInner() {
       // Don't pre-fill closingDate — the original is stale by definition.
       setGrossCommission(d.grossCommission?.toString() || '')
       setBrokerageSplitPct(d.brokerageSplitPct?.toString() || '')
+      if (d.brokerageFlatFee) setBrokerageFlatFee(d.brokerageFlatFee.toString())
       if (d.transactionType) setTransactionType(d.transactionType)
       if (d.notes) setNotes(d.notes)
       setRevisedFromBanner({
@@ -213,7 +218,7 @@ function NewDealPageInner() {
       try {
         const draft = {
           streetAddress, city, province, postalCode, closingDate,
-          grossCommission, brokerageSplitPct, transactionType, notes, isFirm,
+          grossCommission, brokerageSplitPct, brokerageFlatFee, transactionType, notes, isFirm,
           savedAt: new Date().toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' }),
         }
         if (streetAddress || city || closingDate || grossCommission || brokerageSplitPct || notes) {
@@ -222,7 +227,7 @@ function NewDealPageInner() {
         }
       } catch { /* localStorage full or unavailable */ }
     }, 1000)
-  }, [streetAddress, city, province, postalCode, closingDate, grossCommission, brokerageSplitPct, transactionType, notes, isFirm])
+  }, [streetAddress, city, province, postalCode, closingDate, grossCommission, brokerageSplitPct, brokerageFlatFee, transactionType, notes, isFirm])
 
   useEffect(() => {
     saveDraft()
@@ -292,12 +297,18 @@ function NewDealPageInner() {
   useEffect(() => {
     const gross = parseFloat(grossCommission)
     const splitPct = parseFloat(brokerageSplitPct)
-    if (!gross || !closingDate || gross <= 0 || isNaN(splitPct) || splitPct < 0 || splitPct > 100 || !agent?.id) {
+    // Optional flat fee: blank → 0. Bail (and clear the preview) if it's invalid
+    // — negative, or >= the post-split commission — so we never call the server
+    // with a value it would reject.
+    const flatFee = brokerageFlatFee.trim() === '' ? 0 : parseFloat(brokerageFlatFee)
+    const postSplit = gross * (1 - splitPct / 100)
+    const flatFeeBad = brokerageFlatFee.trim() !== '' && (isNaN(flatFee) || flatFee < 0 || flatFee >= postSplit)
+    if (!gross || !closingDate || gross <= 0 || isNaN(splitPct) || splitPct < 0 || splitPct > 100 || flatFeeBad || !agent?.id) {
       setPreview(null); return
     }
     let cancelled = false
     const timer = setTimeout(async () => {
-      const result = await calculateDealPreview({ grossCommission: gross, brokerageSplitPct: splitPct, closingDate, agentId: agent.id })
+      const result = await calculateDealPreview({ grossCommission: gross, brokerageSplitPct: splitPct, brokerageFlatFee: flatFee, closingDate, agentId: agent.id })
       if (cancelled) return
       if (result.success && result.data) {
         setPreview({
@@ -313,7 +324,20 @@ function NewDealPageInner() {
       } else { setPreview(null) }
     }, 400)
     return () => { clearTimeout(timer); cancelled = true }
-  }, [grossCommission, brokerageSplitPct, closingDate, agent])
+  }, [grossCommission, brokerageSplitPct, brokerageFlatFee, closingDate, agent])
+
+  // Flat fee: blank/whitespace counts as 0 (no fee). It must be >= 0 and must
+  // stay below the commission left after the split (gross × (1 - split/100)),
+  // otherwise the advance would go negative and the server rejects it. We block
+  // submit + skip the preview while it's invalid so the agent gets immediate
+  // feedback instead of a server error.
+  const flatFeeNum = brokerageFlatFee.trim() === '' ? 0 : parseFloat(brokerageFlatFee)
+  const grossNum = parseFloat(grossCommission)
+  const splitNum = parseFloat(brokerageSplitPct)
+  const postSplitCommission = (!isNaN(grossNum) && !isNaN(splitNum)) ? grossNum * (1 - splitNum / 100) : NaN
+  const flatFeeInvalid = brokerageFlatFee.trim() !== '' && (
+    isNaN(flatFeeNum) || flatFeeNum < 0 || (!isNaN(postSplitCommission) && flatFeeNum >= postSplitCommission)
+  )
 
   const missingFields: string[] = []
   if (!streetAddress.trim()) missingFields.push('Address')
@@ -369,7 +393,9 @@ function NewDealPageInner() {
     try {
       const result = await submitDeal({
         propertyAddress, closingDate, grossCommission: parseFloat(grossCommission),
-        brokerageSplitPct: parseFloat(brokerageSplitPct), transactionType, notes: notes.trim() || undefined,
+        brokerageSplitPct: parseFloat(brokerageSplitPct),
+        brokerageFlatFee: brokerageFlatFee.trim() === '' ? 0 : parseFloat(brokerageFlatFee),
+        transactionType, notes: notes.trim() || undefined,
         // Carry the revision lineage through so admins can trace the chain.
         revisedFromDealId: revisedFromBanner?.dealId,
         // When set, convert the taken-over offered row in place (no duplicate).
@@ -605,7 +631,7 @@ function NewDealPageInner() {
               onClick={() => {
                 clearDraft()
                 setStreetAddress(''); setCity(''); setProvince('Ontario'); setPostalCode('')
-                setClosingDate(''); setGrossCommission(''); setBrokerageSplitPct('')
+                setClosingDate(''); setGrossCommission(''); setBrokerageSplitPct(''); setBrokerageFlatFee('')
                 setTransactionType('buy'); setNotes(''); setIsFirm(false)
                 setDocSlots({ aps: [], notice_of_fulfillment: [], amendment: [], banking_info: [] })
               }}
@@ -748,9 +774,9 @@ function NewDealPageInner() {
                     className="w-full rounded-lg px-4 py-2.5 text-base sm:text-sm bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary"
                     required
                   >
-                    <option value="buy">Buyer Side</option>
-                    <option value="sell">Seller / Listing Side</option>
-                    <option value="both">Both Sides (Double-End)</option>
+                    <option value="buy">Buying Side</option>
+                    <option value="sell">Listing Side</option>
+                    <option value="both">Both</option>
                   </select>
                   <p className="text-xs text-muted-foreground">Which side of the deal are you representing?</p>
                 </div>
@@ -800,6 +826,36 @@ function NewDealPageInner() {
                 </div>
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="brokerage-flat-fee" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <DollarSign size={12} className="text-primary" /> Brokerage Flat Fee (optional)
+                </Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                  <Input
+                    id="brokerage-flat-fee"
+                    type="number"
+                    value={brokerageFlatFee}
+                    onChange={(e) => setBrokerageFlatFee(e.target.value)}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    className="pl-6"
+                    aria-invalid={flatFeeInvalid || undefined}
+                    aria-describedby={`brokerage-flat-fee-hint${flatFeeInvalid ? ' brokerage-flat-fee-error' : ''}`}
+                  />
+                </div>
+                <p id="brokerage-flat-fee-hint" className="text-xs text-muted-foreground">
+                  A flat dollar fee some brokerages charge (e.g. a transaction fee), deducted in addition to the split. Leave blank or 0 if none.
+                </p>
+                {flatFeeInvalid && (
+                  <p id="brokerage-flat-fee-error" className="text-xs text-destructive font-medium">
+                    {flatFeeNum < 0
+                      ? 'Flat fee cannot be negative.'
+                      : 'Flat fee must be less than your commission after the split.'}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="notes" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes (optional)</Label>
                 <Textarea
                   id="notes"
@@ -833,8 +889,14 @@ function NewDealPageInner() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Brokerage Split ({brokerageSplitPct}%)</span>
-                    <span className="font-medium text-destructive">-{formatCurrency(parseFloat(grossCommission) - preview.netCommission)}</span>
+                    <span className="font-medium text-destructive">-{formatCurrency(parseFloat(grossCommission) * (parseFloat(brokerageSplitPct) / 100))}</span>
                   </div>
+                  {flatFeeNum > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Brokerage Flat Fee</span>
+                      <span className="font-medium text-destructive">-{formatCurrency(flatFeeNum)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between pt-2 border-t border-border">
                     <span className="font-medium text-foreground">Your Net Commission</span>
                     <span className="font-semibold text-foreground">{formatCurrency(preview.netCommission)}</span>
@@ -997,11 +1059,12 @@ function NewDealPageInner() {
               reason right next to the button so the agent isn't left guessing
               why they can't continue. */}
           {(() => {
-            const submitDisabled = !preview || submitting || !isFirm || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0) || !!submissionBlock
+            const submitDisabled = !preview || submitting || !isFirm || flatFeeInvalid || docSlots.aps.length === 0 || (isFirstAdvance && docSlots.banking_info.length === 0) || !!submissionBlock
             let disabledReason: string | null = null
             if (!submitting) {
               if (submissionBlock) disabledReason = 'Submission is locked until your outstanding failed-deal balance is covered (see notice above).'
               else if (!isFirm) disabledReason = 'Confirm the deal is firm above to submit.'
+              else if (flatFeeInvalid) disabledReason = 'Fix the brokerage flat fee to submit (it must be less than your commission after the split).'
               else if (docSlots.aps.length === 0) disabledReason = 'Attach the Agreement of Purchase & Sale to submit.'
               else if (isFirstAdvance && docSlots.banking_info.length === 0) disabledReason = 'Attach your banking information to submit your first advance.'
               else if (!preview) disabledReason = 'Complete the required deal details to submit.'
@@ -1057,7 +1120,7 @@ function NewDealPageInner() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Representation</span>
-                    <span className="font-medium capitalize text-foreground">{transactionType === 'buy' ? 'Buyer Side' : transactionType === 'sell' ? 'Seller / Listing Side' : 'Both Sides (Double-End)'}</span>
+                    <span className="font-medium capitalize text-foreground">{transactionType === 'buy' ? 'Buying Side' : transactionType === 'sell' ? 'Listing Side' : 'Both'}</span>
                   </div>
                 </div>
 

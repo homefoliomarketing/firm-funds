@@ -26,6 +26,8 @@ import {
   cancelDocumentRequest,
   deleteDeal,
   linkDocumentToChecklist,
+  unlinkDocumentFromChecklist,
+  markRefundIssued,
   markDealFailedToClose,
 } from '@/lib/actions/deal-actions'
 import {
@@ -384,7 +386,7 @@ interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
   deal_number: string | null
   property_address: string; closing_date: string; gross_commission: number
-  brokerage_split_pct: number; net_commission: number; days_until_closing: number
+  brokerage_split_pct: number; brokerage_flat_fee: number; net_commission: number; days_until_closing: number
   discount_fee: number; settlement_period_fee: number; advance_amount: number
   settlement_days_at_funding: number | null
   late_strike_recorded: boolean
@@ -392,6 +394,10 @@ interface Deal {
   amount_due_from_brokerage: number; balance_deducted: number
   due_date: string | null; payment_status: string
   funding_date: string | null
+  // Refund the deal owes the agent (early-closing / amendment credit not yet
+  // paid out). A deal with refund_owed_amount > 0 cannot be completed until the
+  // admin issues it (enforced server-side in updateDealStatus + markRefundIssued).
+  refund_owed_amount: number; refund_issued_at: string | null
   repayment_date: string | null; repayment_amount: number | null
   eft_transfers: { id: string; amount: number; transfer_date: string; confirmed: boolean; reference?: string | null }[] | null
   brokerage_payments: { id: string; amount: number; date: string; reference?: string | null; method?: string | null; status: 'pending' | 'confirmed' | 'rejected'; submitted_by_role?: string | null }[] | null
@@ -435,7 +441,11 @@ interface DocumentReturn {
 interface ChecklistItem {
   id: string; deal_id: string; category: string; checklist_item: string; is_checked: boolean
   is_na: boolean; checked_by: string | null; checked_at: string | null; notes: string | null; sort_order: number
+  // linked_document_id = the single auto-link channel (signed contracts/KYC).
+  // linked_document_ids = manually dragged-on documents (migration 111). The UI
+  // shows the UNION of both, deduped.
   linked_document_id: string | null
+  linked_document_ids: string[] | null
 }
 
 interface DealDocument {
@@ -687,6 +697,11 @@ export default function DealDetailPage() {
   const [agentBalance, setAgentBalance] = useState<number>(0)
   // Owner-only: can this staffer start a look-only "view as this agent" session?
   const [canImpersonate, setCanImpersonate] = useState(false)
+  // Owner-only: can this staffer move money (e.g. issue a refund)? Mirrors the
+  // server-side money.write gate; the action re-checks it too.
+  const [canManageMoney, setCanManageMoney] = useState(false)
+  // Refund-issued in-flight flag for the "Mark refund issued" button.
+  const [refundIssuing, setRefundIssuing] = useState(false)
   // Collapsible sections
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [messagesExpanded, setMessagesExpanded] = useState(false)
@@ -755,6 +770,7 @@ export default function DealDetailPage() {
     // Owner tier only — gates the "view as this agent" button (the start
     // endpoint re-checks the capability server-side).
     setCanImpersonate(hasCapability(profile, 'impersonate'))
+    setCanManageMoney(hasCapability(profile, 'money.write'))
     const { data: dealData, error: dealError } = await supabase
       .from('deals')
       .select('*, brokerage_payments(id, amount, date:payment_date, reference, method, status, submitted_by_role), eft_transfers(id, amount, transfer_date, confirmed, reference)')
@@ -908,24 +924,42 @@ export default function DealDetailPage() {
     if (item.is_checked || item.is_na) return
     const docId = e.dataTransfer.getData('text/plain')
     if (!docId) return
-    setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: docId } : c))
+    // Linking now APPENDS to the linked_document_ids array (multiple docs per
+    // line). Optimistically add the id (deduped); revert to the prior array on
+    // failure. The scalar linked_document_id is the separate auto-link channel.
+    const prevIds = item.linked_document_ids
+    setChecklist(prev => prev.map(c => c.id === item.id
+      ? { ...c, linked_document_ids: [...new Set([...(c.linked_document_ids || []), docId])] }
+      : c))
     const result = await linkDocumentToChecklist({ checklistItemId: item.id, documentId: docId })
     if (!result.success) {
-      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: item.linked_document_id } : c))
+      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_ids: prevIds } : c))
       setStatusMessage({ type: 'error', text: result.error || 'Failed to link document' })
     }
   }
-  const handleUnlinkDocument = async (e: React.MouseEvent, item: ChecklistItem) => {
+  const handleUnlinkDocument = async (e: React.MouseEvent, item: ChecklistItem, docId: string) => {
     e.stopPropagation()
     if (item.is_checked) {
       setStatusMessage({ type: 'error', text: 'Uncheck the item first before removing the linked document.' })
       return
     }
-    const prevDocId = item.linked_document_id
-    setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: null } : c))
-    const result = await linkDocumentToChecklist({ checklistItemId: item.id, documentId: null })
+    // Remove just THIS document from the union. Optimistically drop it from the
+    // array and clear the scalar if it was the auto-linked one; revert both on
+    // failure.
+    const prevIds = item.linked_document_ids
+    const prevScalar = item.linked_document_id
+    setChecklist(prev => prev.map(c => c.id === item.id
+      ? {
+          ...c,
+          linked_document_ids: (c.linked_document_ids || []).filter(id => id !== docId),
+          linked_document_id: c.linked_document_id === docId ? null : c.linked_document_id,
+        }
+      : c))
+    const result = await unlinkDocumentFromChecklist({ checklistItemId: item.id, documentId: docId })
     if (!result.success) {
-      setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, linked_document_id: prevDocId } : c))
+      setChecklist(prev => prev.map(c => c.id === item.id
+        ? { ...c, linked_document_ids: prevIds, linked_document_id: prevScalar }
+        : c))
       setStatusMessage({ type: 'error', text: result.error || 'Failed to unlink document' })
     }
   }
@@ -1005,10 +1039,25 @@ export default function DealDetailPage() {
     if (!result.success) {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to update deal status' })
     } else {
-      setStatusMessage({ type: 'success', text: `Deal status updated to ${STATUS_LABELS[newStatus]}` })
+      // Approval now auto-sends the contract for e-signature server-side. If that
+      // send didn't go through, the deal is still approved — surface the warning
+      // (which supersedes the success toast, since only one shows at a time) so
+      // the admin knows to send manually from the deal page.
+      const autoSendWarning = newStatus === 'approved' ? (result.data?.autoSendWarning as string | undefined) : undefined
+      if (autoSendWarning) {
+        setStatusMessage({ type: 'error', text: `Deal approved, but the documents could not be sent for signature automatically: ${autoSendWarning} Use "Send for Signature" to send them manually.` })
+      } else {
+        setStatusMessage({ type: 'success', text: `Deal status updated to ${STATUS_LABELS[newStatus]}` })
+      }
       setDeal(prev => prev ? { ...prev, ...result.data } : null)
       setShowDenialInput(false); setDenialReason('')
       setShowPaymentForm(false)
+      // Approval auto-sends an envelope server-side; refresh the e-sign state so
+      // the action bar reflects "Awaiting Signature" without a manual send.
+      if (newStatus === 'approved' && !autoSendWarning) {
+        const esignResult = await getDealSignatureStatus(deal.id)
+        if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
+      }
     }
     setUpdating(false)
   }
@@ -1046,13 +1095,27 @@ export default function DealDetailPage() {
   }
 
 
+  const handleMarkRefundIssued = async () => {
+    if (!deal) return
+    setRefundIssuing(true)
+    setStatusMessage(null)
+    const result = await markRefundIssued({ dealId: deal.id })
+    if (result.success) {
+      setStatusMessage({ type: 'success', text: 'Refund issued to the agent. This deal can now be completed.' })
+      await loadDealData()
+    } else {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to issue refund' })
+    }
+    setRefundIssuing(false)
+  }
+
   const handleSendForSignature = async () => {
     if (!deal) return
     setSendingForSignature(true)
     setStatusMessage(null)
     const result = await sendForSignature(deal.id)
     if (result.success) {
-      setStatusMessage({ type: 'success', text: 'Contracts sent for e-signature via DocuSign!' })
+      setStatusMessage({ type: 'success', text: 'Documents sent for e-signature.' })
       const esignResult = await getDealSignatureStatus(deal.id)
       if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
     } else {
@@ -1568,7 +1631,7 @@ export default function DealDetailPage() {
                     Approve this deal?
                   </p>
                   <p className="text-xs mb-3 text-emerald-200/70">
-                    Approving moves the deal forward and lets you send the agent contract for signature. You can still revert to Under Review afterward if needed.
+                    Approving moves the deal forward and automatically sends the agent contract for e-signature. It is now one step. You can still revert to Under Review afterward if needed.
                   </p>
                   <div className="flex gap-2">
                     <button
@@ -1602,6 +1665,10 @@ export default function DealDetailPage() {
             const calc = calculateDeal({
               grossCommission: deal.gross_commission,
               brokerageSplitPct: deal.brokerage_split_pct,
+              // Include the flat fee so this preview's Net Commission (and the
+              // "Agent Receives" hero) match the stored value and the server's
+              // funding recalc, which also passes brokerage_flat_fee.
+              brokerageFlatFee: Number(deal.brokerage_flat_fee ?? 0),
               daysUntilClosing,
               discountRate: DISCOUNT_RATE_PER_1000_PER_DAY,
               brokerageReferralPct: referralPct,
@@ -1614,6 +1681,11 @@ export default function DealDetailPage() {
             const settlementDays = deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS
             const dueDate = new Date(closingDate.getTime() + settlementDays * 24 * 60 * 60 * 1000)
             const fmtDate = (d: Date) => d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
+            // The exact net amount to wire to the agent = the advance less any
+            // outstanding-balance deduction. Computed ONCE here so the hero
+            // figure and the "Agent Receives (EFT)" row can never disagree.
+            const deduction = agentBalance > 0 ? Math.min(agentBalance, calc.advanceAmount) : 0
+            const agentReceives = calc.advanceAmount - deduction
             return (
               <div className="mt-4 pt-4 border-t border-border/50">
                 <div className="p-4 rounded-lg bg-purple-950/20 border border-purple-800/40">
@@ -1621,6 +1693,19 @@ export default function DealDetailPage() {
                     <Banknote className="w-4 h-4" />
                     Confirm Funding
                   </h4>
+                  {/* Hero: the single number that matters at funding — what to
+                      wire to the agent. Kept visually distinct from "Amount Due
+                      from Brokerage" (a future receivable) so they can't be
+                      confused. */}
+                  <div className="rounded-lg p-4 mb-3 bg-primary/10 border border-primary/30 text-center">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-primary/80">Wire this amount to the agent</p>
+                    <p className="mt-1 text-3xl font-bold tabular-nums text-primary">{formatCurrency(agentReceives)}</p>
+                    {deduction > 0 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Gross advance {formatCurrency(calc.advanceAmount)} less {formatCurrency(deduction)} outstanding balance
+                      </p>
+                    )}
+                  </div>
                   <div className="rounded-lg p-3 mb-3 bg-card/50">
                     <table className="w-full text-xs">
                       <tbody>
@@ -1649,6 +1734,12 @@ export default function DealDetailPage() {
                           <td className="py-1.5 text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</td>
                           <td className="py-1.5 text-right font-mono text-muted-foreground">-{formatCurrency(deal.gross_commission * deal.brokerage_split_pct / 100)}</td>
                         </tr>
+                        {deal.brokerage_flat_fee > 0 && (
+                          <tr>
+                            <td className="py-1.5 text-muted-foreground">Brokerage Flat Fee</td>
+                            <td className="py-1.5 text-right font-mono text-muted-foreground">-{formatCurrency(deal.brokerage_flat_fee)}</td>
+                          </tr>
+                        )}
                         <tr>
                           <td className="py-1.5 font-semibold text-foreground">Net Commission</td>
                           <td className="py-1.5 text-right font-mono font-semibold text-foreground">{formatCurrency(calc.netCommission)}</td>
@@ -1662,27 +1753,16 @@ export default function DealDetailPage() {
                           <td className="py-1.5 text-muted-foreground">Settlement Period Fee ({deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d × ${DISCOUNT_RATE_PER_1000_PER_DAY.toFixed(2)}/$1k)</td>
                           <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(calc.settlementPeriodFee)}</td>
                         </tr>
-                        {agentBalance > 0 && (() => {
-                          const deduction = Math.min(agentBalance, calc.advanceAmount)
-                          return (
-                            <>
-                              <tr>
-                                <td className="py-1.5 text-muted-foreground">Outstanding Balance Deduction</td>
-                                <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(deduction)}</td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5 font-bold text-primary">Agent Receives (EFT)</td>
-                                <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount - deduction)}</td>
-                              </tr>
-                            </>
-                          )
-                        })()}
-                        {agentBalance <= 0 && (
+                        {deduction > 0 && (
                           <tr>
-                            <td className="py-1.5 font-bold text-primary">Agent Receives (EFT)</td>
-                            <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(calc.advanceAmount)}</td>
+                            <td className="py-1.5 text-muted-foreground">Outstanding Balance Deduction</td>
+                            <td className="py-1.5 text-right font-mono text-destructive">-{formatCurrency(deduction)}</td>
                           </tr>
                         )}
+                        <tr>
+                          <td className="py-1.5 font-bold text-primary">Agent Receives (EFT)</td>
+                          <td className="py-1.5 text-right font-mono font-bold text-primary">{formatCurrency(agentReceives)}</td>
+                        </tr>
                         <tr><td colSpan={2}><Separator className="my-1.5" /></td></tr>
                         <tr>
                           <td className="py-1.5 text-muted-foreground">
@@ -1713,12 +1793,15 @@ export default function DealDetailPage() {
                           <td className="py-1.5 font-semibold text-purple-400">Firm Funds Profit</td>
                           <td className="py-1.5 text-right font-mono font-semibold text-purple-400">{formatCurrency(calc.firmFundsProfit)}</td>
                         </tr>
-                        <tr>
-                          <td className="py-1.5 text-muted-foreground">Amount Due from Brokerage</td>
-                          <td className="py-1.5 text-right font-mono text-foreground">{formatCurrency(calc.amountDueFromBrokerage)}</td>
-                        </tr>
                       </tbody>
                     </table>
+                  </div>
+                  {/* Repaid-later receivable — deliberately separated and muted
+                      so it isn't mistaken for the amount to wire now. This is
+                      what the brokerage repays at settlement, not an EFT. */}
+                  <div className="rounded-lg px-3 py-2 mb-3 bg-muted/30 border border-border/30 flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground/80">Amount due from brokerage <span className="opacity-70">(repaid later, not wired now)</span></span>
+                    <span className="text-xs font-mono text-muted-foreground">{formatCurrency(calc.amountDueFromBrokerage)}</span>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -1769,6 +1852,46 @@ export default function DealDetailPage() {
             </div>
           )}
         </div>
+
+        {/* REFUND OWED TO AGENT — blocks completion until issued. Shown only
+            while a refund is outstanding; flips to a subtle confirmation once
+            issued. The "Mark refund issued" action is Owner-only (money.write),
+            mirroring the impersonation capability gate; the server re-checks. */}
+        {deal.refund_owed_amount > 0 && !deal.refund_issued_at && (
+          <div className="mb-4 rounded-xl p-4 bg-amber-950/30 border border-amber-800/50 ff-card-elevated">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-500" />
+                <div>
+                  <p className="text-sm font-bold text-amber-400">
+                    Refund owed to agent: {formatCurrency(deal.refund_owed_amount)}
+                  </p>
+                  <p className="text-xs mt-0.5 text-amber-200/70">
+                    Issue this refund to the agent before this deal can be completed.
+                  </p>
+                </div>
+              </div>
+              {canManageMoney && (
+                <button
+                  onClick={handleMarkRefundIssued}
+                  disabled={refundIssuing}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-amber-600 hover:bg-amber-700"
+                >
+                  <Banknote className="w-4 h-4" />
+                  {refundIssuing ? 'Issuing...' : 'Mark refund issued'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {deal.refund_issued_at && (
+          <div className="mb-4 rounded-lg px-4 py-2.5 bg-primary/10 border border-primary/30 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-primary" />
+            <p className="text-xs font-medium text-primary">
+              Refund issued on {formatDate(deal.refund_issued_at)}
+            </p>
+          </div>
+        )}
 
         {/* REMEDIATION DEALS — only for failed_to_close / cured deals */}
         {(deal.status === 'failed_to_close' || deal.status === 'cured') && (() => {
@@ -2351,6 +2474,11 @@ export default function DealDetailPage() {
               {([
                 { label: 'Gross Commission', value: formatCurrency(deal.gross_commission) },
                 { label: `Brokerage Split (${deal.brokerage_split_pct}%)`, value: '' },
+                // Only surfaced when set — explains the net-commission math; the
+                // net already reflects it.
+                ...(deal.brokerage_flat_fee > 0
+                  ? [{ label: 'Brokerage Flat Fee', value: `-${formatCurrency(deal.brokerage_flat_fee)}`, color: 'text-destructive' }]
+                  : []),
                 { label: 'Net Commission', value: formatCurrency(deal.net_commission), bold: true },
                 { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
                 { label: `Settlement Period Fee (${deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d)`, value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
@@ -2509,7 +2637,13 @@ export default function DealDetailPage() {
                         const matchingDocs = category.matchingDocs.get(item.id) || []
                         const checked = item.is_checked
                         const na = item.is_na
-                        const linkedDoc = item.linked_document_id ? documents.find(d => d.id === item.linked_document_id) : null
+                        // Union of the scalar auto-link channel and the manually
+                        // dragged-on docs, deduped, with any deleted docs dropped.
+                        const linkedIds = [...new Set([item.linked_document_id, ...(item.linked_document_ids || [])].filter(Boolean) as string[])]
+                        const linkedDocs = linkedIds
+                          .map(id => documents.find(d => d.id === id))
+                          .filter((d): d is DealDocument => Boolean(d))
+                        const hasLinkedDocs = linkedDocs.length > 0
                         const isDropTarget = dropTargetItemId === item.id
                         return (
                           <div
@@ -2555,39 +2689,43 @@ export default function DealDetailPage() {
                                   Completed {formatDateTime(item.checked_at)}
                                 </p>
                               )}
-                              {linkedDoc && (
-                                <div className="mt-1 flex items-center gap-1.5">
-                                  <span
-                                    onClick={(e) => { e.stopPropagation(); handleDocumentDownload(linkedDoc) }}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity hover:opacity-80"
-                                    style={{
-                                      background: checked ? 'rgba(95,168,115,0.15)' : 'rgba(95,168,115,0.1)',
-                                      color: 'var(--primary)',
-                                      border: `1px solid ${checked ? 'var(--primary)' : 'color-mix(in srgb, var(--primary) 25%, transparent)'}`,
-                                    }}
-                                  >
-                                    <Link2 className="w-3 h-3" />
-                                    {linkedDoc.file_name.length > 30 ? linkedDoc.file_name.slice(0, 27) + '...' : linkedDoc.file_name}
-                                    {checked && <span className="ml-1 text-[9px] opacity-70">locked</span>}
-                                  </span>
-                                  {!checked && (
-                                    <button
-                                      onClick={(e) => handleUnlinkDocument(e, item)}
-                                      className="p-0.5 rounded transition-colors text-muted-foreground/60 hover:text-destructive"
-                                      title="Unlink document"
-                                      aria-label="Unlink document"
-                                    >
-                                      <Unlink className="w-3 h-3" />
-                                    </button>
-                                  )}
+                              {hasLinkedDocs && (
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  {linkedDocs.map(linkedDoc => (
+                                    <span key={linkedDoc.id} className="inline-flex items-center gap-1">
+                                      <span
+                                        onClick={(e) => { e.stopPropagation(); handleDocumentDownload(linkedDoc) }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-opacity hover:opacity-80"
+                                        style={{
+                                          background: checked ? 'rgba(95,168,115,0.15)' : 'rgba(95,168,115,0.1)',
+                                          color: 'var(--primary)',
+                                          border: `1px solid ${checked ? 'var(--primary)' : 'color-mix(in srgb, var(--primary) 25%, transparent)'}`,
+                                        }}
+                                      >
+                                        <Link2 className="w-3 h-3" />
+                                        {linkedDoc.file_name.length > 30 ? linkedDoc.file_name.slice(0, 27) + '...' : linkedDoc.file_name}
+                                        {checked && <span className="ml-1 text-[9px] opacity-70">locked</span>}
+                                      </span>
+                                      {!checked && (
+                                        <button
+                                          onClick={(e) => handleUnlinkDocument(e, item, linkedDoc.id)}
+                                          className="p-0.5 rounded transition-colors text-muted-foreground/60 hover:text-destructive"
+                                          title="Unlink document"
+                                          aria-label={`Unlink ${linkedDoc.file_name}`}
+                                        >
+                                          <Unlink className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </span>
+                                  ))}
                                 </div>
                               )}
-                              {draggingDocId && !linkedDoc && !checked && !na && !isDropTarget && (
+                              {draggingDocId && !checked && !na && !isDropTarget && (
                                 <p className="text-[10px] mt-1 italic text-muted-foreground/60">
-                                  Drop document here
+                                  Drop document here{hasLinkedDocs ? ' to add another' : ''}
                                 </p>
                               )}
-                              {matchingDocs.length > 0 && !linkedDoc && (
+                              {matchingDocs.length > 0 && !hasLinkedDocs && (
                                 <div className="mt-1.5 space-y-0.5">
                                   {matchingDocs.map(doc => (
                                     <a

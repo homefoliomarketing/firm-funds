@@ -427,6 +427,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
         'Property',
         'Gross commission',
         'Net commission',
+        'Brokerage flat fee',
         'Discount fee',
         'Settlement fee',
         'Advanced',
@@ -444,6 +445,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
         'Property',
         'Gross commission',
         'Net commission',
+        'Brokerage flat fee',
         'Advanced',
         'Referral fee',
         'Due from brokerage',
@@ -460,6 +462,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
         'Property',
         'Gross commission',
         'Net commission',
+        'Brokerage flat fee',
         'Discount fee',
         'Settlement fee',
         'Advanced',
@@ -481,6 +484,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
             d.property,
             money(d.grossCommission),
             money(d.netCommission),
+            money(d.brokerageFlatFee),
             money(d.discountFee),
             money(d.settlementFee),
             money(d.advanceAmount),
@@ -498,6 +502,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
             d.property,
             money(d.grossCommission),
             money(d.netCommission),
+            money(d.brokerageFlatFee),
             money(d.advanceAmount),
             money(d.referralFee),
             money(d.amountDueFromBrokerage),
@@ -514,6 +519,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
             d.property,
             money(d.grossCommission),
             money(d.netCommission),
+            money(d.brokerageFlatFee),
             money(d.discountFee),
             money(d.settlementFee),
             money(d.advanceAmount),
@@ -530,24 +536,25 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
   const dataLast = pkg.dealDetail.length
   const ws = XLSX.utils.aoa_to_sheet(rows)
   if (agent) {
-    // Money columns: Gross (3), Net (4), Discount fee (5), Settlement fee (6),
-    // Advanced (7).
-    applyMoneyFormat(ws, [3, 4, 5, 6, 7], 1, dataLast)
+    // Money columns: Gross (3), Net (4), Brokerage flat fee (5), Discount fee
+    // (6), Settlement fee (7), Advanced (8).
+    applyMoneyFormat(ws, [3, 4, 5, 6, 7, 8], 1, dataLast)
     setColumnWidths(ws, [
-      14, 16, 30, 17, 16, 13, 14, 14, 13, 13, 13, 13,
+      14, 16, 30, 17, 16, 17, 13, 14, 14, 13, 13, 13, 13,
     ])
   } else if (brokerage) {
-    // Money columns: Gross (5), Net (6), Advanced (7), Referral fee (8),
-    // Due from brokerage (9).
-    applyMoneyFormat(ws, [5, 6, 7, 8, 9], 1, dataLast)
+    // Money columns: Gross (5), Net (6), Brokerage flat fee (7), Advanced (8),
+    // Referral fee (9), Due from brokerage (10).
+    applyMoneyFormat(ws, [5, 6, 7, 8, 9, 10], 1, dataLast)
     setColumnWidths(ws, [
-      14, 16, 24, 26, 30, 17, 16, 14, 13, 18, 13, 13, 13, 13,
+      14, 16, 24, 26, 30, 17, 16, 17, 14, 13, 18, 13, 13, 13, 13,
     ])
   } else {
-    // Money columns: 5..11 inclusive (Gross..Due from brokerage).
-    applyMoneyFormat(ws, [5, 6, 7, 8, 9, 10, 11], 1, dataLast)
+    // Money columns: 5..12 inclusive (Gross..Due from brokerage, now including
+    // the Brokerage flat fee at 7).
+    applyMoneyFormat(ws, [5, 6, 7, 8, 9, 10, 11, 12], 1, dataLast)
     setColumnWidths(ws, [
-      14, 16, 24, 26, 30, 17, 16, 13, 14, 14, 13, 18, 13, 13, 13, 13,
+      14, 16, 24, 26, 30, 17, 16, 17, 13, 14, 14, 13, 18, 13, 13, 13, 13,
     ])
   }
   return ws

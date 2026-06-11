@@ -122,6 +122,10 @@ function AgentDashboardInner() {
   const [acceptingOffer, setAcceptingOffer] = useState(false)
   const [offerAcceptError, setOfferAcceptError] = useState<string | null>(null)
   const [offerJustAccepted, setOfferJustAccepted] = useState(false)
+  // Confirmation gate on "Notify my brokerage" — one accidental click used to
+  // submit an advance application outright. The button now opens this dialog
+  // and the real accept call only fires on explicit confirm.
+  const [confirmingOffer, setConfirmingOffer] = useState(false)
   const dealRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [highlightedDealId, setHighlightedDealId] = useState<string | null>(null)
   // "Your statement" download - tracks which format is in flight so we can
@@ -302,6 +306,46 @@ function AgentDashboardInner() {
     }
   }
 
+  // Accept the firm-deal offer — only invoked after the agent confirms in the
+  // dialog. Notifies the brokerage so they can submit the advance on the
+  // agent's behalf, then refreshes the deals list so the new 'offered' row
+  // appears and the scroll-to-row effect picks it up.
+  async function handleConfirmAccept() {
+    if (!firmDealOffer) return
+    if (acceptingOffer) return
+    setAcceptingOffer(true)
+    setOfferAcceptError(null)
+    try {
+      const res = await acceptFirmDealOffer(firmDealOffer.event_id)
+      if (!res.success || !res.data) {
+        setOfferAcceptError(res.error || 'Something went wrong. Try again.')
+        return
+      }
+      setOfferJustAccepted(true)
+      // Re-load the deals list so the new 'offered' row appears in "Your
+      // Deals" and the scroll-to-row effect picks it up.
+      if (profile?.agent_id) {
+        const { data: refreshed } = await supabase
+          .from('deals')
+          .select('*')
+          .eq('agent_id', profile.agent_id)
+          .order('created_at', { ascending: false })
+        setDeals(refreshed || [])
+      }
+      // Patch the offer summary so the banner switches to the "already
+      // started" state on the next navigation back.
+      setFirmDealOffer({
+        ...firmDealOffer,
+        offer_deal_id: res.data.deal_id,
+      })
+      setConfirmingOffer(false)
+    } catch (e) {
+      setOfferAcceptError(e instanceof Error ? e.message : 'Unexpected error.')
+    } finally {
+      setAcceptingOffer(false)
+    }
+  }
+
   // Show KYC verified modal ONCE — localStorage + DB double-lock
   useEffect(() => {
     if (!agent?.id || agent?.kyc_status !== 'verified') return
@@ -397,6 +441,28 @@ function AgentDashboardInner() {
               className="w-full h-10"
             >
               Get Started
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm before notifying the brokerage — guards against an
+          accidental click on the offer banner submitting an advance
+          application outright. */}
+      <Dialog open={confirmingOffer} onOpenChange={(open) => { if (!open) setConfirmingOffer(false) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Submit advance request?</DialogTitle>
+            <DialogDescription>
+              Are you sure you would like to submit an application for an advance on this commission? We&apos;ll notify your brokerage to send us the paperwork.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmingOffer(false)} disabled={acceptingOffer}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmAccept} disabled={acceptingOffer}>
+              {acceptingOffer ? 'Sending…' : 'Yes, submit my request'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -592,49 +658,18 @@ function AgentDashboardInner() {
               <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
                 {!firmDealOffer.offer_deal_id && !offerJustAccepted && (
                   <Button
-                    onClick={async () => {
+                    onClick={() => {
                       if (kycNotVerified) return
-                      if (acceptingOffer) return
-                      setAcceptingOffer(true)
                       setOfferAcceptError(null)
-                      try {
-                        const res = await acceptFirmDealOffer(firmDealOffer.event_id)
-                        if (!res.success || !res.data) {
-                          setOfferAcceptError(res.error || 'Something went wrong. Try again.')
-                          return
-                        }
-                        setOfferJustAccepted(true)
-                        // Re-load the deals list so the new 'offered' row
-                        // appears in "Your Deals" and the scroll-to-row
-                        // effect picks it up.
-                        if (profile?.agent_id) {
-                          const { data: refreshed } = await supabase
-                            .from('deals')
-                            .select('*')
-                            .eq('agent_id', profile.agent_id)
-                            .order('created_at', { ascending: false })
-                          setDeals(refreshed || [])
-                        }
-                        // Patch the offer summary so the banner switches
-                        // to the "already started" state on the next
-                        // navigation back.
-                        setFirmDealOffer({
-                          ...firmDealOffer,
-                          offer_deal_id: res.data.deal_id,
-                        })
-                      } catch (e) {
-                        setOfferAcceptError(e instanceof Error ? e.message : 'Unexpected error.')
-                      } finally {
-                        setAcceptingOffer(false)
-                      }
+                      setConfirmingOffer(true)
                     }}
-                    disabled={!!kycNotVerified || acceptingOffer}
+                    disabled={!!kycNotVerified}
                     title={kycNotVerified ? 'Complete identity verification first' : 'Notify your brokerage so they can submit on your behalf'}
                     className="flex-1 sm:flex-initial min-w-0 whitespace-normal sm:whitespace-nowrap h-auto min-h-9 py-2 bg-primary text-primary-foreground hover:bg-primary/90"
                     size="sm"
                   >
-                    {acceptingOffer ? 'Sending…' : 'Notify my brokerage I want an advance'}
-                    {!acceptingOffer && <ChevronRight size={14} />}
+                    Notify my brokerage I want an advance
+                    <ChevronRight size={14} />
                   </Button>
                 )}
                 <Button
@@ -757,6 +792,31 @@ function AgentDashboardInner() {
               size="sm"
               onClick={() => router.push('/agent/account')}
               className="shrink-0 whitespace-nowrap border-status-amber-border text-status-amber hover:bg-status-amber-muted hover:text-status-amber"
+            >
+              View Ledger
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        )}
+
+        {/* Credit banner — a negative balance means Firm Funds owes the agent
+            a refund. Without this the credit was invisible unless they opened
+            the ledger. Teal "good news" treatment to match the success states
+            used elsewhere. */}
+        {accountBalance < 0 && (
+          <div className="mb-6 rounded-xl p-4 flex items-center justify-between gap-3 bg-status-teal-muted/60 border border-status-teal-border/60" role="status">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 size={18} className="text-status-teal shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-medium text-status-teal">You have a credit</p>
+                <p className="text-xs mt-0.5 text-status-teal/70">Firm Funds owes you a refund of {formatCurrency(Math.abs(accountBalance))}.</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push('/agent/account')}
+              className="shrink-0 whitespace-nowrap border-status-teal-border text-status-teal hover:bg-status-teal-muted hover:text-status-teal"
             >
               View Ledger
               <ChevronRight size={14} />

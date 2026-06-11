@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
 import {
   formatCurrency,
   formatCurrencyWhole,
+  formatDate,
   formatFileSize,
   formatRelativeTime,
 } from './formatting'
@@ -28,6 +29,41 @@ describe('formatCurrencyWhole', () => {
     expect(norm(formatCurrencyWhole(1234.56))).toBe('$1,235')
     expect(norm(formatCurrencyWhole(0))).toBe('$0')
     expect(norm(formatCurrencyWhole(999.49))).toBe('$999')
+  })
+})
+
+describe('formatDate', () => {
+  // The bug this guards: a bare `new Date("2026-08-05")` parses as UTC midnight,
+  // so on a host behind UTC the calendar day rolls back one (Aug 5 -> Aug 4).
+  // Force a hostile, far-behind-UTC host timezone so a regression that drops the
+  // noon-UTC anchor or the explicit America/Toronto formatting tz would show up
+  // here as a day-shift. We restore the original TZ afterward.
+  const ORIGINAL_TZ = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = 'America/Los_Angeles' // UTC-7/-8, behind both UTC and Toronto
+  })
+  afterAll(() => {
+    process.env.TZ = ORIGINAL_TZ
+  })
+
+  it('does not shift a date-only string back a day (summer)', () => {
+    const out = norm(formatDate('2026-08-05'))
+    expect(out).toContain('Aug 5')
+    expect(out).toContain('2026')
+    expect(out).not.toContain('Aug 4')
+  })
+
+  it('does not shift a date-only string back a day (a funding day)', () => {
+    const out = norm(formatDate('2026-06-10'))
+    expect(out).toContain('Jun 10')
+    expect(out).not.toContain('Jun 9')
+  })
+
+  it('does not shift across a month boundary', () => {
+    // UTC-midnight parsing would render this as Jul 31 on a behind-UTC host.
+    const out = norm(formatDate('2026-08-01'))
+    expect(out).toContain('Aug 1')
+    expect(out).not.toContain('Jul 31')
   })
 })
 

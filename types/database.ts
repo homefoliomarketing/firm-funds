@@ -201,6 +201,15 @@ export interface Deal {
   // When the deal was first submitted (status left 'offered'); set alongside
   // deal_number by the assign_deal_number trigger (migration 108).
   submitted_at: string | null
+  // Optional flat brokerage fee, deducted in addition to brokerage_split_pct
+  // (migration 110). 0 = none.
+  brokerage_flat_fee: number
+  // Per-deal agent refund tracking (migration 112). refund_owed_amount > 0 (an
+  // early-closing or amendment credit not yet paid out) blocks completion until
+  // "Mark refund issued" pays the agent and zeroes it.
+  refund_owed_amount: number
+  refund_issued_at: string | null
+  refund_issued_by: string | null
   created_at: string
   updated_at: string
   // Joined data

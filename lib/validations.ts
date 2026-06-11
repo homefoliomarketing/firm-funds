@@ -32,6 +32,15 @@ export const DealSubmissionSchema = z.object({
     .number()
     .min(0, 'Brokerage split must be 0% or higher')
     .max(100, 'Brokerage split must be 100% or lower'),
+  // Optional flat brokerage fee in dollars, deducted in addition to the split
+  // (migration 110). Defaults to 0. The upper bound is a sanity cap; the
+  // calculation engine enforces that it can't exceed the post-split commission.
+  brokerageFlatFee: z
+    .number()
+    .min(0, 'Brokerage flat fee cannot be negative')
+    .max(MAX_GROSS_COMMISSION, `Brokerage flat fee must be under $${MAX_GROSS_COMMISSION.toLocaleString()}`)
+    .optional()
+    .default(0),
   notes: z
     .string()
     .max(1000, 'Notes must be under 1000 characters')

@@ -349,7 +349,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['"Commission"', ' means the specific commission receivable being purchased, as described in Schedule "A";'],
             ['"Settlement Period Fee"', ` means the non-refundable fee covering the settlement period of ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date, during which the Brokerage is required to remit the Commission to the Purchaser, calculated in accordance with Article 3;`],
             ['"Late Payment Interest"', ` means interest at the rate of twenty-four percent (24%) per annum, compounded daily, applicable to the Purchase Price where the Commission has not been received in full by the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days after the Expected Closing Date, as set out in Article 6;`],
-            ['"Face Value"', ' means the net commission payable to the Seller after the Brokerage\'s commission split, as set out in Schedule "A";'],
+            ['"Face Value"', ' means the net commission payable to the Seller after the Brokerage\'s commission split and any applicable flat fee, as set out in Schedule "A";'],
             ['"Payment Due Date"', ` means the date that is ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days following the Expected Closing Date, by which the Brokerage must remit the Commission to the Purchaser;`],
             ['"Late Interest Accrual Date"', ` means the date that is ${r('{{LATE_INTEREST_GRACE_DAYS}}')} (${r('{{LATE_INTEREST_GRACE_DAYS}}')}) calendar days following the Expected Closing Date, on and after which Late Payment Interest begins to accrue if the Commission has not been received in full;`],
             ['"Irrevocable Direction to Pay"', ' means the irrevocable direction executed by the Seller directing the Brokerage to pay the Commission directly to the Purchaser, in the form attached as Schedule "B";'],
@@ -370,7 +370,7 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
 
           // Article 3
           heading2('ARTICLE 3: PURCHASE PRICE AND PAYMENT'),
-          richParagraph([{ text: '3.1 Face Value. ', bold: true }, { text: `The Face Value of the Commission is ${r('{{FACE_VALUE}}')} (the "Face Value"), being the net commission payable to the Seller after the Brokerage's commission split.` }]),
+          richParagraph([{ text: '3.1 Face Value. ', bold: true }, { text: `The Face Value of the Commission is ${r('{{FACE_VALUE}}')} (the "Face Value"), being the net commission payable to the Seller after the Brokerage's commission split and any applicable flat fee.` }]),
           richParagraph([{ text: '3.2 Purchase Discount. ', bold: true }, { text: `The Purchase Discount is ${r('{{PURCHASE_DISCOUNT}}')} (the "Purchase Discount"), calculated as follows: ${r('{{DISCOUNT_RATE}}')} of Face Value, for ${r('{{NUMBER_OF_DAYS}}')} days (being the number of calendar days from the day following the Funding Date to and including the Expected Closing Date; the Funding Date itself is not charged, as the funds are received the following day, and the Expected Closing Date is charged, as repayment is not received on that date).` }]),
           richParagraph([{ text: '3.3 Settlement Period Fee. ', bold: true }, { text: `The Settlement Period Fee is ${r('{{SETTLEMENT_PERIOD_FEE}}')} (the "Settlement Period Fee"), calculated as follows: ${r('{{DISCOUNT_RATE}}')} of Face Value, for ${r('{{SETTLEMENT_PERIOD_DAYS}}')} (${r('{{SETTLEMENT_PERIOD_DAYS}}')}) calendar days. This fee covers the settlement period during which the Brokerage is required to remit the Commission to the Purchaser. The Settlement Period Fee is a non-refundable flat fee and is not subject to proration or adjustment regardless of when payment is received.` }]),
           richParagraph([{ text: '3.4 Purchase Price. ', bold: true }, { text: `The Purchase Price payable to the Seller is ${r('{{PURCHASE_PRICE}}')} (the "Purchase Price"), being the Face Value less the Purchase Discount and the Settlement Period Fee.` }]),
@@ -447,6 +447,15 @@ export async function generateCpaDocx(data: Record<string, string>): Promise<Buf
             ['Payment Due Date', r('{{DUE_DATE}}')],
             ['Gross Commission Amount', r('{{GROSS_COMMISSION_AMOUNT}}')],
             ['Brokerage Commission Split', `${r('{{BROKERAGE_SPLIT}}')}%`],
+            // Optional flat brokerage fee (migration 110). Only deals that carry
+            // a flat fee set {{BROKERAGE_FLAT_FEE}} (esign-actions.ts populates it
+            // solely when brokerage_flat_fee > 0), so a percentage-only deal omits
+            // this row entirely and renders exactly as it did before the flat fee
+            // existed. It sits between the split and the Face Value because the net
+            // commission is the gross less the split AND this flat fee.
+            ...(data['{{BROKERAGE_FLAT_FEE}}']
+              ? ([['Brokerage Flat Fee', r('{{BROKERAGE_FLAT_FEE}}')]] as [string, string][])
+              : []),
             ['Net Commission to Seller (Face Value)', r('{{FACE_VALUE}}')],
             ['Discount Rate', r('{{DISCOUNT_RATE}}')],
             ['Number of Days (Discount Period)', r('{{NUMBER_OF_DAYS}}')],

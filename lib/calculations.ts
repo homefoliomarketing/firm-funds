@@ -88,6 +88,15 @@ export interface DealCalculation {
    * when the brokerage has been auto-bumped after the 5-strike threshold.
    */
   settlementPeriodDays?: number
+  /**
+   * Optional brokerage FLAT FEE in dollars (migration 110), deducted from the
+   * commission IN ADDITION to the percentage split — e.g. a $395 transaction/
+   * admin fee. Defaults to 0 (no flat fee). The net commission becomes:
+   *   gross * (1 - brokerageSplitPct/100) - brokerageFlatFee
+   * Set brokerageSplitPct to 0 for a flat-fee-only brokerage. This is a dollar
+   * amount, NOT a percentage — do not divide by 100.
+   */
+  brokerageFlatFee?: number
 }
 
 export interface DealResult {
@@ -145,6 +154,18 @@ function validateDealInputs(input: DealCalculation): void {
   if (input.brokerageReferralPct !== undefined && (input.brokerageReferralPct < 0 || input.brokerageReferralPct > 1)) {
     throw new Error('Brokerage referral percentage must be between 0 and 1')
   }
+  // brokerageFlatFee is a DOLLAR amount (default 0). It must be non-negative and
+  // must not consume the entire post-split commission, otherwise the net
+  // commission (and therefore the advance) would be zero or negative.
+  if (input.brokerageFlatFee !== undefined && input.brokerageFlatFee !== 0) {
+    if (input.brokerageFlatFee < 0) {
+      throw new Error('Brokerage flat fee cannot be negative')
+    }
+    const postSplit = input.grossCommission * (1 - input.brokerageSplitPct / 100)
+    if (input.brokerageFlatFee >= postSplit) {
+      throw new Error('Brokerage flat fee cannot equal or exceed the commission remaining after the split')
+    }
+  }
 }
 
 /**
@@ -190,17 +211,19 @@ export function calculateDeal(input: DealCalculation): DealResult {
   //   brokerageReferralFee + firmFundsProfit === totalFees
   //   netCommission - brokerageReferralFee === amountDueFromBrokerage
 
-  // 1. Net commission after brokerage split (anchor for everything downstream).
-  //    brokerageSplitPct is a WHOLE NUMBER — divide by 100 once here.
-  //    e.g. 5 → 0.05 → keep 95% of gross.
-  const netCommission = roundToCents(input.grossCommission * (1 - input.brokerageSplitPct / 100))
+  // 1. Net commission after brokerage split AND optional flat fee (the anchor
+  //    for everything downstream). brokerageSplitPct is a WHOLE NUMBER — divide
+  //    by 100 once here (e.g. 5 → 0.05 → keep 95% of gross). brokerageFlatFee is
+  //    a dollar amount subtracted after the split (default 0, no effect).
+  const flatFee = input.brokerageFlatFee ?? 0
+  const netCommission = roundToCents(input.grossCommission * (1 - input.brokerageSplitPct / 100) - flatFee)
 
   // 2. Discount fee: net commission × ($0.80 / $1,000) × effective days.
   //    Settlement Period Fee: same rate × settlement-window days (7 standard,
   //    14 for brokerages auto-bumped after 5 strikes). Flat, non-refundable
   //    fee covering the brokerage payment window after closing.
   //    Both rounded against unrounded netCommission for accuracy.
-  const unroundedNet = input.grossCommission * (1 - input.brokerageSplitPct / 100)
+  const unroundedNet = input.grossCommission * (1 - input.brokerageSplitPct / 100) - flatFee
   const discountFee = roundToCents(unroundedNet * (rate / 1000) * effectiveDays)
   const settlementPeriodFee = roundToCents(unroundedNet * (rate / 1000) * settlementDays)
 

@@ -108,6 +108,11 @@ export interface DealDetailRow {
   property: string
   grossCommission: number
   netCommission: number
+  // Optional flat fee the brokerage charged on this deal (migration 110),
+  // already reflected in netCommission. This is the BROKERAGE's own fee, not a
+  // Firm Funds margin figure, so it is shown to every audience (like the gross
+  // and net commission). 0 for the vast majority of deals.
+  brokerageFlatFee: number
   discountFee: number
   settlementFee: number
   advanceAmount: number

@@ -277,6 +277,84 @@ export async function getOverdueSettlementDeals(): Promise<ActionResult> {
 }
 
 // ============================================================================
+// Admin: count of brokerage payment claims sitting in 'pending'. Surfaced as a
+// red badge on the dashboard "Payments" quick-link so an admin who never opens
+// the Payments page still knows a claim arrived. Cheap head-only count — no row
+// payload pulled across the wire.
+// ============================================================================
+
+export async function getPendingPaymentClaimCount(): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { count, error } = await serviceClient
+      .from('brokerage_payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+
+    if (error) {
+      console.error('getPendingPaymentClaimCount error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, data: { count: count ?? 0 } }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getPendingPaymentClaimCount error:', _msg)
+    return { success: false, error: _msg }
+  }
+}
+
+// ============================================================================
+// Admin: agents carrying a credit balance (account_balance < 0) — a refund that
+// Firm Funds owes the agent. Drives the dashboard "Agents owed a refund" card so
+// the admin can see who needs paying back. Returns the credit as a positive
+// amount (abs of the negative balance). Small/efficient — only the few columns
+// the card renders, filtered server-side to negative balances.
+// ============================================================================
+
+export async function getAgentsOwedRefund(): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedAdmin()
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data, error } = await serviceClient
+      .from('agents')
+      .select('id, first_name, last_name, account_balance')
+      .lt('account_balance', 0)
+      .order('account_balance', { ascending: true })
+
+    if (error) {
+      console.error('getAgentsOwedRefund error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    type AgentRefundRow = {
+      id: string
+      first_name: string | null
+      last_name: string | null
+      account_balance: number | string | null
+    }
+    const rows = ((data as AgentRefundRow[]) || []).map((a) => ({
+      agent_id: a.id,
+      agent_name: `${a.first_name || ''} ${a.last_name || ''}`.trim() || 'Agent',
+      credit_amount: Math.abs(Number(a.account_balance) || 0),
+    }))
+
+    return { success: true, data: rows }
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : "Unknown error"
+    console.error('getAgentsOwedRefund error:', _msg)
+    return { success: false, error: _msg }
+  }
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -3474,6 +3552,9 @@ export async function recordEarlyClosing(input: {
       .update({
         actual_closing_date: actualStr,
         discount_refund_amount: refundTotal,
+        // Gate completion until this refund is issued ("Mark refund issued").
+        // Set atomically with the claim so it can't be missed.
+        refund_owed_amount: refundTotal,
       })
       .eq('id', deal.id)
       .eq('status', 'funded')

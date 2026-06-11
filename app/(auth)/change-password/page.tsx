@@ -90,6 +90,12 @@ export default function ChangePasswordPage() {
       const { data: { user } } = await supabase.auth.getUser()
       let redirectPath = '/agent'
 
+      // An account-less agent who arrived via a firm-deal magic link carries
+      // ?firm_deal=<eventId> through the proxy onto this page. Preserve it on
+      // the agent redirect so they land back on their offer, not a bare
+      // dashboard. Only the agent branch uses it.
+      const firmDeal = new URLSearchParams(window.location.search).get('firm_deal')
+
       if (user) {
         const { data: profile } = await supabase
           .from('user_profiles')
@@ -99,7 +105,7 @@ export default function ChangePasswordPage() {
 
         if (profile) {
           switch (profile.role) {
-            case 'agent': redirectPath = '/agent'; break
+            case 'agent': redirectPath = firmDeal ? `/agent?firm_deal=${encodeURIComponent(firmDeal)}` : '/agent'; break
             case 'brokerage_admin': redirectPath = '/brokerage'; break
             case 'firm_funds_admin':
             case 'super_admin': redirectPath = '/admin'; break

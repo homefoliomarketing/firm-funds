@@ -204,28 +204,49 @@ export default async function AdminAgentProfilePage({
           </Card>
         </section>
 
-        {/* Balance */}
+        {/* Balance — three states: positive = outstanding charge owing to us
+            (amber, actionable); negative = a credit we owe back to the agent, a
+            refund (teal/positive, actionable); zero = nothing outstanding. */}
         <section aria-label="Account balance">
-          <Card className={`border-border/40 ${balance > 0 ? 'ring-1 ring-status-amber-border/40' : ''}`}>
-            <CardContent className="p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
-                    Current Balance
-                  </p>
-                  <p className={`text-3xl font-bold tabular-nums ${balance > 0 ? 'text-status-amber' : 'text-status-teal'}`}>
-                    {formatCurrency(balance)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {balance > 0 ? 'This agent has an outstanding balance owing.' : 'This agent has no outstanding charges.'}
-                  </p>
-                </div>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${balance > 0 ? 'bg-status-amber-muted/60' : 'bg-status-teal-muted/60'}`}>
-                  <DollarSign size={24} className={balance > 0 ? 'text-status-amber' : 'text-status-teal'} aria-hidden="true" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {(() => {
+            const owesUs = balance > 0
+            const owedRefund = balance < 0
+            const accent = owesUs ? 'text-status-amber' : 'text-status-teal'
+            const iconBg = owesUs ? 'bg-status-amber-muted/60' : 'bg-status-teal-muted/60'
+            const ring = owesUs
+              ? 'ring-1 ring-status-amber-border/40'
+              : owedRefund
+                ? 'ring-1 ring-status-teal-border/40'
+                : ''
+            return (
+              <Card className={`border-border/40 ${ring}`}>
+                <CardContent className="p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
+                        {owedRefund ? 'Credit (refund owed)' : 'Current Balance'}
+                      </p>
+                      <p className={`text-3xl font-bold tabular-nums ${accent}`}>
+                        {/* Show the credit as a positive amount; the label makes
+                            clear it's money owed back to the agent. */}
+                        {formatCurrency(owedRefund ? Math.abs(balance) : balance)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {owesUs
+                          ? 'This agent has an outstanding balance owing.'
+                          : owedRefund
+                            ? 'Firm Funds owes this agent a refund for this credit balance.'
+                            : 'This agent has no outstanding charges.'}
+                      </p>
+                    </div>
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconBg}`}>
+                      <DollarSign size={24} className={accent} aria-hidden="true" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })()}
         </section>
 
         {/* Deals */}

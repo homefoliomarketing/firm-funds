@@ -46,7 +46,7 @@ interface Deal {
   id: string; agent_id: string; brokerage_id: string; status: string
   deal_number: string | null
   property_address: string; closing_date: string; gross_commission: number
-  brokerage_split_pct: number; net_commission: number; days_until_closing: number
+  brokerage_split_pct: number; brokerage_flat_fee: number; net_commission: number; days_until_closing: number
   discount_fee: number; settlement_period_fee: number; advance_amount: number; brokerage_referral_fee: number
   amount_due_from_brokerage: number; balance_deducted: number; due_date: string | null
   payment_status: string; funding_date: string | null
@@ -229,7 +229,7 @@ export default function AgentDealDetailPage() {
     // admin_notes and admin_notes_timeline (admin's internal scratchpad).
     const { data: dealData, error: dealError } = await supabase
       .from('deals')
-      .select('id, agent_id, brokerage_id, status, deal_number, property_address, closing_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at, agent_self_submit_at')
+      .select('id, agent_id, brokerage_id, status, deal_number, property_address, closing_date, gross_commission, brokerage_split_pct, brokerage_flat_fee, net_commission, days_until_closing, discount_fee, settlement_period_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, balance_deducted, due_date, payment_status, funding_date, repayment_date, source, denial_reason, notes, created_at, updated_at, agent_self_submit_at')
       .eq('id', dealId)
       .single()
     if (dealError || !dealData) { router.push('/agent'); return }
@@ -1139,7 +1139,6 @@ export default function AgentDealDetailPage() {
                       <div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Property Address</p><p className="font-medium text-foreground">{deal.property_address}</p></div>
                       <div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Closing Date</p><p className="font-medium text-foreground">{formatDate(deal.closing_date)}</p></div>
                       <div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Days Until Closing</p><p className="font-medium text-foreground">{deal.days_until_closing} days</p></div>
-                      <div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Source</p><p className="font-medium text-foreground">{deal.source === 'manual_portal' ? 'Agent Portal' : deal.source === 'nexone_auto' ? 'Nexone Auto' : deal.source}</p></div>
                       {deal.funding_date && (<div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Funding Date</p><p className="font-medium text-foreground">{formatDate(deal.funding_date)}</p></div>)}
                       {deal.repayment_date && (<div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Repayment Date</p><p className="font-medium text-foreground">{formatDate(deal.repayment_date)}</p></div>)}
                     </div>
@@ -1246,7 +1245,10 @@ export default function AgentDealDetailPage() {
               </CardHeader>
               <CardContent className="p-4 space-y-3 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">Gross Commission</span><span className="font-medium text-foreground">{formatCurrency(deal.gross_commission)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</span><span className="font-medium text-destructive">-{formatCurrency(deal.gross_commission - deal.net_commission)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split ({deal.brokerage_split_pct}%)</span><span className="font-medium text-destructive">-{formatCurrency(deal.gross_commission - deal.net_commission - (deal.brokerage_flat_fee || 0))}</span></div>
+                {(deal.brokerage_flat_fee || 0) > 0 && (
+                  <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Flat Fee</span><span className="font-medium text-destructive">-{formatCurrency(deal.brokerage_flat_fee)}</span></div>
+                )}
                 <div className="flex justify-between pt-2 border-t border-border"><span className="font-medium text-foreground">Your Net Commission</span><span className="font-semibold text-foreground">{formatCurrency(deal.net_commission)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Discount Fee ({getChargeDays(deal.days_until_closing)}d)</span><span className="font-medium text-destructive">-{formatCurrency(deal.discount_fee)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Settlement Period Fee</span><span className="font-medium text-destructive">-{formatCurrency(deal.settlement_period_fee || 0)}</span></div>

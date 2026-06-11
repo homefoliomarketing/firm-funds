@@ -21,9 +21,9 @@ The numbering groups roughly into feature batches:
 | 050 to 069 | Idempotency and atomic RPCs (balance, strikes, remediation, interest), ledger immutability, storage policy tightening, soft delete, audit-log hardening |
 | 070 to 079 | Concurrency uniqueness constraints, cron idempotency log, DocuSign linkage, atomic admin-note append, firm-deal detection pipeline |
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
-| 100 to 108 | Underwriter assigned_at, KYC bucket limits, staff least-privilege roles, look-only impersonation, brokerage OG image, agent self-submit, informational statement ledger, signed-BCA path / welcome flag / deposit-auth consent, human-readable deal numbers |
+| 100 to 112 | Underwriter assigned_at, KYC bucket limits, staff least-privilege roles, look-only impersonation, brokerage OG image, agent self-submit, informational statement ledger, signed-BCA path / welcome flag / deposit-auth consent, human-readable deal numbers, SignWell webhook events, optional brokerage flat fee, multi-document checklist linking, per-deal agent-refund tracking + completion gate |
 
-There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `108_deal_numbers.sql`.
+There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `112_deal_refund_tracking.sql`.
 
 **Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
@@ -81,7 +81,7 @@ Column lists below capture the significant columns (keys, status/enum fields, fi
 
 ### deals
 
-The central advance record. Base columns predate migration tracking; the columns below are assembled from migrations 006, 008, 011 (no), 018, 039, 043, 044, 046, 047, 081, 083, 084, 085, 108, and the validation schema in `lib/validations.ts`.
+The central advance record. Base columns predate migration tracking; the columns below are assembled from migrations 006, 008, 011 (no), 018, 039, 043, 044, 046, 047, 081, 083, 084, 085, 108, 110, 111, 112, and the validation schema in `lib/validations.ts`.
 
 | Column | Type | Purpose |
 | --- | --- | --- |
@@ -94,9 +94,14 @@ The central advance record. Base columns predate migration tracking; the columns
 | source | TEXT (CHECK) | `nexone_auto`, `manual_portal`, or `firm_deal_offer` (migration 081) |
 | property_address | TEXT | Subject property |
 | closing_date | DATE | Scheduled closing |
-| actual_closing_date | DATE | Real closing date if it differed (migration 018) |
+| actual_closing_date | DATE | Real closing date if it differed (migration 018; early-closing path migration 085) |
+| discount_refund_amount | NUMERIC(12,2) | Early-closing discount-fee refund credited to the agent (migration 085) |
+| refund_owed_amount | NUMERIC(12,2) NOT NULL default 0 | Agent refund currently owed for this deal (early-closing or amendment credit). `> 0` blocks `completed` until issued (migration 112) |
+| refund_issued_at | TIMESTAMPTZ | When the agent refund was paid out ("Mark refund issued"); NULL = still owed (migration 112) |
+| refund_issued_by | UUID | Who marked the refund issued (migration 112) |
 | gross_commission | NUMERIC(12,2) | Commission before brokerage split |
 | brokerage_split_pct | numeric | Whole-number percent (5 = 5%); do not multiply by 100 |
+| brokerage_flat_fee | NUMERIC(12,2) NOT NULL default 0 | Optional flat brokerage fee deducted in addition to the split: `net = gross*(1-split/100) - flat_fee`. Per-deal, captured at submission (migration 110) |
 | discount_fee | NUMERIC(12,2) | Primary advance fee |
 | settlement_period_fee | NUMERIC(12,2) | Flat non-refundable settlement fee (migration 039) |
 | settlement_days_at_funding | integer | Snapshot of brokerage settlement window at funding (migration 047) |
@@ -700,5 +705,9 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 106_informational_deal_ledger_entries.sql | `deal_advance`/`deal_repayment` ledger types + `record_agent_statement_entry` RPC (balance-neutral statement entries). Additive |
 | 107_bca_path_welcome_deposit_auth.sql | `brokerages.bca_signed_pdf_path` (storage path of the signed BCA so it is viewable/downloadable), `user_profiles.welcomed_at` (first-login greeting flag), `agents.deposit_authorized_at` + `agents.deposit_authorized_by` (mandatory deposit-authorization consent during agent onboarding). Additive; all nullable |
 | 108_deal_numbers.sql | `deals.deal_number` (UNIQUE, nullable) + `deals.submitted_at`; `deal_number_counters` per-day sequence table (RLS on, no policies); `assign_deal_number()` SECURITY DEFINER trigger function + `trg_assign_deal_number` BEFORE INSERT OR UPDATE OF status trigger; backfill of existing non-offered deals. Additive |
+| 109_signwell_webhook_events.sql | SignWell webhook event de-dup table (e-signature provider cutover). Additive |
+| 110_brokerage_flat_fee.sql | `deals.brokerage_flat_fee` (NUMERIC, NOT NULL, default 0) — optional flat brokerage fee deducted in addition to `brokerage_split_pct` (`net = gross*(1-split/100) - flat_fee`). Per-deal, captured at submission. Additive; default 0 leaves all existing deals unchanged |
+| 111_checklist_multi_document.sql | `underwriting_checklist.linked_document_ids` (UUID[], NOT NULL, default `'{}'`) — lets multiple documents attach per checklist line. The scalar `linked_document_id` is retained for the auto-link channel (signed contracts/KYC); the UI shows the union. No FK cascade (app prunes deleted ids). Additive |
+| 112_deal_refund_tracking.sql | `deals.refund_owed_amount` (NUMERIC, NOT NULL, default 0), `deals.refund_issued_at` (TIMESTAMPTZ), `deals.refund_issued_by` (UUID); adds `refund_issued` to the `agent_transactions` type CHECK. A deal with `refund_owed_amount > 0` (early-closing/amendment credit) is blocked from `completed` until "Mark refund issued" pays the agent and zeroes it. Backfills `refund_owed_amount` from `discount_refund_amount` on live early-closed deals. Additive |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.
