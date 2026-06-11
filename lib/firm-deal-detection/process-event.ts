@@ -32,6 +32,7 @@ import {
   type BrokerageMatchContext,
   type EventMatchResult,
 } from './match-agents'
+import { shouldHoldForCommission, type CommissionColumnMapping } from './commission-hold-rules'
 
 export interface ProcessEventOptions {
   /** Reuse a context across many events at the same brokerage. */
@@ -83,8 +84,11 @@ export interface ProcessEventOptions {
 // write site (here, dispatch-notification.ts, firm-deal-review-actions.ts) so
 // the DB never holds an invalid row.
 const FIRM_DEAL_EVENT_TRANSITIONS: Record<string, string[]> = {
-  new: ['parsed', 'errored', 'duplicate', 'unmatched', 'awaiting_approval', 'approved'],
-  parsed: ['unmatched', 'awaiting_approval', 'approved', 'errored'],
+  new: ['parsed', 'errored', 'duplicate', 'unmatched', 'awaiting_approval', 'approved', 'commission_hold'],
+  parsed: ['unmatched', 'awaiting_approval', 'approved', 'commission_hold', 'errored'],
+  // Parked one poll cycle waiting for the brokerage to enter a commission, then
+  // released by the poller (commission-hold.ts) to the normal send path.
+  commission_hold: ['awaiting_approval', 'approved', 'rejected', 'errored'],
   unmatched: ['awaiting_approval', 'approved', 'rejected', 'errored'],
   awaiting_approval: ['approved', 'rejected', 'errored'],
   approved: ['offer_sent', 'errored'],
@@ -119,7 +123,7 @@ function warnIfInvalidTransition(from: string, to: string, where: string): void 
 
 export interface ProcessEventResult {
   event_id: string
-  outcome: 'parsed_and_dispatched' | 'duplicate' | 'unmatched' | 'rejected' | 'awaiting_approval' | 'skipped' | 'errored'
+  outcome: 'parsed_and_dispatched' | 'duplicate' | 'unmatched' | 'rejected' | 'awaiting_approval' | 'commission_hold' | 'skipped' | 'errored'
   message?: string
   parsed?: ParsedFirmDeal
   match?: EventMatchResult
@@ -196,7 +200,7 @@ export async function processFirmDealEvent(
     .eq('brokerage_id', e.brokerage_id)
     .eq('deal_hash', e.deal_hash)
     .neq('id', eventId)
-    .in('status', ['parsed', 'unmatched', 'awaiting_approval', 'approved', 'offer_sent', 'rejected'])
+    .in('status', ['parsed', 'unmatched', 'commission_hold', 'awaiting_approval', 'approved', 'offer_sent', 'rejected'])
     .order('received_at', { ascending: true })
     .limit(1)
   if (dupErr) {
@@ -242,6 +246,26 @@ export async function processFirmDealEvent(
     if (autoFire) finalStatus = 'approved'
   }
 
+  // Commission hold (2026-06-11): a matched deal that WOULD send but has a
+  // closing date, no commission yet, and a pipe that DOES carry commission
+  // columns is parked one poll cycle so the brokerage can enter the figure and
+  // the agent gets the richer Tier C offer. The poller's release pass
+  // (commission-hold.ts) re-reads the row next cycle and sends regardless of
+  // whether the commission showed up. Co-agent splits and date-less deals are
+  // excluded inside shouldHoldForCommission (no Tier C upside to wait for).
+  const willSend = finalStatus === 'approved' || finalStatus === 'awaiting_approval'
+  if (
+    willSend &&
+    shouldHoldForCommission({
+      parsed,
+      columnMapping: (e.raw_payload as { column_mapping?: CommissionColumnMapping } | null)
+        ?.column_mapping,
+      coAgentSplit: match.co_agent_split,
+    })
+  ) {
+    finalStatus = 'commission_hold'
+  }
+
   // Side-aware writes. listing_matched_agent_id is set only when the
   // listing side resolved to a single enrolled agent (kind === 'agent');
   // same for selling. Teams (kind === 'team') don't fit a single column
@@ -282,6 +306,9 @@ export async function processFirmDealEvent(
     second_matched_agent_id: secondaryAgentId,
     co_agent_split: match.co_agent_split,
   }
+  if (finalStatus === 'commission_hold') {
+    updateFields.commission_hold_since = new Date().toISOString()
+  }
 
   const { error: updErr } = await supabase
     .from('firm_deal_events')
@@ -292,7 +319,8 @@ export async function processFirmDealEvent(
   }
 
   let outcome: ProcessEventResult['outcome']
-  if (finalStatus === 'approved') outcome = 'parsed_and_dispatched'
+  if (finalStatus === 'commission_hold') outcome = 'commission_hold'
+  else if (finalStatus === 'approved') outcome = 'parsed_and_dispatched'
   else if (match.recommended_status === 'awaiting_approval') outcome = 'awaiting_approval'
   else if (match.recommended_status === 'unmatched') outcome = 'unmatched'
   else outcome = 'rejected'

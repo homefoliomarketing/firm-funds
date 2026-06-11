@@ -33,13 +33,44 @@ A row that appears in both Conditional and a month tab is treated as month-tab (
 
 `processFirmDealEvent()` is the orchestrator. It is idempotent (only processes `new` or `errored` rows). It parses, dedups against existing events sharing the same `deal_hash`, then calls `matchEvent()` to resolve both agent cells, and finally transitions the event's status. Its own state machine (`FIRM_DEAL_EVENT_TRANSITIONS`) is:
 
-`new -> parsed | unmatched | awaiting_approval | approved | duplicate | errored`, then `awaiting_approval -> approved | rejected | errored`, then `approved -> offer_sent | errored`. `rejected`, `duplicate`, and `offer_sent` are terminal.
+`new -> parsed | unmatched | commission_hold | awaiting_approval | approved | duplicate | errored`, then `commission_hold -> awaiting_approval | approved | rejected | errored`, then `awaiting_approval -> approved | rejected | errored`, then `approved -> offer_sent | errored`. `rejected`, `duplicate`, and `offer_sent` are terminal. (`commission_hold` is the one-cycle wait for a missing commission, below.)
+
+### Stage 3.5: hold one cycle for a missing commission (`commission-hold.ts`)
+
+A deal often goes firm in the sheet a little before the brokerage types in the commission. To get the agent the richer Tier C offer (real dollar figures) more often, the processor parks such an event for exactly one poll cycle instead of sending immediately. `shouldHoldForCommission()` parks the event in `status='commission_hold'` (stamping `commission_hold_since`) when ALL of:
+
+- it matched and would otherwise send (`awaiting_approval` or `approved`),
+- it has a closing date (no date means no Tier C upside to wait for),
+- the pipe's `column_mapping` actually carries a commission column (so a commission CAN still appear), and
+- no commission amount is parsed on either side yet, and it is not a co-agent split.
+
+The release happens on the **next** poll, inside `pollSpreadsheetPipe` (`releaseCommissionHoldsForPipe`), reusing the fresh sheet rows the poller already read that cycle. The held row is re-found by its stable `row_identity_hash` (the hash keys off MLS or address+closing date, so adding a commission cell does not change it) and the commission column is re-read deterministically (`parseMoneyCell`). The event is then released to the normal send path (`approved` for auto-fire pipes, `awaiting_approval` for manual ones), **whether or not** the commission showed up, so an offer is never held more than one cycle.
+
+The one-cycle wait is guaranteed two ways: the poller runs Stage 1 (poll + release) before Stage 2 (process new events, where a fresh hold is created), and the release ignores holds younger than `HOLD_MIN_MINUTES` (10) so a manual re-trigger cannot cut it short. A global `releaseStaleCommissionHolds` sweep (Stage 1.5 in the poller) releases any hold older than `HOLD_STALE_MINUTES` (25) left behind by a pipe that was disabled mid-hold, so nothing gets stuck. Holds are skipped for co-agent splits and date-less deals (no Tier C benefit). Both the park and the release are audit-logged (`firm_deal.commission_hold_released`).
 
 ### Stage 4: dispatch the offer (cron `firm-deal-dispatcher`)
 
 The dispatcher picks up `approved` events and sends the offer to the matched agent by email and/or SMS, moving the event to `offer_sent`. Auto-fire is per pipe: when `brokerage_pipes.auto_fire_enabled` is false (the Phase 1 default), a matched event lands in `awaiting_approval` for a human to approve; when true, it goes straight to `approved` and dispatches automatically.
 
 **Re-send.** An admin can re-fire the email + SMS for an already-sent offer from the Firm Deal Review page (the "Re-send" button on `offer_sent` rows under Recently resolved), via `resendFirmDealOffer()` -> `dispatchFirmDealNotification(eventId, supabase, { resend: true })`. Each Recently-resolved row is clickable and expands to show what was on the deal before it was sent (the resolved listing/selling agents, the commission figures pulled from the sheet, closing date, MLS, and parser notes) via the shared `EventSideSummary` / `EventCommissionSummary` components. Resend mode skips the approved-status and already-sent guards, mints a fresh magic link, and deliberately leaves the event's status and `email_sent_at` / `sms_sent_at` untouched, so `offer_sent` stays terminal and a failed re-send can never downgrade the event back to `errored`.
+
+### The offer email + SMS (payment-choice framing)
+
+The outbound email (`render-email.ts`) and SMS (`render-sms.ts`) are tiered by how much we know about the deal at send time, via `pickAgentVariant()` in `offer-estimate.ts`:
+
+| Variant | We know | Framing |
+| --- | --- | --- |
+| `sparse` (Tier A) | address only | "We spotted a possible deal, confirm it's yours." |
+| `sparse_with_date` (Tier B) | address + closing date | "Wait for closing, or get paid today" (no dollar figures). |
+| `detailed` (Tier C) | address + closing date + this side's gross commission | The full **payment chooser** (below). |
+| `dual_agency` | same agent both sides | Generic "both sides, both commissions." |
+
+**The chooser (Tier C only).** When we have the commission and a closing date, the email asks **"How would you like to get paid?"** and presents two options side by side:
+
+- **Wait for closing** - the gross commission, paid on the closing date, labelled "nothing to do." This is the default: if the agent ignores the offer, their commission simply lands at closing the usual way (paid by their brokerage, not Firm Funds). It is informational, **not** a button.
+- **Get paid today \*** - the pre-split advance (`estimateAdvanceFromGross`), styled as the prominent green CTA. This is the **only** actionable path; tapping it runs the sign-in -> accept flow (§5). The asterisk footnotes "we aim to fund every approved advance within 24 hours."
+
+Both figures are quoted **before the brokerage split** (we do not know the agent's office split at offer time), so a single "Amounts shown before your brokerage split" line covers them and the comparison stays apples-to-apples. The SMS mirrors this by naming both figures in one line ("Take $X at closing (Aug 13) or about $Y today, before splits:"); it has no buttons, so the link is the call to action. Nothing about the redesign changes deal mechanics - it is presentation only.
 
 ### Link preview (white-label Open Graph card)
 

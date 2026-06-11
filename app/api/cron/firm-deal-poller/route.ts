@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { pollSpreadsheetPipe, type SpreadsheetPipeConfig } from '@/lib/firm-deal-detection/poll-spreadsheet'
 import { processAllNewEvents } from '@/lib/firm-deal-detection/process-event'
+import { releaseStaleCommissionHolds } from '@/lib/firm-deal-detection/commission-hold'
 import { dispatchApprovedEvents } from '@/lib/firm-deal-detection/dispatch-notification'
 import { validateCronAuth } from '@/lib/cron-auth'
 
@@ -97,12 +98,25 @@ export async function GET(request: Request) {
           rows_seen: 0,
           rows_new_firm: 0,
           rows_carried_over: 0,
+          holds_released: 0,
           first_poll: false,
         })
       }
     }
 
     const pollErrors = results.reduce((n, r) => n + (r.errors?.length || 0), 0)
+
+    // ---- Stage 1.5: safety net for commission holds left behind by a pipe
+    // that was disabled while holding events (its per-pipe release in
+    // pollSpreadsheetPipe only runs while the pipe is enabled). Releases any
+    // hold older than HOLD_STALE_MINUTES with whatever was parsed. Enabled
+    // pipes already released their due holds above; this is just the backstop.
+    let staleHolds: Record<string, unknown> = { released: 0 }
+    try {
+      staleHolds = await releaseStaleCommissionHolds(supabase)
+    } catch (err) {
+      staleHolds = { error: err instanceof Error ? err.message : 'unknown error' }
+    }
 
     // ---- Stage 2: parse + match every status='new' event (folded-in
     // processor). Runs after polling has persisted last_poll_state, so a slow
@@ -135,6 +149,7 @@ export async function GET(request: Request) {
     await markRun(supabase, runId, outcome, {
       pipes: pipes.length,
       results,
+      stale_holds: staleHolds,
       process: processResult,
       dispatch: dispatchResult,
     })
@@ -143,6 +158,7 @@ export async function GET(request: Request) {
       message: 'firm-deal-poller complete',
       pipes: pipes.length,
       results,
+      stale_holds: staleHolds,
       process: processResult,
       dispatch: dispatchResult,
     })

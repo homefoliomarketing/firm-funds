@@ -26,6 +26,7 @@ import {
   type ColumnLetterMap,
 } from './row-hash'
 import { computeDealHash } from './deal-hash'
+import { releaseCommissionHoldsForPipe } from './commission-hold'
 
 export interface SpreadsheetPipeConfig {
   sheet_id: string
@@ -63,6 +64,8 @@ interface PollResult {
   rows_seen: number
   rows_new_firm: number
   rows_carried_over: number
+  /** Commission holds from a prior cycle released this poll (commission-hold.ts). */
+  holds_released: number
   errors: string[]
   first_poll: boolean
 }
@@ -85,6 +88,7 @@ export async function pollSpreadsheetPipe(
       rows_seen: 0,
       rows_new_firm: 0,
       rows_carried_over: 0,
+      holds_released: 0,
       errors: ['Invalid pipe config: needs sheet_id, conditional_tab, tabs_to_watch'],
       first_poll: false,
     }
@@ -215,12 +219,27 @@ export async function pollSpreadsheetPipe(
     .eq('id', pipe.id)
   if (stateErr) errors.push(`update brokerage_pipes: ${stateErr.message}`)
 
+  // Release commission holds parked on a PRIOR cycle, re-reading each held row's
+  // commission from the fresh snapshot we already have in hand. A hold created
+  // later in THIS run (Stage 2 of the poller) is untouched: it is younger than
+  // HOLD_MIN_MINUTES and Stage 1 runs before Stage 2, so it waits for the next
+  // run. See commission-hold.ts.
+  let holdsReleased = 0
+  try {
+    const rel = await releaseCommissionHoldsForPipe(supabase, pipe.id, currentRowByHash)
+    holdsReleased = rel.released
+    for (const e of rel.errors) errors.push(e)
+  } catch (err) {
+    errors.push(`release commission holds: ${err instanceof Error ? err.message : 'unknown'}`)
+  }
+
   return {
     pipe_id: pipe.id,
     brokerage_id: pipe.brokerage_id,
     rows_seen: rowsSeen,
     rows_new_firm: isFirstPoll ? 0 : detected.length,
     rows_carried_over: prior ? Object.keys(prior).length : 0,
+    holds_released: holdsReleased,
     errors,
     first_poll: isFirstPoll,
   }

@@ -332,6 +332,7 @@ async function sendForOneAgent(
     brand_name: ctx.pipe.brand_name,
     cta_url,
     closing_date_human: formatClosingDateHuman(parsed?.closing_date_iso ?? null),
+    closing_date_iso: parsed?.closing_date_iso ?? null,
     variant,
     commission_amount,
     advance_estimate,

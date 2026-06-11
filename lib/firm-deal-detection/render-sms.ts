@@ -25,6 +25,9 @@ export interface SmsRenderInput {
   /** Optional human-readable closing date (e.g. "June 30, 2026"). Only used
    *  by variant='sparse_with_date'. */
   closing_date_human?: string | null
+  /** Optional ISO closing date ("YYYY-MM-DD"). The 'detailed' two-option line
+   *  formats this to a short "Aug 13" to keep the SMS tight. */
+  closing_date_iso?: string | null
   variant: 'sparse' | 'sparse_with_date' | 'dual_agency' | 'detailed'
   /** Gross commission for this agent's side, pre-split. Only used by
    *  variant='detailed'. */
@@ -85,6 +88,19 @@ function formatMoneyShort(amount: number | null | undefined): string {
   return '$' + rounded.toLocaleString('en-CA')
 }
 
+// "2026-08-13" -> "Aug 13". Short on purpose: the detailed SMS already quotes
+// two dollar figures + a URL, so we keep the date abbreviated to save segments.
+function formatShortDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return null
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const month = months[parseInt(m[2], 10) - 1]
+  if (!month) return null
+  return `${month} ${parseInt(m[3], 10)}`
+}
+
 export function renderTriggerSms(input: SmsRenderInput): RenderedSms {
   const first = input.agent_first_name || 'there'
   const address = input.property_address || 'your recent deal'
@@ -102,17 +118,24 @@ export function renderTriggerSms(input: SmsRenderInput): RenderedSms {
     input.advance_estimate &&
     input.advance_estimate > 0
   ) {
-    // Tier C: quote the advance estimate. We drop the commission line to
-    // keep under 160 chars; the email shows both numbers, the SMS focuses
-    // on the actionable advance figure.
+    // Tier C: outline BOTH money options so the agent sees the choice, the
+    // same way the email does: the gross commission at closing vs the pre-split
+    // advance today. Two figures + a short date push this past 160 chars (2
+    // segments), which is fine for a firm-deal offer worth thousands.
     //
-    // "About" instead of "~" because the tilde isn't in basic GSM-7 and
-    // forces the message into UCS-2 (70-char segments instead of 160).
+    // "about" instead of "~" because the tilde isn't in basic GSM-7 and forces
+    // the message into UCS-2 (70-char segments instead of 160). "before splits"
+    // is the required disclosure and covers both figures.
     const advance = formatMoneyShort(input.advance_estimate)
-    intro = `Hi ${first}, your ${address} deal went firm. About ${advance} could be yours today (before splits):`
+    const commission = formatMoneyShort(input.commission_amount)
+    const shortDate = formatShortDate(input.closing_date_iso)
+    intro = shortDate
+      ? `Hi ${first}, your ${address} deal went firm. Take ${commission} at closing (${shortDate}) or about ${advance} today, before splits:`
+      : `Hi ${first}, your ${address} deal went firm. Take ${commission} at closing or about ${advance} today, before splits:`
   } else if (input.variant === 'sparse_with_date' && input.closing_date_human) {
-    // Tier B: timing is confirmed, push the agent to request an advance.
-    intro = `Hi ${first}, your deal at ${address} closes ${input.closing_date_human}. Request an advance:`
+    // Tier B: timing is confirmed but no dollar figure. Frame the same choice
+    // without numbers: wait for closing, or get paid today.
+    intro = `Hi ${first}, your deal at ${address} closes ${input.closing_date_human}. Get paid then, or get paid today:`
   } else if (input.variant === 'sparse') {
     // Tier A: we may have only loosely matched. Ask the agent to confirm.
     // Kept short so the brand prefix + CTA URL still leave room for the

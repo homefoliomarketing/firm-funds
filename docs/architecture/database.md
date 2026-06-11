@@ -317,9 +317,10 @@ Every raw event ingested by a pipe; one row per detected deal trigger.
 | parsed | JSONB | AI parser extract |
 | parser_confidence | TEXT (CHECK) | `high`, `medium`, `low` |
 | deal_hash | TEXT | sha256(normalized_address + closing_date + price_bucket) for dedup |
-| status | TEXT (CHECK) | `new`, `parsed`, `duplicate`, `unmatched`, `awaiting_approval`, `approved`, `offer_sent`, `rejected`, `errored` |
+| status | TEXT (CHECK) | `new`, `parsed`, `duplicate`, `unmatched`, `commission_hold`, `awaiting_approval`, `approved`, `offer_sent`, `rejected`, `errored` (`commission_hold` added migration 115) |
 | matched_agent_id / second_matched_agent_id | UUID FK agents | Up to two agents (dual-side or co-agent split) |
 | co_agent_split | BOOLEAN (default false) | True when both matched agents share one side, e.g. "Kyle/Tricia" (migration 097) |
+| commission_hold_since | TIMESTAMPTZ | When a matched, dateful, commission-less deal was parked one poll cycle to wait for the brokerage to enter the commission; NULL once released (migration 115) |
 | offer_deal_id / second_offer_deal_id | UUID FK deals | Linked advance deal(s) once an offer is created |
 | email_sent_at / sms_sent_at / nudge_email_sent_at / nudge_sms_sent_at | TIMESTAMPTZ | Dispatch tracking |
 | reviewed_by / reviewed_at | UUID / TIMESTAMPTZ | Manual review trail |

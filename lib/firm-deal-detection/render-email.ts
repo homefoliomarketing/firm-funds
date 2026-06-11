@@ -201,6 +201,62 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
             <div style="font-size:12px; opacity:0.85; margin-top:3px; font-weight:400;">${tagline}</div>
           </td>`
 
+  // ----- Two-option payment chooser (Tier C only) ---------------------------
+  // When we know BOTH this agent's gross commission AND the closing date we
+  // can quote two real figures: "wait for closing" (the gross commission, paid
+  // the usual way) and "get paid today" (the pre-split advance). We frame them
+  // as an explicit choice. Option A is the do-nothing default (the commission
+  // lands at closing on its own, so it is informational, not clickable).
+  // Option B is the ONLY actionable path: tapping it starts the advance. The
+  // asterisk on "today" footnotes our 24h funding aim. Both figures are
+  // pre-split, so one "before your brokerage split" line covers them honestly.
+  const isChooser =
+    input.variant === 'detailed' &&
+    input.commission_amount != null && input.commission_amount > 0 &&
+    input.advance_estimate != null && input.advance_estimate > 0 &&
+    !!closingHuman
+
+  const commissionStr = escapeHtml(formatMoney(input.commission_amount))
+  const advanceStr = escapeHtml(formatMoney(input.advance_estimate))
+  const closingStr = escapeHtml(closingHuman ?? '')
+
+  const chooserBlock = `
+            <p style="font-size:19px; font-weight:700; color:#1a2e1d; margin:6px 0 4px 0; text-align:center; letter-spacing:-0.01em;">How would you like to get paid?</p>
+            <p style="font-size:14px; color:#6a766e; margin:0 0 22px 0; text-align:center;">Two ways to collect your commission on this deal.</p>
+            <div style="background:#fafbfa; border:1px solid #dce4df; border-radius:11px; padding:18px 22px; text-align:center; margin:0 0 8px 0;">
+              <span style="display:block; font-size:11px; color:#8a958c; margin:0 0 6px 0; text-transform:uppercase; letter-spacing:0.1em; font-weight:700;">Wait for closing</span>
+              <span style="display:block; font-size:28px; font-weight:800; color:#1a2e1d; line-height:1.05; letter-spacing:-0.01em;">${commissionStr}</span>
+              <span style="display:block; font-size:13px; color:#6a766e; margin-top:6px;">paid <span style="font-weight:600; color:#3a473e;">${closingStr}</span> &middot; nothing to do</span>
+            </div>
+            <div style="text-align:center; color:#aab2ab; font-size:11px; margin:6px 0; text-transform:uppercase; letter-spacing:0.18em; font-weight:600;">or</div>
+            <a href="${cta}" style="display:block; text-decoration:none; background:linear-gradient(180deg,#f1f9f3 0%,#e4f1e8 100%); border:2px solid #5FA873; border-radius:11px; padding:20px 22px; text-align:center; margin:6px 0 0 0;">
+              <span style="display:block; font-size:11px; color:#3d8055; margin:0 0 6px 0; text-transform:uppercase; letter-spacing:0.1em; font-weight:800;">Get paid today *</span>
+              <span style="display:block; font-size:36px; font-weight:800; color:#2f7a4d; line-height:1.0; letter-spacing:-0.015em;">${advanceStr}</span>
+              <span style="display:block; font-size:13px; color:#3d8055; margin-top:6px; font-weight:600;">funded to your account</span>
+            </a>
+            <p style="font-size:12px; color:#9aa49b; margin:14px 2px 24px 2px; text-align:center; line-height:1.5;">* We aim to fund every approved advance within 24 hours. Amounts shown before your brokerage split.</p>`
+
+  // Everything between the intro paragraph and the footer. Tier C swaps in the
+  // chooser; every other variant keeps the original single-hero layout so
+  // nothing regresses for the sparse / dual-agency tiers.
+  const midBlock = isChooser
+    ? `${chooserBlock}
+            <p style="font-size:14px; color:#555; margin:18px 0 22px 0; text-align:center;">You're already onboarded, so getting paid today only takes a few steps.</p>
+            <div style="text-align:center; margin:6px 0 4px 0;">
+              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 40px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">Get paid today &rarr;</a>
+            </div>`
+    : `${commissionCallout}
+            <p style="font-size:15px; color:#4a4a4a; margin:0 0 12px 0; text-align:center;">${altOption}</p>
+            <div style="text-align:center; color:#aaa; font-size:11px; margin:14px 0 12px 0; text-transform:uppercase; letter-spacing:0.18em;">or</div>
+            <a href="${cta}" style="display:block; text-decoration:none; background:linear-gradient(180deg,#f0f8f2 0%,#e6f3ea 100%); border:2px solid #5FA873; border-radius:10px; padding:26px 20px; text-align:center; margin:4px 0 28px 0;">
+              <span style="display:block; font-size:34px; font-weight:800; color:#3d8055; line-height:1.1; letter-spacing:-0.01em;">Get paid <span style="color:#5FA873;">TODAY</span></span>
+              ${todayLabel ? `<span style="display:block; font-size:13px; color:#5a7a64; margin-top:8px; font-weight:500;">${escapeHtml(todayLabel)}</span>` : ''}
+            </a>
+            <p style="font-size:14px; color:#555; margin:0 0 26px 0; text-align:center;">You're already onboarded, so you're only a few steps away from getting paid.</p>
+            <div style="text-align:center; margin:20px 0 8px 0;">
+              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 40px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
+            </div>`
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -220,17 +276,7 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
           <td style="padding:32px 36px 28px 36px; line-height:1.55;">
             <p style="font-size:16px; margin:0 0 16px 0; color:#1a2e1d;">Hi ${firstName},</p>
             <p style="font-size:16px; margin:0 0 28px 0; color:#222;">${intro}</p>
-${commissionCallout}
-            <p style="font-size:15px; color:#4a4a4a; margin:0 0 12px 0; text-align:center;">${altOption}</p>
-            <div style="text-align:center; color:#aaa; font-size:11px; margin:14px 0 12px 0; text-transform:uppercase; letter-spacing:0.18em;">or</div>
-            <a href="${cta}" style="display:block; text-decoration:none; background:linear-gradient(180deg,#f0f8f2 0%,#e6f3ea 100%); border:2px solid #5FA873; border-radius:10px; padding:26px 20px; text-align:center; margin:4px 0 28px 0;">
-              <span style="display:block; font-size:34px; font-weight:800; color:#3d8055; line-height:1.1; letter-spacing:-0.01em;">Get paid <span style="color:#5FA873;">TODAY</span></span>
-              ${todayLabel ? `<span style="display:block; font-size:13px; color:#5a7a64; margin-top:8px; font-weight:500;">${escapeHtml(todayLabel)}</span>` : ''}
-            </a>
-            <p style="font-size:14px; color:#555; margin:0 0 26px 0; text-align:center;">You're already onboarded, so you're only a few steps away from getting paid.</p>
-            <div style="text-align:center; margin:20px 0 8px 0;">
-              <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 40px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
-            </div>
+${midBlock}
           </td>
         </tr>
         <tr>
@@ -256,25 +302,42 @@ ${commissionCallout}
     '',
     textIntro,
   ]
-  if (input.variant === 'detailed' && input.commission_amount && input.commission_amount > 0) {
-    textLines.push('')
-    textLines.push(`Gross commission: ${formatMoney(input.commission_amount)}`)
-    if (input.advance_estimate && input.advance_estimate > 0) {
-      textLines.push(`Estimated advance today: ${formatMoney(input.advance_estimate)} (less brokerage splits)`)
+  if (isChooser) {
+    textLines.push(
+      '',
+      'How would you like to get paid?',
+      '',
+      `1) Wait for closing: ${formatMoney(input.commission_amount)} on ${closingHuman}. Your commission the usual way, nothing to do.`,
+      '',
+      `2) Get paid today: ${formatMoney(input.advance_estimate)}, funded to your account. We aim to fund every approved advance within 24 hours.`,
+      '',
+      'Amounts shown before your brokerage split.',
+      '',
+      `Get paid today: ${cta}`,
+      '',
+      `${input.brand_name} - ${input.brand_tagline}`,
+    )
+  } else {
+    if (input.variant === 'detailed' && input.commission_amount && input.commission_amount > 0) {
+      textLines.push('')
+      textLines.push(`Gross commission: ${formatMoney(input.commission_amount)}`)
+      if (input.advance_estimate && input.advance_estimate > 0) {
+        textLines.push(`Estimated advance today: ${formatMoney(input.advance_estimate)} (less brokerage splits)`)
+      }
     }
+    textLines.push(
+      '',
+      closingHuman
+        ? `Would you like to wait until ${closingHuman} to receive your commission, or get paid TODAY?`
+        : `Would you like to wait weeks for your commission, or get paid TODAY?`,
+      '',
+      `You're already onboarded, so you're only a few steps away from getting paid.`,
+      '',
+      `${ctaLabel}: ${cta}`,
+      '',
+      `${input.brand_name} - ${input.brand_tagline}`,
+    )
   }
-  textLines.push(
-    '',
-    closingHuman
-      ? `Would you like to wait until ${closingHuman} to receive your commission, or get paid TODAY?`
-      : `Would you like to wait weeks for your commission, or get paid TODAY?`,
-    '',
-    `You're already onboarded, so you're only a few steps away from getting paid.`,
-    '',
-    `${ctaLabel}: ${cta}`,
-    '',
-    `${input.brand_name} - ${input.brand_tagline}`,
-  )
   const text = textLines.join('\n')
 
   return { subject, html, text }
