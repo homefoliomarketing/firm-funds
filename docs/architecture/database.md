@@ -1,6 +1,6 @@
 # Firm Funds Database Architecture
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 This document describes the Supabase Postgres data layer for Firm Funds: the tables, status enums, stored procedures, Row Level Security model, and the full migration history that produced the schema.
 
@@ -200,6 +200,8 @@ The trigger increments the day's row via an `INSERT ... ON CONFLICT (date_key) D
 | last_strike_reset_at | timestamptz | Last admin strike reset (migration 047). Internal |
 | settlement_days_override | integer | Optional manual settlement-window override (migration 047). Internal |
 | email_notifications_enabled | BOOLEAN (default true) | Outbound-email kill switch; operational/legal emails bypass it (migration 092) |
+| firm_deal_email_enabled | BOOLEAN (NOT NULL, default true) | Per-brokerage firm-deal EMAIL channel switch (migration 114). When false, suppresses the agent offer email + the brokerage submit-reminder/2h-nudge + the agent decline notice. The 4h internal Firm Funds escalation is NOT gated. Separate from `email_notifications_enabled` (the firm-deal dispatchers do not consult that master switch). Surfaced on the admin firm-deal pipe page |
+| firm_deal_sms_enabled | BOOLEAN (NOT NULL, default true) | Per-brokerage firm-deal TEXT/SMS channel switch (migration 114). When false, suppresses Twilio SMS offers to this brokerage's agents |
 
 Note: the late-strike columns and the override are internal and excluded from `BROKERAGE_PUBLIC_COLUMNS` (`lib/constants.ts`). Non-admin queries must use that column allowlist rather than `select('*')`.
 
@@ -709,5 +711,7 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 110_brokerage_flat_fee.sql | `deals.brokerage_flat_fee` (NUMERIC, NOT NULL, default 0) — optional flat brokerage fee deducted in addition to `brokerage_split_pct` (`net = gross*(1-split/100) - flat_fee`). Per-deal, captured at submission. Additive; default 0 leaves all existing deals unchanged |
 | 111_checklist_multi_document.sql | `underwriting_checklist.linked_document_ids` (UUID[], NOT NULL, default `'{}'`) — lets multiple documents attach per checklist line. The scalar `linked_document_id` is retained for the auto-link channel (signed contracts/KYC); the UI shows the union. No FK cascade (app prunes deleted ids). Additive |
 | 112_deal_refund_tracking.sql | `deals.refund_owed_amount` (NUMERIC, NOT NULL, default 0), `deals.refund_issued_at` (TIMESTAMPTZ), `deals.refund_issued_by` (UUID); adds `refund_issued` to the `agent_transactions` type CHECK. A deal with `refund_owed_amount > 0` (early-closing/amendment credit) is blocked from `completed` until "Mark refund issued" pays the agent and zeroes it. Backfills `refund_owed_amount` from `discount_refund_amount` on live early-closed deals. Additive |
+| 113_brokerage_payments_junction_rls.sql | `brokerage_payments` RLS SELECT/INSERT policies now honor the `brokerage_admins` junction (migrations 087/098), not just the legacy `user_profiles.brokerage_id`, matching `deal_documents` (migration 095). Uses `is_user_brokerage_admin_of()` to stay recursion-safe (094). Access only widens to a brokerage the user actually administers (fail-closed). RLS only |
+| 114_brokerage_firm_deal_notification_channels.sql | `brokerages.firm_deal_email_enabled` + `brokerages.firm_deal_sms_enabled` (both BOOLEAN, NOT NULL, default true) — per-brokerage on/off for the firm-deal EMAIL and TEXT channels. The email flag gates the agent offer email + the brokerage submit-reminder/2h-nudge + the decline notice (NOT the 4h internal escalation); the SMS flag gates Twilio offers to the brokerage's agents. Read by both firm-deal dispatchers. Additive; default true preserves behaviour |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

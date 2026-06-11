@@ -93,6 +93,14 @@ interface DispatchContext {
     logo_url: string | null
     logo_includes_tagline: boolean | null
   }
+  /** Per-brokerage firm-deal channel toggles (migration 114). When a channel
+   *  is disabled the matching send is skipped with status 'skipped_disabled'.
+   *  Defaults to enabled when the brokerage row is missing so a lookup miss
+   *  can never silently swallow an offer. */
+  channels: {
+    email_enabled: boolean
+    sms_enabled: boolean
+  }
   /** Recipients to fan out to. Always at least one (the primary). For
    *  co-agent splits and dual-agency-with-distinct-agents, two entries. */
   recipients: AgentRecord[]
@@ -202,7 +210,7 @@ export async function dispatchFirmDealNotification(
       .in('id', agentIds),
     supabase
       .from('brokerages')
-      .select('logo_url, logo_includes_tagline')
+      .select('logo_url, logo_includes_tagline, firm_deal_email_enabled, firm_deal_sms_enabled')
       .eq('id', event.brokerage_id)
       .maybeSingle(),
   ])
@@ -232,6 +240,12 @@ export async function dispatchFirmDealNotification(
     branding: {
       logo_url: brokerageRow?.logo_url ?? null,
       logo_includes_tagline: brokerageRow?.logo_includes_tagline ?? null,
+    },
+    channels: {
+      // Only an explicit `false` suppresses a channel. A missing brokerage row
+      // (lookup miss) leaves both enabled so we never silently swallow an offer.
+      email_enabled: brokerageRow?.firm_deal_email_enabled !== false,
+      sms_enabled: brokerageRow?.firm_deal_sms_enabled !== false,
     },
     recipients,
   }
@@ -323,12 +337,20 @@ async function sendForOneAgent(
     advance_estimate,
   })
 
-  const [emailResult, smsResult] = await Promise.all([
-    sendEmail(agent.email, email),
-    agent.phone
+  // Per-brokerage channel toggles (migration 114). A disabled channel is
+  // skipped with status 'skipped_disabled' so the aggregate + audit log show
+  // WHY it didn't send (vs. a missing address/phone). If a brokerage disables
+  // both channels the event still resolves to 'errored' with a clear
+  // per-channel summary, surfacing the misconfiguration to the admin.
+  const emailPromise: Promise<ChannelResult> = ctx.channels.email_enabled
+    ? sendEmail(agent.email, email)
+    : Promise.resolve({ status: 'skipped_disabled' })
+  const smsPromise: Promise<ChannelResult> = !ctx.channels.sms_enabled
+    ? Promise.resolve({ status: 'skipped_disabled' })
+    : agent.phone
       ? sendSms({ to: agent.phone, body: sms.body })
-      : Promise.resolve({ status: 'skipped_no_phone' as const, message_sid: undefined, error: undefined }),
-  ])
+      : Promise.resolve({ status: 'skipped_no_phone' })
+  const [emailResult, smsResult] = await Promise.all([emailPromise, smsPromise])
 
   // Audit log: capture which tier (A/B/C) we picked and how each channel
   // resolved. Best-effort; failures here don't block the actual send result.

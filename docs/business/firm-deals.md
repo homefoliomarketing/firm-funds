@@ -1,6 +1,6 @@
 # Firm Deals (Proactive Offer Detection)
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 This document describes how Firm Funds detects a real estate deal becoming firm, matches it to an enrolled agent, and turns it into a proactive commission advance offer.
 
@@ -116,3 +116,12 @@ This cron runs hourly over every `offered` deal **whose `agent_self_submit_at` i
 | 60 days | Auto-expire: flip the offer to `cancelled` with an "expired automatically" reason | (status change) |
 
 The 60-day expiry takes priority and short-circuits the nudges. The cron is protected by a `CRON_SECRET` bearer header and is idempotent per hour via `cron_run_log`. A manual nudge fired by the agent stamps `brokerage_nudge_2h_at`, so it supersedes the automated 2-hour nudge for that deal.
+
+## 7. Per-brokerage notification channels (migration 114)
+
+Each brokerage has two independent switches, `firm_deal_email_enabled` and `firm_deal_sms_enabled` (both default on), set on the admin firm-deal pipe page under **Notification channels**. They let a brokerage take emails but no texts, texts but no emails, or both.
+
+- **Email switch off** suppresses every brokerage-facing firm-deal email: the agent offer email, the 2-hour brokerage nudge (§6), and the agent decline notice. It does **not** suppress the 4-hour internal Firm Funds escalation — that is our own ops alert and always fires, so a stalled deal still reaches us (in fact, a brokerage with email off will more often hit the 4h escalation, which is the intended safety net).
+- **SMS switch off** suppresses the Twilio offer texts to that brokerage's agents.
+
+The agent-side dispatcher skips a disabled channel with status `skipped_disabled` (visible in the audit log). If a brokerage turns **both** channels off, the agent gets no offer notification and the event resolves to `errored` with a per-channel summary, surfacing the misconfiguration in the admin queue. These switches are separate from the master `email_notifications_enabled` kill switch (migration 092), which the firm-deal dispatchers do not consult. Source: `lib/firm-deal-detection/dispatch-notification.ts` (agent offers) and `dispatch-brokerage-offer.ts` (brokerage emails); written via `setBrokerageFirmDealChannels` in `lib/actions/firm-deal-pipe-actions.ts`.

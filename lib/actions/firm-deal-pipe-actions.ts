@@ -153,6 +153,12 @@ export interface ExistingPipeSummary {
   brokerage_email: string | null
   /** Broker of record email if one is on file (toggle whether to include). */
   broker_of_record_email: string | null
+  /** Per-brokerage firm-deal notification channel toggles (migration 114).
+   *  Govern whether this brokerage's firm-deal EMAIL / TEXT notifications go
+   *  out at all. Stored on the brokerages row, surfaced here for the settings
+   *  card on the pipe page. */
+  firm_deal_email_enabled: boolean
+  firm_deal_sms_enabled: boolean
   /** Per-pipe recipient config: BoR toggle + free-form extra emails. */
   notification_recipients: NotificationRecipientsConfig
 }
@@ -186,7 +192,7 @@ export async function getBrokerageForPipeWizard(input: {
 
   const { data: brokerage, error: bErr } = await supabase
     .from('brokerages')
-    .select('id, name, email, broker_of_record_email')
+    .select('id, name, email, broker_of_record_email, firm_deal_email_enabled, firm_deal_sms_enabled')
     .eq('id', input.brokerageId)
     .is('deleted_at', null)
     .single()
@@ -243,6 +249,9 @@ export async function getBrokerageForPipeWizard(input: {
       column_mapping: config.column_mapping ?? {},
       brokerage_email: brokerage.email ?? null,
       broker_of_record_email: brokerage.broker_of_record_email ?? null,
+      // Default-true so a brokerage row predating migration 114 reads as "on".
+      firm_deal_email_enabled: brokerage.firm_deal_email_enabled !== false,
+      firm_deal_sms_enabled: brokerage.firm_deal_sms_enabled !== false,
       notification_recipients,
     }
   }
@@ -549,6 +558,75 @@ export async function setPipeNotificationRecipients(input: {
   })
 
   return { success: true, data: recipients }
+}
+
+// ============================================================================
+// setBrokerageFirmDealChannels
+//
+// Per-brokerage on/off switches for the EMAIL and TEXT (SMS) firm-deal
+// notification channels (migration 114). Lets a brokerage opt out of texts but
+// keep emails, etc. Stored on the brokerages row and read by both firm-deal
+// dispatchers (dispatch-notification.ts for agent offers, dispatch-brokerage
+// -offer.ts for the brokerage submit reminders). The 4h internal Firm Funds
+// escalation deliberately ignores the email flag.
+// ============================================================================
+export async function setBrokerageFirmDealChannels(input: {
+  brokerageId: string
+  emailEnabled: boolean
+  smsEnabled: boolean
+}): Promise<ActionResult<{ firm_deal_email_enabled: boolean; firm_deal_sms_enabled: boolean }>> {
+  const auth = await getAuthenticatedCapable('pipe.config')
+  if (auth.error) return { success: false, error: auth.error }
+  if (!input.brokerageId) return { success: false, error: 'Missing brokerage id.' }
+
+  const emailEnabled = !!input.emailEnabled
+  const smsEnabled = !!input.smsEnabled
+
+  const supabase = createServiceRoleClient()
+
+  // Snapshot prior values for the audit trail (old -> new).
+  const { data: prior } = await supabase
+    .from('brokerages')
+    .select('firm_deal_email_enabled, firm_deal_sms_enabled')
+    .eq('id', input.brokerageId)
+    .maybeSingle()
+
+  const { data, error } = await supabase
+    .from('brokerages')
+    .update({ firm_deal_email_enabled: emailEnabled, firm_deal_sms_enabled: smsEnabled })
+    .eq('id', input.brokerageId)
+    .select('firm_deal_email_enabled, firm_deal_sms_enabled')
+    .single()
+  if (error || !data) {
+    return { success: false, error: error?.message ?? 'Failed to update notification channels.' }
+  }
+
+  await logAuditEvent({
+    action: 'firm_deal_pipe.notification_channels_updated',
+    entityType: 'brokerage',
+    entityId: input.brokerageId,
+    oldValue: prior
+      ? {
+          firm_deal_email_enabled: prior.firm_deal_email_enabled,
+          firm_deal_sms_enabled: prior.firm_deal_sms_enabled,
+        }
+      : undefined,
+    newValue: { firm_deal_email_enabled: emailEnabled, firm_deal_sms_enabled: smsEnabled },
+    metadata: {
+      brokerage_id: input.brokerageId,
+      firm_deal_email_enabled: emailEnabled,
+      firm_deal_sms_enabled: smsEnabled,
+      updated_by_user_id: auth.user?.id ?? null,
+    },
+  })
+
+  return {
+    success: true,
+    data: {
+      firm_deal_email_enabled: data.firm_deal_email_enabled,
+      firm_deal_sms_enabled: data.firm_deal_sms_enabled,
+    },
+  }
 }
 
 export async function setPipeAutoFire(input: {

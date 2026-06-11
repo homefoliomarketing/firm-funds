@@ -91,7 +91,7 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
   // Agent + brokerage + (optional) pipe brand for the white-label header.
   const [agentRes, brokerageRes, eventRes] = await Promise.all([
     supabase.from('agents').select('id, first_name, last_name, email, phone').eq('id', deal.agent_id).maybeSingle(),
-    supabase.from('brokerages').select('id, name, email, phone, broker_of_record_email').eq('id', deal.brokerage_id).maybeSingle(),
+    supabase.from('brokerages').select('id, name, email, phone, broker_of_record_email, firm_deal_email_enabled').eq('id', deal.brokerage_id).maybeSingle(),
     deal.offered_event_id
       ? supabase.from('firm_deal_events').select('brokerage_pipe_id, parsed, listing_matched_agent_id, selling_matched_agent_id, matched_agent_id, second_matched_agent_id, co_agent_split').eq('id', deal.offered_event_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
@@ -166,7 +166,7 @@ async function loadContext(supabase: SupabaseClient, dealId: string) {
   }
 
   const agent = agentRes.data as { id: string; first_name: string | null; last_name: string | null; email: string | null; phone: string | null }
-  const brokerage = brokerageRes.data as { id: string; name: string; email: string; phone: string | null; broker_of_record_email: string | null }
+  const brokerage = brokerageRes.data as { id: string; name: string; email: string; phone: string | null; broker_of_record_email: string | null; firm_deal_email_enabled: boolean }
 
   return {
     deal: deal as {
@@ -361,6 +361,15 @@ async function dispatchBrokerageVariant(
     return { deal_id: dealId, outcome: 'errored', recipients: [], error: ctx.error }
   }
 
+  // Per-brokerage firm-deal EMAIL toggle (migration 114). When off, suppress
+  // the brokerage-facing offer + nudge emails. Returns 'skipped' (not
+  // 'errored') so the acceptance/nudge callers treat it as a clean no-op and
+  // don't enqueue a retry. The 4h internal Firm Funds escalation is a separate
+  // path that deliberately ignores this flag.
+  if (ctx.brokerage.firm_deal_email_enabled === false) {
+    return { deal_id: dealId, outcome: 'skipped', recipients: [], error: 'Firm-deal emails are disabled for this brokerage.' }
+  }
+
   const recipients = recipientsForBrokerage(ctx.brokerage, ctx.pipe_recipients)
   if (recipients.length === 0) {
     return { deal_id: dealId, outcome: 'skipped', recipients: [], error: 'No recipients on brokerage record.' }
@@ -454,6 +463,13 @@ export async function sendAgentDeclineNotification(
   const ctx = await loadContext(supabase, dealId)
   if ('error' in ctx) {
     return { deal_id: dealId, outcome: 'errored', recipients: [], error: ctx.error }
+  }
+
+  // Per-brokerage firm-deal EMAIL toggle (migration 114). The decline notice is
+  // a firm-deal email, so it honors the same switch; the agent still sees the
+  // decline + reason inline on the offered-deal page when email is off.
+  if (ctx.brokerage.firm_deal_email_enabled === false) {
+    return { deal_id: dealId, outcome: 'skipped', recipients: [], error: 'Firm-deal emails are disabled for this brokerage.' }
   }
 
   if (!ctx.agent.email) {

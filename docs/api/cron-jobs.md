@@ -80,6 +80,8 @@ For each `deals` row in `status='offered'` **with `agent_self_submit_at` null** 
 
 Each side effect is gated by its timestamp so it fires at most once. Caps at 200 rows per run. Source: `app/api/cron/firm-deal-offer-nudges/route.ts`.
 
+The 2-hour brokerage nudge also respects the brokerage's `firm_deal_email_enabled` toggle (migration 114): when firm-deal email is off for that brokerage the nudge send is skipped (and its stamp is not written, so it is not consumed). The 4-hour internal escalation deliberately ignores the toggle and always fires.
+
 ### `/api/cron/remediation-overdue-escalation`
 
 Daily sweep over `remediation_deals` that are `status='idp_signed'` and older than 14 days (payment expected but not remitted or cancelled). Bumps each row's `escalation_level` by one, then sends a single digest email (never one per row) to the Firm Funds inbox listing every overdue row. Email failures are written to `cron_email_failures` so the retry cron picks them up. Source: `app/api/cron/remediation-overdue-escalation/route.ts`.

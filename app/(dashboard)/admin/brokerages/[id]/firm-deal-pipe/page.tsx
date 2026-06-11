@@ -9,10 +9,13 @@ import {
   ArrowLeft,
   ArrowRight,
   BarChart3,
+  Bell,
   CheckCircle2,
   ClipboardCopy,
   Inbox,
   Loader2,
+  Mail,
+  MessageSquare,
   Send,
   Sparkles,
   XCircle,
@@ -29,6 +32,7 @@ import {
   getBrokerageForPipeWizard,
   getPipeStatistics,
   getServiceAccountEmail,
+  setBrokerageFirmDealChannels,
   setPipeAutoFire,
   setPipeNotificationRecipients,
   type ExistingPipeSummary,
@@ -570,6 +574,12 @@ function ExistingPipeView({ pipe, brokerageId, brokerageName }: {
         validatedEvents={stats?.validated_events_lifetime ?? null}
       />
 
+      <FirmDealChannelToggleCard
+        brokerageId={pipe.brokerage_id}
+        initialEmail={pipe.firm_deal_email_enabled}
+        initialSms={pipe.firm_deal_sms_enabled}
+      />
+
       <NotificationRecipientsCard
         pipeId={pipe.pipe_id}
         brokerageEmail={pipe.brokerage_email}
@@ -943,6 +953,120 @@ function NotificationRecipientsCard({
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />}
             Save recipients
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// Firm-deal notification channels (migration 114) — per-brokerage on/off for
+// the EMAIL and TEXT (SMS) channels. Independent switches so a brokerage can
+// keep emails but silence texts (or vice versa). Writes the two flags on the
+// brokerages row via setBrokerageFirmDealChannels; both default on.
+// ----------------------------------------------------------------------------
+function FirmDealChannelToggleCard({
+  brokerageId,
+  initialEmail,
+  initialSms,
+}: {
+  brokerageId: string
+  initialEmail: boolean
+  initialSms: boolean
+}) {
+  const [emailEnabled, setEmailEnabled] = useState(initialEmail)
+  const [smsEnabled, setSmsEnabled] = useState(initialSms)
+  const [saved, setSaved] = useState({ email: initialEmail, sms: initialSms })
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const dirty = emailEnabled !== saved.email || smsEnabled !== saved.sms
+
+  async function handleSave() {
+    setSaving(true)
+    setStatus(null)
+    const res = await setBrokerageFirmDealChannels({ brokerageId, emailEnabled, smsEnabled })
+    setSaving(false)
+    if (!res.success || !res.data) {
+      setStatus({ type: 'error', text: res.error ?? 'Failed to save.' })
+      return
+    }
+    setEmailEnabled(res.data.firm_deal_email_enabled)
+    setSmsEnabled(res.data.firm_deal_sms_enabled)
+    setSaved({ email: res.data.firm_deal_email_enabled, sms: res.data.firm_deal_sms_enabled })
+    setStatus({ type: 'success', text: 'Saved. New firm deals will use these channels.' })
+  }
+
+  return (
+    <Card>
+      <CardContent className="py-4 px-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Bell className="h-5 w-5 mt-0.5 text-muted-foreground" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Notification channels</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              How firm-deal offers reach this brokerage and its agents. Turn either channel off independently.
+            </p>
+          </div>
+        </div>
+
+        {/* Email toggle */}
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-border/40 px-3 py-3">
+          <div className="flex items-start gap-2.5 flex-1 min-w-0">
+            <Mail className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Email</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Agent offer emails plus the brokerage submit reminder and the 2-hour nudge. The 4-hour internal Firm Funds escalation still fires regardless.
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={emailEnabled}
+            onCheckedChange={setEmailEnabled}
+            aria-label="Send firm-deal email notifications for this brokerage"
+          />
+        </div>
+
+        {/* Text / SMS toggle */}
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-border/40 px-3 py-3">
+          <div className="flex items-start gap-2.5 flex-1 min-w-0">
+            <MessageSquare className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Text (SMS)</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Text-message offers to this brokerage&apos;s agents who have a mobile number on file.
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={smsEnabled}
+            onCheckedChange={setSmsEnabled}
+            aria-label="Send firm-deal text message notifications for this brokerage"
+          />
+        </div>
+
+        {!emailEnabled && !smsEnabled && (
+          <p className="text-[11px] flex items-start gap-1.5 text-status-amber">
+            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />
+            Both channels are off. Agents won&apos;t be notified about new firm deals for this brokerage — offers will only show in the admin queue.
+          </p>
+        )}
+
+        {status && (
+          <p className={`text-xs flex items-start gap-1.5 ${status.type === 'success' ? 'text-emerald-400' : 'text-destructive'}`}>
+            {status.type === 'success'
+              ? <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />
+              : <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />}
+            {status.text}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end">
+          <Button onClick={handleSave} disabled={!dirty || saving} size="sm">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />}
+            Save channels
           </Button>
         </div>
       </CardContent>

@@ -101,6 +101,10 @@ export async function GET(request: Request) {
     const neverNotified: string[] = []
     let nudged2h = 0
     let escalated4h = 0
+    // Intentional non-sends (e.g. a brokerage with firm-deal email toggled off,
+    // migration 114, or no recipients on file). Tracked apart from `errored` so
+    // a deliberately-muted brokerage never marks the run partial_success.
+    let skipped = 0
     let errored = 0
     const errors: Array<{ id: string; message?: string }> = []
 
@@ -151,6 +155,7 @@ export async function GET(request: Request) {
         ) {
           const r = await sendInternalEscalation4h(supabase, row.id)
           if (r.outcome === 'sent') escalated4h++
+          else if (r.outcome === 'skipped') skipped++
           else {
             errored++
             errors.push({ id: row.id, message: `escalate_4h: ${r.error}` })
@@ -166,6 +171,10 @@ export async function GET(request: Request) {
         ) {
           const r = await sendBrokerageOfferNudge2h(supabase, row.id)
           if (r.outcome === 'sent') nudged2h++
+          // 'skipped' = brokerage muted firm-deal email (migration 114) or has
+          // no recipients on file. Not an error, and we deliberately leave
+          // brokerage_nudge_2h_at unstamped so re-enabling email still nudges.
+          else if (r.outcome === 'skipped') skipped++
           else {
             errored++
             errors.push({ id: row.id, message: `nudge_2h: ${r.error}` })
@@ -185,6 +194,7 @@ export async function GET(request: Request) {
       expired_60d: expired.length,
       never_notified: neverNotified.length,
       never_notified_ids: neverNotified.slice(0, 25),
+      skipped,
       errored,
       errors: errors.slice(0, 10),
     })
@@ -196,6 +206,7 @@ export async function GET(request: Request) {
       escalated_4h: escalated4h,
       expired_60d: expired.length,
       never_notified: neverNotified.length,
+      skipped,
       errored,
     })
   } catch (err) {
