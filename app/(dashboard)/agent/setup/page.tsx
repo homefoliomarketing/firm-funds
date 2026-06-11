@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, Circle, Landmark, Shield, User, ArrowRight, Loader2 } from 'lucide-react'
+import { CheckCircle, Circle, Landmark, Shield, User, ArrowRight, Loader2, Clock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import AgentHeader from '@/components/AgentHeader'
 import AgentKycGate from '@/components/AgentKycGate'
@@ -35,7 +35,7 @@ interface AgentForSetup {
   brokerages?: { name: string; logo_url: string | null;  logo_includes_tagline?: boolean | null; brand_color: string | null; is_white_label_partner: boolean } | null
 }
 
-type StepKey = 'kyc' | 'banking' | 'done'
+type SetupState = 'filling' | 'pending' | 'activated'
 
 export default function AgentSetupPage() {
   const router = useRouter()
@@ -198,13 +198,26 @@ export default function AgentSetupPage() {
     )
   }
 
-  // Determine current step
-  const kycDone = agent?.kyc_status === 'verified'
-  const bankingDone = agent?.banking_approval_status === 'approved'
+  // Setup happens in a single sitting: the agent can complete ID verification
+  // AND banking at the same time, then waits for one approval pass. Three
+  // top-level states drive the page:
+  //   'filling'   — at least one of ID / banking still needs the agent's action
+  //   'pending'   — both submitted, nothing left to do, awaiting approval
+  //   'activated' — fully approved (kyc verified AND banking approved)
+  const kycVerified = agent?.kyc_status === 'verified'
+  const kycInReview = agent?.kyc_status === 'submitted'
+  const kycNeedsAction = !kycVerified && !kycInReview // pending / rejected
+  const bankingApproved = agent?.banking_approval_status === 'approved'
   const bankingSubmitted = agent?.banking_approval_status === 'pending'
+  const bankingNeedsAction = !bankingApproved && !bankingSubmitted // none / rejected
   const preauthUploaded = !!agent?.preauth_form_path
 
-  const currentStep: StepKey = !kycDone ? 'kyc' : !bankingDone ? 'banking' : 'done'
+  const setupState: SetupState =
+    kycVerified && bankingApproved
+      ? 'activated'
+      : !kycNeedsAction && !bankingNeedsAction
+        ? 'pending'
+        : 'filling'
 
   return (
     <div className="min-h-screen bg-background">
@@ -221,64 +234,80 @@ export default function AgentSetupPage() {
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         {/* Header */}
         <div className="mb-6 text-center">
-          {brokerage?.logo_url && (
-            <div className="flex items-center justify-center gap-3 mb-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={brokerage.logo_url} alt={brokerage.name} className="h-10 w-auto rounded bg-muted/30 p-1" />
-              <span className="text-xs text-muted-foreground">Powered by Firm Funds</span>
-            </div>
-          )}
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Activate your account</h1>
           <p className="text-sm text-muted-foreground mt-2">
             Complete these two quick steps so {brokerage?.name || 'your brokerage'} can submit commission advances on your behalf.
           </p>
         </div>
 
-        {/* Progress bar */}
+        {/* Progress bar — ID and Banking are both live in one sitting */}
         <div className="mb-8">
           <ol className="flex items-center justify-between gap-2" aria-label="Setup progress">
-            <li className={`flex-1 flex items-center gap-2 ${currentStep === 'kyc' ? 'text-foreground' : 'text-muted-foreground'}`}>
-              {kycDone ? <CheckCircle className="h-5 w-5 text-primary shrink-0" /> : <Circle className={`h-5 w-5 shrink-0 ${currentStep === 'kyc' ? 'text-primary' : ''}`} />}
+            <li className="flex-1 flex items-center gap-2 text-foreground">
+              {kycVerified ? <CheckCircle className="h-5 w-5 text-primary shrink-0" /> : <Circle className="h-5 w-5 shrink-0 text-primary" />}
               <span className="text-xs sm:text-sm font-semibold">1. ID Verification</span>
             </li>
             <div className="h-px flex-1 bg-border" aria-hidden="true" />
-            <li className={`flex-1 flex items-center gap-2 ${currentStep === 'banking' ? 'text-foreground' : 'text-muted-foreground'}`}>
-              {bankingDone ? <CheckCircle className="h-5 w-5 text-primary shrink-0" /> : <Circle className={`h-5 w-5 shrink-0 ${currentStep === 'banking' ? 'text-primary' : ''}`} />}
+            <li className="flex-1 flex items-center gap-2 text-foreground">
+              {bankingApproved ? <CheckCircle className="h-5 w-5 text-primary shrink-0" /> : <Circle className="h-5 w-5 shrink-0 text-primary" />}
               <span className="text-xs sm:text-sm font-semibold">2. Banking</span>
             </li>
             <div className="h-px flex-1 bg-border" aria-hidden="true" />
-            <li className={`flex-1 flex items-center gap-2 ${currentStep === 'done' ? 'text-foreground' : 'text-muted-foreground'}`}>
-              {currentStep === 'done' ? <CheckCircle className="h-5 w-5 text-primary shrink-0" /> : <Circle className="h-5 w-5 shrink-0" />}
+            <li className={`flex-1 flex items-center gap-2 ${setupState !== 'filling' ? 'text-foreground' : 'text-muted-foreground'}`}>
+              {setupState === 'activated' ? <CheckCircle className="h-5 w-5 text-primary shrink-0" /> : <Circle className={`h-5 w-5 shrink-0 ${setupState === 'pending' ? 'text-primary' : ''}`} />}
               <span className="text-xs sm:text-sm font-semibold">3. Done</span>
             </li>
           </ol>
         </div>
 
-        {/* Step content */}
-        {currentStep === 'kyc' && agent && (
-          <Card className="border-border/50">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <Shield className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Verify your identity</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <AgentKycGate agent={agent} onKycSubmitted={() => refreshAgent()} />
-            </CardContent>
-          </Card>
-        )}
-
-        {currentStep === 'banking' && (
+        {/* Step content — ID and banking are both available in one sitting */}
+        {setupState === 'filling' && (
           <div className="space-y-6">
-            <Card className="border-border/50">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <Landmark className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-lg">Banking details</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            {/* 1. Identity verification */}
+            {kycVerified ? (
+              <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="p-5 flex items-center gap-3">
+                  <CheckCircle className="h-6 w-6 text-primary shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Identity verified</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Your government-issued ID has been approved.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : agent ? (
+              <Card className="border-border/50">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <Shield className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-lg">Verify your identity</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <AgentKycGate agent={agent} onKycSubmitted={() => refreshAgent()} />
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {/* 2. Banking */}
+            {bankingApproved ? (
+              <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="p-5 flex items-center gap-3">
+                  <CheckCircle className="h-6 w-6 text-primary shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Banking approved</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Your direct deposit details are on file.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-border/50">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <Landmark className="h-5 w-5 text-primary" />
+                    <CardTitle className="text-lg">Banking details</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
                   We need your direct deposit info to send funded advances and your pre-authorized debit form for repayments.
                 </p>
@@ -372,10 +401,28 @@ export default function AgentSetupPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
         )}
 
-        {currentStep === 'done' && (
+        {setupState === 'pending' && (
+          <Card className="border-primary/40 bg-primary/5">
+            <CardContent className="p-8 text-center">
+              <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-primary/15 flex items-center justify-center">
+                <Clock className="h-7 w-7 text-primary" />
+              </div>
+              <h2 className="text-xl font-bold text-foreground mb-2">You&apos;re all set</h2>
+              <p className="text-sm text-muted-foreground mb-2">
+                We&apos;re reviewing your ID and banking details and will email you once your account is approved.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Nothing else is needed from you right now. You can close this page.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {setupState === 'activated' && (
           <Card className="border-primary/40 bg-primary/5">
             <CardContent className="p-8 text-center">
               <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-primary/15 flex items-center justify-center">
@@ -393,7 +440,7 @@ export default function AgentSetupPage() {
         )}
 
         {/* Activation status footnote */}
-        {currentStep !== 'done' && (
+        {setupState !== 'activated' && (
           <p className="text-xs text-muted-foreground text-center mt-6">
             Status:&nbsp;
             <span className="inline-flex items-center gap-1">
