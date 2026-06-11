@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { checkApiRateLimit } from '@/lib/rate-limit'
+import { VALID_KYC_DOCUMENT_TYPE_VALUES } from '@/lib/constants'
 
 // Step 1: Generate signed upload URLs so the client can upload directly to Supabase
 // (No files touch Netlify — just a tiny JSON request/response)
@@ -146,6 +147,15 @@ export async function PUT(request: Request) {
     if (claimErr || !claimedToken) {
       return NextResponse.json(
         { success: false, error: 'Token already used or expired' },
+        { status: 400 }
+      )
+    }
+
+    // Reject any document type that isn't a known FINTRAC ID type instead of
+    // persisting an arbitrary client-supplied string into kyc_document_type.
+    if (!(VALID_KYC_DOCUMENT_TYPE_VALUES as readonly string[]).includes(documentType)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid document type' },
         { status: 400 }
       )
     }

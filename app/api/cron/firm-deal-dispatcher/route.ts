@@ -1,5 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { dispatchFirmDealNotification } from '@/lib/firm-deal-detection/dispatch-notification'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 const JOB_NAME = 'firm_deal_dispatcher'
 
@@ -24,15 +25,8 @@ const JOB_NAME = 'firm_deal_dispatcher'
 const MAX_ROWS_PER_RUN = 50
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    console.error('[firm-deal-dispatcher] CRON_SECRET not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   const supabase = createServiceRoleClient()
 

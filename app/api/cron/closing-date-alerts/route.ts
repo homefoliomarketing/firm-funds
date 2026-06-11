@@ -1,9 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { sendClosingDateAlertDigest, sendSettlementReminderClosingDay, sendSettlementReminderPaymentCheckIn } from '@/lib/email'
-import { autoChargeMonthlyLatePaymentInterest, autoChargeMonthlyFailedDealInterest } from '@/lib/actions/account-actions'
+import { runMonthlyLatePaymentInterest, runMonthlyFailedDealInterest } from '@/lib/late-interest-jobs'
 import { SETTLEMENT_PERIOD_DAYS } from '@/lib/constants'
 import { logAuditEventServiceRole } from '@/lib/audit'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 const JOB_NAME = 'closing_date_alerts'
 
@@ -25,17 +26,8 @@ const JOB_NAME = 'closing_date_alerts'
 const APPROACHING_DAYS_THRESHOLD = 7 // Alert for deals closing within 7 days
 
 export async function GET(request: Request) {
-  // Verify cron secret — fail closed if not configured
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('[cron] CRON_SECRET env var not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   // Use service role client to bypass RLS
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -301,7 +293,7 @@ export async function GET(request: Request) {
     // on the first daily run after a month boundary crosses.
     // =======================================================================
 
-    const lateInterestResult = await autoChargeMonthlyLatePaymentInterest()
+    const lateInterestResult = await runMonthlyLatePaymentInterest()
 
     // Mark deals past the 30-day late-interest grace as overdue
     // (closing_date + 30 days < today). Earlier than the grace, they're still
@@ -323,7 +315,7 @@ export async function GET(request: Request) {
     //    run after a month boundary crosses)
     // =======================================================================
 
-    const failedDealInterestResult = await autoChargeMonthlyFailedDealInterest()
+    const failedDealInterestResult = await runMonthlyFailedDealInterest()
 
     const partialFailure = failures.length > 0
     const details = {

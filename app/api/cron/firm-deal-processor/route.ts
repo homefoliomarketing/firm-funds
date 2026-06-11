@@ -1,5 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { processNewEventsForBrokerage } from '@/lib/firm-deal-detection/process-event'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 const JOB_NAME = 'firm_deal_processor'
 
@@ -23,15 +24,8 @@ const JOB_NAME = 'firm_deal_processor'
 // =============================================================================
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    console.error('[firm-deal-processor] CRON_SECRET not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   const supabase = createServiceRoleClient()
 

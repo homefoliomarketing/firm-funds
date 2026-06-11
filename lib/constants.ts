@@ -260,6 +260,11 @@ export const KYC_DOCUMENT_TYPES = [
   { value: 'citizenship_card', label: 'Canadian Citizenship Card' },
 ] as const
 
+/** The acceptable `value`s for agents.kyc_document_type. Used to reject an
+ *  arbitrary client-supplied string from being persisted into the FINTRAC
+ *  compliance field on the KYC upload paths. */
+export const VALID_KYC_DOCUMENT_TYPE_VALUES = KYC_DOCUMENT_TYPES.map(t => t.value)
+
 /** Agent KYC statuses */
 export const KYC_STATUSES = {
   PENDING: 'pending',

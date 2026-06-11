@@ -2,7 +2,7 @@
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { logAuditEvent } from '@/lib/audit'
-import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
+import { MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, VALID_KYC_DOCUMENT_TYPE_VALUES } from '@/lib/constants'
 import { sendKycMobileUploadLink, sendKycApprovedNotification } from '@/lib/email'
 import { randomBytes } from 'crypto'
 import { getAuthenticatedCapable } from '@/lib/auth-helpers'
@@ -142,6 +142,9 @@ export async function submitAgentKyc(formData: FormData): Promise<ActionResult> 
 
     if (!files || files.length === 0) return { success: false, error: 'No files provided' }
     if (!documentType) return { success: false, error: 'Document type is required' }
+    if (!(VALID_KYC_DOCUMENT_TYPE_VALUES as readonly string[]).includes(documentType)) {
+      return { success: false, error: 'Invalid document type' }
+    }
 
     // Validate all files
     for (const file of files) {
@@ -615,6 +618,9 @@ export async function submitKycViaMobileToken(formData: FormData): Promise<Actio
 
     if (!files || files.length === 0) return { success: false, error: 'No files provided' }
     if (!documentType) return { success: false, error: 'Document type is required' }
+    if (!(VALID_KYC_DOCUMENT_TYPE_VALUES as readonly string[]).includes(documentType)) {
+      return { success: false, error: 'Invalid document type' }
+    }
 
     for (const file of files) {
       if (file.size > MAX_KYC_UPLOAD_SIZE_BYTES) {

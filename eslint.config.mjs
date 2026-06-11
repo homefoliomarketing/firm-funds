@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local Netlify build output (gitignored). These generated, multi-hundred-KB
+    // serverless bundles are not source; linting them OOMs eslint and is
+    // meaningless. Without this, `npm run lint` crashes (heap out of memory).
+    ".netlify/**",
   ]),
 ]);
 

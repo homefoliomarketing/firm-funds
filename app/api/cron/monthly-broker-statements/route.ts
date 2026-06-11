@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { sendMonthlyBrokerStatement } from '@/lib/email'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 // =============================================================================
 // GET /api/cron/monthly-broker-statements
@@ -25,17 +26,8 @@ const JOB_NAME = 'monthly_broker_statements'
 const PERIOD_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
 
 export async function GET(request: Request) {
-  // Auth via CRON_SECRET — fail closed if not configured
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('[cron/monthly-broker-statements] CRON_SECRET env var not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY

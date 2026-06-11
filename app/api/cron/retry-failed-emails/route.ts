@@ -10,6 +10,7 @@ import {
   sendAgentDeclineNotification,
   sendBrokerageOfferNotification,
 } from '@/lib/firm-deal-detection/dispatch-brokerage-offer'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 const JOB_NAME = 'retry_failed_emails'
 const RETRY_INTERVAL_MINUTES = 15
@@ -72,15 +73,8 @@ interface RetryOutcome {
 }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    console.error('[retry-failed-emails] CRON_SECRET not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   const supabase = createServiceRoleClient()
 

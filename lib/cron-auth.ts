@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 
 /**
  * Validates the Authorization header on a cron route.
@@ -25,7 +26,7 @@ import { NextRequest, NextResponse } from 'next/server'
  * the misconfiguration surfaces immediately rather than silently allowing
  * every caller through (or silently rejecting every caller).
  */
-export function validateCronAuth(req: NextRequest): NextResponse | null {
+export function validateCronAuth(req: Request): NextResponse | null {
   const secret = process.env.CRON_SECRET
   if (!secret) {
     console.error('[cron-auth] CRON_SECRET env var not configured')
@@ -34,8 +35,12 @@ export function validateCronAuth(req: NextRequest): NextResponse | null {
       { status: 500 }
     )
   }
-  const header = req.headers.get('authorization')
-  if (header !== `Bearer ${secret}`) {
+  const header = req.headers.get('authorization') ?? ''
+  const expected = `Bearer ${secret}`
+  const a = Buffer.from(header)
+  const b = Buffer.from(expected)
+  const ok = a.length === b.length && timingSafeEqual(a, b)
+  if (!ok) {
     console.warn('[cron-auth] Invalid or missing Authorization header')
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

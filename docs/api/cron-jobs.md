@@ -1,6 +1,6 @@
 # Cron Jobs
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-11_
 
 This document describes every scheduled `/api/cron/*` endpoint: what it processes, how it is authenticated, and the recommended firing cadence.
 
@@ -44,9 +44,11 @@ The main daily lifecycle job. In one run it:
 1. Builds and emails an admin digest of deals that are approaching close (within 7 days) or overdue.
 2. Recomputes `days_until_closing` on active deals via the `recompute_active_deal_days_until_closing` RPC.
 3. Sends settlement-period reminders to agents and brokerages: a closing-day reminder on the closing date and a softer post-deadline payment check-in once the per-deal settlement window has lapsed (uses `settlement_days_at_funding`, which is 7 standard or 14 for bumped brokerages).
-4. Posts monthly late-payment interest (24% p.a. compounded daily, starting day 31 after closing) via `autoChargeMonthlyLatePaymentInterest()`.
+4. Posts monthly late-payment interest (24% p.a. compounded daily, starting day 31 after closing) via `runMonthlyLatePaymentInterest()` (from `lib/late-interest-jobs.ts`).
 5. Flags funded deals past the 30-day grace as `payment_status='overdue'`.
-6. Posts monthly failed-deal interest (CPA 5.3) via `autoChargeMonthlyFailedDealInterest()`.
+6. Posts monthly failed-deal interest (CPA 5.3) via `runMonthlyFailedDealInterest()` (from `lib/late-interest-jobs.ts`).
+
+The two interest posters live in `lib/late-interest-jobs.ts`, a server-only module that deliberately omits the `'use server'` directive so the money-moving job bodies can never be reached as unauthenticated Server Actions. This cron reaches them after its `CRON_SECRET` gate; the only Server-Action entry points are the `money.write`-gated wrappers `autoChargeMonthlyLatePaymentInterest()` / `autoChargeMonthlyFailedDealInterest()` in `lib/actions/account-actions.ts`, which require Owner.
 
 Per-iteration failures are collected rather than thrown, so interest posting still runs even if some emails fail; the run is then marked `partial_success`. Source: `app/api/cron/closing-date-alerts/route.ts`.
 

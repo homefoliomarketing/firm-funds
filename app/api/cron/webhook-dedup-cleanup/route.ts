@@ -1,4 +1,5 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 const JOB_NAME = 'webhook_dedup_cleanup'
 
@@ -22,15 +23,8 @@ const JOB_NAME = 'webhook_dedup_cleanup'
 // =============================================================================
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    console.error('[webhook-dedup-cleanup] CRON_SECRET not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   const supabase = createServiceRoleClient()
 

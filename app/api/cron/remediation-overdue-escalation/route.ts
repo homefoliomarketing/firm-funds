@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { validateCronAuth } from '@/lib/cron-auth'
 
 const JOB_NAME = 'remediation_overdue_escalation'
 const OVERDUE_THRESHOLD_DAYS = 14
@@ -36,15 +37,8 @@ interface OverdueRow {
 }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) {
-    console.error('[remediation-overdue-escalation] CRON_SECRET not configured')
-    return Response.json({ error: 'Cron not configured' }, { status: 500 })
-  }
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauth = validateCronAuth(request)
+  if (unauth) return unauth
 
   const supabase = createServiceRoleClient()
 

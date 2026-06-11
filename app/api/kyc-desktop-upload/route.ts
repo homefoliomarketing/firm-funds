@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkApiRateLimit } from '@/lib/rate-limit'
+import { VALID_KYC_DOCUMENT_TYPE_VALUES } from '@/lib/constants'
 
 // ============================================================================
 // Desktop KYC Upload — Signed URL Pattern
@@ -112,6 +113,12 @@ export async function PUT(request: Request) {
       if (typeof p !== 'string' || !p.startsWith(expectedPrefix)) {
         return NextResponse.json({ error: 'Invalid file path' }, { status: 400 })
       }
+    }
+
+    // Reject unknown document types instead of writing an arbitrary client
+    // string into the agents.kyc_document_type compliance field.
+    if (!(VALID_KYC_DOCUMENT_TYPE_VALUES as readonly string[]).includes(documentType)) {
+      return NextResponse.json({ error: 'Invalid document type' }, { status: 400 })
     }
 
     const serviceClient = createServiceRoleClient()

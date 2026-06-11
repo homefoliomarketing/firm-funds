@@ -5,11 +5,14 @@ import { getAuthenticatedUser, getAuthenticatedCapable } from '@/lib/auth-helper
 import { logAuditEvent } from '@/lib/audit'
 import {
   calculateLateInterest,
-  calculateCompoundDailyInterest,
-  failedDealAccrualStartDate,
   lateInterestAccrualStartDate,
 } from '@/lib/calculations'
 import { LATE_INTEREST_RATE_PER_ANNUM } from '@/lib/constants'
+import {
+  runMonthlyLatePaymentInterest,
+  runMonthlyFailedDealInterest,
+  type MonthlyInterestRunResult,
+} from '@/lib/late-interest-jobs'
 import {
   sendDocumentReturnNotification,
   sendDealMessageNotification,
@@ -121,236 +124,26 @@ export async function chargeLatePaymentInterest(input: {
 // runs: the next run still posts whatever's owed through end-of-last-month.
 // ============================================================================
 
-export async function autoChargeMonthlyLatePaymentInterest(): Promise<{
-  charged: number
-  errors: number
-  details: { dealId: string; interest: number; postedFor: string }[]
-}> {
-  const serviceClient = createServiceRoleClient()
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-
-  // Pull brokerage_payments and amount_due_from_brokerage so we can skip
-  // deals the brokerage has already paid (Finding 13 — late-payment cron was
-  // charging interest on settled deals while admin paperwork lagged).
-  const { data: overdueDeals } = await serviceClient
-    .from('deals')
-    .select('id, agent_id, advance_amount, closing_date, property_address, settlement_period_fee, late_interest_calculated_at, amount_due_from_brokerage, brokerage_payments(amount, status)')
-    .eq('status', 'funded')
-    .not('closing_date', 'is', null)
-
-  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number; postedFor: string }[] }
-  if (!overdueDeals || overdueDeals.length === 0) return result
-
-  const currentMonthBucket = monthBucket(today)
-  const endOfLastMonth = endOfPreviousMonth(today)
-  const lastMonthBucket = monthBucket(endOfLastMonth)
-  const lastMonthName = formatMonthName(lastMonthBucket)
-
-  for (const deal of overdueDeals) {
-    // Skip pre-migration deals (no settlement period fee = old fee system)
-    if (!deal.settlement_period_fee || deal.settlement_period_fee <= 0) continue
-    if (!deal.closing_date) continue
-
-    // Skip deals that the brokerage has already paid in full. Without this,
-    // interest accrues on settled debt whenever admin is slow to flip status
-    // from funded → completed. Cent-level tolerance to handle minor rounding.
-    const amountDue = Number(deal.amount_due_from_brokerage) || 0
-    if (amountDue > 0) {
-      const payments = (deal.brokerage_payments as { amount: number; status: string }[] | null) || []
-      const confirmedTotal = payments
-        .filter((p) => p.status === 'confirmed')
-        .reduce((s, p) => s + (Number(p.amount) || 0), 0)
-      if (confirmedTotal >= amountDue - 0.01) continue
-    }
-
-    try {
-      const closingStr = typeof deal.closing_date === 'string'
-        ? deal.closing_date.slice(0, 10)
-        : new Date(deal.closing_date as string | number | Date).toISOString().slice(0, 10)
-
-      const accrualStart = lateInterestAccrualStartDate(closingStr)
-
-      // Skip deals still inside the 30-day grace as of end-of-last-month
-      if (accrualStart > endOfLastMonth) continue
-
-      // Skip if we've already posted FOR last month (calc'd_at is in current month)
-      const lastCalc = deal.late_interest_calculated_at as string | null
-      if (lastCalc) {
-        const lastCalcDate = new Date(lastCalc).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-        if (monthBucket(lastCalcDate) === currentMonthBucket) continue
-      }
-
-      const advance = Number(deal.advance_amount) || 0
-      const totalInterestThroughLastMonth = calculateCompoundDailyInterest(advance, accrualStart, endOfLastMonth)
-
-      const { data: rpcResult, error: rpcErr } = await serviceClient
-        .rpc('apply_late_payment_interest', {
-          p_deal_id: deal.id,
-          p_total_interest_owed_through: totalInterestThroughLastMonth,
-          p_through_date: endOfLastMonth,
-          p_agent_id: deal.agent_id,
-          p_created_by: null,
-        })
-      if (rpcErr || !rpcResult) {
-        console.error(`Auto-charge late interest RPC failed for deal ${deal.id}:`, rpcErr?.message)
-        result.errors++
-        continue
-      }
-
-      const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
-      if (rpcData.skipped) continue
-
-      // CAS on payment_status='pending' so a concurrent payment confirmation
-      // can't be clobbered back to overdue.
-      await serviceClient
-        .from('deals')
-        .update({ payment_status: 'overdue' })
-        .eq('id', deal.id)
-        .eq('payment_status', 'pending')
-
-      result.charged++
-      result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
-    } catch (err) {
-      console.error(`Auto-charge error for deal ${deal.id}:`, err)
-      result.errors++
-    }
-  }
-
-  return result
+// SECURITY (SEC-01): the actual money-moving job logic now lives in the
+// server-only module lib/late-interest-jobs.ts (NOT a 'use server' file), so it
+// can never be reached as an unauthenticated Server Action. The daily cron calls
+// that module directly (after its CRON_SECRET gate). The wrapper below is a thin
+// 'use server' entry point that requires money.write (Owner) — matching
+// chargeLatePaymentInterest above. Previously the full job body was exported
+// from this 'use server' module with NO caller-auth check.
+export async function autoChargeMonthlyLatePaymentInterest(): Promise<MonthlyInterestRunResult> {
+  const { error: authErr } = await getAuthenticatedCapable('money.write')
+  if (authErr) return { charged: 0, errors: 0, details: [] }
+  return runMonthlyLatePaymentInterest()
 }
 
-// ============================================================================
-// Failed-deal interest — pure helpers used by both the monthly poster
-// (autoChargeMonthlyFailedDealInterest) and the live-balance UI/IDP code.
-//
-// CPA Article 5.3: interest at 24% per annum accrues on the unpaid balance of
-// a failed-to-close deal "from the thirty-first (31st) day" after the demand
-// notice (the demand notice is sent when the deal is marked failed_to_close).
-// Days 1-30 = grace; day 31+ = accruing.
-//
-// Math compounds daily — interest accrues on prior accrued interest, not just
-// on the principal. Posted to the ledger ONCE PER MONTH (on the first daily
-// cron run after a month boundary crosses). Between postings the live
-// liability grows daily but the ledger doesn't change.
-// ============================================================================
-
-/** Last day of the previous calendar month (Toronto) as YYYY-MM-DD. */
-function endOfPreviousMonth(today: string): string {
-  const [y, m] = today.split('-').map(Number)
-  // First of current month minus one day = last of previous month
-  const firstOfCurrent = new Date(Date.UTC(y, m - 1, 1))
-  const lastOfPrev = new Date(firstOfCurrent.getTime() - 24 * 60 * 60 * 1000)
-  return lastOfPrev.toISOString().slice(0, 10)
-}
-
-/** Calendar month bucket for a date string, YYYY-MM. */
-function monthBucket(dateStr: string): string {
-  return dateStr.slice(0, 7)
-}
-
-/** Pretty month name + year, e.g. "April 2026". */
-function formatMonthName(yyyymm: string): string {
-  const [y, m] = yyyymm.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-CA', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
-}
-
-// ============================================================================
-// Monthly failed-deal interest poster (called by daily cron)
-//
-// The cron runs every day, but this function only POSTS to the ledger when a
-// month boundary has been crossed since the last posting on a given deal.
-// Between postings:
-//   - The agent's "live" liability still grows daily (computed via
-//     liveFailedDealInterestOwed when needed for IDP signing or UI display)
-//   - account_balance and failed_deal_interest_charged are NOT touched daily
-//
-// At month boundary (the first daily run on or after the 1st of a new month):
-//   - Compute total compound interest owed through end of LAST month
-//   - Post the delta (since the last posting) as a single agent_transactions
-//     row, type='failed_deal_interest', description tagged with the month
-//   - Update failed_deal_interest_charged + account_balance
-//
-// Idempotent: re-running the same day is a no-op (failed_deal_interest_charged
-// already at the end-of-last-month figure). Self-healing across missed runs:
-// the next run still posts whatever's owed through end-of-last-month.
-//
-// Continues posting even after the agent elects commission_assignment (CPA
-// 5.7 — interest continues until the balance is satisfied in full).
-// ============================================================================
-
-export async function autoChargeMonthlyFailedDealInterest(): Promise<{
-  charged: number
-  errors: number
-  details: { dealId: string; interest: number; postedFor: string }[]
-}> {
-  const serviceClient = createServiceRoleClient()
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-
-  const { data: failedDeals } = await serviceClient
-    .from('deals')
-    .select('id, agent_id, outstanding_balance, failed_to_close_at, property_address, failed_deal_interest_calculated_at')
-    .eq('status', 'failed_to_close')
-    .gt('outstanding_balance', 0)
-
-  const result = { charged: 0, errors: 0, details: [] as { dealId: string; interest: number; postedFor: string }[] }
-  if (!failedDeals || failedDeals.length === 0) return result
-
-  const currentMonthBucket = monthBucket(today)
-  const endOfLastMonth = endOfPreviousMonth(today)
-  const lastMonthBucket = monthBucket(endOfLastMonth)
-  const lastMonthName = formatMonthName(lastMonthBucket)
-
-  for (const deal of failedDeals) {
-    if (!deal.failed_to_close_at) continue
-
-    try {
-      const accrualStart = failedDealAccrualStartDate(deal.failed_to_close_at as string)
-
-      // Nothing to post if the grace period hasn't ended by end-of-last-month
-      // (i.e. the failed deal is too new to have any "last month" accrual).
-      if (accrualStart > endOfLastMonth) continue
-
-      // Skip if we've already posted FOR last month (calc'd_at falls within
-      // current month → we already booked last month's interest this month).
-      const lastCalc = deal.failed_deal_interest_calculated_at as string | null
-      if (lastCalc) {
-        const lastCalcDate = new Date(lastCalc).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-        if (monthBucket(lastCalcDate) === currentMonthBucket) continue
-      }
-
-      const principal = Number(deal.outstanding_balance) || 0
-      const totalInterestThroughLastMonth = calculateCompoundDailyInterest(principal, accrualStart, endOfLastMonth)
-
-      const { data: rpcResult, error: rpcErr } = await serviceClient
-        .rpc('apply_failed_deal_interest', {
-          p_deal_id: deal.id,
-          p_total_interest_owed_through: totalInterestThroughLastMonth,
-          p_through_date: endOfLastMonth,
-          p_agent_id: deal.agent_id,
-          p_created_by: null,
-        })
-      if (rpcErr || !rpcResult) {
-        console.error(`Failed-deal monthly interest RPC failed for deal ${deal.id}:`, rpcErr?.message)
-        result.errors++
-        continue
-      }
-
-      const rpcData = rpcResult as { delta_posted: number; already_charged: number; total_after: number; skipped: boolean }
-      if (rpcData.skipped) continue
-
-      result.charged++
-      result.details.push({ dealId: deal.id, interest: rpcData.delta_posted, postedFor: lastMonthName })
-    } catch (err) {
-      console.error(`Failed-deal monthly interest post error for deal ${deal.id}:`, err)
-      result.errors++
-    }
-  }
-
-  return result
+// SECURITY (SEC-01): see the late-payment wrapper above. The job body lives in
+// lib/late-interest-jobs.ts (server-only, not 'use server'); the cron calls it
+// directly after its CRON_SECRET gate. This thin wrapper requires money.write.
+export async function autoChargeMonthlyFailedDealInterest(): Promise<MonthlyInterestRunResult> {
+  const { error: authErr } = await getAuthenticatedCapable('money.write')
+  if (authErr) return { charged: 0, errors: 0, details: [] }
+  return runMonthlyFailedDealInterest()
 }
 
 
