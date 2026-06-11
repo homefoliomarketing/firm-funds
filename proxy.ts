@@ -341,8 +341,16 @@ export async function proxy(request: NextRequest) {
       }
     }
 
-    // If on login page, redirect to appropriate dashboard (or redirect param if present)
-    if (pathname.startsWith('/login')) {
+    // If on login page, redirect to appropriate dashboard (or redirect param if
+    // present). GET ONLY. A POST to /login is the login server action; if a
+    // stale session is momentarily present (e.g. cookies resurrected by the
+    // in-flight audit DELETE right after an inactivity sign-out), 307'ing that
+    // POST to the dashboard breaks the server-action call and surfaces to the
+    // user as "Unable to sign in. Please try again." (they then have to refresh
+    // to log in). Letting the POST through runs loginWithPassword, which
+    // re-authenticates cleanly and returns a real result. Navigations (GET) to
+    // /login while authenticated still bounce to the dashboard as before.
+    if (pathname.startsWith('/login') && request.method === 'GET') {
       // If no profile exists, sign them out and let them stay on login
       // (prevents redirect loop when profile row is missing)
       if (!profile) {

@@ -1,6 +1,6 @@
 # Authentication and Authorization
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 This document explains how Firm Funds authenticates users, how it determines a user's role and access, how the request proxy gates routes, and how Row Level Security and the service-role client divide security responsibilities.
 
@@ -193,7 +193,7 @@ What `proxy` does on each request, in order:
 4. **Public-path gate.** If the user is unauthenticated and the path is not public, redirect to `/login` with a `redirect` query param so the user returns to their destination after login.
 5. **Status enforcement.** For authenticated users, re-run the profile/agent/brokerage status checks; sign out and redirect if not allowed.
 6. **Password-reset gate.** If `must_reset_password` is set and the password has not been changed, redirect to `/change-password` (or return `403` JSON for API calls). Only a small allowlist of API paths needed by the change-password flow is exempt.
-7. **Login redirect.** An authenticated user hitting `/login` is bounced to their role's dashboard, honoring a same-origin, role-prefixed `redirect` param (open-redirect protected).
+7. **Login redirect (GET only).** An authenticated user *navigating* to `/login` (a GET) is bounced to their role's dashboard, honoring a same-origin, role-prefixed `redirect` param (open-redirect protected). The login form submission is a server-action **POST** to `/login` and is deliberately NOT redirected: a stale-but-present session (e.g. auth cookies briefly resurrected by the in-flight audit `DELETE /api/session-heartbeat` right after an inactivity sign-out) would otherwise 307 the sign-in mid-submit and break the action, surfacing as "Unable to sign in. Please try again." until the user refreshes. Letting the POST through runs `loginWithPassword`, which re-authenticates cleanly. Defense in depth: `SessionTimeout` now awaits that audit DELETE before calling `signOut()`, so the sign-out is the final cookie write and the session is not resurrected in the first place.
 8. **Role gate.** For protected routes, `ROUTE_ROLES` maps a path prefix to allowed roles and signs out anyone whose role does not match:
 
 | Prefix | Allowed roles |

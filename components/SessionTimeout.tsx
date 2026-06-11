@@ -74,12 +74,24 @@ export default function SessionTimeout({ userRole }: SessionTimeoutProps) {
     setLoggingOut(true)
 
     try {
-      // Log the timeout event to audit trail via API (fire-and-forget)
-      fetch('/api/session-heartbeat', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      }).catch(() => {})
+      // Log the timeout event to the audit trail, and AWAIT it before signing
+      // out. This DELETE runs getUser() server-side, which makes @supabase/ssr
+      // re-set the auth cookies on its response. If it were fire-and-forget,
+      // that Set-Cookie could land AFTER signOut() cleared the cookies and
+      // resurrect the just-killed session — which then breaks the next login
+      // attempt on /login?reason=timeout ("Unable to sign in. Please try
+      // again.", fixed by a refresh). Awaiting it first means signOut() is the
+      // final cookie write. Cap the wait so a slow/hung audit never traps the
+      // user on the timeout screen (the proxy GET-gate is the backstop if a
+      // late response still slips through).
+      await Promise.race([
+        fetch('/api/session-heartbeat', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        }).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ])
 
       const supabase = createClient()
       await supabase.auth.signOut()
