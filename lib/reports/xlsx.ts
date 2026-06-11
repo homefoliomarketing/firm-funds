@@ -97,7 +97,7 @@ function buildSummarySheet(pkg: ReportPackage): XLSX.WorkSheet {
   // Key/value summary. Track which rows carry money so we can format them.
   const kvStart = rows.length
   // Brokerage variant drops "Fees earned" + "Firm Funds gross profit",
-  // relabels "Brokerage share paid" to "Referral earnings", and relabels the
+  // relabels "Brokerage share paid" to "Profit share earnings", and relabels the
   // receivable to "Owed to Firm Funds". Agent variant shows only the three
   // personal figures (advances funded, the fee they paid, current balance).
   const kv: [string, number][] = agent
@@ -113,7 +113,7 @@ function buildSummarySheet(pkg: ReportPackage): XLSX.WorkSheet {
         ['Advances funded ($)', money(summary.fundedAmount)],
         ['Collected (count)', summary.collectedCount],
         ['Collected ($)', money(summary.collectedAmount)],
-        ['Referral earnings', money(summary.referralPaid)],
+        ['Profit share earnings', money(summary.referralPaid)],
         ['Owed to Firm Funds (count)', summary.outstandingCount],
         ['Owed to Firm Funds ($)', money(summary.outstandingAmount)],
       ]
@@ -447,7 +447,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
         'Net commission',
         'Brokerage flat fee',
         'Advanced',
-        'Referral fee',
+        'Profit share',
         'Due from brokerage',
         'Funded',
         'Closing',
@@ -466,7 +466,7 @@ function buildDealDetailSheet(pkg: ReportPackage): XLSX.WorkSheet | null {
         'Discount fee',
         'Settlement fee',
         'Advanced',
-        'Referral fee',
+        'Profit share',
         'Due from brokerage',
         'Funded',
         'Closing',

@@ -1,7 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
-import { DEFAULT_BROKERAGE_REFERRAL_PCT } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import { canViewBrokerageReferralFees } from '@/lib/access'
 
@@ -56,7 +55,7 @@ export async function GET(request: Request) {
   // Get brokerage info
   const { data: brokerage } = await supabase
     .from('brokerages')
-    .select('name, referral_fee_percentage')
+    .select('name')
     .eq('id', profile.brokerage_id)
     .single()
 
@@ -135,7 +134,6 @@ export async function GET(request: Request) {
   const dealRows = (deals || []) as DealRow[]
   const totalReferralFees = dealRows.reduce((sum, d) => sum + (d.brokerage_referral_fee || 0), 0)
   const totalDiscountFees = dealRows.reduce((sum, d) => sum + (d.discount_fee || 0), 0)
-  const referralPct = brokerage.referral_fee_percentage ?? DEFAULT_BROKERAGE_REFERRAL_PCT
 
   // --- Page creation helper ---
   let currentPage = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
@@ -213,7 +211,7 @@ export async function GET(request: Request) {
   // SUMMARY BOX
   // =========================================================================
   const boxY = yPos - 50
-  const boxWidth = (PAGE_WIDTH - MARGIN * 2 - 20) / 3
+  const boxWidth = (PAGE_WIDTH - MARGIN * 2 - 10) / 2
 
   // Total Referral Fees
   currentPage.drawRectangle({
@@ -242,21 +240,6 @@ export async function GET(request: Request) {
   })
   currentPage.drawText(`${(deals || []).length}`, {
     x: box2X + 10, y: boxY + 12, size: 16, font: helveticaBold, color: rgb(0.24, 0.35, 0.6),
-  })
-
-  // Referral Rate
-  const box3X = MARGIN + (boxWidth + 10) * 2
-  currentPage.drawRectangle({
-    x: box3X, y: boxY, width: boxWidth, height: 50,
-    color: rgb(0.98, 0.97, 0.95),
-    borderColor: rgb(0.93, 0.91, 0.87),
-    borderWidth: 1,
-  })
-  currentPage.drawText('PROFIT SHARE RATE', {
-    x: box3X + 10, y: boxY + 33, size: 7, font: helveticaBold, color: GREY,
-  })
-  currentPage.drawText(`${(referralPct * 100).toFixed(0)}% of Discount + Settlement`, {
-    x: box3X + 10, y: boxY + 12, size: 12, font: helveticaBold, color: rgb(0.57, 0.44, 0.1),
   })
 
   yPos = boxY - 25

@@ -322,7 +322,7 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
   const s = pkg.summary
   type SummaryBox = { label: string; value: string; sub?: string; accent: ReturnType<typeof rgb> }
   // Brokerage audience hides the "Fees earned" and "FF gross profit" boxes
-  // (Firm Funds margin), adds the brokerage's own "Referral earnings", and
+  // (Firm Funds margin), adds the brokerage's own "Profit share earnings", and
   // relabels the receivable from the brokerage's point of view. Agent audience
   // shows only the three personal figures: advances funded, the fee they paid,
   // and their current balance.
@@ -336,7 +336,7 @@ export async function reportToPdf(pkg: ReportPackage): Promise<Uint8Array> {
     ? [
         { label: 'ADVANCES FUNDED', value: money(s.fundedAmount), sub: `${s.fundedCount} deal${s.fundedCount !== 1 ? 's' : ''}`, accent: GREEN },
         { label: 'COLLECTED', value: money(s.collectedAmount), sub: `${s.collectedCount} repayment${s.collectedCount !== 1 ? 's' : ''}`, accent: rgb(0.2, 0.5, 0.35) },
-        { label: 'REFERRAL EARNINGS', value: money(s.referralPaid), accent: GREEN },
+        { label: 'PROFIT SHARE EARNINGS', value: money(s.referralPaid), accent: GREEN },
         { label: 'OWED TO FIRM FUNDS', value: money(s.outstandingAmount), sub: `${s.outstandingCount} open`, accent: rgb(0.57, 0.44, 0.1) },
       ]
     : [

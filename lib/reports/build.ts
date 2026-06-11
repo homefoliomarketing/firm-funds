@@ -374,7 +374,7 @@ export async function buildReportPackage(filters: ReportFilters): Promise<Report
   let notes: string[]
   if (audience === 'brokerage') {
     notes = [
-      'This report shows your brokerage deals, the advances your agents received, your referral earnings, what your brokerage owes Firm Funds, and aging.',
+      'This report shows your brokerage deals, the advances your agents received, your profit share earnings, what your brokerage owes Firm Funds, and aging.',
       'Firm Funds fees, revenue, and margin are not shown.',
       'Aging and outstanding balances are a point-in-time snapshot as of the generated date, regardless of the selected period.',
     ]

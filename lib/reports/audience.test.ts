@@ -112,7 +112,7 @@ describe('report exports - audience margin stripping', () => {
     expect(text).toContain(String(BROKERAGE_FLAT_FEE))
   })
 
-  it('brokerage Excel hides Firm Funds margin but keeps their referral earnings', () => {
+  it('brokerage Excel hides Firm Funds margin but keeps their profit share earnings', () => {
     const text = allRawValues(XLSX.read(reportToWorkbook(fixture('brokerage')), { type: 'buffer' }))
     expect(text).not.toContain(String(FEE_CHARGED))
     expect(text).not.toContain(String(FEE_BASE))
@@ -121,7 +121,7 @@ describe('report exports - audience margin stripping', () => {
     expect(text.toLowerCase()).not.toContain('gross profit')
     expect(text.toLowerCase()).not.toContain('fees earned')
     // Their own money is present.
-    expect(text).toContain('Referral earnings')
+    expect(text).toContain('Profit share earnings')
     expect(text).toContain(String(REFERRAL))
     // The brokerage's own flat fee is their fee, not Firm Funds margin, so it stays.
     expect(text).toContain(String(BROKERAGE_FLAT_FEE))
@@ -143,7 +143,7 @@ describe('report exports - audience margin stripping', () => {
     expect(text).not.toContain(String(FEE_BASE))
     expect(text).not.toContain(String(REFERRAL))
     expect(text.toLowerCase()).not.toContain('gross profit')
-    expect(text.toLowerCase()).not.toContain('referral earnings')
+    expect(text.toLowerCase()).not.toContain('profit share earnings')
     expect(text.toLowerCase()).not.toContain('owed to firm funds')
   })
 
