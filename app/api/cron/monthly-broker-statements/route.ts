@@ -180,8 +180,6 @@ export async function GET(request: Request) {
           ? `${d.agents.first_name} ${d.agents.last_name}`
           : 'Unknown',
         fundingDate: d.funding_date,
-        discountFee: fee,
-        pct,
         brokerShare: share,
         remitted: !!d.broker_share_remitted,
       }

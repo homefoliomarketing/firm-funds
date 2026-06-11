@@ -388,7 +388,7 @@ function AmendmentNewInner() {
                           {preview.isFunded && <span className="ml-1 text-[10px] text-muted-foreground">(locked)</span>}
                         </div>
 
-                        <div className="text-muted-foreground">Brokerage referral fee</div>
+                        <div className="text-muted-foreground">Brokerage profit share</div>
                         <div className="text-right text-foreground tabular-nums">-</div>
                         <div className="text-right text-primary font-semibold tabular-nums">
                           {preview.isFunded ? '-' : formatCurrency(preview.newBrokerageReferralFee)}

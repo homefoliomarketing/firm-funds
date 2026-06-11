@@ -145,7 +145,7 @@ export async function GET(request: Request) {
     currentPage = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
     yPos = PAGE_HEIGHT - MARGIN
     // Mini header on continuation pages
-    currentPage.drawText('Firm Funds — Referral Fee Report', {
+    currentPage.drawText('Firm Funds Profit Share Report', {
       x: MARGIN,
       y: yPos,
       size: 10,
@@ -172,7 +172,7 @@ export async function GET(request: Request) {
   })
 
   // Title
-  currentPage.drawText('REFERRAL FEE REPORT', {
+  currentPage.drawText('PROFIT SHARE REPORT', {
     x: MARGIN,
     y: yPos - 10,
     size: 22,
@@ -222,7 +222,7 @@ export async function GET(request: Request) {
     borderColor: rgb(0.85, 0.93, 0.87),
     borderWidth: 1,
   })
-  currentPage.drawText('TOTAL REFERRAL FEES', {
+  currentPage.drawText('TOTAL PROFIT SHARE', {
     x: MARGIN + 10, y: boxY + 33, size: 7, font: helveticaBold, color: GREY,
   })
   currentPage.drawText(formatCurrency(totalReferralFees), {
@@ -252,7 +252,7 @@ export async function GET(request: Request) {
     borderColor: rgb(0.93, 0.91, 0.87),
     borderWidth: 1,
   })
-  currentPage.drawText('REFERRAL FEE RATE', {
+  currentPage.drawText('PROFIT SHARE RATE', {
     x: box3X + 10, y: boxY + 33, size: 7, font: helveticaBold, color: GREY,
   })
   currentPage.drawText(`${(referralPct * 100).toFixed(0)}% of Discount + Settlement`, {
@@ -294,7 +294,7 @@ export async function GET(request: Request) {
       currentPage.drawText('GROSS COMM.', { x: cols.grossComm, y: headerY, size: hSize, font: helveticaBold, color: GREY })
       currentPage.drawText('NET COMM.', { x: cols.netComm, y: headerY, size: hSize, font: helveticaBold, color: GREY })
       currentPage.drawText('DISCOUNT FEE', { x: cols.discountFee, y: headerY, size: hSize, font: helveticaBold, color: GREY })
-      currentPage.drawText('REFERRAL FEE', { x: cols.referralFee, y: headerY, size: hSize, font: helveticaBold, color: GREY })
+      currentPage.drawText('PROFIT SHARE', { x: cols.referralFee, y: headerY, size: hSize, font: helveticaBold, color: GREY })
       yPos -= 22
     }
 
@@ -385,7 +385,7 @@ export async function GET(request: Request) {
   // Serialize
   const pdfBytes = await pdfDoc.save()
 
-  const filename = `Firm_Funds_Referral_Fees_${brokerage.name.replace(/[^a-zA-Z0-9]/g, '_')}_${monthParam || 'All_Time'}.pdf`
+  const filename = `Firm_Funds_Profit_Share_${brokerage.name.replace(/[^a-zA-Z0-9]/g, '_')}_${monthParam || 'All_Time'}.pdf`
 
   return new Response(Buffer.from(pdfBytes), {
     status: 200,

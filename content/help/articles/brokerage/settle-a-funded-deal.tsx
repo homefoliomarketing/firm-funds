@@ -17,7 +17,7 @@ function Body() {
       <p>
         On every funded deal we calculate the <strong>amount due from brokerage</strong>,
         which is the agent&apos;s net commission minus your share of the
-        brokerage referral fee. You can see it on the row in the Settlements
+        brokerage profit share. You can see it on the row in the Settlements
         tab, on the deal detail expansion, and in the Record Payment modal.
         Pay this amount, not the gross commission.
       </p>
@@ -44,7 +44,7 @@ function Body() {
       <HelpCallout variant="money" title="Worked example">
         <p>
           Gross commission $10,000. Brokerage split 30 percent. Net commission
-          to the agent: $7,000. Brokerage referral fee at the default 20
+          to the agent: $7,000. Brokerage profit share at the default 20
           percent of total fees: $41.44.
         </p>
         <p>
@@ -85,7 +85,7 @@ const article: HelpArticle = {
     role: 'brokerage',
     category: 'deals',
     order: 40,
-    updatedAt: '2026-05-29',
+    updatedAt: '2026-06-11',
   },
   Body,
 }

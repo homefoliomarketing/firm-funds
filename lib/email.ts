@@ -3030,7 +3030,7 @@ export async function sendAmendmentApprovedNotification(params: {
  * no I/O. Mirrors renderInvoiceEmail's statement table: a header row of uppercase
  * muted labels, body rows split by 1px #232323 dividers (numerics right-aligned,
  * money in #D6D6D4, the kept-share column green #6FB783 when still unremitted),
- * wrapped in the #1C1C1C / #2A2A2A rounded card. The empty-state spans all six
+ * wrapped in the #1C1C1C / #2A2A2A rounded card. The empty-state spans all four
  * columns exactly as before. The asterisk on each unremitted share and its
  * footnote are preserved verbatim, and the period summary (Total earned this
  * period, Pending remittance) renders as an info callout. Branded with the
@@ -3044,8 +3044,6 @@ export function renderMonthlyBrokerStatementEmail(params: {
     propertyAddress: string
     agentName: string
     fundingDate: string | null
-    discountFee: number
-    pct: number
     brokerShare: number
     remitted: boolean
   }>
@@ -3057,14 +3055,12 @@ export function renderMonthlyBrokerStatementEmail(params: {
 
   const rowsHtml = params.rows.length === 0
     ? `<tr>
-                            <td colspan="6" style="padding:18px 16px; color:#8A8A87; font-size:13px; line-height:1.4; text-align:center; border-top:1px solid #232323;">No funded or completed deals this period.</td>
+                            <td colspan="4" style="padding:18px 16px; color:#8A8A87; font-size:13px; line-height:1.4; text-align:center; border-top:1px solid #232323;">No funded or completed deals this period.</td>
                           </tr>`
     : params.rows.map(r => `<tr>
                             <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(r.propertyAddress ?? '')}</td>
                             <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323;">${escapeHtml(r.agentName ?? '')}</td>
                             <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(r.fundingDate ?? '-')}</td>
-                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(r.discountFee))}</td>
-                            <td style="padding:11px 16px; color:#D6D6D4; font-size:13px; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(r.pct.toFixed(1))}%</td>
                             <td style="padding:11px 16px; color:${r.remitted ? '#D6D6D4' : '#6FB783'}; font-size:13px; font-weight:600; line-height:1.4; text-align:right; border-top:1px solid #232323; white-space:nowrap;">${escapeHtml(formatCurrency(r.brokerShare))}${r.remitted ? '' : ' *'}</td>
                           </tr>`).join('\n                          ')
 
@@ -3073,8 +3069,6 @@ export function renderMonthlyBrokerStatementEmail(params: {
                             <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Property</th>
                             <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Agent</th>
                             <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:left;">Funded</th>
-                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Discount&nbsp;Fee</th>
-                            <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Share&nbsp;%</th>
                             <th style="padding:12px 16px; color:#8A8A87; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; text-align:right;">Your&nbsp;Share</th>
                           </tr>
                           ${rowsHtml}
@@ -3129,8 +3123,6 @@ export async function sendMonthlyBrokerStatement(params: {
     propertyAddress: string
     agentName: string
     fundingDate: string | null
-    discountFee: number
-    pct: number
     brokerShare: number
     remitted: boolean
   }>

@@ -359,7 +359,7 @@ export default function BrokerageDashboard() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = res.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'referral_fees.pdf'
+      a.download = res.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'profit_share.pdf'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -378,9 +378,9 @@ export default function BrokerageDashboard() {
         Agent: `${d.agent?.first_name || ''} ${d.agent?.last_name || ''}`.trim(),
         'Closing Date': d.closing_date || '',
         Status: d.status,
-        'Referral Fee': d.brokerage_referral_fee.toFixed(2),
+        'Profit Share': d.brokerage_referral_fee.toFixed(2),
       }))
-      const headers = Object.keys(rows[0] || { Property: '', Agent: '', 'Closing Date': '', Status: '', 'Referral Fee': '' })
+      const headers = Object.keys(rows[0] || { Property: '', Agent: '', 'Closing Date': '', Status: '', 'Profit Share': '' })
       const csvContent = [
         headers.join(','),
         ...rows.map(r => headers.map(h => `"${(r as Record<string, string>)[h]}"`).join(',')),
@@ -390,7 +390,7 @@ export default function BrokerageDashboard() {
       const a = document.createElement('a')
       a.href = url
       const monthLabel = referralMonth === 'all' ? 'all_time' : referralMonth
-      a.download = `referral_fees_${monthLabel}.csv`
+      a.download = `profit_share_${monthLabel}.csv`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -820,7 +820,7 @@ export default function BrokerageDashboard() {
             {(['deals', 'payments', 'messages', 'agents', 'referrals'] as const)
               .filter((tab) => tab !== 'referrals' || canViewReferrals)
               .map((tab) => {
-              const tabLabels: Record<string, string> = { deals: `Deals (${deals.length})`, agents: `Agents (${agents.length})`, referrals: 'Referral Fees', payments: 'Payment Status', messages: 'Messages' }
+              const tabLabels: Record<string, string> = { deals: `Deals (${deals.length})`, agents: `Agents (${agents.length})`, referrals: 'Profit Share', payments: 'Payment Status', messages: 'Messages' }
               return (
                 <button
                   key={tab}
@@ -970,7 +970,7 @@ export default function BrokerageDashboard() {
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Brokerage Info</h4>
                               <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span className="text-muted-foreground">Referral Fee</span><span className="font-bold text-green-400">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted-foreground">Profit Share</span><span className="font-bold text-green-400">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
                                 <div className="flex justify-between"><span className="text-muted-foreground">Due to Firm Funds</span><span className="font-medium text-foreground">{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
                               </div>
                               {deal.status === 'denied' && (
@@ -1380,7 +1380,7 @@ export default function BrokerageDashboard() {
           {activeTab === 'referrals' && canViewReferrals && (
             <section role="tabpanel" id="tabpanel-referrals" aria-labelledby="tab-referrals" className="p-4">
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" aria-label="Referral fee summary">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" aria-label="Profit share summary">
                 <div
                   className={`rounded-xl px-4 py-3 cursor-pointer transition-all bg-status-green-muted/60 border ${referralFilter === 'earned' ? 'border-status-green ring-1 ring-status-green/20' : 'border-status-green-border/60 hover:border-status-green-border'}`}
                   onClick={() => setReferralFilter(referralFilter === 'earned' ? 'all' : 'earned')}
@@ -1472,17 +1472,17 @@ export default function BrokerageDashboard() {
               {earnedDeals.length === 0 && pendingDeals.length === 0 ? (
                 <EmptyState
                   icon={DollarSign}
-                  title="No referral earnings yet"
+                  title="No profit share earnings yet"
                   description={
                     <>
                       When agents in your brokerage complete deals through Firm Funds,
-                      your referral earnings will appear here.
+                      your profit share earnings will appear here.
                       <br />
                       <a
                         href="#"
                         className="mt-2 inline-block text-primary underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
                       >
-                        Learn more about referrals
+                        Learn more about profit share
                       </a>
                     </>
                   }
@@ -1536,7 +1536,7 @@ export default function BrokerageDashboard() {
                         <div>
                           <h4 className="text-sm font-bold text-foreground">Full brokerage report</h4>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Your deals, agent advances, referral earnings, and what your brokerage owes Firm Funds &mdash; for your accountant.
+                            Your deals, agent advances, profit share earnings, and what your brokerage owes Firm Funds &mdash; for your accountant.
                           </p>
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-2">
@@ -1566,14 +1566,14 @@ export default function BrokerageDashboard() {
                   )}
 
                   <div className="rounded-lg overflow-x-auto border border-border/50">
-                    <table className="w-full min-w-[600px]" aria-label="Referral fee breakdown by deal">
+                    <table className="w-full min-w-[600px]" aria-label="Profit share breakdown by deal">
                       <thead>
                         <tr className="bg-muted/50 border-b border-border/50">
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Property</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Agent</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Closing Date</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Referral Fee</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Profit Share</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1626,7 +1626,7 @@ export default function BrokerageDashboard() {
                         Monthly Summary
                       </h4>
                       <div className="rounded-lg overflow-x-auto border border-border/50">
-                        <table className="w-full" aria-label="Monthly referral fee summary">
+                        <table className="w-full" aria-label="Monthly profit share summary">
                           <thead>
                             <tr className="bg-muted/50 border-b border-border/50">
                               <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Month</th>
@@ -1663,7 +1663,7 @@ export default function BrokerageDashboard() {
                   )}
 
                   <p className="text-xs mt-3 text-muted-foreground/50">
-                    Referral fees are earned when deals reach &quot;Funded&quot; status. Export CSV for spreadsheet use or download the PDF report for accounting records.
+                    Profit share is earned when deals reach &quot;Funded&quot; status. Export CSV for spreadsheet use or download the PDF report for accounting records.
                   </p>
                 </div>
               )}
