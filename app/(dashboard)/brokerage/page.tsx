@@ -81,6 +81,7 @@ interface Deal {
   closing_date: string
   gross_commission: number
   brokerage_split_pct: number
+  brokerage_flat_fee: number
   net_commission: number
   days_until_closing: number
   discount_fee: number
@@ -187,7 +188,7 @@ export default function BrokerageDashboard() {
         // staff see status + summary only, not admin's internal wording.
         const { data: dealData } = await supabase
           .from('deals')
-          .select('id, agent_id, brokerage_id, status, deal_number, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
+          .select('id, agent_id, brokerage_id, status, deal_number, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, brokerage_flat_fee, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage), brokerage_payments(id, amount, date:payment_date, reference, method, status)')
           .eq('brokerage_id', profileData.brokerage_id)
           .order('created_at', { ascending: false })
         setDeals((dealData as unknown as Deal[]) || [])
@@ -960,6 +961,9 @@ export default function BrokerageDashboard() {
                               <div className="space-y-2.5 text-sm">
                                 <div className="flex justify-between"><span className="text-muted-foreground">Gross Commission</span><span className="font-medium text-foreground">{formatCurrency(deal.gross_commission)}</span></div>
                                 <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Split</span><span className="font-medium text-foreground">{deal.brokerage_split_pct}%</span></div>
+                                {(deal.brokerage_flat_fee || 0) > 0 && (
+                                  <div className="flex justify-between"><span className="text-muted-foreground">Brokerage Flat Fee</span><span className="font-medium text-foreground">{formatCurrency(deal.brokerage_flat_fee)}</span></div>
+                                )}
                                 <div className="flex justify-between"><span className="text-muted-foreground">Agent Advance</span><span className="font-medium text-foreground">{formatCurrency(deal.advance_amount)}</span></div>
                               </div>
                             </div>
@@ -2064,7 +2068,7 @@ export default function BrokerageDashboard() {
           if (profile?.brokerage_id) {
             const { data: dealData } = await supabase
               .from('deals')
-              .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
+              .select('id, agent_id, brokerage_id, status, property_address, closing_date, created_at, funding_date, gross_commission, brokerage_split_pct, brokerage_flat_fee, net_commission, days_until_closing, discount_fee, advance_amount, brokerage_referral_fee, amount_due_from_brokerage, broker_share_amount, broker_share_remitted, agent_self_submit_at, agent:agents(first_name, last_name, email, flagged_by_brokerage)')
               .eq('brokerage_id', profile.brokerage_id)
               .order('created_at', { ascending: false })
             if (dealData) setDeals(dealData as unknown as Deal[])
