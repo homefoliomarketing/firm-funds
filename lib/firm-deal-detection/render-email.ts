@@ -230,10 +230,10 @@ export function renderTriggerEmail(input: EmailRenderInput): RenderedEmail {
               <span style="display:block; font-size:13px; color:#6a766e; margin-top:6px;">paid <span style="font-weight:600; color:#3a473e;">${closingStr}</span> &middot; nothing to do</span>
             </div>
             <div style="text-align:center; color:#aab2ab; font-size:11px; margin:6px 0; text-transform:uppercase; letter-spacing:0.18em; font-weight:600;">or</div>
-            <a href="${cta}" style="display:block; text-decoration:none; background:linear-gradient(180deg,#f1f9f3 0%,#e4f1e8 100%); border:2px solid #5FA873; border-radius:11px; padding:20px 22px; text-align:center; margin:6px 0 0 0;">
-              <span style="display:block; font-size:11px; color:#3d8055; margin:0 0 6px 0; text-transform:uppercase; letter-spacing:0.1em; font-weight:800;">Get paid today *</span>
-              <span style="display:block; font-size:36px; font-weight:800; color:#2f7a4d; line-height:1.0; letter-spacing:-0.015em;">${advanceStr}</span>
-              <span style="display:block; font-size:13px; color:#3d8055; margin-top:6px; font-weight:600;">funded to your account</span>
+            <a href="${cta}" style="display:block; text-decoration:none; background:#5FA873; border:1px solid #4e9263; border-radius:11px; padding:21px 22px; text-align:center; margin:6px 0 0 0;">
+              <span style="display:block; font-size:11px; color:#ffffff; margin:0 0 6px 0; text-transform:uppercase; letter-spacing:0.1em; font-weight:800;">Get paid today *</span>
+              <span style="display:block; font-size:36px; font-weight:800; color:#ffffff; line-height:1.0; letter-spacing:-0.015em;">${advanceStr}</span>
+              <span style="display:block; font-size:13px; color:#eafaef; margin-top:6px; font-weight:600;">funded to your account</span>
             </a>
             <p style="font-size:12px; color:#9aa49b; margin:14px 2px 24px 2px; text-align:center; line-height:1.5;">* We aim to fund every approved advance within 24 hours. Amounts shown before your brokerage split.</p>`
 
