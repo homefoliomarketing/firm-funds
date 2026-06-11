@@ -1893,6 +1893,34 @@ export async function deleteDocument(input: {
 }
 
 // ============================================================================
+// SEC-D4 helper: a brokerage admin may administer a brokerage via the legacy
+// user_profiles.brokerage_id column OR the brokerage_admins junction (migrations
+// 087/095). Service-role lookup, so it bypasses RLS to resolve membership but
+// can never grant access to a brokerage the user does not actually administer.
+// ============================================================================
+
+async function brokerageAdminCanAccessBrokerage(
+  serviceClient: ReturnType<typeof createServiceRoleClient>,
+  userId: string,
+  profileBrokerageId: string | null | undefined,
+  dealBrokerageId: string | null | undefined,
+): Promise<boolean> {
+  if (!dealBrokerageId) return false
+  if (profileBrokerageId && profileBrokerageId === dealBrokerageId) return true
+  const { data, error } = await serviceClient
+    .from('brokerage_admins')
+    .select('id')
+    .eq('brokerage_id', dealBrokerageId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) {
+    console.error('brokerage_admins membership check failed:', error.message)
+    return false
+  }
+  return !!data
+}
+
+// ============================================================================
 // Server Action: Generate signed download URL
 // ============================================================================
 
@@ -1934,7 +1962,10 @@ export async function getDocumentSignedUrl(input: {
         return { success: false, error: 'Access denied' }
       }
     } else if (profile.role === 'brokerage_admin') {
-      if (!deal || deal.brokerage_id !== profile.brokerage_id) {
+      const allowed = await brokerageAdminCanAccessBrokerage(
+        serviceClient, profile.id, profile.brokerage_id, deal.brokerage_id,
+      )
+      if (!allowed) {
         return { success: false, error: 'Access denied' }
       }
     }
@@ -2005,8 +2036,13 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
         return { success: false, error: 'You do not have access to this deal' }
       }
     } else if (profile.role === 'brokerage_admin') {
-      // Brokerage admins can only upload to deals belonging to their brokerage
-      const { data: deal, error: dealError } = await supabase
+      // Brokerage admins can upload to deals belonging to a brokerage they
+      // administer, via the legacy brokerage_id column OR the brokerage_admins
+      // junction. Read the deal with the service client so a junction-only admin
+      // (whose user_profiles.brokerage_id may differ) is not blocked by deals RLS
+      // before we can authorize.
+      const svc = createServiceRoleClient()
+      const { data: deal, error: dealError } = await svc
         .from('deals')
         .select('id, brokerage_id')
         .eq('id', dealId)
@@ -2016,7 +2052,10 @@ export async function uploadDocument(formData: FormData): Promise<ActionResult> 
         return { success: false, error: 'Deal not found' }
       }
 
-      if (deal.brokerage_id !== profile.brokerage_id) {
+      const allowed = await brokerageAdminCanAccessBrokerage(
+        svc, user.id, profile.brokerage_id, deal.brokerage_id,
+      )
+      if (!allowed) {
         return { success: false, error: 'You do not have access to this deal' }
       }
     }

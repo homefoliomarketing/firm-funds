@@ -276,6 +276,31 @@ export async function getSignWellCompletedPdfUrl(documentId: string): Promise<st
   return fileUrl
 }
 
+/**
+ * Fetch a SignWell document's current status string (e.g. "Completed",
+ * "Declined", "Sent", "Viewed"). The webhook uses this to confirm a claimed
+ * terminal event against the LIVE document, since SignWell's HMAC signs only
+ * `${type}@${time}` and the document id + status ride in the unsigned body
+ * (SEC-D1). Throws on transport/HTTP error so the caller can treat the failure
+ * as transient and force a redelivery rather than acting on unverified data.
+ */
+export async function getSignWellDocumentStatus(documentId: string): Promise<string | null> {
+  const apiKey = getApiKey()
+
+  const res = await fetch(
+    `${SIGNWELL_API_BASE}/documents/${encodeURIComponent(documentId)}`,
+    { headers: { 'X-Api-Key': apiKey } }
+  )
+
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`SignWell document status fetch failed: ${res.status} ${errText}`)
+  }
+
+  const json = await parseJsonSafe(res)
+  return isRecord(json) ? (asString(json.status) || null) : null
+}
+
 // ============================================================================
 // Webhook verification
 // ============================================================================

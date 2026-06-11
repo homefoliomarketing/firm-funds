@@ -1,5 +1,5 @@
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { verifySignWellWebhook, getSignWellCompletedPdf } from '@/lib/signwell'
+import { verifySignWellWebhook, getSignWellCompletedPdf, getSignWellDocumentStatus } from '@/lib/signwell'
 import { logAuditEventServiceRole } from '@/lib/audit'
 import { sendRemediationIdpSignedNotification, sendBrokerageExecutedIdpNotification } from '@/lib/email'
 
@@ -34,6 +34,12 @@ function redactDocumentId(id: string | null | undefined): string {
   return `${id.slice(0, 4)}...${id.slice(-4)}`
 }
 
+// SEC-D2: reject events whose authenticated timestamp is implausibly old. The
+// window is deliberately generous (1h, not minutes) so legitimate SignWell
+// retries are never dropped; SignWell delivers near-instantly and the SEC-D1
+// live re-fetch below is the real anti-replay gate.
+const WEBHOOK_MAX_AGE_MS = 60 * 60 * 1000
+
 export async function POST(request: Request) {
   try {
     // Read the raw body, then parse. SignWell hashes `${type}@${time}` (NOT the
@@ -67,6 +73,18 @@ export async function POST(request: Request) {
       return new Response('Unauthorized', { status: 401 })
     }
 
+    // SEC-D2: freshness. eventTime is the HMAC-authenticated Unix epoch (seconds)
+    // at which the event occurred. Drop events older than the generous window
+    // above (acknowledge with 200 so SignWell stops retrying a genuinely stale
+    // event).
+    const eventEpochMs = Number(eventTime) * 1000
+    if (Number.isFinite(eventEpochMs) && Date.now() - eventEpochMs > WEBHOOK_MAX_AGE_MS) {
+      console.error(
+        `SignWell webhook: event ${eventType} timestamp is stale (older than ${WEBHOOK_MAX_AGE_MS}ms) — ignoring`
+      )
+      return new Response('OK', { status: 200 })
+    }
+
     const documentId: string | undefined = payload?.data?.object?.id
     const documentStatus: string | undefined = payload?.data?.object?.status
 
@@ -95,6 +113,47 @@ export async function POST(request: Request) {
       // etc.). Acknowledge so SignWell stops retrying, but do nothing.
       console.log(`SignWell webhook: ignoring non-terminal event ${eventType}`)
       return new Response('OK', { status: 200 })
+    }
+
+    // SEC-D1: the HMAC signs only `${type}@${time}` — the document id and status
+    // ride in the UNSIGNED body. Before mutating anything, re-fetch the document
+    // from SignWell and confirm its live status matches the claimed event, so a
+    // captured hash cannot flip an unrelated (e.g. still-pending) document to
+    // "signed" and fast-track it to funding. The financial completed path
+    // requires a live "Completed"; on a transient fetch error we force a
+    // redelivery (503, before the dedup claim) rather than act on unverified
+    // data. Decline/cancel are non-financial, so a fetch failure there falls
+    // through, but a live "Completed" still blocks an inconsistent void attempt.
+    if (eventType === 'document_completed') {
+      let liveStatus: string | null = null
+      try {
+        liveStatus = await getSignWellDocumentStatus(documentId)
+      } catch (statusErr: unknown) {
+        const message = statusErr instanceof Error ? statusErr.message : 'unknown'
+        console.error(
+          `SignWell webhook: live status re-fetch failed for document ${redactDocumentId(documentId)}: ${message} — forcing redelivery`
+        )
+        return new Response('Status verification unavailable', { status: 503 })
+      }
+      if ((liveStatus ?? '').toLowerCase() !== 'completed') {
+        console.error(
+          `SignWell webhook: live status "${liveStatus ?? 'unknown'}" does not match completed event for document ${redactDocumentId(documentId)} — rejecting as spoofed/stale`
+        )
+        return new Response('OK', { status: 200 })
+      }
+    } else {
+      try {
+        const liveStatus = await getSignWellDocumentStatus(documentId)
+        if (liveStatus && liveStatus.toLowerCase() === 'completed') {
+          console.error(
+            `SignWell webhook: ${eventType} event but live status is "Completed" for document ${redactDocumentId(documentId)} — ignoring as inconsistent`
+          )
+          return new Response('OK', { status: 200 })
+        }
+      } catch {
+        // Non-financial path: a transient fetch failure should not block a
+        // legitimate decline/cancel. Fall through and process normally.
+      }
     }
 
     const supabase = createServiceRoleClient()

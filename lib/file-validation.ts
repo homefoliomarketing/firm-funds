@@ -19,12 +19,12 @@ interface Signature {
   offset?: number
 }
 
-// Sentinel for plaintext formats (CSV, TXT) that genuinely have no magic
-// bytes but are still allowed. Anything in this set passes without a check.
-const PLAINTEXT_MIME_TYPES = new Set<string>([
-  'text/csv',
-  'text/plain',
-])
+// Plaintext formats (CSV, TXT) have no magic bytes, so a declared text/* type
+// would bypass content sniffing entirely. They are intentionally NOT accepted
+// for document uploads (SEC-D5) and were dropped from ALLOWED_UPLOAD_MIME_TYPES,
+// so this set is empty and any text/* MIME now fail-closes through the lookup
+// below. Kept as a named sentinel so the intent is explicit.
+const PLAINTEXT_MIME_TYPES = new Set<string>([])
 
 const MAGIC_BYTES: Record<string, Signature[]> = {
   'application/pdf': [

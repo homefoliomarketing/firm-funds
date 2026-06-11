@@ -124,6 +124,21 @@ export async function POST(request: Request) {
     // unrecognized payload shapes, in which case dedup is best-effort.
     const generatedDateTime: string | undefined =
       payload?.generatedDateTime || payload?.eventDateTime
+
+    // SEC-D2: DocuSign's HMAC binds the FULL body, so generatedDateTime is
+    // authenticated and replay is already blocked by the dedup table below.
+    // DocuSign Connect also retries failures for many hours using the ORIGINAL
+    // generatedDateTime, so rejecting "stale" events would drop legitimate
+    // delayed retries with no security gain. We therefore only LOG an
+    // unusually-old event as an observability signal and still process it.
+    if (generatedDateTime) {
+      const eventMs = Date.parse(generatedDateTime)
+      if (Number.isFinite(eventMs) && Date.now() - eventMs > 60 * 60 * 1000) {
+        console.warn(
+          `DocuSign webhook: event ${eventName ?? 'unknown'} generatedDateTime is over 1h old (${generatedDateTime}) — processing anyway (full-body HMAC + dedup protect against replay)`
+        )
+      }
+    }
     const eventId =
       eventName && generatedDateTime && envelopeId
         ? `${eventName}_${generatedDateTime}_${envelopeId}`

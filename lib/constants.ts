@@ -106,14 +106,12 @@ export const ALLOWED_UPLOAD_MIME_TYPES = [
   'image/jpeg',
   'image/png',
   'image/gif',
-  'text/csv',
-  'text/plain',
 ] as const
 
 /** Allowed file extensions for upload */
 export const ALLOWED_UPLOAD_EXTENSIONS = [
   '.pdf', '.doc', '.docx', '.xls', '.xlsx',
-  '.jpg', '.jpeg', '.png', '.gif', '.csv', '.txt',
+  '.jpg', '.jpeg', '.png', '.gif',
 ] as const
 
 /** Allowed document types (must match DB check constraint) */
