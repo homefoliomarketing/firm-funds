@@ -504,7 +504,7 @@ export default function AgentSetupPage() {
                       ) : (
                         <>
                           <p className="text-xs mt-2 text-muted-foreground">
-                            Want to get a jump on it? Request your advance now and we&apos;ll send it to {brokerage?.name || 'your brokerage'} automatically the moment your account is approved, so you don&apos;t have to log back in.
+                            Want to get a jump on it? Request your advance now and we&apos;ll send it to {brokerage?.name || 'your brokerage'}{' '}automatically the moment your account is approved, so you don&apos;t have to log back in.
                           </p>
                           <Button
                             onClick={handlePreRequest}

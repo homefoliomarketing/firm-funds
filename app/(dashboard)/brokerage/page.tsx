@@ -475,8 +475,15 @@ export default function BrokerageDashboard() {
   const offeredDeals = useMemo(() =>
     deals.filter(d => d.status === 'offered'), [deals])
 
+  // 'offered' deals are firm-deal offers the agent requested but the brokerage
+  // hasn't submitted yet. The trade record is part of that submission, so a red
+  // "Trade record to upload" nag on them is redundant (the agent's request just
+  // lands in the brokerage's queue). We exclude them here so the front-page
+  // ActionRequiredStrip + Deals-tab badge only flag deals the brokerage has
+  // actually submitted and still owes a trade record on (under_review/approved/
+  // funded). Other missing docs and the existing per-deal warnings are untouched.
   const dealsMissingTradeRecord = useMemo(() =>
-    deals.filter(d => !['denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
+    deals.filter(d => !['offered', 'denied', 'cancelled', 'completed'].includes(d.status) && !dealTradeRecords.has(d.id)).length,
     [deals, dealTradeRecords])
   const unansweredMessageCount = useMemo(() =>
     brokerageInbox.reduce((sum, item) => sum + (item.unread_message_count || 0), 0),
@@ -923,7 +930,7 @@ export default function BrokerageDashboard() {
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
-                            {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
+                            {!dealTradeRecords.has(deal.id) && !['offered', 'denied', 'cancelled', 'completed'].includes(deal.status) && (
                               <span className="inline-flex w-2 h-2 rounded-full bg-red-500 flex-shrink-0 animate-pulse" title="Trade record needed" />
                             )}
                             <p className="text-[13px] font-semibold truncate text-foreground group-hover:text-primary transition-colors">{deal.property_address}</p>
@@ -934,7 +941,7 @@ export default function BrokerageDashboard() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-3">
-                          {!dealTradeRecords.has(deal.id) && !['denied', 'cancelled', 'completed'].includes(deal.status) && (
+                          {!dealTradeRecords.has(deal.id) && !['offered', 'denied', 'cancelled', 'completed'].includes(deal.status) && (
                             <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-md bg-status-red-muted text-status-red border border-status-red-border">
                               <AlertTriangle size={11} />
                               Trade Record Needed

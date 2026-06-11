@@ -91,7 +91,7 @@ All of the following are exported `send...` functions in `lib/email.ts`.
 | --- | --- | --- | --- |
 | `sendNewDealNotification` | Firm Funds admin | A new advance request is submitted | transactional |
 | `sendBrokerageAdminNewDealNotification` | Brokerage admin | An agent submits a request | notification |
-| `sendStatusChangeNotification` | Agent | Deal status changes (special copy for approved / funded / denied) | notification |
+| `sendStatusChangeNotification` | Agent | Deal status changes. **Approved** renders a celebratory "stamped APPROVED" email that also confirms funds are on the way and flags the separate e-sign email as an action item; the deal-actions caller **skips this email entirely for `funded`** so the agent is not double-notified (the approval email already said funds were coming). Denied/other keep the status-transition treatment. | notification |
 | `sendDocumentRequestNotification` | Agent | Admin requests a document | notification |
 | `sendDocumentUploadedNotification` | Firm Funds admin | A document is uploaded | transactional |
 | `sendDocumentReturnNotification` | Agent | A document is returned for fixing | notification |

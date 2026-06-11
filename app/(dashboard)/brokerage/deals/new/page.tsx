@@ -10,7 +10,7 @@ import {
 import { calculateDealPreviewForBrokerage, submitDealAsBrokerage, uploadDocument, createRevisedDealFromDenied, getDealSubmissionGate } from '@/lib/actions/deal-actions'
 import { resendAgentWelcomeEmail } from '@/lib/actions/admin-actions'
 import { formatCurrency } from '@/lib/formatting'
-import { BROKERAGE_PUBLIC_COLUMNS } from '@/lib/constants'
+import { BROKERAGE_PUBLIC_COLUMNS, MIN_DAYS_UNTIL_CLOSING } from '@/lib/constants'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -97,6 +97,13 @@ function NewBrokerageDealPageInner() {
     estimatedBalanceDeduction: number
   } | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  // True while a preview calculation is in flight. Used to show a spinner and,
+  // crucially, to keep the user informed instead of leaving a silently-dead
+  // Submit button when the calc is slow or the network hiccups.
+  const [previewLoading, setPreviewLoading] = useState(false)
+  // Bumped to force the preview effect to re-run on demand (manual retry after a
+  // transient failure) without the user having to touch an input or refresh.
+  const [previewReloadKey, setPreviewReloadKey] = useState(0)
   // Set when the selected agent has an uncovered failed-to-close balance —
   // blocks submitting on their behalf (server-enforced in submitDealAsBrokerage).
   const [submissionBlock, setSubmissionBlock] = useState<{ owed: number; coverage: number } | null>(null)
@@ -224,38 +231,53 @@ function NewBrokerageDealPageInner() {
     const postSplit = gross * (1 - splitPct / 100)
     const flatFeeBad = brokerageFlatFee.trim() !== '' && (isNaN(flatFee) || flatFee < 0 || flatFee >= postSplit)
     if (!agentId || !gross || !closingDate || gross <= 0 || isNaN(splitPct) || splitPct < 0 || splitPct > 100 || flatFeeBad) {
-      setPreview(null); setPreviewError(null); return
+      setPreview(null); setPreviewError(null); setPreviewLoading(false); return
     }
     let cancelled = false
     const t = setTimeout(async () => {
-      const result = await calculateDealPreviewForBrokerage({
-        grossCommission: gross,
-        brokerageSplitPct: splitPct,
-        brokerageFlatFee: flatFee,
-        closingDate,
-        agentId,
-      })
-      if (cancelled) return
-      if (result.success && result.data) {
-        setPreview({
-          netCommission: result.data.netCommission,
-          daysUntilClosing: result.data.daysUntilClosing,
-          discountFee: result.data.discountFee,
-          settlementPeriodFee: result.data.settlementPeriodFee,
-          advanceAmount: result.data.advanceAmount,
-          brokerageReferralFee: result.data.brokerageReferralFee,
-          amountDueFromBrokerage: result.data.amountDueFromBrokerage,
-          outstandingBalance: result.data.outstandingBalance || 0,
-          estimatedBalanceDeduction: result.data.estimatedBalanceDeduction || 0,
+      if (!cancelled) setPreviewLoading(true)
+      // The server action can REJECT (not just return success:false) on a network
+      // hiccup or a serverless cold-start timeout. If we don't catch that, neither
+      // setPreview nor setPreviewError fires and the Submit button is left greyed
+      // out with no explanation and no way to recover short of a full refresh —
+      // exactly the intermittent "preview never launches" bug. Catch it, surface a
+      // retry-able error, and always clear the loading flag.
+      try {
+        const result = await calculateDealPreviewForBrokerage({
+          grossCommission: gross,
+          brokerageSplitPct: splitPct,
+          brokerageFlatFee: flatFee,
+          closingDate,
+          agentId,
         })
-        setPreviewError(null)
-      } else {
+        if (cancelled) return
+        if (result.success && result.data) {
+          setPreview({
+            netCommission: result.data.netCommission,
+            daysUntilClosing: result.data.daysUntilClosing,
+            discountFee: result.data.discountFee,
+            settlementPeriodFee: result.data.settlementPeriodFee,
+            advanceAmount: result.data.advanceAmount,
+            brokerageReferralFee: result.data.brokerageReferralFee,
+            amountDueFromBrokerage: result.data.amountDueFromBrokerage,
+            outstandingBalance: result.data.outstandingBalance || 0,
+            estimatedBalanceDeduction: result.data.estimatedBalanceDeduction || 0,
+          })
+          setPreviewError(null)
+        } else {
+          setPreview(null)
+          setPreviewError(result.error || 'Unable to preview deal')
+        }
+      } catch {
+        if (cancelled) return
         setPreview(null)
-        setPreviewError(result.error || 'Unable to preview deal')
+        setPreviewError('Could not reach Firm Funds to calculate the advance. Check your connection and tap Retry.')
+      } finally {
+        if (!cancelled) setPreviewLoading(false)
       }
     }, 400)
     return () => { clearTimeout(t); cancelled = true }
-  }, [agentId, grossCommission, brokerageSplitPct, brokerageFlatFee, closingDate])
+  }, [agentId, grossCommission, brokerageSplitPct, brokerageFlatFee, closingDate, previewReloadKey])
 
   // Failed-deal gate: when an agent is selected, check whether they have an
   // uncovered failed-to-close balance and warn up front (submission is also
@@ -288,6 +310,14 @@ function NewBrokerageDealPageInner() {
       setResendMsg(result.error || 'Failed to send welcome email')
     }
     setResendBusy(false)
+  }
+
+  // Manual retry for a failed preview calc. Bumps the reload key so the preview
+  // effect re-fires immediately without the user having to edit a field or
+  // refresh the whole page.
+  const handleRetryPreview = () => {
+    setPreviewError(null)
+    setPreviewReloadKey(k => k + 1)
   }
 
   const handleFileAdd = (slotKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -624,11 +654,18 @@ function NewBrokerageDealPageInner() {
               <div>
                 <Label htmlFor="closing">Closing date <span className="text-destructive">*</span></Label>
                 {(() => {
-                  // Same inline-validation pattern as the agent form. Toronto
-                  // tz keeps "today" stable for users west of UTC late at
-                  // night.
+                  // Toronto tz keeps "today" stable for users west of UTC late
+                  // at night. The earliest closing the server accepts is
+                  // MIN_DAYS_UNTIL_CLOSING (2) calendar days out — anything
+                  // sooner gets rejected by the preview, which used to leave the
+                  // admin staring at an error with no obvious cause. Compute the
+                  // floor in Toronto time so the input min and the inline check
+                  // agree with the server.
                   const todayYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
-                  const isInvalidClosing = !!closingDate && closingDate <= todayYmd
+                  const minClosing = new Date(todayYmd + `T00:00:00Z`)
+                  minClosing.setUTCDate(minClosing.getUTCDate() + MIN_DAYS_UNTIL_CLOSING)
+                  const minClosingYmd = minClosing.toISOString().split('T')[0]
+                  const isInvalidClosing = !!closingDate && closingDate < minClosingYmd
                   return (
                     <>
                       <Input
@@ -636,17 +673,17 @@ function NewBrokerageDealPageInner() {
                         type="date"
                         value={closingDate}
                         onChange={(e) => setClosingDate(e.target.value)}
-                        min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                        min={minClosingYmd}
                         required
                         aria-invalid={isInvalidClosing || undefined}
                         aria-describedby={`brk-closing-hint${isInvalidClosing ? ' brk-closing-error' : ''}`}
                       />
                       <p id="brk-closing-hint" className="mt-1 text-xs text-muted-foreground">
-                        Closing date must be at least 1 day from today.
+                        Closing date must be at least {MIN_DAYS_UNTIL_CLOSING} days from today.
                       </p>
                       {isInvalidClosing && (
                         <p id="brk-closing-error" className="mt-1 text-xs text-destructive font-medium">
-                          Closing date must be tomorrow or later.
+                          Closing date must be at least {MIN_DAYS_UNTIL_CLOSING} days out.
                         </p>
                       )}
                     </>
@@ -693,12 +730,21 @@ function NewBrokerageDealPageInner() {
           </Card>
 
           {/* Preview */}
-          {(preview || previewError) && (
-            <Card className={preview ? 'border-primary/30 bg-primary/5' : 'border-destructive/30 bg-destructive/5'}>
+          {(preview || previewError || previewLoading) && (
+            <Card className={previewError ? 'border-destructive/30 bg-destructive/5' : 'border-primary/30 bg-primary/5'}>
               <CardHeader><CardTitle className="text-base flex items-center gap-2"><Calculator size={16} /> Advance preview</CardTitle></CardHeader>
               <CardContent className="text-sm">
                 {previewError ? (
-                  <p className="text-destructive">{previewError}</p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-destructive">{previewError}</p>
+                    <Button type="button" variant="outline" size="sm" onClick={handleRetryPreview} className="self-start shrink-0">
+                      Retry
+                    </Button>
+                  </div>
+                ) : (preview === null && previewLoading) ? (
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Calculating advance…
+                  </p>
                 ) : preview ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                     <div>
@@ -806,6 +852,33 @@ function NewBrokerageDealPageInner() {
             <Alert variant="destructive">
               <AlertDescription className="text-xs">
                 The brokerage flat fee must be less than the commission after the split. Adjust it to submit.
+              </AlertDescription>
+            </Alert>
+          )}
+          {/* Everything required is filled and valid, but the advance hasn't been
+              calculated yet. Tell the admin why Submit is still disabled and give
+              them a way to recover instead of leaving a silently-greyed button —
+              the original "preview didn't launch" bug. */}
+          {missing.length === 0 && !flatFeeInvalid && agentActivated && !submissionBlock && !preview && (
+            <Alert>
+              <AlertDescription className="text-xs flex items-center gap-2">
+                {previewLoading ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Calculating the advance before you can submit…</>
+                ) : previewError ? (
+                  <>
+                    <span>We couldn&apos;t calculate the advance.</span>
+                    <button type="button" onClick={handleRetryPreview} className="font-semibold text-primary underline underline-offset-2">
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span>Finishing the advance calculation…</span>
+                    <button type="button" onClick={handleRetryPreview} className="font-semibold text-primary underline underline-offset-2">
+                      Recalculate
+                    </button>
+                  </>
+                )}
               </AlertDescription>
             </Alert>
           )}

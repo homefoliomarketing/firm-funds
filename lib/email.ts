@@ -866,6 +866,59 @@ export function renderStatusChangeEmail(params: {
   dealNumber?: string | null
   branding?: BrokerageBranding | null
 }): string {
+  const dealUrl = `${APP_URL}/agent/deals/${params.dealId}`
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Approved: a celebratory "stamped APPROVED" treatment. No status-arrow chips.
+  // It confirms the funds are on the way (the separate "Funds on the Way" email
+  // is no longer sent to the agent; that message is folded in here) and loudly
+  // flags the one action the agent still owns: signing the documents that arrive
+  // in a separate e-signature email. Urgency is carried by a warning callout,
+  // never a red button, per the email design convention.
+  // ──────────────────────────────────────────────────────────────────────────
+  if (params.newStatus === 'approved') {
+    const stamp = `<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 30px;">
+                      <tr>
+                        <td style="padding:12px 30px; border:2px solid #5FA873; border-radius:10px; background:#5FA8731A; color:#6FB783; font-size:18px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; text-align:center;">
+                          &#10003;&nbsp;Approved
+                        </td>
+                      </tr>
+                    </table>`
+
+    const fundsCallout = emailCallout({
+      tone: 'success',
+      title: 'Funds on the way',
+      body: `Your advance has been approved and your funds are on the way. Our goal is to have the money in your account within 24 business hours.`,
+    })
+
+    const signCallout = emailCallout({
+      tone: 'warning',
+      title: 'Action required: sign your documents',
+      body: `You will receive a separate email to e-sign your advance documents. Your funds cannot be released until those are signed, so please keep an eye on your inbox and sign as soon as it arrives.`,
+    })
+
+    const body = `${emailKicker('Advance approved')}
+
+                    ${emailHeadline("You're approved.")}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentFirstName ?? '')}, great news about your advance.
+                    </p>
+
+                    ${emailDetailCard([
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                    ])}
+
+                    ${stamp}
+
+                    ${fundsCallout}${signCallout}${emailButton('View Deal', dealUrl)}`
+
+    const preheader = `You're approved and your funds are on the way. One quick step: sign your documents.`
+
+    return wrap(body, params.branding, preheader, emailFallbackLink(dealUrl))
+  }
+
   const oldColor = statusColor(params.oldStatus)
   const newColor = statusColor(params.newStatus)
   // Pill TEXT uses a lighter variant of each status hue so it clears WCAG AA on
@@ -886,7 +939,6 @@ export function renderStatusChangeEmail(params: {
   const newText = pillTextColor(params.newStatus)
   const oldLabel = statusLabel(params.oldStatus)
   const newLabel = statusLabel(params.newStatus)
-  const dealUrl = `${APP_URL}/agent/deals/${params.dealId}`
 
   // Centered transition: old-status pill, an arrow, new-status pill. Each pill is
   // a tinted chip whose color comes from statusColor (background at low opacity
@@ -904,13 +956,7 @@ export function renderStatusChangeEmail(params: {
                     </table>`
 
   let callout = ''
-  if (params.newStatus === 'approved') {
-    callout = emailCallout({
-      tone: 'success',
-      title: 'Approved',
-      body: `You're Approved! Your advance has been approved and will be funded shortly. We'll send another notification once the funds are on the way.`,
-    })
-  } else if (params.newStatus === 'funded') {
+  if (params.newStatus === 'funded') {
     callout = emailCallout({
       tone: 'funded',
       body: `Funds on the Way! Your EFT transfer is being processed and our goal is to have the funds in your account within 24 business hours. We'll keep you posted if anything changes.`,

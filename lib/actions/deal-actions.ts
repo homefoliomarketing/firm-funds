@@ -1347,7 +1347,11 @@ export async function updateDealStatus(input: {
       .eq('id', deal.agent_id)
       .single()
 
-    if (agentInfo?.email) {
+    // The agent gets ONE status email per deal lifecycle. The approval email now
+    // already tells them their funds are on the way, so we deliberately skip the
+    // separate "Funds on the Way" email when the deal moves to funded. The portal
+    // status still advances to funded; we just don't double-email the agent.
+    if (agentInfo?.email && input.newStatus !== 'funded') {
       sendStatusChangeNotification({
         dealId: deal.id,
         dealNumber: deal.deal_number,
