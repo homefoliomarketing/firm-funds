@@ -82,14 +82,6 @@ function formatClosingDate(iso: string | null): string | null {
   return `${months[parseInt(m[2], 10) - 1]} ${parseInt(m[3], 10)}, ${m[1]}`
 }
 
-function formatMoney(amount: number | null | undefined): string {
-  if (amount == null || !Number.isFinite(amount)) return ''
-  return new Intl.NumberFormat('en-CA', {
-    style: 'currency',
-    currency: 'CAD',
-    maximumFractionDigits: 0,
-  }).format(Math.round(amount))
-}
 
 export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): RenderedEmail {
   const brokerage = escapeHtml(input.brokerage_name)
@@ -102,45 +94,34 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
 
   const isNudge = input.variant === 'nudge_2h'
   const tier: BrokerageOfferTier = input.tier ?? 'B'
-  const commissionAmount = tier === 'C' ? input.commission_amount ?? null : null
-  const advanceEstimate = tier === 'C' ? input.advance_estimate ?? null : null
-  const commissionStr = commissionAmount && commissionAmount > 0 ? formatMoney(commissionAmount) : null
-  const advanceStr = advanceEstimate && advanceEstimate > 0 ? formatMoney(advanceEstimate) : null
 
-  // Subject lines differ by tier so the brokerage admin sees the most
-  // useful info up front. Nudge always wins because it's a follow-up
-  // marker the admin needs to see in their inbox.
+  // Subject lines are document and action focused: the brokerage's job is to
+  // upload the deal documents so we can fund. No dollar figures here, since
+  // the brokerage tells us the real commission when they submit and ours is
+  // only a rough pre-split estimate. Nudge always wins because it's a
+  // follow-up marker the admin needs to see in their inbox.
   let subject: string
   if (isNudge) {
-    subject = `Reminder: ${input.agent_full_name} is waiting on an advance for ${input.property_address}`
-  } else if (tier === 'C' && advanceStr && closingHuman) {
-    subject = `${advanceStr} ready for ${input.property_address}, closing ${closingHuman} (${input.agent_full_name})`
-  } else if (tier === 'B' && closingHuman) {
-    subject = `${input.agent_full_name}'s deal at ${input.property_address} closes ${closingHuman}. Ready to advance`
+    subject = `Reminder: ${input.agent_full_name}'s advance on ${input.property_address} is waiting on your documents`
   } else if (tier === 'A') {
-    subject = `Possible upcoming deal at ${input.property_address} for ${input.agent_full_name}`
+    subject = `Possible commission advance for ${input.agent_full_name} at ${input.property_address}`
   } else {
-    subject = `${input.agent_full_name} requested a commission advance on ${input.property_address}`
+    subject = `${input.agent_full_name} requested an advance on ${input.property_address}. Upload the documents to fund today`
   }
 
   const headerBg = isNudge ? '#c75c3a' : '#5FA873'
   const headerLabel = isNudge ? 'Reminder' : brand
 
-  // Intro copy tracks the tier. Tier A frames this as a lead the brokerage
-  // can still walk away from. Tier B confirms the timing and asks the
-  // brokerage to fill in commission. Tier C confirms everything is in and
-  // we just need the package.
+  // Intro copy tracks the tier but stays document focused and money free.
+  // Tier A is a lead the brokerage can still walk away from. Tier B and C
+  // are accepted offers where we just need the documents in to fund.
   let intro: string
   if (isNudge) {
-    intro = `It's been 2 hours since ${agent} accepted a commission advance offer and we still need the deal package from ${brokerage} to fund.`
+    intro = `It's been 2 hours since ${agent} requested a commission advance on ${address} and we still need the deal documents from ${brokerage} to fund.`
   } else if (tier === 'A') {
-    intro = `We spotted a firm-deal lead for ${agent}. If this is theirs and the brokerage is ready to advance, submit the package below. If not, check in with the agent first.`
-  } else if (tier === 'B') {
-    intro = `${agent} accepted a commission advance offer on a recently firmed deal. We'll fund as soon as the commission is in: ${brokerage} can submit the package below or wait for the agent to send the trade record.`
-  } else if (tier === 'C' && commissionStr) {
-    intro = `${agent} accepted a commission advance offer and we already have a gross commission of <span style="font-weight:600; color:#1a2e1d;">${escapeHtml(commissionStr)}</span> on file. Submit the package below and we'll wire as soon as it's approved.`
+    intro = `We spotted a possible firm deal for ${agent}. If this is theirs and the brokerage is ready to advance, upload the deal documents below. If not, check in with the agent first.`
   } else {
-    intro = `${agent} accepted a commission advance offer on a recently firmed deal. To get them funded, ${brokerage} needs to submit the deal package through the portal.`
+    intro = `${agent} has requested a commission advance on ${address}. To get them funded today, ${brokerage} just needs to upload the required documents for this deal as soon as possible. Thank you so much for your help getting this one over the line.`
   }
 
   const contactBits: string[] = []
@@ -154,18 +135,10 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
     ? `<tr><td style="padding:6px 0; color:#6a7a6e; font-size:13px; width:130px;">Closing date:</td><td style="padding:6px 0; color:#1a2e1d; font-size:13px; font-weight:600;">${escapeHtml(closingHuman)}</td></tr>`
     : ''
 
-  // Optional commission row, only when tier === 'C'. Surfaces the same
-  // number the agent saw in their offer so the brokerage knows what we'll
-  // try to advance against.
-  const commissionRow = commissionStr
-    ? `<tr><td style="padding:6px 0; color:#6a7a6e; font-size:13px; width:130px;">Gross commission:</td><td style="padding:6px 0; color:#1a2e1d; font-size:13px; font-weight:600;">${escapeHtml(commissionStr)}${advanceStr ? ` <span style="color:#6a7a6e; font-weight:400;">(est. advance ${escapeHtml(advanceStr)}, less brokerage splits)</span>` : ''}</td></tr>`
-    : ''
 
-  // CTA copy tracks the tier. Tier A and B both prompt "Submit on behalf"
-  // because the agent's already given the green light but the brokerage
-  // controls the actual submission. Tier C drops "on behalf" since the
-  // commission is locked in.
-  const ctaLabel = tier === 'C' ? 'Submit advance' : 'Submit advance on behalf'
+  // CTA copy is document focused. Tier A is still speculative so it invites
+  // a review; accepted offers prompt the document upload that unblocks funding.
+  const ctaLabel = tier === 'A' ? 'Review the request' : 'Upload documents'
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -194,9 +167,8 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
               ${contactRow}
               <tr><td style="padding:6px 0; color:#6a7a6e; font-size:13px; width:130px;">Property:</td><td style="padding:6px 0; color:#1a2e1d; font-size:14px; font-weight:600;">${address}</td></tr>
               ${closingRow}
-              ${commissionRow}
             </table>
-            <p style="font-size:14px; color:#444; margin:0 0 20px 0;">Open the request in the portal to fill in the commission split and upload the required documents. The pre-filled form already has the property and agent info.</p>
+            <p style="font-size:14px; color:#444; margin:0 0 20px 0;">Open the request in the portal to upload the required documents and complete the submission. The pre-filled form already has the property and agent info.</p>
             <div style="text-align:center; margin:20px 0 8px 0;">
               <a href="${cta}" style="display:inline-block; background:#5FA873; color:#ffffff; padding:15px 38px; border-radius:999px; text-decoration:none; font-weight:600; font-size:16px;">${escapeHtml(ctaLabel)} &rarr;</a>
             </div>
@@ -219,8 +191,8 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
     `Hello ${input.brokerage_name} team,`,
     '',
     isNudge
-      ? `Reminder: it's been 2 hours since ${input.agent_full_name} accepted a commission advance offer on ${input.property_address}.`
-      : `${input.agent_full_name} accepted a commission advance offer on ${input.property_address}.`,
+      ? `Reminder: it's been 2 hours since ${input.agent_full_name} requested a commission advance on ${input.property_address}. We still need the deal documents to fund.`
+      : `${input.agent_full_name} has requested a commission advance on ${input.property_address}. Please upload the required documents as soon as possible so we can fund today.`,
     '',
     'Deal details:',
     `  Agent: ${input.agent_full_name}`,
@@ -229,7 +201,7 @@ export function renderBrokerageOfferEmail(input: BrokerageOfferEmailInput): Rend
     `  Property: ${input.property_address}`,
     closingHuman ? `  Closing: ${closingHuman}` : '',
     '',
-    'Open the pre-filled request to submit:',
+    'Open the pre-filled request to upload the documents and submit:',
     cta,
     '',
     'If the deal does not qualify, you can decline the offer from the same screen.',

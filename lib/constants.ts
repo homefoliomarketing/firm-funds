@@ -134,8 +134,10 @@ export const DOCUMENT_TYPES = [
 /** Valid document type values for DB constraint */
 export const VALID_DOCUMENT_TYPE_VALUES = DOCUMENT_TYPES.map(d => d.value)
 
-/** Valid upload source values (must match DB check constraint) */
-export const VALID_UPLOAD_SOURCES = ['nexone_auto', 'manual_upload'] as const
+/** Valid upload source values (must match DB check constraint). `system` is for
+ *  app-generated documents (e.g. the deal-completion receipt) inserted directly
+ *  via the service-role client, not the manual-upload action. */
+export const VALID_UPLOAD_SOURCES = ['nexone_auto', 'manual_upload', 'system'] as const
 
 /** Session inactivity timeout for admin users (ms) — 15 minutes */
 export const ADMIN_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000

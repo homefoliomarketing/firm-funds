@@ -8,6 +8,7 @@ import { formatPhoneForDisplay } from '@/lib/phone'
 import { createClient } from '@/lib/supabase/client'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES, getKycBadgeClass } from '@/lib/constants'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import IdCameraCapture from '@/components/IdCameraCapture'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -48,6 +49,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
   const [sendingMobileLink, setSendingMobileLink] = useState(false)
   const [mobileLinkSent, setMobileLinkSent] = useState(false)
   const [mobileLinkEmail, setMobileLinkEmail] = useState<string | null>(null)
@@ -240,17 +242,6 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             <p className="text-sm leading-relaxed text-muted-foreground">
               Before we verify your identity, we need a few details. This information will be used to verify your ID.
             </p>
-            <div className="flex items-center justify-center gap-3 mt-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">1</div>
-                <span className="text-xs font-semibold text-primary">Your Info</span>
-              </div>
-              <div className="w-8 h-px bg-border" />
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground text-xs font-bold flex items-center justify-center">2</div>
-                <span className="text-xs font-semibold text-muted-foreground">Upload ID</span>
-              </div>
-            </div>
           </div>
 
           {error && (
@@ -328,6 +319,12 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
 
   return (
     <div className="max-w-[560px] mx-auto my-10 px-5">
+      {showCamera && (
+        <IdCameraCapture
+          onCapture={handleFileSelect}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
       <Card className="p-8 border-border/50">
         {/* Header */}
         <div className="text-center mb-6">
@@ -340,39 +337,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
               ? 'Please re-upload a valid government-issued photo ID.'
               : 'Almost there! Upload a clear copy of a valid government-issued photo ID per FINTRAC requirements.'}
           </p>
-          {!isRejected && (
-            <div className="flex items-center justify-center gap-3 mt-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/40 text-primary text-xs font-bold flex items-center justify-center">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                </div>
-                <span className="text-xs font-semibold text-primary/70">Your Info</span>
-              </div>
-              <div className="w-8 h-px bg-primary/30" />
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">2</div>
-                <span className="text-xs font-semibold text-primary">Upload ID</span>
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Step indicator */}
-        {!isRejected && (
-          <div className="flex items-center gap-2 mb-6 px-1">
-            <div className="flex items-center gap-1.5 text-primary text-xs font-semibold">
-              <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-bold">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
-              </div>
-              Address
-            </div>
-            <div className="flex-1 h-px bg-primary/30" />
-            <div className="flex items-center gap-1.5 text-primary text-xs font-semibold">
-              <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-bold">2</div>
-              Upload ID
-            </div>
-          </div>
-        )}
 
         {/* Rejection notice */}
         {isRejected && agent.kyc_rejection_reason && (
@@ -392,7 +357,7 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
         {/* Document type selection */}
         <div className="mb-4">
           <label className="block text-muted-foreground text-[13px] font-medium mb-1.5">
-            Type of ID
+            Type of ID <span className="text-destructive">*</span>
           </label>
           <select
             value={documentType}
@@ -453,15 +418,6 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             className="hidden"
             onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
           />
-          {/* Camera capture input for mobile */}
-          <input
-            id="kyc-camera-input"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
-          />
           {selectedFiles.length > 0 ? (
             <div className="flex items-center justify-center gap-2">
               <Upload size={16} className="text-primary" />
@@ -478,13 +434,14 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
               <p className="text-muted-foreground/70 text-xs">
                 JPEG, PNG, or PDF. Max 10MB per file. Upload front &amp; back if needed.
               </p>
-              <div
-                onClick={(e) => { e.stopPropagation(); document.getElementById('kyc-camera-input')?.click() }}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowCamera(true) }}
                 className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[13px] font-semibold cursor-pointer hover:bg-primary/15 transition-colors"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                 Take Photo
-              </div>
+              </button>
             </>
           )}
         </div>

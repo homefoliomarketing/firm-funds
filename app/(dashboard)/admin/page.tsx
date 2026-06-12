@@ -132,6 +132,16 @@ type AgentRefundRow = {
   credit_amount: number
 }
 
+// An approved deal whose BOTH signed contracts (the e-signed Commission Purchase
+// Agreement -> commission_agreement, and the Irrevocable Direction to Pay ->
+// direction_to_pay) have been returned. Nothing is left but us funding it.
+type ReadyToFundDeal = {
+  id: string
+  deal_number: string | null
+  property_address: string | null
+  agent_name: string
+}
+
 export default function AdminDashboard() {
   // `user` is captured for parity with other pages; not currently rendered.
   const [, setUser] = useState<User | null>(null)
@@ -149,6 +159,7 @@ export default function AdminDashboard() {
   const [overdueSettlements, setOverdueSettlements] = useState<OverdueSettlementRow[]>([])
   const [pendingAmendments, setPendingAmendments] = useState<PendingAmendmentRow[]>([])
   const [agentsOwedRefund, setAgentsOwedRefund] = useState<AgentRefundRow[]>([])
+  const [readyToFundDeals, setReadyToFundDeals] = useState<ReadyToFundDeal[]>([])
   const [pendingBankingAgents, setPendingBankingAgents] = useState<DashboardBankingAgent[]>([])
   const [pendingKycAgents, setPendingKycAgents] = useState<DashboardKycAgent[]>([])
   const [verifyAgentId, setVerifyAgentId] = useState<string | null>(null)
@@ -174,6 +185,46 @@ export default function AdminDashboard() {
     setPendingBankingAgents(banking)
     setPendingKycAgents(kyc)
     setStats(prev => ({ ...prev, pendingBankingCount: banking.length, pendingKycCount: kyc.length }))
+  }, [supabase])
+
+  // "Ready to fund" = an approved deal whose BOTH signed contracts are back. We
+  // already have the approved deals in hand; this runs ONE deal_documents query
+  // over their ids (filtered to the two signed-contract types), groups by deal,
+  // and keeps only deals that have BOTH. Pure read; safe to re-run on the poll.
+  const computeReadyToFund = useCallback(async (deals: DashboardDeal[]) => {
+    const approved = deals.filter(d => d.status === 'approved')
+    if (approved.length === 0) {
+      setReadyToFundDeals([])
+      return
+    }
+    const approvedIds = approved.map(d => d.id)
+    const { data: docRows } = await supabase
+      .from('deal_documents')
+      .select('deal_id, document_type')
+      .in('deal_id', approvedIds)
+      .in('document_type', ['commission_agreement', 'direction_to_pay'])
+    // deal_id -> set of the signed-contract types present
+    const byDeal = new Map<string, Set<string>>()
+    for (const row of (docRows || []) as { deal_id: string; document_type: string }[]) {
+      if (!byDeal.has(row.deal_id)) byDeal.set(row.deal_id, new Set())
+      byDeal.get(row.deal_id)!.add(row.document_type)
+    }
+    const ready: ReadyToFundDeal[] = approved
+      .filter(d => {
+        const types = byDeal.get(d.id)
+        return !!types && types.has('commission_agreement') && types.has('direction_to_pay')
+      })
+      .map(d => {
+        const a = Array.isArray(d.agents) ? d.agents[0] ?? null : d.agents ?? null
+        const agentName = a ? `${a.first_name || ''} ${a.last_name || ''}`.trim() : ''
+        return {
+          id: d.id,
+          deal_number: d.deal_number,
+          property_address: d.property_address,
+          agent_name: agentName,
+        }
+      })
+    setReadyToFundDeals(ready)
   }, [supabase])
 
   // Merge the banking + KYC queues into one per-agent review list. An agent can
@@ -335,11 +386,15 @@ export default function AdminDashboard() {
         pendingPaymentClaims,
       })
       setAllDeals(allDealsList)
+      // Compute the "ready to fund" banner feed from the approved deals + their
+      // signed contracts. Best-effort: a failure here leaves the banner empty
+      // rather than blocking the dashboard.
+      await computeReadyToFund(allDealsList)
 
       setLoading(false)
     }
     loadDashboard()
-  }, [router, supabase])
+  }, [router, supabase, computeReadyToFund])
 
   // Poll every 30 seconds for the live "needs attention" surfaces: new
   // messages, the firm-deal review queue, the pending payment-claim count,
@@ -392,12 +447,21 @@ export default function AdminDashboard() {
           firmDealPending: firmDealPendingCount ?? prev.firmDealPending,
           pendingPaymentClaims: paymentClaimResult.success ? Number(paymentClaimResult.data?.count ?? 0) : prev.pendingPaymentClaims,
         }))
+        // Refresh the "ready to fund" feed so newly-signed (or just-funded) deals
+        // move on/off the banner without a full reload. Only the approved deals
+        // are needed as input.
+        const { data: approvedRes } = await supabase
+          .from('deals')
+          .select('id, status, deal_number, property_address, agents(first_name, last_name)')
+          .eq('status', 'approved')
+          .limit(500)
+        await computeReadyToFund((approvedRes || []) as DashboardDeal[])
       } catch {
         // Silently fail — don't break the dashboard
       }
     }, 30000)
     return () => clearInterval(interval)
-  }, [loading, supabase])
+  }, [loading, supabase, computeReadyToFund])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -588,6 +652,46 @@ export default function AdminDashboard() {
             </Card>
           ))}
         </section>
+
+        {/* READY TO FUND — approved deals whose BOTH signed contracts are back.
+            Nothing is left but us wiring the money, so this is the single most
+            actionable surface: prominent primary-colored banner at the top. */}
+        {readyToFundDeals.length > 0 && (
+          <section aria-label="Deals ready to fund" className="mb-6">
+            <Card className="border-primary/50 bg-primary/5 ff-card-elevated overflow-hidden">
+              <CardHeader className="py-3.5 px-4 bg-primary text-primary-foreground">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <Wallet size={18} />
+                  {readyToFundDeals.length} deal{readyToFundDeals.length === 1 ? '' : 's'} ready to fund
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 divide-y divide-primary/15">
+                {readyToFundDeals.map(d => (
+                  <button
+                    key={d.id}
+                    onClick={() => router.push(`/admin/deals/${d.id}`)}
+                    className="w-full text-left px-4 py-3 flex items-center justify-between gap-4 transition-colors hover:bg-primary/10 focus:outline-none focus-visible:bg-primary/10"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {d.property_address || 'Deal on file'}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {d.deal_number ? <span className="font-mono">{d.deal_number}</span> : null}
+                        {d.deal_number && d.agent_name ? ' · ' : ''}
+                        {d.agent_name || ''}
+                      </p>
+                    </div>
+                    <span className="flex items-center gap-1 text-xs font-semibold text-primary flex-shrink-0">
+                      Fund deal
+                      <ChevronRight size={14} />
+                    </span>
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {/* PENDING VERIFICATIONS — one row per agent, ID + banking reviewed
             together in a single dialog (consistent surface, no "go to

@@ -37,8 +37,11 @@ const nextConfig: NextConfig = {
             value: 'strict-origin-when-cross-origin',
           },
           {
+            // camera=(self): our own origin may use getUserMedia for in-browser
+            // ID capture (the KYC camera defaults to the rear camera). Still
+            // denied to third-party iframes and other features stay off.
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=()',
+            value: 'camera=(self), microphone=(), geolocation=(), payment=()',
           },
         ],
       },

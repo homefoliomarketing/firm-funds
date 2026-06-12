@@ -10,10 +10,10 @@ import {
   MessageSquare, Inbox, Settings, Bell, Eye, ExternalLink, X, Phone, LifeBuoy,
   CalendarClock, Search,
 } from 'lucide-react'
-import { uploadDocument } from '@/lib/actions/deal-actions'
+import { uploadDocument, getDocumentSignedUrl } from '@/lib/actions/deal-actions'
 import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
-import { getBrokeragePendingAmendments, getBrokerageApprovedBrokerageAmendments, type ApprovedBrokerageAmendment } from '@/lib/actions/amendment-actions'
+import { getBrokeragePendingAmendments, getBrokerageApprovedBrokerageAmendments, getBrokerageClosingDateChanges, type ApprovedBrokerageAmendment, type BrokerageClosingDateChange } from '@/lib/actions/amendment-actions'
 import { toggleAgentBrokerageFlag } from '@/lib/actions/brokerage-actions'
 import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
@@ -132,6 +132,61 @@ interface Agent {
   address_postal_code?: string | null
 }
 
+interface DealDocumentRow {
+  id: string
+  deal_id: string
+  file_name: string
+  document_type: string
+  created_at: string
+}
+
+// Document types the brokerage must NEVER see on a deal. These are the agent's
+// private identity + banking docs; everything else on the deal (contracts,
+// directions to pay, BCAs, amendments, trade records, supporting files) is fair
+// game so the brokerage can tell what's missing. Unknown/new types default to
+// VISIBLE, except anything in this set.
+const BROKERAGE_HIDDEN_DOC_TYPES = new Set<string>([
+  'kyc_fintrac',
+  'id_verification',
+  'banking_info',
+  // The deal-completion receipt shows the agent's service fee, which is
+  // effectively Firm Funds' margin, so the brokerage must never see it in their
+  // file list. The agent portal still shows it on the agent's own deal docs.
+  // 'receipt' is reserved for the same agent-private receipt category.
+  'completion_invoice',
+  'receipt',
+])
+
+// Friendly, brokerage-facing labels for the deal-document list. Covers both the
+// app's DOCUMENT_TYPES values and the contract types written by the e-sign flow
+// (cpa/idp/bca/remediation_idp). Falls back to a Title Cased version of the raw
+// type for anything not listed.
+const BROKERAGE_DOC_TYPE_LABELS: Record<string, string> = {
+  commission_agreement: 'Commission Purchase Agreement',
+  cpa: 'Commission Purchase Agreement',
+  direction_to_pay: 'Direction to Pay',
+  idp: 'Direction to Pay',
+  bca: 'Brokerage Cooperation Agreement',
+  brokerage_cooperation_agreement: 'Brokerage Cooperation Agreement',
+  closing_date_amendment: 'Closing Date Amendment',
+  remediation_idp: 'Remediation Direction to Pay',
+  trade_record: 'Trade Record',
+  aps: 'Agreement of Purchase and Sale',
+  amendment: 'Amendment',
+  mls_listing: 'MLS Listing',
+  notice_of_fulfillment: 'Notice of Fulfillment',
+  other: 'Supporting Document',
+}
+
+function brokerageDocTypeLabel(type: string): string {
+  const known = BROKERAGE_DOC_TYPE_LABELS[type]
+  if (known) return known
+  return type
+    .split('_')
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(' ')
+}
+
 export default function BrokerageDashboard() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
@@ -143,6 +198,14 @@ export default function BrokerageDashboard() {
   const [uploadingDeal, setUploadingDeal] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [dealTradeRecords, setDealTradeRecords] = useState<Map<string, { file_name: string; created_at: string }>>(new Map())
+  // All deal/contract documents the brokerage is allowed to see, keyed by
+  // deal_id. Excludes agent-private docs (ID/KYC + banking) — see
+  // BROKERAGE_HIDDEN_DOC_TYPES below. Powers the "Deal Documents" list in the
+  // expanded deal row so the brokerage can spot a missing CPA/Direction to
+  // Pay/BCA/amendment, not just the trade record. Opened via the role-scoped
+  // getDocumentSignedUrl action.
+  const [dealDocuments, setDealDocuments] = useState<Map<string, DealDocumentRow[]>>(new Map())
+  const [openingDocId, setOpeningDocId] = useState<string | null>(null)
   const [dealsPage, setDealsPage] = useState(1)
   const [dealSearchQuery, setDealSearchQuery] = useState('')
   const [referralMonth, setReferralMonth] = useState<string>('all')
@@ -159,6 +222,7 @@ export default function BrokerageDashboard() {
   // service-role server action because closing_date_amendments has no
   // brokerage_admin RLS read policy (migration 056).
   const [brokerageAmendments, setBrokerageAmendments] = useState<Record<string, ApprovedBrokerageAmendment>>({})
+  const [closingDateChanges, setClosingDateChanges] = useState<Record<string, BrokerageClosingDateChange>>({})
   const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
   const [dealMessages, setDealMessages] = useState<DealMessageData[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -214,6 +278,29 @@ export default function BrokerageDashboard() {
             }
             setDealTradeRecords(map)
           }
+          // All visible deal documents (contracts, directions to pay, BCAs,
+          // amendments, supporting files) so the brokerage can see what's on the
+          // deal and what's missing. Agent-private ID/KYC + banking docs are
+          // filtered out in JS (BROKERAGE_HIDDEN_DOC_TYPES) rather than in the
+          // query so a new doc type stays visible by default. deal_documents has
+          // a brokerage_admin SELECT policy scoped to its own brokerage's deals,
+          // so the standard client read is fine here (same as the trade-record
+          // fetch above).
+          const { data: allDocs } = await supabase
+            .from('deal_documents')
+            .select('id, deal_id, file_name, document_type, created_at')
+            .in('deal_id', dealIds)
+            .order('created_at', { ascending: false })
+          if (allDocs) {
+            const docMap = new Map<string, DealDocumentRow[]>()
+            for (const doc of allDocs as DealDocumentRow[]) {
+              if (BROKERAGE_HIDDEN_DOC_TYPES.has(doc.document_type)) continue
+              const list = docMap.get(doc.deal_id)
+              if (list) list.push(doc)
+              else docMap.set(doc.deal_id, [doc])
+            }
+            setDealDocuments(docMap)
+          }
         }
         // PII allow-list: only columns the brokerage tab actually renders. Excludes
         // bank_account_number, transit, institution, kyc_document_path, etc.
@@ -231,6 +318,9 @@ export default function BrokerageDashboard() {
         })
         getBrokerageApprovedBrokerageAmendments().then(r => {
           if (r.success && r.data) setBrokerageAmendments(r.data)
+        })
+        getBrokerageClosingDateChanges().then(r => {
+          if (r.success && r.data) setClosingDateChanges(r.data)
         })
       }
       setLoading(false)
@@ -352,6 +442,21 @@ export default function BrokerageDashboard() {
       setUploadMessage({ type: 'error', text: result.error || 'Upload failed' })
     }
     setUploadingDeal(null)
+  }
+
+  // Open a deal document in a new tab via the role-scoped signed-URL action.
+  // getDocumentSignedUrl already authorizes brokerage_admin against the deal's
+  // brokerage, so no extra gate is needed here.
+  const handleViewDealDocument = async (documentId: string) => {
+    setOpeningDocId(documentId)
+    const result = await getDocumentSignedUrl({ documentId })
+    const signedUrl = result.data?.signedUrl as string | undefined
+    if (result.success && signedUrl) {
+      window.open(signedUrl, '_blank')
+    } else {
+      setUploadMessage({ type: 'error', text: result.error || 'We could not open that document. Please try again.' })
+    }
+    setOpeningDocId(null)
   }
 
   const handleDownloadPdf = async () => {
@@ -1138,6 +1243,86 @@ export default function BrokerageDashboard() {
                               </div>
                             </div>
                           </div>
+
+                          {/* Closing-date amendment indicator. Shows when an
+                              approved closing-date amendment moved this deal's
+                              closing date, with the old -> new dates and a link
+                              to the executed amendment doc when one is on file. */}
+                          {(() => {
+                            const amend = closingDateChanges[deal.id]
+                            if (!amend || !amend.old_closing_date || !amend.new_closing_date) return null
+                            // Prefer the amendment's own linked document; otherwise
+                            // fall back to the latest closing_date_amendment doc on
+                            // the deal so the brokerage can open the executed copy.
+                            const amendDocId = amend.amendment_document_id
+                              || (dealDocuments.get(deal.id) || []).find((d) => d.document_type === 'closing_date_amendment')?.id
+                              || null
+                            return (
+                              <div className="mt-4 rounded-lg p-3 bg-status-amber-muted/60 border border-status-amber-border">
+                                <div className="flex items-start gap-2">
+                                  <CalendarClock size={14} className="text-status-amber flex-shrink-0 mt-0.5" aria-hidden="true" />
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-status-amber">Closing date amended</p>
+                                    <p className="text-xs mt-0.5 text-foreground">
+                                      {formatDate(amend.old_closing_date)} to <span className="font-semibold">{formatDate(amend.new_closing_date)}</span>
+                                    </p>
+                                    {amendDocId && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleViewDealDocument(amendDocId) }}
+                                        disabled={openingDocId === amendDocId}
+                                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold rounded text-status-amber hover:underline disabled:opacity-50"
+                                      >
+                                        <Eye size={11} aria-hidden="true" />
+                                        {openingDocId === amendDocId ? 'Opening...' : 'View amendment'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })()}
+
+                          {/* Deal Documents — every contract/supporting file on
+                              the deal so the brokerage can spot what's missing.
+                              Agent-private ID/KYC + banking docs are filtered out
+                              upstream (BROKERAGE_HIDDEN_DOC_TYPES). */}
+                          {(() => {
+                            const docs = dealDocuments.get(deal.id) || []
+                            if (docs.length === 0) return null
+                            return (
+                              <div className="mt-4 pt-3 border-t border-border/40">
+                                <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-primary">Deal Documents</h4>
+                                <ul className="space-y-1.5">
+                                  {docs.map((doc) => (
+                                    <li
+                                      key={doc.id}
+                                      className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 bg-muted/50 border border-border/50"
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <FileText size={14} className="text-muted-foreground flex-shrink-0" aria-hidden="true" />
+                                        <div className="min-w-0">
+                                          <p className="text-xs font-medium text-foreground truncate">{brokerageDocTypeLabel(doc.document_type)}</p>
+                                          <p className="text-[11px] text-muted-foreground/70 truncate">{doc.file_name}</p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleViewDealDocument(doc.id) }}
+                                        disabled={openingDocId === doc.id}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold cursor-pointer transition-colors flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50"
+                                        aria-label={`View ${brokerageDocTypeLabel(doc.document_type)}`}
+                                      >
+                                        <Eye size={11} aria-hidden="true" />
+                                        {openingDocId === doc.id ? 'Opening...' : 'View'}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )
+                          })()}
+
                           {/* Quick actions footer */}
                           {!['denied', 'cancelled'].includes(deal.status) && (
                             <div className="mt-4 pt-3 border-t border-border/40 flex flex-wrap items-center gap-2">

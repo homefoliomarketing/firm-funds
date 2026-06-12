@@ -37,6 +37,10 @@ import { formatCurrency } from '@/lib/formatting'
 interface ActionResult {
   success: boolean
   error?: string
+  // Non-fatal advisory returned alongside success: true (e.g. fundDealWithEft
+  // funded the deal but couldn't auto-record the EFT). The UI surfaces it as a
+  // warning so the admin knows to follow up.
+  warning?: string
   // Callers consume specific shapes via assertion; using any preserves call-site compatibility
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: Record<string, any>
@@ -1345,6 +1349,23 @@ export async function updateDealStatus(input: {
       newValue: { status: input.newStatus },
     })
 
+    // Deal completion receipt: when a deal completes (funded + repaid), issue the
+    // agent a one-page receipt PDF, store it in the deal-documents bucket + a
+    // deal_documents row, and email it to the agent with the PDF attached.
+    // STRICTLY best-effort and additive: it reads the already-snapshotted deal
+    // figures and writes ONLY a deal_documents row + a storage object (no money
+    // math, no balance/ledger RPC). The completion CAS has already won above, so
+    // any failure here is logged and swallowed and never unwinds the completion.
+    if (input.newStatus === 'completed') {
+      try {
+        const { generateAndStoreCompletionReceipt } = await import('@/lib/invoices/completion-receipt')
+        await generateAndStoreCompletionReceipt(createServiceRoleClient(), deal.id)
+      } catch (receiptErr: unknown) {
+        const _msg = receiptErr instanceof Error ? receiptErr.message : 'Unknown error'
+        console.error(`[deal-actions] Completion receipt generation failed for deal ${deal.id} (completion stands):`, _msg)
+      }
+    }
+
     // Email notification → agent
     // Look up the agent's email and name
     const { data: agentInfo } = await supabase
@@ -1427,6 +1448,72 @@ export async function updateDealStatus(input: {
     console.error('Deal status change error:', _msg)
     return { success: false, error: 'An unexpected error occurred. Please try again.' }
   }
+}
+
+// ============================================================================
+// Server Action: Fund a deal AND record the EFT in one step (Owner only)
+// ----------------------------------------------------------------------------
+// Merges the old two-step flow ("Mark as Funded" + a separate "Record EFT") into
+// a single action. The admin wires the funds manually on their bank's site, then
+// returns and enters the bank reference number; submitting both moves the deal to
+// funded AND records the eft_transfers row. We REUSE the existing money-path
+// actions verbatim — no balance/ledger write or eft_transfers insert is
+// duplicated here:
+//   1. updateDealStatus(..., newStatus: 'funded') performs the funded transition
+//      (recalc, balance delta via apply_agent_balance_delta, statement entry).
+//   2. recordEftTransfer(...) performs the eft_transfers insert + its guardrails.
+// Order matters: fund first; only record the EFT once the deal is actually
+// funded (recordEftTransfer itself requires status === 'funded'). If the EFT
+// record fails AFTER a successful fund, we still return success with a `warning`
+// so the admin can re-record the transfer from the EFT section.
+// Auth: both reused actions enforce money.write themselves; we surface a friendly
+// reference-required check up front.
+// ============================================================================
+export async function fundDealWithEft(input: {
+  dealId: string
+  reference: string
+  amount: number
+  transferDate: string
+  // Per-deal brokerage referral override (0-1 decimal), forwarded to the funded
+  // transition exactly as the funding UI sends it today.
+  brokerageReferralPct?: number
+}): Promise<ActionResult> {
+  if (!input.reference?.trim()) {
+    return { success: false, error: 'A bank reference number is required to fund this deal.' }
+  }
+
+  // 1. Fund the deal by reusing the exact funded transition the UI uses today.
+  const fundResult = await updateDealStatus({
+    dealId: input.dealId,
+    newStatus: 'funded',
+    brokerageReferralPct: input.brokerageReferralPct,
+  })
+  if (!fundResult.success) {
+    return fundResult
+  }
+
+  // 2. Record the EFT by reusing recordEftTransfer (its eft_transfers insert,
+  //    advance-cap guardrail, status check, and audit log). The deal is already
+  //    funded at this point, so a failure here must NOT unwind the funding —
+  //    return success with a warning instead so the admin can re-record it.
+  const { recordEftTransfer } = await import('@/lib/actions/admin-actions')
+  const eftResult = await recordEftTransfer({
+    dealId: input.dealId,
+    amount: input.amount,
+    date: input.transferDate,
+    reference: input.reference.trim(),
+  })
+  if (!eftResult.success) {
+    return {
+      success: true,
+      data: fundResult.data,
+      warning: `The deal was funded, but the EFT transfer could not be recorded automatically: ${eftResult.error || 'unknown error'} Record it manually in the EFT Transfers section.`,
+    }
+  }
+
+  // Prefer the EFT result's data (it carries the freshest deal embed incl. the
+  // new transfer row); fall back to the funded payload.
+  return { success: true, data: eftResult.data ?? fundResult.data }
 }
 
 // ============================================================================
@@ -1604,9 +1691,47 @@ export async function toggleChecklistItem(input: {
     // Check if this is the auto-managed "good standing" item
     const { data: item } = await supabase
       .from('underwriting_checklist')
-      .select('checklist_item, deal_id')
+      .select('checklist_item, deal_id, linked_document_id, linked_document_ids')
       .eq('id', input.itemId)
       .single()
+
+    // Signed-contract gate: the two e-signed items (the Commission Purchase
+    // Agreement and the Irrevocable Direction to Pay) may NOT be marked complete
+    // until the signed file is actually back from SignWell. The webhook auto-links
+    // the returned PDF (commission_agreement / direction_to_pay) and auto-checks
+    // these items, so a manual check with no linked doc and no matching
+    // deal_documents row means the signed contract has not arrived yet. Only
+    // enforced when CHECKING ON — unchecking is always allowed.
+    if (input.isChecked && item?.checklist_item) {
+      const itemText = item.checklist_item.toLowerCase()
+      const isCpa = itemText.includes('commission purchase agreement')
+      const isIdp = itemText.includes('irrevocable direction to pay')
+      if (isCpa || isIdp) {
+        const linkedIds = (item.linked_document_ids as string[] | null) ?? []
+        const hasLink = item.linked_document_id != null || linkedIds.length > 0
+        let hasSignedDoc = hasLink
+        if (!hasSignedDoc && item.deal_id) {
+          // The signed-doc lookup must bypass RLS so the evidence check can't be
+          // defeated by a row the caller's policy can't see.
+          const serviceClient = createServiceRoleClient()
+          const docTypes = isCpa ? ['commission_agreement', 'cpa'] : ['direction_to_pay', 'idp']
+          const { data: signedDocs } = await serviceClient
+            .from('deal_documents')
+            .select('id')
+            .eq('deal_id', item.deal_id)
+            .in('document_type', docTypes)
+            .limit(1)
+          hasSignedDoc = !!(signedDocs && signedDocs.length > 0)
+        }
+        if (!hasSignedDoc) {
+          const docLabel = isCpa ? 'Commission Purchase Agreement' : 'Direction to Pay'
+          return {
+            success: false,
+            error: `Cannot mark this complete: the signed ${docLabel} has not been returned from SignWell yet.`,
+          }
+        }
+      }
+    }
 
     if (item?.checklist_item === 'Agent in good standing with Brokerage (Not flagged)') {
       // Look up the agent's flag status via the deal

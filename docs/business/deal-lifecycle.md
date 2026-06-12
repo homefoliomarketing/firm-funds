@@ -73,9 +73,9 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | `offered` | `under_review` | Brokerage admin **or** the agent | Brokerage submits on the agent's behalf (`submitDealAsBrokerage` with `fromOfferDealId`), OR the agent takes the offer over (`agentTakeOverOffer`, sets `agent_self_submit_at`) and submits it themselves (`submitDeal` with `fromOfferDealId`). Both CONVERT the same offered row in place, so there is never a duplicate. While `agent_self_submit_at` is set the brokerage is paused (see `firm-deals.md` §5). |
 | `offered` | `cancelled` | Brokerage admin or system cron | Declines, or the 60-day expiry cron fires. Both are blocked/skipped while `agent_self_submit_at` is set. |
 | `under_review` | `approved` / `denied` / `cancelled` | Firm Funds admin | `updateDealStatus` (approval blocked until agent banking is verified). **Approving also auto-sends the contract for e-signature in one step** — best-effort: if the send fails (agent has no email, provider not configured, an active envelope already exists) the deal still approves and `result.data.autoSendWarning` is surfaced so the admin can send manually. Only fires on a genuine forward `under_review → approved`, never a `funded → approved` revert. |
-| `approved` | `funded` | Firm Funds admin | Marks the deal funded after the EFT is sent. Posts an informational **Advance Issued** entry (`deal_advance`) to the agent's ledger for `amount_due_from_brokerage` — balance-neutral, for the statement only (see §6). |
+| `approved` | `funded` | Firm Funds admin | One step: the single **Fund Deal** button opens a funding confirmation panel with a required **Reference #** field; submitting it both transitions the deal to `funded` **and** records the EFT transfer. The combined action is `fundDealWithEft` in `lib/actions/deal-actions.ts`, which simply reuses `updateDealStatus` (the funded transition) then `recordEftTransfer` (the `eft_transfers` insert + its guardrails) with no new money math; if the EFT record fails after a successful fund it returns success with a warning so the admin can re-record it. The standalone "EFT Transfers" section is now read-only transfer history with a secondary "record additional transfer" option for corrections. Posts an informational **Advance Issued** entry (`deal_advance`) to the agent's ledger for `amount_due_from_brokerage` (balance-neutral, for the statement only, see §6). |
 | `approved` | `denied` / `cancelled` / `under_review` | Firm Funds admin | `updateDealStatus` |
-| `funded` | `completed` | Firm Funds admin | Marks the deal repaid. **Requires confirmed brokerage payment(s) covering `amount_due_from_brokerage`** AND **no outstanding agent refund** (`refund_owed_amount` must be 0 — an early-closing or amendment credit must be paid out first via "Mark refund issued", `markRefundIssued`). Both are enforced server-side in `updateDealStatus`, not just by the UI button. |
+| `funded` | `completed` | Firm Funds admin | Marks the deal repaid. **Requires confirmed brokerage payment(s) covering `amount_due_from_brokerage`** AND **no outstanding agent refund** (`refund_owed_amount` must be 0 — an early-closing or amendment credit must be paid out first via "Mark refund issued", `markRefundIssued`). Both are enforced server-side in `updateDealStatus`, not just by the UI button. **Side effect (best-effort, additive):** once the completion CAS wins, `updateDealStatus` calls `generateAndStoreCompletionReceipt` (`lib/invoices/completion-receipt.ts`), which builds a one-page receipt PDF (`lib/invoices/completion-receipt-pdf.ts`), stores it as a `completion_invoice` deal_documents row (`upload_source = 'system'`), and emails it to the agent with the PDF attached (`sendDealCompletionReceipt`). It is idempotent (dedupes on an existing `completion_invoice` row), touches **no** money math or balance/ledger RPC, and any PDF/storage/email failure is logged and swallowed so it never unwinds the completion. The receipt is agent-private (hidden from the brokerage portal via `BROKERAGE_HIDDEN_DOC_TYPES` because it shows the agent's service fee). |
 | `funded` | `funded` (no status change) | Firm Funds admin | "Record Early Closing" (`recordEarlyClosing`): when the property closes before the scheduled date, refunds the prepaid discount fee for the days saved (on the `net_commission` basis, aligned with `calculateDeal` and the amendment path) and credits the agent. Sets `actual_closing_date` + `discount_refund_amount` + `refund_owed_amount` but does **not** complete the deal — completion now requires the brokerage payment **and** that the refund has been issued (`markRefundIssued`). |
 | `funded` | `funding_failed` | Firm Funds admin | EFT-bounce action (reverses agent balance, and reverses the informational Advance Issued entry) |
 | `funding_failed` | `approved` (via retry) / `cancelled` | Firm Funds admin | "Retry funding" reverts to `approved` to re-run the funding path; or cancel. (`STATUS_FLOW` also permits a direct `-> funded` manual correction.) |
@@ -85,6 +85,15 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | `cured` | (none) | n/a | Terminal |
 
 Only `super_admin` and `firm_funds_admin` roles can call `updateDealStatus`. Agent and brokerage-admin transitions happen through dedicated, ownership-checked server actions (firm-deal accept/decline, advance submission).
+
+### The "ready to fund" signal
+
+A deal is **ready to fund** once it is `approved` **and both signed contracts have returned from the e-sign provider**: a `deal_documents` row of type `commission_agreement` (the signed CPA) **and** one of type `direction_to_pay` (the signed IDP) are present (the deal page also accepts both e-sign envelopes having reached `signed`). When that condition holds:
+
+- The **admin dashboard** (`app/(dashboard)/admin/page.tsx`) surfaces a prominent **"N deals ready to fund"** banner listing those deals.
+- The **admin deal page** (`app/(dashboard)/admin/deals/[id]/page.tsx`) shows a **"Ready to fund"** callout: both signed contracts are back and the deal is only waiting on Firm Funds to send the funds.
+
+This is a signal only; it does not change any status. The admin still clicks **Fund Deal** to run the funded transition (above).
 
 ### Closing-date amendments (`approveClosingDateAmendment`)
 
@@ -122,6 +131,10 @@ Two items are auto-checked by the system rather than by hand:
 
 - "Agent in good standing" is auto-checked at deal creation when the agent is not flagged by their brokerage.
 - The two "Firm Fund Documents" items are auto-checked when the signed CPA and IDP arrive from DocuSign (the webhook links the signed document to the matching checklist item; see `integrations/docusign.md`).
+
+#### Signed-file guard on the two contract items
+
+The "Commission Purchase Agreement" and "Irrevocable Direction to Pay" checklist items **cannot be checked complete until a signed file is actually attached**. `toggleChecklistItem` (in `lib/actions/deal-actions.ts`) rejects checking either item ON unless there is evidence of the signed contract: a linked document (`linked_document_id` or any `linked_document_ids`), **or** a `deal_documents` row of the matching type (`commission_agreement`/`cpa` for the CPA, `direction_to_pay`/`idp` for the IDP). The signed-doc lookup uses the service-role client so the check cannot be defeated by a row the caller's RLS hides. This is server-enforced (with a client-side pre-check for a friendlier error), and only blocks checking ON; unchecking is always allowed. In normal operation the webhook auto-links the returned signed PDF and auto-checks the item, so the guard only bites when someone tries to tick the box before the signed contract is back.
 
 ## 4. Settlement window and late strikes
 
@@ -216,3 +229,18 @@ The agent dashboard (`app/(dashboard)/agent/page.tsx`) distinguishes three state
 - **Active**: KYC verified and banking approved (`account_activated_at` set); the agent can transact.
 
 The dashboard also greets first-time users with "Welcome, {name}" and returning users with "Welcome back, {name}", driven by `user_profiles.welcomed_at` (migration 107): NULL means the user has never been greeted, so they get the first-time greeting and the flag is stamped once.
+
+## 8. Portal visibility
+
+### Brokerage file visibility (and the hidden types)
+
+The brokerage portal (`app/(dashboard)/brokerage/page.tsx`) shows a brokerage **all** deal documents for their own deals (signed contracts, directions to pay, brokerage cooperation agreements, amendments, trade records, supporting files), not just the trade record, so they can see what is on a deal and spot what is missing. Each file opens via the role-scoped `getDocumentSignedUrl` action (which authorizes that the brokerage admin actually administers the deal's brokerage before minting a signed URL).
+
+Two categories are deliberately **hidden** from the brokerage, filtered out by `BROKERAGE_HIDDEN_DOC_TYPES` (unknown/new types default to visible, so only this set is hidden):
+
+- **Agent-private identity and banking docs**: `kyc_fintrac`, `id_verification`, `banking_info`.
+- **The deal-completion receipt**: `completion_invoice` (and the reserved `receipt`), because it shows the agent's service fee, which is effectively Firm Funds' margin. The agent still sees this on their own deal documents; the brokerage never does.
+
+### Closing-date amendment indicators
+
+When a deal's closing date has been amended, both the **brokerage portal** and the **agent deal page** (`app/(dashboard)/agent/deals/[id]/page.tsx`) now display a "Closing date amended" indicator showing the old date to the new date, with a link to the executed amendment document (resolved from the amendment's `amendment_document_id`). The closing date shown elsewhere already reflects the amendment; this indicator makes the change explicit. Previously only the admin portal surfaced it.

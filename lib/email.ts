@@ -575,10 +575,14 @@ function emailButton(label: string, href: string): string {
 
 /** Statement-style details card: left labels (uppercase, muted), right-aligned
  *  values, hairline divider between rows. Every label and value is escaped.
- *  Optional per-row `valueColor` (semantic emphasis, e.g. a green amount or a
- *  red old-email) and `strong` (bold the value) default to the muted body grey
- *  and normal weight, so existing callers that pass only { label, value } are
- *  unchanged. */
+ *  The label cell shrinks to its content (width:1% + white-space:nowrap) so
+ *  long labels like "Previous Amount Due" stay on one line and never crowd the
+ *  value; the value cell takes the remaining width and only wraps at natural
+ *  boundaries (word-break:normal + overflow-wrap:break-word), so normal text
+ *  never breaks mid-character. Optional per-row `valueColor` (semantic emphasis,
+ *  e.g. a green amount or a red old-email) and `strong` (bold the value) default
+ *  to the muted body grey and normal weight, so existing callers that pass only
+ *  { label, value } are unchanged. */
 function emailDetailCard(rows: { label: string; value: string; valueColor?: string; strong?: boolean }[]): string {
   const divider = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                             <tr><td style="height:1px; line-height:1px; font-size:0; background:#232323;">&nbsp;</td></tr>
@@ -587,10 +591,10 @@ function emailDetailCard(rows: { label: string; value: string; valueColor?: stri
     .map(
       (r) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                             <tr>
-                              <td style="padding:14px 0; color:#8A8A87; font-size:12px; font-weight:600; line-height:1.4; letter-spacing:0.04em; text-transform:uppercase; width:120px; vertical-align:middle;">
+                              <td style="padding:16px 16px 16px 0; color:#8A8A87; font-size:12px; font-weight:600; line-height:1.4; letter-spacing:0.04em; text-transform:uppercase; width:1%; white-space:nowrap; vertical-align:middle;">
                                 ${escapeHtml(r.label)}
                               </td>
-                              <td style="padding:14px 0; color:${r.valueColor || '#D6D6D4'}; font-size:14px; font-weight:${r.strong ? '600' : '400'}; line-height:1.4; text-align:right; vertical-align:middle; word-break:break-all;">
+                              <td style="padding:16px 0; color:${r.valueColor || '#D6D6D4'}; font-size:14px; font-weight:${r.strong ? '600' : '400'}; line-height:1.4; text-align:right; vertical-align:middle; word-break:normal; overflow-wrap:break-word;">
                                 ${escapeHtml(r.value)}
                               </td>
                             </tr>
@@ -1774,6 +1778,120 @@ export async function sendInvoiceNotification(params: {
       amountDue: params.amount,
       dueDate: formatDateStr(params.dueDate),
       lineItems: params.lineItems.map((item) => ({ description: item.description, amount: item.amount })),
+      branding,
+    }),
+  })
+}
+
+// ============================================================================
+// Deal completion receipt → agent (with one-page receipt PDF attached)
+// ============================================================================
+
+/**
+ * PURE renderer for the agent "Deal completion receipt" notification.
+ * Synchronous, no I/O. Mirrors the other branded templates: kicker, headline,
+ * lead, a success callout confirming the advance is fully repaid, an
+ * emailDetailCard summarizing the deal number + the cost line items (net
+ * commission, the advance paid to the agent, the service fee they paid, the
+ * total the brokerage repaid), a note that the PDF receipt is attached, then the
+ * account CTA. White-labelled via branding -> wrap(). The send fn owns the money
+ * formatting and the PDF attachment; this renderer never touches the attachment.
+ */
+export function renderDealCompletionReceiptEmail(params: {
+  agentName: string
+  dealNumber: string | null
+  propertyAddress: string | null
+  netCommission: number
+  advanceAmount: number
+  serviceFee: number
+  totalRepaid: number
+  branding?: BrokerageBranding | null
+}): string {
+  const accountUrl = `${APP_URL}/agent`
+
+  const dealLabel = params.dealNumber ? `deal ${params.dealNumber}` : 'your deal'
+
+  const body = `${emailKicker('Receipt')}
+
+                    ${emailHeadline('Your advance is paid in full.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      Hi ${escapeHtml(params.agentName ?? '')}, the commission advance for ${escapeHtml(dealLabel)}${params.propertyAddress ? ` (${escapeHtml(params.propertyAddress)})` : ''} has been fully repaid and the deal is complete. Your receipt is attached as a PDF for your records.
+                    </p>
+
+                    ${emailCallout({ tone: 'success', title: 'Paid in full', body: 'No further action is needed. This is a receipt, not a request for payment.' })}
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber, strong: true }] : []),
+                      { label: 'Net Commission', value: formatCurrency(params.netCommission) },
+                      { label: 'Advance Paid to You', value: formatCurrency(params.advanceAmount), valueColor: '#6FB783', strong: true },
+                      { label: 'Service Fee', value: formatCurrency(params.serviceFee) },
+                      { label: 'Total Repaid by Brokerage', value: formatCurrency(params.totalRepaid), strong: true },
+                    ])}
+
+                    <p style="margin:0 0 30px; color:#8A8A87; font-size:13px; font-weight:400; line-height:1.55;">
+                      A copy of your receipt is attached to this email. If you have questions, reply to this email or contact us at support@firmfunds.ca.
+                    </p>
+
+                    ${emailButton('View My Account', accountUrl)}`
+
+  const preheader = `Receipt for ${dealLabel}: paid in full.`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(accountUrl))
+}
+
+/**
+ * Deliver the deal-completion receipt to the AGENT with the one-page receipt PDF
+ * attached. Transactional (a receipt for a completed financial transaction); the
+ * recipient cannot opt out. Best-effort fail-soft: like every sendXxx helper in
+ * this file, sendEmailWithUnsubscribe logs and swallows send failures rather than
+ * throwing, so a delivery failure never unwinds the upstream completion or the
+ * stored PDF.
+ *
+ * The recipient is the agent's own email. The orchestrator only calls this when
+ * an email is on file; this function additionally no-ops on an empty recipient as
+ * a defensive guard (agents.email is intentionally nullable).
+ */
+export async function sendDealCompletionReceipt(params: {
+  agentEmail: string
+  agentName: string
+  agentId?: string | null
+  dealNumber: string | null
+  propertyAddress: string | null
+  brokerageId?: string | null
+  netCommission: number
+  advanceAmount: number
+  serviceFee: number
+  totalRepaid: number
+  /** The one-page receipt PDF to attach. */
+  pdf: Buffer
+  /** File name shown on the attachment, e.g. "Receipt_0001-0609-26.pdf". */
+  pdfFileName: string
+}): Promise<void> {
+  if (!params.agentEmail) return
+
+  // White-label the brand name + header logo from the brokerage on the deal.
+  const branding = await getBrandingForBrokerage(params.brokerageId)
+  const brandName = branding?.name || 'Firm Funds'
+  const subjectCore = params.dealNumber
+    ? `Your receipt for deal ${params.dealNumber}`
+    : 'Your receipt from Firm Funds'
+
+  await sendEmailWithUnsubscribe({
+    to: params.agentEmail,
+    subject: sanitizeSubject(brandName && brandName !== 'Firm Funds' ? `${subjectCore} (${brandName})` : subjectCore),
+    entityType: params.agentId ? 'agent' : undefined,
+    entityId: params.agentId ?? undefined,
+    transactional: true,
+    attachments: [{ filename: params.pdfFileName, content: params.pdf }],
+    html: renderDealCompletionReceiptEmail({
+      agentName: params.agentName,
+      dealNumber: params.dealNumber,
+      propertyAddress: params.propertyAddress,
+      netCommission: params.netCommission,
+      advanceAmount: params.advanceAmount,
+      serviceFee: params.serviceFee,
+      totalRepaid: params.totalRepaid,
       branding,
     }),
   })

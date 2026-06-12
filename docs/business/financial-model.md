@@ -187,6 +187,10 @@ Interest does not accrue during the first 30 days after closing. `lateInterestAc
 
 All of the date arithmetic anchors at noon UTC rather than midnight so a daylight-saving transition inside the window cannot tip the calendar date by a day.
 
+### Posting is automatic (cron), not manual
+
+Late payment interest is posted **automatically**, once per month, by the `closing-date-alerts` cron (`runMonthlyLatePaymentInterest()` in `lib/late-interest-jobs.ts`; see `api/cron-jobs.md`). There is **no manual charge button**. The admin deal page's "Late Closing Interest" section is **read-only**: it shows any interest already charged (`deals.late_interest_charged`), the agent's current balance, and a note that interest accrues automatically at 24% per year starting 30 days after closing and posts monthly to the agent's ledger. The old "Charge Interest / Calculate & Charge" button was removed because it duplicated the cron and could double-charge the same accrual.
+
 ### Worked example: late interest on a $46,132 advance
 
 Advance $46,132, closing date 2026-05-26, valued as of 2026-07-25.

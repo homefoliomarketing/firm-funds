@@ -595,6 +595,58 @@ export async function getBrokerageApprovedBrokerageAmendments(): Promise<ActionR
 }
 
 // ============================================================================
+// Brokerage: Get APPROVED closing-date changes for this brokerage's deals.
+//
+// Unlike getBrokerageApprovedBrokerageAmendments (which only returns
+// amendments that moved the brokerage REMITTANCE figures), this returns EVERY
+// approved closing-date amendment so the brokerage portal can flag that a
+// deal's closing date changed, even when the remittance amount did not move
+// (e.g. a plain date change on an approved-but-not-yet-funded deal). Keyed by
+// deal_id, latest approved amendment per deal wins. Service-role + scoped to
+// the caller's brokerage (closing_date_amendments has no brokerage RLS).
+// ============================================================================
+export interface BrokerageClosingDateChange {
+  deal_id: string
+  old_closing_date: string | null
+  new_closing_date: string | null
+  amendment_document_id: string | null
+}
+
+export async function getBrokerageClosingDateChanges(): Promise<ActionResult<Record<string, BrokerageClosingDateChange>>> {
+  const { error: authErr, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Brokerage profile not configured' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data, error } = await serviceClient
+      .from('closing_date_amendments')
+      .select('deal_id, old_closing_date, new_closing_date, amendment_document_id, reviewed_at, deals!inner(brokerage_id)')
+      .eq('deals.brokerage_id', profile.brokerage_id)
+      .eq('status', 'approved')
+      .order('reviewed_at', { ascending: false })
+
+    if (error) return { success: false, error: error.message }
+
+    const byDeal: Record<string, BrokerageClosingDateChange> = {}
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const dealId = row.deal_id as string
+      if (byDeal[dealId]) continue
+      byDeal[dealId] = {
+        deal_id: dealId,
+        old_closing_date: row.old_closing_date as string | null,
+        new_closing_date: row.new_closing_date as string | null,
+        amendment_document_id: (row.amendment_document_id as string | null) ?? null,
+      }
+    }
+    return { success: true, data: byDeal }
+  } catch {
+    return { success: false, error: 'Failed to fetch closing date changes' }
+  }
+}
+
+// ============================================================================
 // Admin Action: Approve Closing Date Amendment
 // ============================================================================
 

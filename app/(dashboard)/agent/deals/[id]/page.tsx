@@ -95,6 +95,7 @@ interface AmendmentItem {
   old_closing_date: string
   new_closing_date: string
   status: 'pending' | 'approved' | 'rejected'
+  amendment_document_id: string | null
   created_at: string
 }
 
@@ -343,6 +344,18 @@ export default function AgentDealDetailPage() {
 
   const handleDocumentDownload = async (doc: DealDocument) => {
     const result = await getDocumentSignedUrl({ documentId: doc.id })
+    const signedUrl = result.data?.signedUrl as string | undefined
+    if (!result.success || !signedUrl) {
+      setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
+    }
+    window.open(signedUrl, '_blank')
+  }
+
+  // Open a document by id (used by the amendment callout, which references the
+  // executed amendment via amendment_document_id). Same role-scoped action as
+  // the document list above.
+  const handleOpenDocumentById = async (documentId: string) => {
+    const result = await getDocumentSignedUrl({ documentId })
     const signedUrl = result.data?.signedUrl as string | undefined
     if (!result.success || !signedUrl) {
       setStatusMessage({ type: 'error', text: 'Failed to generate download link' }); return
@@ -1147,6 +1160,44 @@ export default function AgentDealDetailPage() {
                       {deal.funding_date && (<div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Funding Date</p><p className="font-medium text-foreground">{formatDate(deal.funding_date)}</p></div>)}
                       {deal.repayment_date && (<div><p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Repayment Date</p><p className="font-medium text-foreground">{formatDate(deal.repayment_date)}</p></div>)}
                     </div>
+                    {/* Approved closing-date amendment indicator. The closing
+                        date shown above already reflects the amendment; this
+                        callout makes the change explicit (old -> new) and links
+                        the executed amendment doc. Latest approved amendment
+                        wins. */}
+                    {(() => {
+                      const approved = amendments.filter(a => a.status === 'approved')
+                      if (approved.length === 0) return null
+                      const latest = approved[0] // getDealAmendments returns newest-first
+                      const amendDoc = latest.amendment_document_id
+                        ? documents.find(d => d.id === latest.amendment_document_id)
+                        : null
+                      return (
+                        <div className="mt-5 pt-4 border-t border-border">
+                          <div className="rounded-lg p-3 bg-status-amber-muted/60 border border-status-amber-border">
+                            <div className="flex items-start gap-2">
+                              <CalendarClock size={15} className="text-status-amber flex-shrink-0 mt-0.5" aria-hidden="true" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-status-amber">Closing date amended</p>
+                                <p className="text-sm mt-0.5 text-foreground">
+                                  {formatDate(latest.old_closing_date)} to <span className="font-semibold">{formatDate(latest.new_closing_date)}</span>
+                                </p>
+                                {amendDoc && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDocumentById(amendDoc.id)}
+                                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold rounded text-status-amber hover:underline"
+                                  >
+                                    <Download size={12} aria-hidden="true" />
+                                    View amendment
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
                     {deal.notes && (
                       <div className="mt-5 pt-4 border-t border-border">
                         <p className="text-xs font-semibold uppercase tracking-wider mb-1 text-muted-foreground">Notes</p>

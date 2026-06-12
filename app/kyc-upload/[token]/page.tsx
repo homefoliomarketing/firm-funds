@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { Upload, Camera, CheckCircle, XCircle, FileText, Clock, Smartphone } from 'lucide-react'
 import { KYC_DOCUMENT_TYPES, MAX_KYC_UPLOAD_SIZE_BYTES, ALLOWED_KYC_MIME_TYPES } from '@/lib/constants'
 import { StatusToast } from '@/components/StatusToast'
+import IdCameraCapture from '@/components/IdCameraCapture'
 
 type PageStatus = 'loading' | 'valid' | 'used' | 'expired' | 'invalid' | 'uploading' | 'success'
 
@@ -18,6 +19,7 @@ export default function KycMobileUploadPage() {
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [documentType, setDocumentType] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [showCamera, setShowCamera] = useState(false)
 
   useEffect(() => {
     async function validate() {
@@ -244,6 +246,12 @@ export default function KycMobileUploadPage() {
         message={error ? { type: 'error', text: error } : null}
         onDismiss={() => setError(null)}
       />
+      {showCamera && (
+        <IdCameraCapture
+          onCapture={handleFileSelect}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
       <div className="px-6 py-5 border-b-2 border-primary bg-card text-center">
         {/* eslint-disable-next-line @next/next/no-img-element -- brand logo */}
         <img src="/brand/white.png" alt="Firm Funds" className="h-9 inline-block" />
@@ -265,7 +273,7 @@ export default function KycMobileUploadPage() {
           {/* Document type selection */}
           <div className="mb-[18px]">
             <label className="block text-muted-foreground text-[13px] font-semibold mb-2 uppercase tracking-[0.5px]">
-              Type of ID
+              Type of ID <span className="text-destructive">*</span>
             </label>
             <select
               value={documentType}
@@ -315,17 +323,15 @@ export default function KycMobileUploadPage() {
 
             {/* Camera and File buttons */}
             <div className="flex gap-[10px]">
-              <label className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-secondary border-2 border-dashed border-primary text-primary font-semibold text-center`}>
+              <button
+                type="button"
+                onClick={() => setShowCamera(true)}
+                aria-label={selectedFiles.length > 0 ? 'Add another photo of your ID' : 'Take a photo of your ID'}
+                className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-secondary border-2 border-dashed border-primary text-primary font-semibold text-center`}
+              >
                 <Camera size={selectedFiles.length > 0 ? 16 : 20} />
                 {selectedFiles.length > 0 ? 'Add Photo' : 'Take Photo'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
-                />
-              </label>
+              </button>
               <label className={`flex-1 flex items-center justify-center gap-2 ${selectedFiles.length > 0 ? 'py-3 px-[10px] text-sm' : 'py-4 px-3 text-[15px]'} rounded-xl cursor-pointer bg-secondary border border-white/10 text-muted-foreground font-semibold text-center`}>
                 <Upload size={selectedFiles.length > 0 ? 16 : 20} />
                 {selectedFiles.length > 0 ? 'Add File' : 'Choose File'}

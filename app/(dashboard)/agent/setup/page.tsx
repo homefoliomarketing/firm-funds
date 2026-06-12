@@ -437,7 +437,7 @@ export default function AgentSetupPage() {
                     className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary focus:ring-2"
                   />
                   <span className="text-sm text-foreground">
-                    I authorize Firm Funds Inc. to deposit payments into this account.
+                    I authorize Firm Funds Inc. to deposit payments into this account. <span className="text-destructive">*</span>
                   </span>
                 </label>
 

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import {
   updateDealStatus,
+  fundDealWithEft,
   toggleChecklistItem as serverToggleChecklistItem,
   toggleChecklistItemNA as serverToggleChecklistItemNA,
   deleteDocument as serverDeleteDocument,
@@ -33,7 +34,6 @@ import {
 import {
   sendDealMessage,
   returnDocument,
-  chargeLatePaymentInterest,
 } from '@/lib/actions/account-actions'
 import { dismissDealMessages } from '@/lib/actions/notification-actions'
 import { recordEftTransfer, confirmEftTransfer, removeEftTransfer, recordBrokeragePayment, removeBrokeragePayment, recordLateStrike } from '@/lib/actions/admin-actions'
@@ -46,7 +46,7 @@ import { DealNumber } from '@/components/DealNumber'
 import { hasCapability } from '@/lib/access'
 import { getDealAmendments, approveClosingDateAmendment, rejectClosingDateAmendment } from '@/lib/actions/amendment-actions'
 import type { EsignatureEnvelope } from '@/types/database'
-import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, SETTLEMENT_PERIOD_DAYS, LATE_INTEREST_GRACE_DAYS_FROM_CLOSING, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
+import { getStatusBadgeClass, ADMIN_QUICK_REPLIES, calcDaysUntilClosing, DISCOUNT_RATE_PER_1000_PER_DAY, SETTLEMENT_PERIOD_DAYS, BROKERAGE_LATE_STRIKE_THRESHOLD, BROKERAGE_BUMPED_SETTLEMENT_DAYS } from '@/lib/constants'
 import { calculateDeal, getChargeDays, liveFailedDealInterestOwed } from '@/lib/calculations'
 import SignOutModal from '@/components/SignOutModal'
 import AuditTimeline from '@/components/AuditTimeline'
@@ -603,7 +603,7 @@ function categorizeChecklist(items: ChecklistItem[]): ChecklistCategory[] {
 const ACTION_CONFIG: Record<string, { label: string; icon: IconComponent; bg: string; hoverBg: string }> = {
   under_review: { label: 'Start Review', icon: RefreshCw, bg: 'var(--action-blue)', hoverBg: 'var(--action-blue-hover)' },
   approved:     { label: 'Approve Deal', icon: CheckCircle2, bg: 'var(--action-green)', hoverBg: 'var(--action-green-hover)' },
-  funded:       { label: 'Mark as Funded', icon: Banknote, bg: 'var(--action-purple)', hoverBg: 'var(--action-purple-hover)' },
+  funded:       { label: 'Fund Deal', icon: Banknote, bg: 'var(--action-purple)', hoverBg: 'var(--action-purple-hover)' },
   completed:    { label: 'Mark Complete', icon: CheckCircle2, bg: 'var(--action-teal)', hoverBg: 'var(--action-teal-hover)' },
   denied:       { label: 'Deny Deal', icon: XCircle, bg: 'var(--action-red)', hoverBg: 'var(--action-red-hover)' },
   cancelled:    { label: 'Cancel Deal', icon: XCircle, bg: 'var(--action-grey)', hoverBg: 'var(--action-grey-hover)' },
@@ -631,6 +631,10 @@ export default function DealDetailPage() {
   const [showFundingConfirmation, setShowFundingConfirmation] = useState(false)
   // Per-deal brokerage referral override entered at funding time (percentage as a string, e.g. "20" for 20%)
   const [fundingReferralPctInput, setFundingReferralPctInput] = useState<string>('')
+  // Bank reference number for the manual wire, entered on the funding screen.
+  // Funding now records the EFT in the same step (fundDealWithEft), so this is
+  // required before the deal can be funded.
+  const [fundingReference, setFundingReference] = useState<string>('')
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   // E-Signature state
   const [esignEnvelopes, setEsignEnvelopes] = useState<EsignatureEnvelope[]>([])
@@ -696,10 +700,6 @@ export default function DealDetailPage() {
   const [returningDocId, setReturningDocId] = useState<string | null>(null)
   const [returnReason, setReturnReason] = useState('')
   const [returnSending, setReturnSending] = useState(false)
-  // Late closing interest
-  const [showLateInterest, setShowLateInterest] = useState(false)
-  const [actualClosingDate, setActualClosingDate] = useState('')
-  const [lateInterestSaving, setLateInterestSaving] = useState(false)
   // Agent account balance
   const [agentBalance, setAgentBalance] = useState<number>(0)
   // Owner-only: can this staffer start a look-only "view as this agent" session?
@@ -841,6 +841,21 @@ export default function DealDetailPage() {
       return
     }
     const newChecked = !item.is_checked
+    // Signed-contract gate (server-authoritative; this is the friendly UX guard):
+    // the two e-signed items can't be checked complete until the signed file is
+    // linked. The webhook auto-links the returned PDF, so no linked doc means it
+    // hasn't come back from SignWell yet.
+    if (newChecked) {
+      const itemText = item.checklist_item.toLowerCase()
+      const isCpa = itemText.includes('commission purchase agreement')
+      const isIdp = itemText.includes('irrevocable direction to pay')
+      const hasLink = item.linked_document_id != null || (item.linked_document_ids?.length ?? 0) > 0
+      if ((isCpa || isIdp) && !hasLink) {
+        const docLabel = isCpa ? 'Commission Purchase Agreement' : 'Direction to Pay'
+        setStatusMessage({ type: 'error', text: `Cannot mark this complete: the signed ${docLabel} has not been returned from SignWell yet.` })
+        return
+      }
+    }
     setChecklist(prev => prev.map(c => c.id === item.id ? { ...c, is_checked: newChecked, checked_at: newChecked ? new Date().toISOString() : null } : c))
     const result = await serverToggleChecklistItem({ itemId: item.id, isChecked: newChecked })
     if (!result.success) {
@@ -877,21 +892,6 @@ export default function DealDetailPage() {
       setStatusMessage({ type: 'error', text: result.error || 'Failed to return document' })
     }
     setReturnSending(false)
-  }
-
-  const handleChargeLateInterest = async () => {
-    if (!deal || !actualClosingDate) return
-    setLateInterestSaving(true)
-    const result = await chargeLatePaymentInterest({ dealId: deal.id, throughDate: actualClosingDate })
-    if (result.success) {
-      setAgentBalance(result.data.newBalance)
-      setDeal(prev => prev ? { ...prev, actual_closing_date: actualClosingDate, late_interest_charged: (prev.late_interest_charged || 0) + result.data.interest } : prev)
-      setShowLateInterest(false)
-      setStatusMessage({ type: 'success', text: `Late interest of $${result.data.interest.toFixed(2)} charged to agent account (new balance: $${result.data.newBalance.toFixed(2)})` })
-    } else {
-      setStatusMessage({ type: 'error', text: result.error || 'Failed to charge late interest' })
-    }
-    setLateInterestSaving(false)
   }
 
   const handleChecklistNA = async (e: React.MouseEvent, item: ChecklistItem) => {
@@ -1016,11 +1016,21 @@ export default function DealDetailPage() {
       return
     }
     setShowApproveConfirmation(false)
-    if (newStatus === 'funded' && !showFundingConfirmation) {
-      // Initialize the referral override input from the brokerage default
-      const defaultPct = brokerage?.referral_fee_percentage ?? 0.20
-      setFundingReferralPctInput((defaultPct * 100).toFixed(2).replace(/\.?0+$/, ''))
-      setShowFundingConfirmation(true)
+    // A FORWARD funding transition (approved -> funded) is now handled entirely
+    // by the funding confirmation panel, whose confirm calls handleFundDeal
+    // (fund + record EFT in one step). Never fund directly from here: always
+    // (re)open the panel and return so funding can't happen without recording
+    // the EFT. The backward revert (completed -> funded) falls through to the
+    // normal updateDealStatus path below.
+    if (newStatus === 'funded' && !isBackwardTransition(newStatus)) {
+      if (!showFundingConfirmation) {
+        // Initialize the referral override input from the brokerage default
+        const defaultPct = brokerage?.referral_fee_percentage ?? 0.20
+        setFundingReferralPctInput((defaultPct * 100).toFixed(2).replace(/\.?0+$/, ''))
+        // Clear any stale bank reference from a previous open of this panel.
+        setFundingReference('')
+        setShowFundingConfirmation(true)
+      }
       return
     }
     setShowFundingConfirmation(false)
@@ -1064,6 +1074,49 @@ export default function DealDetailPage() {
       if (newStatus === 'approved' && !autoSendWarning) {
         const esignResult = await getDealSignatureStatus(deal.id)
         if (esignResult.success) setEsignEnvelopes(esignResult.data || [])
+      }
+    }
+    setUpdating(false)
+  }
+
+  // Fund Deal: one step that both marks the deal funded AND records the EFT for
+  // the manual wire the admin just sent. Reuses the server fundDealWithEft action
+  // (which reuses updateDealStatus + recordEftTransfer). `wireAmount` is the exact
+  // net the panel shows as "wire this amount to the agent" so the recorded EFT
+  // matches what was actually sent.
+  const handleFundDeal = async (wireAmount: number) => {
+    if (!deal) return
+    if (!fundingReference.trim()) {
+      setStatusMessage({ type: 'error', text: 'Enter the bank reference number for the wire before funding.' })
+      return
+    }
+    setShowFundingConfirmation(false)
+    setUpdating(true); setStatusMessage(null)
+    // Parse the brokerage referral override the same way handleStatusChange does.
+    let referralOverride: number | undefined
+    const parsed = parseFloat(fundingReferralPctInput)
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+      referralOverride = parsed / 100
+    }
+    // Transfer date = today's Toronto calendar date, matching how funding_date is
+    // stamped server-side.
+    const transferDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+    const result = await fundDealWithEft({
+      dealId: deal.id,
+      reference: fundingReference.trim(),
+      amount: wireAmount,
+      transferDate,
+      brokerageReferralPct: referralOverride,
+    })
+    if (!result.success) {
+      setStatusMessage({ type: 'error', text: result.error || 'Failed to fund deal' })
+    } else {
+      setDeal(prev => prev ? { ...prev, ...result.data } : null)
+      setFundingReference('')
+      if (result.warning) {
+        setStatusMessage({ type: 'error', text: result.warning })
+      } else {
+        setStatusMessage({ type: 'success', text: 'Deal funded and EFT transfer recorded.' })
       }
     }
     setUpdating(false)
@@ -1358,6 +1411,15 @@ export default function DealDetailPage() {
 
   const nextStatuses = STATUS_FLOW[deal.status] || []
   const categorizedChecklist = categorizeChecklist(checklist)
+
+  // "Ready to fund" = approved AND both signed contracts are back: the signed
+  // CPA (commission_agreement) and signed IDP (direction_to_pay) are both on the
+  // deal as documents, OR both e-sign envelopes have reached 'signed'. Either
+  // path means the agent's side is done and only our wire remains.
+  const hasSignedCpaDoc = documents.some(d => d.document_type === 'commission_agreement' || d.document_type === 'cpa')
+  const hasSignedIdpDoc = documents.some(d => d.document_type === 'direction_to_pay' || d.document_type === 'idp')
+  const bothEnvelopesSigned = esignEnvelopes.filter(e => e.status === 'signed').length >= 2
+  const isReadyToFund = deal.status === 'approved' && ((hasSignedCpaDoc && hasSignedIdpDoc) || bothEnvelopesSigned)
 
   // The most recent APPROVED amendment that recomputed the brokerage profit
   // share (a funded extension or earlier-closing recalc, migration 117). Its
@@ -1820,14 +1882,32 @@ export default function DealDetailPage() {
                     <span className="text-[11px] text-muted-foreground/80">Amount due from brokerage <span className="opacity-70">(repaid later, not wired now)</span></span>
                     <span className="text-xs font-mono text-muted-foreground">{formatCurrency(calc.amountDueFromBrokerage)}</span>
                   </div>
+                  {/* Bank reference — funding now records the EFT in the same
+                      step, so the admin sends the wire on their bank's site,
+                      then enters the reference number here before confirming. */}
+                  <div className="rounded-lg p-3 mb-3 bg-card/50 border border-border/30">
+                    <Label htmlFor="funding-reference" className="mb-1 block text-xs">
+                      Bank reference # <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="funding-reference"
+                      type="text"
+                      value={fundingReference}
+                      onChange={(e) => setFundingReference(e.target.value)}
+                      placeholder="Wire confirmation / bank ref #"
+                    />
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Send the {formatCurrency(agentReceives)} wire to the agent first, then enter the bank reference here. Confirming funds the deal and records this EFT transfer in one step.
+                    </p>
+                  </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => handleStatusChange('funded')}
-                      disabled={updating || !overrideValid}
+                      onClick={() => handleFundDeal(agentReceives)}
+                      disabled={updating || !overrideValid || !fundingReference.trim()}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition-colors bg-action-purple hover:bg-action-purple-hover"
                     >
                       <Banknote className="w-4 h-4" />
-                      {updating ? 'Funding...' : 'Confirm Funding'}
+                      {updating ? 'Funding...' : 'Confirm & Fund Deal'}
                     </button>
                     <button
                       onClick={() => setShowFundingConfirmation(false)}
@@ -1869,6 +1949,35 @@ export default function DealDetailPage() {
             </div>
           )}
         </div>
+
+        {/* READY TO FUND — approved AND both signed contracts are back. Nothing
+            is left but our wire, so surface a prominent callout (not just the
+            quiet "Contracts Signed" badge) with the Fund Deal action right here. */}
+        {isReadyToFund && !showFundingConfirmation && (
+          <div className="mb-5 rounded-xl overflow-hidden bg-primary/5 border border-primary/50 ff-card-elevated">
+            <div className="px-4 py-4 sm:px-5 flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/15">
+                  <Banknote className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-base font-bold text-primary">Ready to fund</p>
+                  <p className="text-xs mt-0.5 text-muted-foreground">
+                    Both signed contracts are back. This deal is only waiting on us to send the funds.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleStatusChange('funded')}
+                disabled={updating}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-primary-foreground disabled:opacity-50 transition-colors bg-primary hover:bg-primary/90"
+              >
+                <Banknote className="w-4 h-4" />
+                Fund Deal
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* REFUND OWED TO AGENT — blocks completion until issued. Shown only
             while a refund is outstanding; flips to a subtle confirmation once
@@ -1938,19 +2047,25 @@ export default function DealDetailPage() {
         {/* EFT SECTION */}
         {['funded', 'completed'].includes(deal.status) && (
           <div className="mb-4 rounded-xl p-4 bg-card border border-border/50 ff-card-elevated">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-1">
               <h2 className="text-sm font-bold flex items-center gap-2 text-foreground">
                 <Banknote className="w-4 h-4 text-primary" />
                 EFT Transfers
               </h2>
+              {/* Funding now records the EFT automatically (Fund Deal step), so
+                  this is a secondary affordance for post-funding corrections /
+                  additional transfers only. */}
               <Button
                 onClick={() => setShowEftForm(!showEftForm)}
-                variant={showEftForm ? 'outline' : 'default'}
+                variant="outline"
                 size="sm"
               >
-                {showEftForm ? 'Cancel' : 'Record Transfer'}
+                {showEftForm ? 'Cancel' : 'Record additional transfer'}
               </Button>
             </div>
+            <p className="text-[11px] text-muted-foreground mb-3">
+              The transfer entered when the deal was funded is listed below. Use &ldquo;Record additional transfer&rdquo; only to log a correction or a second wire.
+            </p>
 
             {showEftForm && (
               <div className="mb-6 p-4 rounded-lg bg-muted/30 border border-border/30">
@@ -3214,7 +3329,7 @@ export default function DealDetailPage() {
               <div className="flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Late Closing Interest
-                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
+                {deal.late_interest_charged != null && deal.late_interest_charged > 0 && (
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-status-red-muted/30 text-destructive">
                     ${deal.late_interest_charged.toFixed(2)} charged
                   </span>
@@ -3224,46 +3339,20 @@ export default function DealDetailPage() {
             </button>
             {lateInterestExpanded && (
               <div className="px-3 py-2">
+                {deal.late_interest_charged != null && deal.late_interest_charged > 0 && (
+                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-status-red-muted/20 border border-status-red-border/30 text-destructive">
+                    Late interest charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
+                    {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
+                  </div>
+                )}
                 {agentBalance > 0 && (
                   <div className="mb-2 px-2 py-1.5 rounded text-xs bg-status-amber-muted/20 border border-status-amber-border/30 text-status-amber">
                     Agent balance: <strong>${agentBalance.toFixed(2)}</strong>
                   </div>
                 )}
-                {deal.late_interest_charged && deal.late_interest_charged > 0 && (
-                  <div className="mb-2 px-2 py-1.5 rounded text-xs bg-status-red-muted/20 border border-status-red-border/30 text-destructive">
-                    Previously charged: <strong>${deal.late_interest_charged.toFixed(2)}</strong>
-                    {deal.actual_closing_date && <span> (actual close: {deal.actual_closing_date})</span>}
-                  </div>
-                )}
-                {!showLateInterest ? (
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      {deal.late_interest_charged ? 'Interest has been applied.' : 'No late interest charged.'}
-                    </p>
-                    <button onClick={() => { setShowLateInterest(true); setActualClosingDate(deal.closing_date) }}
-                      className="px-2 py-1 rounded text-xs font-medium text-white bg-status-amber hover:bg-status-amber/90 transition-colors">
-                      Charge Interest
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-medium flex-shrink-0 text-muted-foreground">Actual Close:</label>
-                      <input type="date" value={actualClosingDate} onChange={(e) => setActualClosingDate(e.target.value)}
-                        className="px-2 py-1 rounded border border-border/50 text-xs focus:outline-none bg-muted text-foreground [color-scheme:dark]"
-                      />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">24% p.a. compounded daily · starts day {LATE_INTEREST_GRACE_DAYS_FROM_CLOSING + 1} after closing</p>
-                    <div className="flex gap-1.5">
-                      <button onClick={handleChargeLateInterest} disabled={lateInterestSaving || !actualClosingDate}
-                        className="px-2.5 py-1 rounded text-xs font-medium text-white disabled:opacity-50 bg-status-amber hover:bg-status-amber/90 transition-colors">
-                        {lateInterestSaving ? 'Calculating...' : 'Calculate & Charge'}
-                      </button>
-                      <button onClick={() => setShowLateInterest(false)}
-                        className="px-2.5 py-1 rounded text-xs text-muted-foreground bg-muted hover:bg-muted/70 transition-colors">Cancel</button>
-                    </div>
-                  </div>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  Late interest accrues automatically at 24% per year, starting 30 days after closing, and posts monthly to the agent&apos;s ledger.
+                </p>
               </div>
             )}
           </div>
