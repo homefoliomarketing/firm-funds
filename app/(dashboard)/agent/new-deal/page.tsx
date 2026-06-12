@@ -90,6 +90,9 @@ function NewDealPageInner() {
   const [uploadQueue, setUploadQueue] = useState<FileUploadItem[]>([])
   /** Submitted deal id, retained for per-file retry after submit completes. */
   const [submittedDealId, setSubmittedDealId] = useState<string | null>(null)
+  /** Receipt details: tracking number + submission time shown on the confirmation screen. */
+  const [submittedDealNumber, setSubmittedDealNumber] = useState<string | null>(null)
+  const [submittedAt, setSubmittedAt] = useState<Date | null>(null)
   const [isFirstAdvance, setIsFirstAdvance] = useState(true)
   // Set when the agent has an uncovered failed-to-close balance — blocks new
   // submissions until approved advances cover it (server-enforced in submitDeal).
@@ -403,6 +406,9 @@ function NewDealPageInner() {
       })
       if (!result.success) { setError(result.error || 'Failed to submit deal. Please try again.'); setSubmitting(false); return }
       dealSubmitted = true
+      if (result.data?.dealId) setSubmittedDealId(result.data.dealId)
+      if (result.data?.dealNumber) setSubmittedDealNumber(result.data.dealNumber)
+      setSubmittedAt(new Date())
       if (result.data) {
         setPreview({
           netCommission: result.data.netCommission, daysUntilClosing: result.data.daysUntilClosing,
@@ -517,21 +523,63 @@ function NewDealPageInner() {
               />
             </div>
           )}
-          <div className="rounded-xl p-4 mb-6 text-left bg-muted border border-border">
+          <div className="rounded-xl p-4 mb-4 text-left bg-muted border border-border">
             <div className="text-sm space-y-2">
-              <div className="flex justify-between">
+              {submittedDealNumber && (
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Reference</span>
+                  <span className="font-mono font-semibold tabular-nums text-foreground select-all">#{submittedDealNumber}</span>
+                </div>
+              )}
+              <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Property</span>
-                <span className="font-medium text-foreground">{propertyAddress}</span>
+                <span className="font-medium text-foreground text-right">{propertyAddress}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Advance Amount</span>
-                <span className="font-bold text-primary">{preview && formatCurrency(preview.advanceAmount)}</span>
+                <span className="font-bold tabular-nums text-primary">{preview && formatCurrency(preview.advanceAmount)}</span>
               </div>
+              {submittedAt && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Submitted</span>
+                  <span className="font-medium tabular-nums text-foreground">
+                    {submittedAt.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
-          <Button onClick={() => router.push('/agent')} className="w-full">
-            Back to Dashboard
-          </Button>
+          <div className="rounded-xl p-4 mb-6 text-left bg-card border border-border">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2.5">What happens next</p>
+            <ol className="text-sm space-y-2 text-muted-foreground">
+              <li className="flex gap-2.5">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center tabular-nums">1</span>
+                <span>{uploadQueue.length > 0 ? 'Your documents are attached above.' : 'Upload your deal documents from your deal page.'}</span>
+              </li>
+              <li className="flex gap-2.5">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center tabular-nums">2</span>
+                <span>Firm Funds reviews and approves your request.</span>
+              </li>
+              <li className="flex gap-2.5">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center tabular-nums">3</span>
+                <span>You sign the agreements and funds are sent by EFT.</span>
+              </li>
+            </ol>
+          </div>
+          <div className="flex flex-col gap-2">
+            {submittedDealId && (
+              <Button onClick={() => router.push(`/agent/deals/${submittedDealId}`)} className="w-full">
+                View Your Deal
+              </Button>
+            )}
+            <Button
+              variant={submittedDealId ? 'outline' : 'default'}
+              onClick={() => router.push('/agent')}
+              className="w-full"
+            >
+              Back to Dashboard
+            </Button>
+          </div>
         </div>
       </div>
     )

@@ -120,10 +120,16 @@ function LoginPageInner() {
     }
 
     if (!result.success) {
+      // Translate Supabase's terse default into plain language. Other server
+      // messages (rate limit, blocked) pass through untouched.
+      const friendly =
+        result.error && /invalid login credentials/i.test(result.error)
+          ? 'That email and password combination does not match our records. Check both and try again.'
+          : result.error
       const message =
         result.code === 'blocked'
           ? BLOCKED_LOGIN_MESSAGE
-          : result.error || 'Unable to sign in.'
+          : friendly || 'Unable to sign in.'
       setError(message)
       setLoading(false)
       return
@@ -271,6 +277,7 @@ function LoginPageInner() {
                   id="email"
                   type="email"
                   required
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); setError(null) }}
                   placeholder="you@example.com"
@@ -287,6 +294,7 @@ function LoginPageInner() {
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     required
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setError(null) }}
                     placeholder="Enter your password"

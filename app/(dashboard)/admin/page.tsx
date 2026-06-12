@@ -7,7 +7,7 @@ import type { UserProfile } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
-  FileText, Building2, DollarSign, Clock, ChevronRight, Search, X,
+  FileText, Building2, DollarSign, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
   CreditCard, ClipboardList, TimerReset, Inbox,
   TrendingUp, Mail, ChevronDown, CalendarClock, Wallet,
@@ -633,25 +633,10 @@ export default function AdminDashboard() {
           </nav>
         </div>
 
-        {/* KPI Stat Cards */}
-        <section aria-label="Key metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          {[
-            { label: 'Total Deals', value: allDeals.length, icon: FileText, accent: 'text-primary' },
-            { label: 'Under Review', value: stats.underReviewDeals, icon: Clock, accent: 'text-status-blue' },
-            { label: 'Pending Actions', value: stats.pendingKycCount + stats.pendingBankingCount, icon: AlertTriangle, accent: 'text-status-amber' },
-            { label: 'Unread Messages', value: stats.unreadAgentMessages, icon: MessageSquare, accent: 'text-status-red' },
-          ].map(stat => (
-            <Card key={stat.label} className="border-border/40 bg-card/60">
-              <CardContent className="p-4 sm:p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{stat.label}</span>
-                  <stat.icon size={15} className={`${stat.accent} opacity-60`} />
-                </div>
-                <p className="text-2xl font-bold tracking-tight text-foreground">{stat.value}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </section>
+        {/* The four KPI tiles (Total Deals / Under Review / Pending Actions /
+            Unread Messages) used to sit here. Removed at Bud's request
+            2026-06-12: redundant with the per-surface notification badges and
+            the Ready to Fund / verification queues below. */}
 
         {/* READY TO FUND — approved deals whose BOTH signed contracts are back.
             Nothing is left but us wiring the money, so this is the single most

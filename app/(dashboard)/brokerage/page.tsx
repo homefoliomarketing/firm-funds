@@ -26,6 +26,7 @@ import MessageInput from '@/components/messaging/MessageInput'
 import type { MessageData } from '@/components/messaging/MessageBubble'
 import { formatCurrency, formatDate } from '@/lib/formatting'
 import SignOutModal from '@/components/SignOutModal'
+import { ConfirmActionDialog } from '@/components/ConfirmActionDialog'
 import BrokerageBrandLogo from '@/components/BrokerageBrandLogo'
 import { DealNumber } from '@/components/DealNumber'
 import { Button } from '@/components/ui/button'
@@ -192,6 +193,9 @@ export default function BrokerageDashboard() {
   const [brokerage, setBrokerage] = useState<BrokeragePublic | null>(null)
   const [deals, setDeals] = useState<Deal[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  // Flag/unflag confirmation dialog state (replaces window.confirm)
+  const [pendingFlag, setPendingFlag] = useState<{ agentId: string; name: string; currentFlag: boolean } | null>(null)
+  const [flagBusy, setFlagBusy] = useState(false)
   const [expandedDeal, setExpandedDeal] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'deals' | 'agents' | 'referrals' | 'payments' | 'messages'>('deals')
   const [loading, setLoading] = useState(true)
@@ -402,20 +406,25 @@ export default function BrokerageDashboard() {
     setAgents(agentData || [])
   }
 
+  // Confirmation handled by ConfirmActionDialog (pendingFlag state) instead
+  // of the old window.confirm().
   const handleToggleFlag = async (agentId: string, currentFlag: boolean) => {
-    const agentName = agents.find(a => a.id === agentId)
-    const name = agentName ? `${agentName.first_name} ${agentName.last_name}` : 'this agent'
-    const confirmMsg = currentFlag
-      ? `Remove the flag from ${name}? They will be eligible for commission advances again.`
-      : `Flag ${name}? This will alert Firm Funds during underwriting and may delay or prevent their advances.`
-    if (!confirm(confirmMsg)) return
+    setFlagBusy(true)
     // Mutations go through toggleAgentBrokerageFlag server action. Direct
     // UPDATE on agents is REVOKEd in migration 059 (kyc_modal RLS hole) so a
     // browser-side supabase.from('agents').update(...) silently no-ops.
     const result = await toggleAgentBrokerageFlag({ agentId, flagged: !currentFlag })
     if (result.success) {
       setAgents(agents.map(a => a.id === agentId ? { ...a, flagged_by_brokerage: !currentFlag } : a))
+      setPaymentStatusMsg({
+        type: 'success',
+        text: currentFlag ? 'Flag removed. The agent is eligible for advances again.' : 'Agent flagged. Firm Funds will see this during underwriting.',
+      })
+    } else {
+      setPaymentStatusMsg({ type: 'error', text: 'Could not update the flag. Please try again.' })
     }
+    setFlagBusy(false)
+    setPendingFlag(null)
   }
 
   const handleLogout = async () => {
@@ -1504,7 +1513,11 @@ export default function BrokerageDashboard() {
                             </span>
                           )}
                           <Button
-                            onClick={() => handleToggleFlag(agent.id, agent.flagged_by_brokerage)}
+                            onClick={() => setPendingFlag({
+                              agentId: agent.id,
+                              name: `${agent.first_name} ${agent.last_name}`,
+                              currentFlag: agent.flagged_by_brokerage,
+                            })}
                             variant="outline"
                             size="sm"
                             className={`text-xs ${agent.flagged_by_brokerage ? 'text-green-400 border-green-800 hover:bg-green-950/30' : 'text-red-400 border-red-800 hover:bg-red-950/30'}`}
@@ -1837,7 +1850,8 @@ export default function BrokerageDashboard() {
                     </div>
                   )}
 
-                  <div className="rounded-lg overflow-x-auto border border-border/50">
+                  {/* Desktop table; phones get the stacked card list below */}
+                  <div className="hidden sm:block rounded-lg overflow-x-auto border border-border/50">
                     <table className="w-full min-w-[600px]" aria-label="Profit share breakdown by deal">
                       <thead>
                         <tr className="bg-muted/50 border-b border-border/50">
@@ -1888,6 +1902,49 @@ export default function BrokerageDashboard() {
                         )}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Mobile card list (same data as the table above) */}
+                  <div className="sm:hidden space-y-2" aria-label="Profit share breakdown by deal">
+                    {filteredReferralDeals.length === 0 ? (
+                      <p className="rounded-lg border border-border/50 px-4 py-8 text-center text-sm text-muted-foreground">
+                        No deals found for the selected period.
+                      </p>
+                    ) : (
+                      <>
+                        {filteredReferralDeals.map((deal) => {
+                          const isEarned = ['funded', 'completed'].includes(deal.status)
+                          return (
+                            <div key={deal.id} className="rounded-lg border border-border/50 bg-card p-3.5">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="text-sm font-medium text-foreground min-w-0">{deal.property_address}</p>
+                                <span className={`inline-flex flex-shrink-0 px-2 py-0.5 text-xs font-semibold rounded-md ${getStatusBadgeClass(deal.status)}`}>
+                                  {formatStatusLabel(deal.status)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {deal.agent?.first_name} {deal.agent?.last_name} | Closes {formatDate(deal.closing_date)}
+                              </p>
+                              <div className="mt-2 flex items-center justify-between border-t border-border/30 pt-2">
+                                <span className="text-xs text-muted-foreground">Profit Share</span>
+                                <span className={`text-sm font-bold tabular-nums ${isEarned ? 'text-green-400' : 'text-yellow-400'}`}>
+                                  {formatCurrency(deal.brokerage_referral_fee)}
+                                  {!isEarned && <span className="text-xs font-normal ml-1 text-muted-foreground">(pending)</span>}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        <div className="rounded-lg border border-border/50 bg-muted/50 p-3.5 flex items-center justify-between">
+                          <span className="text-sm font-bold text-foreground">
+                            Total ({filteredReferralDeals.length} deal{filteredReferralDeals.length !== 1 ? 's' : ''})
+                          </span>
+                          <span className="text-sm font-bold tabular-nums text-green-400">
+                            {formatCurrency(filteredReferralDeals.reduce((s, d) => s + d.brokerage_referral_fee, 0))}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Monthly Summary Table */}
@@ -2346,6 +2403,20 @@ export default function BrokerageDashboard() {
             if (dealData) setDeals(dealData as unknown as Deal[])
           }
         }}
+      />
+
+      {/* Flag/unflag confirmation */}
+      <ConfirmActionDialog
+        open={pendingFlag !== null}
+        onOpenChange={(open) => { if (!open) setPendingFlag(null) }}
+        title={pendingFlag?.currentFlag ? `Remove the flag from ${pendingFlag?.name}?` : `Flag ${pendingFlag?.name}?`}
+        description={pendingFlag?.currentFlag
+          ? 'They will be eligible for commission advances again.'
+          : 'This will alert Firm Funds during underwriting and may delay or prevent their advances.'}
+        confirmLabel={pendingFlag?.currentFlag ? 'Remove Flag' : 'Flag Agent'}
+        tone={pendingFlag?.currentFlag ? 'default' : 'danger'}
+        busy={flagBusy}
+        onConfirm={() => { if (pendingFlag) handleToggleFlag(pendingFlag.agentId, pendingFlag.currentFlag) }}
       />
 
       {/* Payment success/error flash */}

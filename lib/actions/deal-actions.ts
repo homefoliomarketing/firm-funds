@@ -479,6 +479,9 @@ export async function submitDeal(formData: {
       success: true,
       data: {
         dealId: newDeal.id,
+        // Human-readable tracking number assigned by the DB trigger at
+        // insert (migration 108) — surfaced on the submission receipt.
+        dealNumber: newDeal.deal_number ?? null,
         ...calc,
         daysUntilClosing,
         outstandingBalance: 0,
