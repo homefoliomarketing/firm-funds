@@ -498,6 +498,12 @@ interface ClosingDateAmendment {
   new_advance_amount: number | null
   fee_adjustment_amount: number | null
   adjustment_scenario: 'approved_recalc' | 'funded_extended' | 'funded_earlier' | null
+  // Brokerage profit-share snapshot recorded on a funded recalc (migration 117).
+  // Null on approved-deal recalcs and on amendments created before 117.
+  old_brokerage_referral_fee: number | null
+  new_brokerage_referral_fee: number | null
+  old_amount_due_from_brokerage: number | null
+  new_amount_due_from_brokerage: number | null
   amendment_document_id: string | null
   rejection_reason: string | null
   created_at: string
@@ -1352,6 +1358,16 @@ export default function DealDetailPage() {
 
   const nextStatuses = STATUS_FLOW[deal.status] || []
   const categorizedChecklist = categorizeChecklist(checklist)
+
+  // The most recent APPROVED amendment that recomputed the brokerage profit
+  // share (a funded extension or earlier-closing recalc, migration 117). Its
+  // old_* snapshots let the Financial Breakdown show the pre-amendment referral
+  // fee and amount-due for context, since the deal row now carries the NEW
+  // values. `amendments` arrives newest-first, so the first match wins.
+  const activeBrokerageAmendment =
+    amendments.find(
+      (am) => am.status === 'approved' && am.new_amount_due_from_brokerage != null,
+    ) || null
 
   return (
     <div className="min-h-screen bg-background">
@@ -2484,12 +2500,31 @@ export default function DealDetailPage() {
                 { label: `Discount Fee (${getChargeDays(deal.days_until_closing)}d)`, value: `-${formatCurrency(deal.discount_fee)}`, color: 'text-destructive' },
                 { label: `Settlement Period Fee (${deal.settlement_days_at_funding ?? SETTLEMENT_PERIOD_DAYS}d)`, value: `-${formatCurrency(deal.settlement_period_fee || 0)}`, color: 'text-destructive' },
                 { label: 'Total Cost to Agent', value: formatCurrency((Number(deal.discount_fee) || 0) + (Number(deal.settlement_period_fee) || 0)), bold: true },
-                { label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`, value: formatCurrency(deal.brokerage_referral_fee) },
+                {
+                  label: `Brokerage Referral Fee (${((deal.brokerage_referral_pct || 0) * 100).toFixed(0)}%)`,
+                  value: formatCurrency(deal.brokerage_referral_fee),
+                  amended: activeBrokerageAmendment != null,
+                  subline: activeBrokerageAmendment != null
+                    ? `was ${formatCurrency(activeBrokerageAmendment.old_brokerage_referral_fee || 0)} before the closing-date change`
+                    : undefined,
+                },
                 { label: 'Deal Profit', value: formatCurrency(((Number(deal.discount_fee) || 0) + (Number(deal.settlement_period_fee) || 0)) - (Number(deal.brokerage_referral_fee) || 0)), bold: true, color: 'text-primary' },
-              ] as { label: string; value: string; bold?: boolean; color?: string }[]).map((row) => (
-                <div key={row.label} className="flex justify-between py-1.5 text-xs border-b border-border/20">
-                  <span className="text-muted-foreground">{row.label}</span>
-                  <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'} ${row.color || ''}`}>{row.value}</span>
+              ] as { label: string; value: string; bold?: boolean; color?: string; amended?: boolean; subline?: string }[]).map((row) => (
+                <div key={row.label} className="py-1.5 text-xs border-b border-border/20">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      {row.label}
+                      {row.amended && (
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-status-amber/15 text-status-amber border border-status-amber/30 font-semibold uppercase tracking-wide leading-none">
+                          Amended
+                        </span>
+                      )}
+                    </span>
+                    <span className={`tabular-nums ${row.bold ? 'font-semibold text-foreground' : 'font-medium text-foreground'} ${row.color || ''}`}>{row.value}</span>
+                  </div>
+                  {row.subline && (
+                    <p className="text-[10px] text-muted-foreground/70 mt-0.5">{row.subline}</p>
+                  )}
                 </div>
               ))}
               {deal.broker_share_pct_at_funding != null && (
@@ -2515,6 +2550,11 @@ export default function DealDetailPage() {
                 <span className="font-semibold text-primary">Advance Amount</span>
                 <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.advance_amount)}</span>
               </div>
+              {deal.status === 'funded' && activeBrokerageAmendment != null && (
+                <p className="text-[10px] text-muted-foreground/70 py-1.5 border-b border-border/20 leading-snug">
+                  Advance was locked at funding. The additional discount fee from the closing-date change is invoiced to the agent separately, so the advance no longer equals net commission minus fees.
+                </p>
+              )}
               {deal.due_date && (
                 <div className="flex justify-between py-1.5 text-xs border-b border-border/20">
                   <span className="text-muted-foreground">Payment Due Date</span>
@@ -2525,9 +2565,23 @@ export default function DealDetailPage() {
                   </span>
                 </div>
               )}
-              <div className="flex justify-between rounded-lg px-2.5 py-2 text-sm mt-2 bg-primary/10">
-                <span className="font-semibold text-primary">Due from Brokerage</span>
-                <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>
+              <div className="rounded-lg px-2.5 py-2 text-sm mt-2 bg-primary/10">
+                <div className="flex justify-between">
+                  <span className="font-semibold text-primary flex items-center gap-1.5">
+                    Due from Brokerage
+                    {activeBrokerageAmendment != null && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-status-amber/15 text-status-amber border border-status-amber/30 font-semibold uppercase tracking-wide leading-none">
+                        Amended
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-bold tabular-nums text-primary">{formatCurrency(deal.amount_due_from_brokerage)}</span>
+                </div>
+                {activeBrokerageAmendment != null && (
+                  <p className="text-[10px] text-primary/70 mt-0.5">
+                    was {formatCurrency(activeBrokerageAmendment.old_amount_due_from_brokerage || 0)} before the closing-date change
+                  </p>
+                )}
               </div>
               {(() => {
                 const brokerageTotal = (deal.brokerage_payments || []).reduce((sum, p) => sum + p.amount, 0)

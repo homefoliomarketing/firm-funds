@@ -76,7 +76,7 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | `approved` | `funded` | Firm Funds admin | Marks the deal funded after the EFT is sent. Posts an informational **Advance Issued** entry (`deal_advance`) to the agent's ledger for `amount_due_from_brokerage` — balance-neutral, for the statement only (see §6). |
 | `approved` | `denied` / `cancelled` / `under_review` | Firm Funds admin | `updateDealStatus` |
 | `funded` | `completed` | Firm Funds admin | Marks the deal repaid. **Requires confirmed brokerage payment(s) covering `amount_due_from_brokerage`** AND **no outstanding agent refund** (`refund_owed_amount` must be 0 — an early-closing or amendment credit must be paid out first via "Mark refund issued", `markRefundIssued`). Both are enforced server-side in `updateDealStatus`, not just by the UI button. |
-| `funded` | `funded` (no status change) | Firm Funds admin | "Record Early Closing" (`recordEarlyClosing`): when the property closes before the scheduled date, refunds the prepaid discount fee for the days saved and credits the agent. Sets `actual_closing_date` + `discount_refund_amount` + `refund_owed_amount` but does **not** complete the deal — completion now requires the brokerage payment **and** that the refund has been issued (`markRefundIssued`). |
+| `funded` | `funded` (no status change) | Firm Funds admin | "Record Early Closing" (`recordEarlyClosing`): when the property closes before the scheduled date, refunds the prepaid discount fee for the days saved (on the `net_commission` basis, aligned with `calculateDeal` and the amendment path) and credits the agent. Sets `actual_closing_date` + `discount_refund_amount` + `refund_owed_amount` but does **not** complete the deal — completion now requires the brokerage payment **and** that the refund has been issued (`markRefundIssued`). |
 | `funded` | `funding_failed` | Firm Funds admin | EFT-bounce action (reverses agent balance, and reverses the informational Advance Issued entry) |
 | `funding_failed` | `approved` (via retry) / `cancelled` | Firm Funds admin | "Retry funding" reverts to `approved` to re-run the funding path; or cancel. (`STATUS_FLOW` also permits a direct `-> funded` manual correction.) |
 | `failed_to_close` | `cured` | System | Set when remediation remittance fully clears the balance |
@@ -85,6 +85,19 @@ Note: `funding_failed` is reached from `funded` by a dedicated EFT-failure actio
 | `cured` | (none) | n/a | Terminal |
 
 Only `super_admin` and `firm_funds_admin` roles can call `updateDealStatus`. Agent and brokerage-admin transitions happen through dedicated, ownership-checked server actions (firm-deal accept/decline, advance submission).
+
+### Closing-date amendments (`approveClosingDateAmendment`)
+
+An agent or brokerage admin can request a closing-date change on an `approved` or `funded` deal; a Firm Funds underwriter (capability `deal.underwrite`) approves it. Approval is idempotent (CAS on the amendment's `pending` status and on the deal's `closing_date`) so concurrent clicks cannot double-charge.
+
+- **Approved (not yet funded):** the deal is fully re-priced from the new closing date. No agent charge or credit.
+- **Funded:** the advance is locked. Only the discount fee changes, for the extra (or fewer) days between the old and new closing date (`computeFundedAmendmentDelta`, `net_commission` basis). Then:
+  - The deal's `discount_fee`, `brokerage_referral_fee`, and `amount_due_from_brokerage` are recomputed (`computeAmendmentBrokerageRecalc`): the brokerage's profit share rises and its remittance falls by the brokerage's cut of the fee change on an extension (mirror image on a shortening). The brokerage keeps its share the net-remittance way; there is **no** brokerage ledger. The amended `amount_due_from_brokerage` is what the completion gate then requires.
+  - The agent owes the full extra fee. It is posted to `account_balance` and a **targeted invoice** for exactly that amount is raised and emailed (`insertAgentInvoice` + `sendInvoiceNotification`). On a shortening the agent is **credited** instead (gated via `refund_owed_amount` / `markRefundIssued`); no invoice.
+  - The **brokerage is emailed an amended-remittance notice** (old vs new amount due, with the reason) via `sendAmendedRemittanceNotification`, and the **agent's amendment-approved email discloses** the extra fee, the extra days, and the invoice.
+  - The amended figures are snapshotted on the `closing_date_amendments` row (`old/new_brokerage_referral_fee`, `old/new_amount_due_from_brokerage`) and shown, flagged as amended, on the admin deal page and brokerage portal. The agent's amended CPA is sent for signature.
+
+Because the extra fee is invoiced rather than deducted from the disbursed advance, after a funded amendment `advance_amount != net_commission - total_fees` on the deal row (expected; see `financial-model.md` §9).
 
 ## 3. The underwriting checklist
 

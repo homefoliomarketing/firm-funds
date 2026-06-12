@@ -3620,7 +3620,7 @@ export async function recordEarlyClosing(input: {
   try {
     const { data: deal, error: dealErr } = await serviceClient
       .from('deals')
-      .select('id, status, closing_date, advance_amount, agent_id, property_address, actual_closing_date, discount_refund_amount, version')
+      .select('id, status, closing_date, advance_amount, net_commission, agent_id, property_address, actual_closing_date, discount_refund_amount, version')
       .eq('id', input.dealId)
       .single()
 
@@ -3659,8 +3659,16 @@ export async function recordEarlyClosing(input: {
       return { success: false, error: 'Days saved must be greater than zero' }
     }
 
-    // Refund formula mirrors calculateDeal: rate is per $1000 per day.
-    const refundPerDay = (Number(deal.advance_amount) / 1000) * DISCOUNT_RATE_PER_1000_PER_DAY
+    // Refund formula mirrors calculateDeal's discount-fee basis: the per-day
+    // discount is charged on net_commission (NOT advance_amount). The agent was
+    // charged net_commission * (rate/1000) per day at funding, so the refund for
+    // saved days must use the same base, matching the closing-date-amendment
+    // path (computeFundedAmendmentDelta in amendment-actions.ts) and
+    // calculateDeal in lib/calculations.ts. (Previously used advance_amount,
+    // which under-refunded by the fee fraction.) Fall back to advance_amount
+    // only if net_commission is somehow missing.
+    const refundBasis = Number(deal.net_commission ?? deal.advance_amount)
+    const refundPerDay = (refundBasis / 1000) * DISCOUNT_RATE_PER_1000_PER_DAY
     const refundTotal = Math.round(daysSaved * refundPerDay * 100) / 100
 
     if (refundTotal <= 0.005) {

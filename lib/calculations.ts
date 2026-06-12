@@ -263,6 +263,49 @@ export function calculateDeal(input: DealCalculation): DealResult {
 }
 
 /**
+ * Recompute a brokerage's profit share + remittance after a FUNDED deal's
+ * closing date is amended. The brokerage keeps its larger (or smaller) share the
+ * net-remittance way, by remitting less (or more) at settlement, NOT via a
+ * payout or ledger (Bud's decision, 2026-06-11).
+ *
+ * `feeAdjustment` is the change in the agent's discount fee for the amended
+ * closing date: positive when the closing moved later (extension), negative when
+ * it moved earlier (shortening). The brokerage's cut of that change is
+ * `referralPct * feeAdjustment`; it is ADDED to the brokerage's referral fee and
+ * SUBTRACTED from the amount it remits, mirroring calculateDeal's identity
+ * `amountDueFromBrokerage = netCommission - brokerageReferralFee`. Applying one
+ * rounded `brokerageShare` to both sides keeps `referralFee + amountDue`
+ * invariant (== net_commission).
+ *
+ * Additive against the deal's CURRENT stored figures, so stacked amendments
+ * accumulate. Firm Funds collects the agent's FULL `feeAdjustment` separately
+ * (by invoice on an extension, or credit on a shortening) and nets
+ * `feeAdjustment - brokerageShare`.
+ *
+ * Worked check (referralPct 0.20, feeAdjustment +240): brokerageShare = 48,
+ * referral fee += 48, amount due -= 48; agent invoiced 240; Firm Funds nets 192.
+ */
+export function computeAmendmentBrokerageRecalc(input: {
+  referralPct: number
+  feeAdjustment: number
+  oldBrokerageReferralFee: number
+  oldAmountDueFromBrokerage: number
+}): {
+  brokerageShare: number
+  newBrokerageReferralFee: number
+  newAmountDueFromBrokerage: number
+} {
+  const brokerageShare = roundToCents((input.referralPct || 0) * (input.feeAdjustment || 0))
+  const oldReferral = roundToCents(input.oldBrokerageReferralFee || 0)
+  const oldAmountDue = roundToCents(input.oldAmountDueFromBrokerage || 0)
+  return {
+    brokerageShare,
+    newBrokerageReferralFee: roundToCents(oldReferral + brokerageShare),
+    newAmountDueFromBrokerage: roundToCents(oldAmountDue - brokerageShare),
+  }
+}
+
+/**
  * Late-payment interest grace start: interest does not accrue until the deal is
  * 30 days past the closing date. The 7-day settlement window and the 8-30 day
  * follow-up window are penalty-free.

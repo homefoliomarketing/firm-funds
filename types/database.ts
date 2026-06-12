@@ -297,6 +297,9 @@ export interface AgentInvoice {
   due_date: string
   paid_at: string | null
   sent_at: string | null
+  // Deal this invoice bills, when it is for a single deal (e.g. a closing-date
+  // extension fee). NULL for whole-balance account invoices. (migration 117)
+  deal_id: string | null
   created_at: string
 }
 

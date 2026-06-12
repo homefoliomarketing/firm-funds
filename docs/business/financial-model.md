@@ -1,6 +1,6 @@
 # Financial Model
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-06-11_
 
 This document explains exactly how Firm Funds turns a pending real estate commission into an advance amount, what fees are charged, how the brokerage gets paid, and how late interest accrues, with worked numeric examples tied to the real code.
 
@@ -216,6 +216,61 @@ The agent ledger (`agent_transactions` + `agents.account_balance`) is the runnin
 
 To make the ledger read like a statement anyway, two **informational** entries are posted (migration 106): **Advance Issued** (`deal_advance`) when a deal is funded, for `amount_due_from_brokerage`, and **Repayment Received** (`deal_repayment`) when a brokerage payment is confirmed received. They are written via the balance-neutral `record_agent_statement_entry` RPC, so they do **not** move `account_balance` and never affect any of the interest or netting math above. On a clean deal they net to zero. Full mechanics in `deal-lifecycle.md` §6.
 
-## 9. Currency formatting
+## 9. Closing-date amendments: recompute and invoicing
+
+When a deal's closing date is amended, the advance is outstanding for a different number of days, so the discount fee changes. How that flows depends on whether the deal is already funded.
+
+### Approved (not yet funded) deals
+
+Nothing has been charged yet, so the deal is simply re-priced from the new closing date with `calculateDeal()`. All fields (discount fee, advance, brokerage referral fee, amount due from brokerage) are recomputed and written to the deal. No invoice, no credit.
+
+### Funded deals: the discount-fee delta
+
+The advance has already been disbursed and the original fee already charged, so the deal is **not** re-priced from today. Instead `computeFundedAmendmentDelta()` (in `lib/actions/amendment-actions.ts`) charges only the additional calendar days between the current closing date and the new one:
+
+`feeAdjustment = net_commission * (0.80 / 1000) * extraDays`
+
+`extraDays` is positive for an extension (closing moved later) and negative for a shortening (closing moved earlier). The basis is **`net_commission`**, matching `calculateDeal`'s discount-fee basis (§4). The new total discount fee written to the deal is `old discount fee + feeAdjustment`.
+
+### Funded deals: the brokerage profit share recompute (net remittance, no ledger)
+
+The brokerage keeps its profit share the same way it keeps every other fee, by remitting **less** to Firm Funds at settlement (net remittance). There is no brokerage ledger and no separate payout. `computeAmendmentBrokerageRecalc()` (in `lib/calculations.ts`) applies the brokerage's cut of the fee change:
+
+- `brokerage_share = referralPct * feeAdjustment`
+- `brokerage_referral_fee` (the partner's profit share) `+= brokerage_share`
+- `amount_due_from_brokerage` (what the brokerage remits) `-= brokerage_share`
+
+Applying one rounded `brokerage_share` to both sides keeps the identity `brokerage_referral_fee + amount_due_from_brokerage == net_commission` exact. On an extension the brokerage keeps more (remits less); on a shortening it keeps less (remits more). The recompute is **additive against the deal's current stored figures**, so stacked amendments accumulate correctly. The brokerage is emailed an "amended remittance" notice (old vs new amount due) and the amended figure shows everywhere the brokerage and admin see it.
+
+### Funded deals: collecting from the agent
+
+The agent owes the full `feeAdjustment` for an extension. It is posted to `agents.account_balance` via `apply_agent_balance_delta` (the single source of truth for what the agent owes) and a **targeted invoice** for exactly that amount is raised through `agent_invoices` (helper `insertAgentInvoice` in `lib/agent-invoices.ts`, number `FF-YYYY-NNNN`). Paying that invoice (`mark_invoice_paid_atomic`) subtracts the same amount back off the balance, so the agent is never charged twice. A shortening is the mirror image: the agent is **credited** (`apply_agent_balance_delta` with a negative delta) and the credit is gated on the deal via `refund_owed_amount` and the "Mark refund issued" flow (§7 and `deal-lifecycle.md`); no invoice is raised.
+
+So on a funded extension Firm Funds collects `feeAdjustment` from the agent and lets the brokerage keep `brokerage_share`, netting `feeAdjustment - brokerage_share`.
+
+### An expected identity break
+
+Because the extra fee is collected from the agent by invoice rather than deducted from the already-disbursed advance, after a funded amendment **`advance_amount != net_commission - total_fees`** on the deal row. The advance is locked at funding; only the fee and brokerage figures move. The admin Financial Breakdown notes this so the locked advance does not read as a broken number.
+
+### Worked example: funded 30-day extension
+
+Inputs: net commission $10,000, referral 20%, original 30-day deal extended by 30 more days.
+
+| Step | Calculation | Result |
+| --- | --- | --- |
+| Extra fee (agent) | 10,000 x 0.0008 x 30 | $240.00 |
+| Brokerage share | 0.20 x 240 | $48.00 |
+| Brokerage referral fee | 59.20 + 48 | rises $48 |
+| Amount due from brokerage | 9,940.80 - 48 | falls $48 |
+| Firm Funds nets | 240 - 48 | $192.00 |
+| Advance amount | locked at funding | unchanged |
+
+The agent is invoiced $240, the brokerage remits $48 less, and Firm Funds keeps $192.
+
+### Early closing vs amendment: same basis
+
+The separate "record early closing" flow (`recordEarlyClosing` in `admin-actions.ts`, used when a funded deal actually closes before its scheduled date) refunds prepaid discount on the **`net_commission`** basis, aligned with `calculateDeal` and the amendment path. (It previously used `advance_amount`, which under-refunded by the fee fraction.)
+
+## 10. Currency formatting
 
 `formatCurrency(amount)` renders any number as CAD using `Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' })`. A duplicate helper with the same behavior also exists inside `lib/email.ts` for email bodies.

@@ -13,7 +13,7 @@ import {
 import { uploadDocument } from '@/lib/actions/deal-actions'
 import { brokerageVerifyAgentKyc, brokerageRejectAgentKyc, brokerageGetAgentKycDocumentUrl } from '@/lib/actions/profile-actions'
 import { getBrokerageInbox, getDealMessages, getNewMessages, sendBrokerageMessage, getBrokerageNotificationCounts, markBrokerageMessagesRead } from '@/lib/actions/notification-actions'
-import { getBrokeragePendingAmendments } from '@/lib/actions/amendment-actions'
+import { getBrokeragePendingAmendments, getBrokerageApprovedBrokerageAmendments, type ApprovedBrokerageAmendment } from '@/lib/actions/amendment-actions'
 import { toggleAgentBrokerageFlag } from '@/lib/actions/brokerage-actions'
 import RecordPaymentModal from '@/components/brokerage/RecordPaymentModal'
 import ActionRequiredStrip, { type ActionTab } from '@/components/brokerage/ActionRequiredStrip'
@@ -153,6 +153,12 @@ export default function BrokerageDashboard() {
   const [showMonthlyChart, setShowMonthlyChart] = useState(true)
   const [brokerageInbox, setBrokerageInbox] = useState<BrokerageInboxDeal[]>([])
   const [pendingAmendments, setPendingAmendments] = useState<PendingAmendment[]>([])
+  // Approved closing-date amendments that recomputed the brokerage figures,
+  // keyed by deal_id (latest per deal). Feeds the "Amended" badge + "was {old}"
+  // sub-line on the Profit Share / Due to Firm Funds rows. Loaded via a
+  // service-role server action because closing_date_amendments has no
+  // brokerage_admin RLS read policy (migration 056).
+  const [brokerageAmendments, setBrokerageAmendments] = useState<Record<string, ApprovedBrokerageAmendment>>({})
   const [selectedMsgDealId, setSelectedMsgDealId] = useState<string | null>(null)
   const [dealMessages, setDealMessages] = useState<DealMessageData[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -222,6 +228,9 @@ export default function BrokerageDashboard() {
         })
         getBrokeragePendingAmendments().then(r => {
           if (r.success && Array.isArray(r.data)) setPendingAmendments(r.data)
+        })
+        getBrokerageApprovedBrokerageAmendments().then(r => {
+          if (r.success && r.data) setBrokerageAmendments(r.data)
         })
       }
       setLoading(false)
@@ -784,8 +793,13 @@ export default function BrokerageDashboard() {
                             <p className="text-lg font-bold text-foreground tabular-nums">{formatCurrency(allTime)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Pending remit.</p>
+                            {/* Net-remittance model: this is the brokerage's profit
+                                share on deals not yet settled. Firm Funds never pays it
+                                out separately, so "pending remit" was misleading; the
+                                share is realized once those open deals settle. */}
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Share pending settlement</p>
                             <p className="text-lg font-bold text-foreground tabular-nums">{formatCurrency(unremitted)}</p>
+                            <p className="text-[10px] text-muted-foreground/60 mt-0.5 normal-case tracking-normal">Realized when these deals settle</p>
                           </div>
                         </>
                       )
@@ -987,10 +1001,57 @@ export default function BrokerageDashboard() {
                             </div>
                             <div>
                               <h4 className="text-xs font-bold uppercase tracking-wider mb-3 text-primary">Brokerage Info</h4>
-                              <div className="space-y-2.5 text-sm">
-                                <div className="flex justify-between"><span className="text-muted-foreground">Profit Share</span><span className="font-bold text-status-teal tabular-nums">{formatCurrency(deal.brokerage_referral_fee)}</span></div>
-                                <div className="flex justify-between"><span className="text-muted-foreground">Due to Firm Funds</span><span className="font-medium text-foreground tabular-nums">{formatCurrency(deal.amount_due_from_brokerage)}</span></div>
-                              </div>
+                              {(() => {
+                                // Approved closing-date amendment that recomputed this
+                                // deal's brokerage figures (migration 117). The deal row
+                                // already stores the amended values, so we only add an
+                                // "Amended" badge + a muted "was {old}" baseline.
+                                const amend = brokerageAmendments[deal.id]
+                                const amendedShare = !!amend && amend.old_brokerage_referral_fee != null
+                                const amendedDue = !!amend && amend.old_amount_due_from_brokerage != null
+                                return (
+                                  <div className="space-y-2.5 text-sm">
+                                    <div>
+                                      <div className="flex justify-between items-center gap-2">
+                                        <span className="text-muted-foreground inline-flex items-center gap-1.5">
+                                          Profit Share
+                                          {amendedShare && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-status-amber-muted text-status-amber border border-status-amber-border">
+                                              <CalendarClock size={9} aria-hidden="true" />
+                                              Amended
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className="font-bold text-status-teal tabular-nums">{formatCurrency(deal.brokerage_referral_fee)}</span>
+                                      </div>
+                                      {amendedShare && (
+                                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                                          Amended after the closing date changed (was {formatCurrency(amend.old_brokerage_referral_fee as number)})
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <div className="flex justify-between items-center gap-2">
+                                        <span className="text-muted-foreground inline-flex items-center gap-1.5">
+                                          Due to Firm Funds
+                                          {amendedDue && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-status-amber-muted text-status-amber border border-status-amber-border">
+                                              <CalendarClock size={9} aria-hidden="true" />
+                                              Amended
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className="font-medium text-foreground tabular-nums">{formatCurrency(deal.amount_due_from_brokerage)}</span>
+                                      </div>
+                                      {amendedDue && (
+                                        <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                                          Amended after the closing date changed (was {formatCurrency(amend.old_amount_due_from_brokerage as number)})
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })()}
                               {deal.status === 'denied' && (
                                 <div className="mt-3 rounded-lg p-3 bg-status-red-muted/70 border border-status-red-border">
                                   {deal.denial_reason && (

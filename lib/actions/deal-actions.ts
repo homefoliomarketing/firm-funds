@@ -1145,6 +1145,12 @@ export async function updateDealStatus(input: {
         const pct = Number(deal.broker_share_pct_at_funding)
         const fee = Number(deal.discount_fee) + Number(deal.settlement_period_fee || 0)
         updateData.broker_share_amount = Math.round(fee * pct) / 100
+        // The brokerage realizes its profit share the net-remittance way: by the
+        // time a deal completes it has remitted amount_due_from_brokerage (i.e.
+        // kept its share). So the share IS settled at completion. Flip the flag
+        // (migration 043) that was previously never set, so "pending remit"
+        // figures stop showing the full share as permanently unpaid.
+        updateData.broker_share_remitted = true
       }
     }
 

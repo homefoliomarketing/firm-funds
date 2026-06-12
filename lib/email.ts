@@ -3006,11 +3006,41 @@ export function renderAmendmentApprovedEmail(params: {
   newAdvanceAmount: number
   dealNumber?: string | null
   branding?: BrokerageBranding | null
+  // Funded extension only: the additional discount fee the agent now owes for
+  // the extra days, and the invoice raised for it. When extraFee > 0 the email
+  // discloses the charge + invoice instead of implying the (locked) advance
+  // changed. Left undefined on the non-funded re-priced path and on shortenings
+  // (which credit the agent through the refund path, not this email).
+  extraFee?: number | null
+  extraDays?: number | null
+  invoiceNumber?: string | null
 }): string {
   const firstName = escapeHtml(params.agentFirstName ?? '')
   const property = escapeHtml(params.propertyAddress ?? '')
   const dealNumberSuffix = params.dealNumber ? ` (Deal Number: ${escapeHtml(params.dealNumber)})` : ''
   const viewUrl = `${APP_URL}/agent/deals/${params.dealId}`
+
+  const discloseFee = typeof params.extraFee === 'number' && params.extraFee > 0
+  const extraDays = params.extraDays ?? 0
+  const dayLabel = Math.abs(extraDays) === 1 ? 'day' : 'days'
+
+  const detailRows: { label: string; value: string; valueColor?: string; strong?: boolean }[] = discloseFee
+    ? [
+        { label: 'New Closing Date', value: formatReminderDate(params.newClosingDate) },
+        { label: `Additional Discount Fee (${extraDays} extra ${dayLabel})`, value: formatReminderCurrency(params.extraFee as number), strong: true },
+      ]
+    : [
+        { label: 'New Closing Date', value: formatReminderDate(params.newClosingDate) },
+        { label: 'Updated Advance Amount', value: formatReminderCurrency(params.newAdvanceAmount), valueColor: '#6FB783', strong: true },
+      ]
+
+  const invoiceRef = params.invoiceNumber ? ` (invoice ${escapeHtml(params.invoiceNumber)})` : ''
+  const feeCallout = discloseFee
+    ? emailCallout({
+        tone: 'warning',
+        body: `Because your closing date moved later, an additional discount fee of <strong>${escapeHtml(formatReminderCurrency(params.extraFee as number))}</strong> applies for the ${extraDays} extra ${dayLabel} the advance is outstanding. We have sent a separate invoice${invoiceRef} for this amount, due by your new closing date. Your advance amount is unchanged.`,
+      })
+    : ''
 
   const body = `${emailKicker('Amendment approved')}
 
@@ -3020,10 +3050,9 @@ export function renderAmendmentApprovedEmail(params: {
                       Hi ${firstName}, your closing date amendment for ${property}${dealNumberSuffix} has been approved.
                     </p>
 
-                    ${emailDetailCard([
-                      { label: 'New Closing Date', value: formatReminderDate(params.newClosingDate) },
-                      { label: 'Updated Advance Amount', value: formatReminderCurrency(params.newAdvanceAmount), valueColor: '#6FB783', strong: true },
-                    ])}
+                    ${emailDetailCard(detailRows)}
+
+                    ${feeCallout}
 
                     ${emailCallout({
                       tone: 'info',
@@ -3032,7 +3061,9 @@ export function renderAmendmentApprovedEmail(params: {
 
                     ${emailButton('View Deal', viewUrl)}`
 
-  const preheader = `Your closing date change for ${params.propertyAddress ?? ''} was approved.`
+  const preheader = discloseFee
+    ? `Your closing date change for ${params.propertyAddress ?? ''} was approved. An additional discount fee applies.`
+    : `Your closing date change for ${params.propertyAddress ?? ''} was approved.`
 
   return wrap(body, params.branding, preheader, emailFallbackLink(viewUrl))
 }
@@ -3048,19 +3079,120 @@ export async function sendAmendmentApprovedNotification(params: {
   /** Pass-through for per-agent unsubscribe handling (migration 092). */
   agentId?: string | null
   dealNumber?: string | null
+  // Funded extension only: disclose the extra discount fee + invoice raised.
+  extraFee?: number | null
+  extraDays?: number | null
+  invoiceNumber?: string | null
 }) {
   const branding = await getBrandingForAgent(params.agentId)
+  const discloseFee = typeof params.extraFee === 'number' && params.extraFee > 0
   await sendEmailWithUnsubscribe({
     to: params.agentEmail,
     subject: sanitizeSubject(`${dealTag(params.dealNumber)}Amendment Approved: ${params.propertyAddress}`),
     entityType: params.agentId ? 'agent' : undefined,
     entityId: params.agentId ?? undefined,
+    // A disclosed extra fee makes this a billing notice, so send it transactional so
+    // it bypasses promotional opt-out (the agent must see the charge).
+    transactional: discloseFee ? true : undefined,
     html: renderAmendmentApprovedEmail({
       dealId: params.dealId,
       propertyAddress: params.propertyAddress,
       agentFirstName: params.agentFirstName,
       newClosingDate: params.newClosingDate,
       newAdvanceAmount: params.newAdvanceAmount,
+      dealNumber: params.dealNumber,
+      extraFee: params.extraFee,
+      extraDays: params.extraDays,
+      invoiceNumber: params.invoiceNumber,
+      branding,
+    }),
+  })
+}
+
+// ============================================================================
+// Amended-remittance notice → Brokerage (closing-date amendment)
+// ============================================================================
+
+/**
+ * PURE renderer for the brokerage "Amended Remittance" notice. Synchronous, no
+ * I/O. When a funded deal's closing date is amended, the brokerage's profit
+ * share is recomputed and the amount it remits to Firm Funds at settlement
+ * changes (lower on an extension, higher on a shortening). This spells out the
+ * OLD vs NEW amount due and the closing-date change that caused it, so the
+ * brokerage knows exactly what to remit. Models renderBrokerageStatusEmail.
+ */
+export function renderAmendedRemittanceEmail(params: {
+  propertyAddress: string
+  agentName: string
+  oldAmountDue: number
+  newAmountDue: number
+  oldClosingDate: string
+  newClosingDate: string
+  dealNumber?: string | null
+  branding?: BrokerageBranding | null
+}): string {
+  const portalUrl = `${APP_URL}/brokerage`
+  const remitIncreased = params.newAmountDue > params.oldAmountDue
+  const directionLine = remitIncreased
+    ? 'Because the closing date moved earlier, the advance is outstanding for fewer days, so the amount you remit to Firm Funds at settlement has increased and your profit share is lower.'
+    : 'Because the closing date moved later, the advance is outstanding for more days, so the amount you remit to Firm Funds at settlement has decreased and your profit share is higher.'
+
+  const body = `${emailKicker('Remittance amended')}
+
+                    ${emailHeadline('Amount due at settlement updated.')}
+
+                    <p style="margin:0 0 30px; color:#D6D6D4; font-size:15px; font-weight:400; line-height:1.65;">
+                      A closing-date amendment was approved on a funded deal submitted by ${escapeHtml(params.agentName ?? '')}. ${directionLine}
+                    </p>
+
+                    ${emailDetailCard([
+                      ...(params.dealNumber ? [{ label: 'Deal Number', value: params.dealNumber }] : []),
+                      { label: 'Property', value: params.propertyAddress ?? '' },
+                      { label: 'Closing Date', value: `${formatReminderDate(params.oldClosingDate)} to ${formatReminderDate(params.newClosingDate)}` },
+                      { label: 'Previous Amount Due', value: formatReminderCurrency(params.oldAmountDue), valueColor: '#8A8A87' },
+                      { label: 'New Amount Due', value: formatReminderCurrency(params.newAmountDue), valueColor: '#6FB783', strong: true },
+                    ])}
+
+                    ${emailCallout({
+                      tone: 'info',
+                      body: 'This amended amount is what you remit to Firm Funds when the deal settles. Your profit share has been adjusted to match the new closing date; no separate payment is required.',
+                    })}
+
+                    ${emailButton('View in Brokerage Portal', portalUrl)}`
+
+  const preheader = `Amended amount due at settlement: ${formatReminderCurrency(params.newAmountDue)} (was ${formatReminderCurrency(params.oldAmountDue)}).`
+
+  return wrap(body, params.branding, preheader, emailFallbackLink(portalUrl))
+}
+
+/** Notify a brokerage that a funded deal's amended closing date changed their remittance. */
+export async function sendAmendedRemittanceNotification(params: {
+  brokerageEmail: string
+  propertyAddress: string
+  agentName: string
+  oldAmountDue: number
+  newAmountDue: number
+  oldClosingDate: string
+  newClosingDate: string
+  /** Pass-through for per-brokerage unsubscribe handling (migration 092). */
+  brokerageId?: string | null
+  dealNumber?: string | null
+}) {
+  const branding = await getBrandingForBrokerage(params.brokerageId)
+  await sendEmailWithUnsubscribe({
+    to: params.brokerageEmail,
+    subject: sanitizeSubject(`${dealTag(params.dealNumber)}Amended amount due: ${params.propertyAddress}`),
+    entityType: params.brokerageId ? 'brokerage' : undefined,
+    entityId: params.brokerageId ?? undefined,
+    // A remittance change is a money matter, so transactional, bypass opt-out.
+    transactional: true,
+    html: renderAmendedRemittanceEmail({
+      propertyAddress: params.propertyAddress,
+      agentName: params.agentName,
+      oldAmountDue: params.oldAmountDue,
+      newAmountDue: params.newAmountDue,
+      oldClosingDate: params.oldClosingDate,
+      newClosingDate: params.newClosingDate,
       dealNumber: params.dealNumber,
       branding,
     }),

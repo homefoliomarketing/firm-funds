@@ -18,6 +18,7 @@ import {
   sendDealMessageNotification,
   sendInvoiceNotification,
 } from '@/lib/email'
+import { insertAgentInvoice } from '@/lib/agent-invoices'
 
 // ============================================================================
 // Types
@@ -353,6 +354,44 @@ export async function generateInvoice(input: {
     console.error('Generate invoice error:', message)
     return { success: false, error: 'An unexpected error occurred' }
   }
+}
+
+// ============================================================================
+// Generate Targeted Invoice (explicit amount + line items, optional deal)
+// ============================================================================
+//
+// Sibling to generateInvoice above. generateInvoice bills the agent's ENTIRE
+// account_balance; this bills an EXPLICIT amount with caller-supplied line items
+// and an optional deal link, for billing a single known charge (e.g. a
+// closing-date-extension fee) without sweeping the rest of the balance.
+//
+// Like generateInvoice, this does NOT move money: the matching balance debit is
+// the caller's responsibility. Paying the invoice later clears that debt. See
+// insertAgentInvoice for the reconciliation contract.
+export async function generateTargetedInvoice(input: {
+  agentId: string
+  amount: number
+  lineItems: { description: string; amount: number; date: string; type: string }[]
+  dueDate: string
+  dealId?: string | null
+  notes?: string | null
+}): Promise<ActionResult> {
+  const { error: authErr, user } = await getAuthenticatedCapable('money.write')
+  if (authErr || !user) return { success: false, error: authErr || 'Authentication failed' }
+
+  const serviceClient = createServiceRoleClient()
+  const result = await insertAgentInvoice(serviceClient, {
+    agentId: input.agentId,
+    amount: input.amount,
+    lineItems: input.lineItems,
+    dueDate: input.dueDate,
+    dealId: input.dealId ?? null,
+    notes: input.notes ?? null,
+    createdBy: user.id,
+  })
+
+  if (!result.success) return { success: false, error: result.error }
+  return { success: true, data: { invoice: result.invoice } }
 }
 
 // ============================================================================

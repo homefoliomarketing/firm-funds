@@ -23,7 +23,7 @@ The numbering groups roughly into feature batches:
 | 080 to 099 | Firm-deal magic links, offer acceptance, optimistic locking, failed-funding recovery, early closing, multi-admin junction, unsubscribe, active-status RLS, brokerage admin sub-roles, co-agent split |
 | 100 to 116 | Underwriter assigned_at, KYC bucket limits, staff least-privilege roles, look-only impersonation, brokerage OG image, agent self-submit, informational statement ledger, signed-BCA path / welcome flag / deposit-auth consent, human-readable deal numbers, SignWell webhook events, optional brokerage flat fee, multi-document checklist linking, per-deal agent-refund tracking + completion gate, brokerage-payments junction RLS, per-brokerage firm-deal notification channels, firm-deal commission hold, firm-deal agent pre-request |
 
-There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `116_firm_deal_agent_pre_request.sql`.
+There is no `095_firm_deal_offer_expiry.sql` in the repository. The actual `095` file is `095_fix_brokerage_admins_recursion.sql`. The highest-numbered migration on disk is `117_amendment_brokerage_recalc.sql`.
 
 **Duplicate migration numbers.** Two prefixes are used twice: `008_audit_fixes.sql` and `008_underwriting_checklist_cleanup.sql`, plus `096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`. For these, apply order is by full filename (alphabetical), so the `008_audit_fixes` file runs before `008_underwriting_checklist_cleanup`, and `096_brokerage_logo_includes_tagline` runs before `096_manual_brokerage_nudge`. This is a historical accident, not a pattern to copy: never reuse a migration number going forward. Always pick the next unused prefix above the current highest file.
 
@@ -251,6 +251,9 @@ Append-only ledger. Balance writes must go through RPCs (section 5), never read-
 | paid_at / paid_amount / sent_at | TIMESTAMPTZ / NUMERIC / TIMESTAMPTZ | Lifecycle |
 | line_items | JSONB | Snapshot of charges |
 | agent_name / agent_email / agent_phone | TEXT | Snapshot at creation |
+| deal_id | UUID FK deals (nullable) | Deal this invoice bills, for single-deal invoices (e.g. a closing-date-extension fee). NULL for whole-balance account invoices (migration 117) |
+
+An invoice is a formal bill **of** `agents.account_balance`, not an independent debt: `generateInvoice` bills the whole current balance, while `generateTargetedInvoice` / `insertAgentInvoice` bill an explicit amount (used to invoice exactly the extra discount fee on a funded closing-date extension). Either way the matching debit is on `account_balance`; paying the invoice (`mark_invoice_paid_atomic`) subtracts the paid amount back off the balance, so a charge is never double-counted.
 
 ### brokerage_payments (migration 055)
 
@@ -408,8 +411,12 @@ A `chk_envelope_scope` CHECK ensures exactly one of (deal_id, brokerage_id, reme
 | amendment_document_id | UUID FK deal_documents | Executed amendment upload |
 | reviewed_by / reviewed_at / rejection_reason | UUID / TIMESTAMPTZ / TEXT | Admin review |
 | old/new_discount_fee, old/new_settlement_period_fee, old/new_advance_amount, old/new_due_date | NUMERIC / DATE | Fee recalculation before/after |
+| fee_adjustment_amount | NUMERIC(12,2) | Signed discount-fee delta charged to (or credited to) the agent on a funded amendment (recorded in migration 117 to match prod; the column predates it) |
+| adjustment_scenario | TEXT | `approved_recalc`, `funded_extended`, or `funded_earlier` (recorded in migration 117 to match prod) |
+| old/new_brokerage_referral_fee | NUMERIC(12,2) | Brokerage profit share before/after the funded amendment recompute (migration 117) |
+| old/new_amount_due_from_brokerage | NUMERIC(12,2) | Brokerage remittance before/after the funded amendment recompute. Lower after an extension, higher after a shortening (migration 117) |
 
-At most one pending amendment per deal (migration 070).
+At most one pending amendment per deal (migration 070). On a funded amendment, `new_brokerage_referral_fee` / `new_amount_due_from_brokerage` are written and the deal's matching columns are updated; see `financial-model.md` §9.
 
 ### deal_documents
 
@@ -718,5 +725,6 @@ Chronological list of every file in `supabase/migrations/`. Base tables (`user_p
 | 114_brokerage_firm_deal_notification_channels.sql | `brokerages.firm_deal_email_enabled` + `brokerages.firm_deal_sms_enabled` (both BOOLEAN, NOT NULL, default true) — per-brokerage on/off for the firm-deal EMAIL and TEXT channels. The email flag gates the agent offer email + the brokerage submit-reminder/2h-nudge + the decline notice (NOT the 4h internal escalation); the SMS flag gates Twilio offers to the brokerage's agents. Read by both firm-deal dispatchers. Additive; default true preserves behaviour |
 | 115_firm_deal_commission_hold.sql | `commission_hold` value on `firm_deal_events.status` + `firm_deal_events.commission_hold_since` (TIMESTAMPTZ): parks a matched, dateful, commission-less event for one poll cycle so the brokerage can enter the commission and the agent gets the richer Tier C offer. Released on the next poll whether or not the commission appeared. Additive |
 | 116_firm_deal_agent_pre_request.sql | `firm_deal_events.agent_pre_request_at` + `firm_deal_events.second_agent_pre_request_at` (both TIMESTAMPTZ): per-side record that an agent who onboarded via a firm-deal offer link "pre-requested" the advance from the onboarding "You're all set" page before account activation. The activation hook (`fireQueuedFirmDealOffersForAgent`) reads these to auto-create the offered deal + notify the brokerage once `account_activated_at` flips; each column is ignored once its side's `offer_deal_id` / `second_offer_deal_id` is set (offer already accepted). Two partial indexes (`idx_firm_deal_events_pre_request_primary`, `idx_firm_deal_events_pre_request_second`) cover the "pre-requested but not yet an offered deal" hot path per side. Additive; both nullable |
+| 117_amendment_brokerage_recalc.sql | Funded closing-date amendment recomputes the brokerage profit share + remittance and invoices the agent. Adds `closing_date_amendments.old/new_brokerage_referral_fee` + `old/new_amount_due_from_brokerage` (audit snapshot); records `fee_adjustment_amount` + `adjustment_scenario` with `IF NOT EXISTS` to match prod (drift fix). Adds `agent_invoices.deal_id` (FK deals, nullable) for single-deal invoices. Backfills `deals.broker_share_remitted = true` on completed white-label deals so "pending remit" figures stop showing the share as permanently unpaid (the completion path now sets it). Additive |
 
 Note: there are two files numbered `008` (`008_underwriting_checklist_cleanup.sql` and `008_audit_fixes.sql`) and two numbered `096` (`096_brokerage_logo_includes_tagline.sql` and `096_manual_brokerage_nudge.sql`). There is no `001`, `002`, or `097`-as-a-single-file gap beyond what is noted: the base tables predate migration tracking, and `097_firm_deal_co_agent_split.sql` exists and sets `firm_deal_events.co_agent_split` true when two enrolled agents appear in one delimiter-separated cell.

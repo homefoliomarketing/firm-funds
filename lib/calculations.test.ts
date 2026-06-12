@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   calculateDeal,
+  computeAmendmentBrokerageRecalc,
   getChargeDays,
   calculateCompoundDailyInterest,
   calculateLateInterest,
@@ -310,5 +311,92 @@ describe('effectiveSettlementDays', () => {
     expect(
       effectiveSettlementDays({ settlement_days_override: 0, auto_bumped_to_14_days_at: '2026-05-01T00:00:00Z' }),
     ).toBe(BROKERAGE_BUMPED_SETTLEMENT_DAYS)
+  })
+})
+
+describe('computeAmendmentBrokerageRecalc — funded amendment brokerage share', () => {
+  // Worked check from the spec: net_commission 10,000, +30 days, referralPct
+  // 0.20 -> extra fee 240, brokerage share 48, FF nets 192.
+  // old referral + old amount due == net_commission (10,000) by construction.
+  it('extension: share is added to referral fee and removed from amount due', () => {
+    const r = computeAmendmentBrokerageRecalc({
+      referralPct: 0.2,
+      feeAdjustment: 240,
+      oldBrokerageReferralFee: 100,
+      oldAmountDueFromBrokerage: 9_900,
+    })
+    expect(r.brokerageShare).toBe(48)
+    expect(r.newBrokerageReferralFee).toBe(148)
+    expect(r.newAmountDueFromBrokerage).toBe(9_852)
+    // Firm Funds keeps the rest of the extra fee.
+    expect(240 - r.brokerageShare).toBe(192)
+  })
+
+  it('keeps the referralFee + amountDue == net_commission invariant exactly', () => {
+    const oldReferral = 41.44
+    const oldAmountDue = 6_958.56 // sum = 7,000 net commission
+    const r = computeAmendmentBrokerageRecalc({
+      referralPct: 0.2,
+      feeAdjustment: 168,
+      oldBrokerageReferralFee: oldReferral,
+      oldAmountDueFromBrokerage: oldAmountDue,
+    })
+    expect(r.newBrokerageReferralFee + r.newAmountDueFromBrokerage).toBeCloseTo(
+      oldReferral + oldAmountDue,
+      10,
+    )
+  })
+
+  it('shortening is the mirror image: referral falls, amount due rises', () => {
+    const r = computeAmendmentBrokerageRecalc({
+      referralPct: 0.2,
+      feeAdjustment: -240,
+      oldBrokerageReferralFee: 148,
+      oldAmountDueFromBrokerage: 9_852,
+    })
+    expect(r.brokerageShare).toBe(-48)
+    expect(r.newBrokerageReferralFee).toBe(100)
+    expect(r.newAmountDueFromBrokerage).toBe(9_900)
+  })
+
+  it('no profit share (referralPct 0): brokerage figures are untouched', () => {
+    const r = computeAmendmentBrokerageRecalc({
+      referralPct: 0,
+      feeAdjustment: 240,
+      oldBrokerageReferralFee: 0,
+      oldAmountDueFromBrokerage: 10_000,
+    })
+    expect(r.brokerageShare).toBe(0)
+    expect(r.newBrokerageReferralFee).toBe(0)
+    expect(r.newAmountDueFromBrokerage).toBe(10_000)
+  })
+
+  it('rounds the share to whole cents', () => {
+    // 0.2 * 123.45 = 24.69 exactly
+    const r = computeAmendmentBrokerageRecalc({
+      referralPct: 0.2,
+      feeAdjustment: 123.45,
+      oldBrokerageReferralFee: 0,
+      oldAmountDueFromBrokerage: 1_000,
+    })
+    expect(r.brokerageShare).toBe(24.69)
+    expect(r.newAmountDueFromBrokerage).toBe(975.31)
+  })
+
+  it('stacks: applying two extensions in sequence accumulates the share', () => {
+    const first = computeAmendmentBrokerageRecalc({
+      referralPct: 0.2,
+      feeAdjustment: 240,
+      oldBrokerageReferralFee: 100,
+      oldAmountDueFromBrokerage: 9_900,
+    })
+    const second = computeAmendmentBrokerageRecalc({
+      referralPct: 0.2,
+      feeAdjustment: 80, // +10 more days at $8/day
+      oldBrokerageReferralFee: first.newBrokerageReferralFee,
+      oldAmountDueFromBrokerage: first.newAmountDueFromBrokerage,
+    })
+    expect(second.newBrokerageReferralFee).toBe(164) // 100 + 48 + 16
+    expect(second.newAmountDueFromBrokerage).toBe(9_836) // 9900 - 48 - 16
   })
 })

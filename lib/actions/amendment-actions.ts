@@ -2,7 +2,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedUser, getAuthenticatedWriter, getAuthenticatedCapable } from '@/lib/auth-helpers'
-import { calculateDeal } from '@/lib/calculations'
+import { calculateDeal, computeAmendmentBrokerageRecalc } from '@/lib/calculations'
 import {
   DISCOUNT_RATE_PER_1000_PER_DAY,
   SETTLEMENT_PERIOD_DAYS,
@@ -19,7 +19,10 @@ import {
   sendAmendmentRequestedNotification,
   sendAmendmentApprovedNotification,
   sendAmendmentRejectedNotification,
+  sendInvoiceNotification,
+  sendAmendedRemittanceNotification,
 } from '@/lib/email'
+import { insertAgentInvoice } from '@/lib/agent-invoices'
 
 interface ActionResult<T = unknown> {
   success: boolean
@@ -531,6 +534,67 @@ export async function getBrokeragePendingAmendments(): Promise<ActionResult> {
 }
 
 // ============================================================================
+// Brokerage: Get APPROVED amendments that recomputed the brokerage figures.
+//
+// Powers the "Amended" badge + "was {old}" sub-line on the brokerage deal
+// cards. Only amendments that actually moved the brokerage numbers are
+// returned (new_amount_due_from_brokerage IS NOT NULL, set on funded
+// approvals by migration 117). Keyed by deal_id, LATEST approved amendment
+// per deal wins (the deal's stored figures already reflect the cumulative
+// result; we just surface the most recent "was" baseline).
+//
+// closing_date_amendments has no brokerage_admin RLS SELECT policy (see
+// migration 056), so this MUST run through the service-role client like
+// getBrokeragePendingAmendments above. Scoped to the caller's brokerage via
+// deals.brokerage_id. Only the display columns are selected.
+// ============================================================================
+export interface ApprovedBrokerageAmendment {
+  deal_id: string
+  old_amount_due_from_brokerage: number | null
+  old_brokerage_referral_fee: number | null
+  old_closing_date: string | null
+  new_closing_date: string | null
+}
+
+export async function getBrokerageApprovedBrokerageAmendments(): Promise<ActionResult<Record<string, ApprovedBrokerageAmendment>>> {
+  const { error: authErr, profile } = await getAuthenticatedUser(['brokerage_admin'])
+  if (authErr || !profile) return { success: false, error: authErr || 'Authentication failed' }
+  if (!profile.brokerage_id) return { success: false, error: 'Brokerage profile not configured' }
+
+  const serviceClient = createServiceRoleClient()
+
+  try {
+    const { data, error } = await serviceClient
+      .from('closing_date_amendments')
+      .select('deal_id, old_amount_due_from_brokerage, new_amount_due_from_brokerage, old_brokerage_referral_fee, old_closing_date, new_closing_date, reviewed_at, deals!inner(brokerage_id)')
+      .eq('deals.brokerage_id', profile.brokerage_id)
+      .eq('status', 'approved')
+      .not('new_amount_due_from_brokerage', 'is', null)
+      .order('reviewed_at', { ascending: false })
+
+    if (error) return { success: false, error: error.message }
+
+    // Latest-approved-per-deal wins. Rows are ordered newest-first, so the
+    // first row seen for a deal_id is the most recent.
+    const byDeal: Record<string, ApprovedBrokerageAmendment> = {}
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const dealId = row.deal_id as string
+      if (byDeal[dealId]) continue
+      byDeal[dealId] = {
+        deal_id: dealId,
+        old_amount_due_from_brokerage: row.old_amount_due_from_brokerage as number | null,
+        old_brokerage_referral_fee: row.old_brokerage_referral_fee as number | null,
+        old_closing_date: row.old_closing_date as string | null,
+        new_closing_date: row.new_closing_date as string | null,
+      }
+    }
+    return { success: true, data: byDeal }
+  } catch {
+    return { success: false, error: 'Failed to fetch approved amendments' }
+  }
+}
+
+// ============================================================================
 // Admin Action: Approve Closing Date Amendment
 // ============================================================================
 
@@ -565,6 +629,7 @@ export async function approveClosingDateAmendment(input: {
       deal_number: string | null
       closing_date: string
       agent_id: string
+      brokerage_id?: string | null
       gross_commission: number
       brokerage_split_pct: number
       brokerage_referral_pct: number | null
@@ -573,6 +638,8 @@ export async function approveClosingDateAmendment(input: {
       discount_fee?: number | null
       settlement_period_fee?: number | null
       net_commission?: number | null
+      brokerage_referral_fee?: number | null
+      amount_due_from_brokerage?: number | null
       brokerage_flat_fee?: number | null
       due_date?: string | null
       version?: number
@@ -634,6 +701,38 @@ export async function approveClosingDateAmendment(input: {
       ? Math.round((oldDiscountFee + feeAdjustment) * 100) / 100
       : oldDiscountFee
 
+    // Recompute the brokerage's profit share + remittance for the new closing
+    // date (funded deals only). Bud's decision: the brokerage keeps its larger
+    // share the same way it keeps every other fee, by remitting LESS at
+    // settlement (net-remittance), NOT via a ledger/payout. So its referral fee
+    // (profit share) rises by its cut of the extra discount fee, and the amount
+    // it remits to Firm Funds drops by the same amount. Firm Funds collects the
+    // agent's full extra fee separately by invoice and nets the difference.
+    //
+    // brokerage_share = referralPct * feeAdjustment (its cut of the extra fee)
+    // new referral fee = old + share   (== referralPct * new total fees)
+    // new amount due    = old - share   (== net_commission - new referral fee)
+    //
+    // Additive against the deal's CURRENT stored values, so stacked amendments
+    // accumulate. Mirror image on a shortening (feeAdjustment < 0): share is
+    // negative, so the referral fee falls and the amount due rises. The shared
+    // brokerageShare keeps the (referral fee + amount due == net_commission)
+    // identity exact. See docs/business/financial-model.md.
+    const oldBrokerageReferralFee = Math.round(Number(deal.brokerage_referral_fee ?? 0) * 100) / 100
+    const oldAmountDueFromBrokerage = Math.round(Number(deal.amount_due_from_brokerage ?? 0) * 100) / 100
+    const { brokerageShare, newBrokerageReferralFee, newAmountDueFromBrokerage } = isFunded
+      ? computeAmendmentBrokerageRecalc({
+          referralPct,
+          feeAdjustment,
+          oldBrokerageReferralFee,
+          oldAmountDueFromBrokerage,
+        })
+      : { brokerageShare: 0, newBrokerageReferralFee: oldBrokerageReferralFee, newAmountDueFromBrokerage: oldAmountDueFromBrokerage }
+
+    // Invoice number raised for the extra fee (extensions only), hoisted so the
+    // agent amendment-approved email can disclose it after the funded branch.
+    let extensionInvoiceNumber: string | null = null
+
     // Claim the amendment atomically via CAS on status='pending'. Without
     // this guard, two admins clicking Approve at the same time both pass
     // the pre-check, both run the financial side effects, and the agent is
@@ -650,6 +749,12 @@ export async function approveClosingDateAmendment(input: {
           new_due_date: newDueDateStr,
           fee_adjustment_amount: feeAdjustment,
           adjustment_scenario: feeAdjustment >= 0 ? 'funded_extended' : 'funded_earlier',
+          // Snapshot the brokerage figures (migration 117) for the audit trail,
+          // the amended CPA, and the amended-remittance notice.
+          old_brokerage_referral_fee: oldBrokerageReferralFee,
+          new_brokerage_referral_fee: newBrokerageReferralFee,
+          old_amount_due_from_brokerage: oldAmountDueFromBrokerage,
+          new_amount_due_from_brokerage: newAmountDueFromBrokerage,
         }
       : {
           status: 'approved' as const,
@@ -685,12 +790,21 @@ export async function approveClosingDateAmendment(input: {
       // already prevents the SAME amendment being approved twice; this guard
       // catches the case where two DIFFERENT pending amendments race past
       // approval.
+      // Write the recomputed discount fee + brokerage figures alongside the
+      // dates. advance_amount is intentionally NOT updated; it was disbursed at
+      // funding and is locked. The extra discount fee is collected from the
+      // agent by invoice (below), not deducted from the already-paid advance, so
+      // after this `advance_amount !== net_commission - total_fees` on the row.
+      // That identity break is expected; the admin Financial Breakdown notes it.
       const { data: updatedDeal, error: updateError } = await serviceClient
         .from('deals')
         .update({
           closing_date: amendment.new_closing_date,
           days_until_closing: newDays,
           due_date: newDueDateStr,
+          discount_fee: fundedNewDiscountFee,
+          brokerage_referral_fee: newBrokerageReferralFee,
+          amount_due_from_brokerage: newAmountDueFromBrokerage,
         })
         .eq('id', deal.id)
         .eq('closing_date', amendment.old_closing_date)
@@ -767,6 +881,100 @@ export async function approveClosingDateAmendment(input: {
           console.error('Failed to set refund_owed_amount on funded_earlier amendment (non-fatal):', owedErr.message)
         }
       }
+
+      // Auto-invoice the agent for the extra discount fee (EXTENSIONS only; a
+      // shortening credits the agent through the refund path above, it does not
+      // bill them). The balance was already debited by the RPC above; this
+      // invoice is a targeted formal bill of exactly that debt. account_balance
+      // stays the single source of truth: paying the invoice (markInvoicePaid ->
+      // mark_invoice_paid_atomic) subtracts the same amount back off the balance,
+      // so the agent is never charged twice. Best-effort: a failure here just
+      // leaves the debt on the balance for an admin to bill manually later.
+      if (feeAdjustment > 0.005) {
+        const dayWord = delta.extraDays === 1 ? 'day' : 'days'
+        const nowIso = new Date().toISOString()
+        try {
+          const invoiceResult = await insertAgentInvoice(serviceClient, {
+            agentId: deal.agent_id,
+            amount: feeAdjustment,
+            dealId: deal.id,
+            dueDate: amendment.new_closing_date,
+            createdBy: user.id,
+            notes: `Closing-date extension fee for ${deal.property_address} (amendment ${input.amendmentId}).`,
+            lineItems: [
+              {
+                description: `Closing date extension: additional discount fee for ${delta.extraDays} extra ${dayWord} (${deal.property_address}, new closing ${amendment.new_closing_date})`,
+                amount: feeAdjustment,
+                date: nowIso,
+                type: 'adjustment',
+              },
+            ],
+          })
+          if (invoiceResult.success && invoiceResult.invoice) {
+            extensionInvoiceNumber = (invoiceResult.invoice.invoice_number as string | undefined) ?? null
+            // Email the itemized invoice (transactional). Only if the agent has
+            // an email on file (agents.email is nullable by design).
+            const agentForInvoice = deal.agents
+            if (agentForInvoice?.email && extensionInvoiceNumber) {
+              try {
+                await sendInvoiceNotification({
+                  invoiceNumber: extensionInvoiceNumber,
+                  agentName: `${agentForInvoice.first_name} ${agentForInvoice.last_name}`,
+                  agentEmail: agentForInvoice.email,
+                  amount: feeAdjustment,
+                  dueDate: amendment.new_closing_date,
+                  lineItems: [
+                    {
+                      description: `Closing date extension: additional discount fee for ${delta.extraDays} extra ${dayWord} (${deal.property_address})`,
+                      amount: feeAdjustment,
+                      date: nowIso,
+                    },
+                  ],
+                  agentId: deal.agent_id,
+                })
+              } catch (mailErr: unknown) {
+                console.error('Extension invoice email failed (non-fatal):', mailErr instanceof Error ? mailErr.message : 'unknown')
+              }
+            }
+          } else {
+            console.error('Failed to create extension invoice (non-fatal):', invoiceResult.error)
+          }
+        } catch (invErr: unknown) {
+          console.error('Extension invoice creation threw (non-fatal):', invErr instanceof Error ? invErr.message : 'unknown')
+        }
+      }
+
+      // Notify the brokerage that the amended closing date changed its
+      // remittance. Fires in BOTH directions when the share materially moves
+      // (an extension lowers the amount due; a shortening raises it). Skipped
+      // when there is no profit share (referralPct 0 -> share 0 -> amount
+      // unchanged). Best-effort.
+      if (Math.abs(brokerageShare) > 0.005 && deal.brokerage_id) {
+        try {
+          const { data: brk } = await serviceClient
+            .from('brokerages')
+            .select('id, name, email, broker_of_record_email')
+            .eq('id', deal.brokerage_id)
+            .single()
+          const brokerageEmail = brk?.broker_of_record_email || brk?.email || null
+          if (brokerageEmail) {
+            const agentForNotice = deal.agents
+            await sendAmendedRemittanceNotification({
+              brokerageEmail,
+              propertyAddress: deal.property_address,
+              agentName: agentForNotice ? `${agentForNotice.first_name} ${agentForNotice.last_name}` : 'an agent',
+              oldAmountDue: oldAmountDueFromBrokerage,
+              newAmountDue: newAmountDueFromBrokerage,
+              oldClosingDate: amendment.old_closing_date,
+              newClosingDate: amendment.new_closing_date,
+              brokerageId: deal.brokerage_id,
+              dealNumber: deal.deal_number,
+            })
+          }
+        } catch (notifyErr: unknown) {
+          console.error('Amended-remittance brokerage notice failed (non-fatal):', notifyErr instanceof Error ? notifyErr.message : 'unknown')
+        }
+      }
     } else {
       // APPROVED (not yet funded): full recalculation, no account balance adjustment
       const { error: updateError } = await serviceClient
@@ -820,8 +1028,12 @@ export async function approveClosingDateAmendment(input: {
     })
 
     // Notify agent
-    // For funded deals, the advance amount is locked, so show the original
+    // For funded deals, the advance amount is locked, so show the original.
+    // On a funded EXTENSION, also disclose the extra discount fee + the invoice
+    // raised for it (hidden before this change). Shortenings and non-funded
+    // re-prices fall through to the original, advance-only email.
     const displayAdvance = isFunded ? (deal.advance_amount || 0) : newCalc.advanceAmount
+    const isFundedExtension = isFunded && feeAdjustment > 0.005
     const agent = deal.agents
     if (agent?.email) {
       sendAmendmentApprovedNotification({
@@ -830,8 +1042,12 @@ export async function approveClosingDateAmendment(input: {
         propertyAddress: deal.property_address,
         agentEmail: agent.email,
         agentFirstName: agent.first_name,
+        agentId: deal.agent_id,
         newClosingDate: amendment.new_closing_date,
         newAdvanceAmount: displayAdvance,
+        extraFee: isFundedExtension ? feeAdjustment : null,
+        extraDays: isFundedExtension ? delta.extraDays : null,
+        invoiceNumber: isFundedExtension ? extensionInvoiceNumber : null,
       })
     }
 

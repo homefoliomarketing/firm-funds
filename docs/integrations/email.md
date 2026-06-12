@@ -132,7 +132,9 @@ All of the following are exported `send...` functions in `lib/email.ts`.
 | Function | Recipient | When |
 | --- | --- | --- |
 | `sendAmendmentRequestedNotification` | (party) | A closing-date amendment is requested |
-| `sendAmendmentApprovedNotification` | Agent | An amendment is approved |
+| `sendAmendmentApprovedNotification` | Agent | An amendment is approved. On a funded **extension** it additionally discloses the extra discount fee, the extra days, and that an invoice was sent (transactional); the non-funded and shortening paths keep the original advance-only wording |
+| `sendAmendedRemittanceNotification` | Brokerage (broker of record, else brokerage contact) | A **funded** amendment changed the brokerage's remittance. States the new vs old `amount_due_from_brokerage` and that it is amended because the closing date changed. Transactional. Fires in both directions (extension lowers the amount, shortening raises it); skipped when there is no profit share |
+| `sendInvoiceNotification` | Agent | The targeted invoice for a funded extension's extra discount fee (also used for whole-balance invoices) |
 | `sendAmendmentRejectedNotification` | Agent | An amendment is rejected |
 | `sendFailedToCloseElectionEmail` | Agent | A funded deal failed; the agent must elect a cure path |
 | `sendRemediationIdpSignedNotification` | Firm Funds admin | A Remediation IDP is signed (fired from the e-sign webhook) |
