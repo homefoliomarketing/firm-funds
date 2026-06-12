@@ -7,11 +7,21 @@ import { Button } from '@/components/ui/button'
 interface IdCameraCaptureProps {
   onCapture: (file: File) => void
   onClose: () => void
+  /**
+   * Header + aria-label copy for the capture modal. Defaults to ID wording so
+   * existing ID-upload call sites are unchanged; pass e.g.
+   * "Take a photo of your void cheque" when capturing a different document.
+   */
+  title?: string
 }
 
 type FacingMode = 'environment' | 'user'
 
-export default function IdCameraCapture({ onCapture, onClose }: IdCameraCaptureProps) {
+export default function IdCameraCapture({
+  onCapture,
+  onClose,
+  title = 'Take a photo of your ID',
+}: IdCameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -154,11 +164,11 @@ export default function IdCameraCapture({ onCapture, onClose }: IdCameraCaptureP
       className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Take a photo of your ID"
+      aria-label={title}
     >
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
-        <span className="text-sm font-semibold text-foreground">Take a photo of your ID</span>
+        <span className="text-sm font-semibold text-foreground">{title}</span>
         <button
           type="button"
           onClick={handleClose}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail, MapPin, Phone, ChevronRight } from 'lucide-react'
+import { Shield, Upload, XCircle, Clock, AlertCircle, FileText, Smartphone, Mail, MapPin, Phone, ChevronRight, Camera } from 'lucide-react'
 import { sendKycMobileLink } from '@/lib/actions/kyc-actions'
 import { updateAgentProfile } from '@/lib/actions/profile-actions'
 import { formatPhoneForDisplay } from '@/lib/phone'
@@ -399,16 +399,18 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
           </div>
         )}
 
-        {/* File upload area */}
+        {/* File upload area — drag/drop (desktop) plus two explicit paths: an
+            in-app rear-facing camera ("Take Photo", via IdCameraCapture) and a
+            file picker ("Choose File"). The whole zone is deliberately NOT a single
+            click-to-open file input anymore: on a phone a bare image input opens the
+            device selfie camera, so every "take a photo" action — including adding
+            the back of the ID — now goes through IdCameraCapture's rear camera. */}
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          onClick={() => document.getElementById('kyc-file-input')?.click()}
-          className={`border-2 border-dashed rounded-lg text-center cursor-pointer transition-all mb-4 ${
-            dragOver
-              ? 'border-primary bg-primary/8'
-              : 'border-border hover:border-border/80'
+          className={`border-2 border-dashed rounded-lg text-center transition-all mb-4 ${
+            dragOver ? 'border-primary bg-primary/8' : 'border-border'
           } ${selectedFiles.length > 0 ? 'p-4' : 'p-6'}`}
         >
           <input
@@ -419,31 +421,41 @@ export default function AgentKycGate({ agent, onKycSubmitted }: AgentKycGateProp
             onChange={e => { if (e.target.files?.[0]) { handleFileSelect(e.target.files[0]); e.target.value = '' } }}
           />
           {selectedFiles.length > 0 ? (
-            <div className="flex items-center justify-center gap-2">
-              <Upload size={16} className="text-primary" />
-              <span className="text-primary text-[13px] font-medium">
-                Tap to add another photo (e.g. back of ID)
-              </span>
-            </div>
+            <p className="text-primary text-[13px] font-medium mb-3">
+              Add another photo if your ID has a back side
+            </p>
           ) : (
             <>
               <Upload size={28} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-muted-foreground text-sm mb-1">
-                Drop your ID here or tap to browse files
+                Add a clear photo or file of your government-issued ID
               </p>
-              <p className="text-muted-foreground/70 text-xs">
+              <p className="text-muted-foreground/70 text-xs mb-3">
                 JPEG, PNG, or PDF. Max 10MB per file. Upload front &amp; back if needed.
               </p>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setShowCamera(true) }}
-                className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[13px] font-semibold cursor-pointer hover:bg-primary/15 transition-colors"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                Take Photo
-              </button>
             </>
           )}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCamera(true)}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[13px] font-semibold cursor-pointer hover:bg-primary/15 transition-colors"
+            >
+              <Camera size={16} />
+              {selectedFiles.length > 0 ? 'Take another photo' : 'Take Photo'}
+            </button>
+            <button
+              type="button"
+              onClick={() => document.getElementById('kyc-file-input')?.click()}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-secondary border border-border text-muted-foreground text-[13px] font-semibold cursor-pointer hover:text-foreground transition-colors"
+            >
+              <Upload size={16} />
+              Choose File
+            </button>
+          </div>
+          <p className="text-muted-foreground/60 text-[11px] mt-2 hidden sm:block">
+            or drag and drop a file here
+          </p>
         </div>
 
         {/* Error message */}

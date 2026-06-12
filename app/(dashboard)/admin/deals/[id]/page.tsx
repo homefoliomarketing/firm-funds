@@ -2256,7 +2256,16 @@ export default function DealDetailPage() {
                       setPaymentAmount(''); setPaymentReference(''); setPaymentMethod('')
                       setPaymentDate(new Date().toISOString().split('T')[0])
                       setShowPaymentForm(false)
-                      setStatusMessage({ type: 'success', text: 'Brokerage payment recorded' })
+                      const autoCompleted = result.data?.status === 'completed'
+                      setStatusMessage({
+                        type: 'success',
+                        text: autoCompleted
+                          ? 'Payment recorded and reconciled. Deal marked complete.'
+                          : 'Brokerage payment recorded',
+                      })
+                      // A reconciling payment auto-completes the deal; reload so the
+                      // completion receipt, repayment date, and final status render.
+                      if (autoCompleted) await loadDealData()
                     } else {
                       setStatusMessage({ type: 'error', text: result.error || 'Failed to record payment' })
                     }

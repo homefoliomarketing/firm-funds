@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, Circle, Landmark, Shield, User, ArrowRight, Loader2, Clock, Sparkles, ChevronRight } from 'lucide-react'
+import { CheckCircle, Circle, Landmark, Shield, User, ArrowRight, Loader2, Clock, Sparkles, ChevronRight, Camera, Upload } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import AgentHeader from '@/components/AgentHeader'
 import AgentKycGate from '@/components/AgentKycGate'
+import IdCameraCapture from '@/components/IdCameraCapture'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -79,6 +80,9 @@ export default function AgentSetupPage() {
   // Preauth upload state
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  // Rear-facing in-app camera for capturing a void cheque / direct deposit form
+  // (same component as the ID upload, so it never falls back to the selfie camera).
+  const [showBankCamera, setShowBankCamera] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -193,9 +197,9 @@ export default function AgentSetupPage() {
     setBankSubmitting(false)
   }
 
-  const handlePreauthUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // Core upload: shared by the file picker and the in-app camera. Takes a File
+  // directly so a camera-captured photo and a chosen file run the same path.
+  const uploadPreauthFile = async (file: File) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/png']
     if (!allowed.includes(file.type)) {
       setUploadMessage({ type: 'error', text: 'Only PDF, JPEG, or PNG accepted' })
@@ -243,6 +247,13 @@ export default function AgentSetupPage() {
       setUploadMessage({ type: 'error', text: 'An unexpected error occurred' })
     }
     setUploading(false)
+  }
+
+  // File-picker wrapper: pull the chosen file, upload it, then clear the input so
+  // re-selecting the same file still fires onChange.
+  const handlePreauthUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) await uploadPreauthFile(file)
     e.target.value = ''
   }
 
@@ -277,6 +288,13 @@ export default function AgentSetupPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {showBankCamera && (
+        <IdCameraCapture
+          title="Take a photo of your void cheque"
+          onCapture={(file) => { void uploadPreauthFile(file) }}
+          onClose={() => setShowBankCamera(false)}
+        />
+      )}
       <AgentHeader
         agentName={profile?.full_name || ''}
         agentId={agent?.id || ''}
@@ -417,11 +435,25 @@ export default function AgentSetupPage() {
                       </div>
                     </div>
                   ) : (
-                    <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90 transition-colors ${uploading ? 'opacity-50' : ''}`}>
-                      {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                      {uploading ? 'Uploading...' : 'Upload void cheque / form'}
-                      <input type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" disabled={uploading} onChange={handlePreauthUpload} />
-                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      {/* Take Photo uses the same rear-facing in-app camera as the ID
+                          upload (never the device selfie camera). Choose file stays
+                          for picking an existing PDF/photo from the device. */}
+                      <button
+                        type="button"
+                        onClick={() => setShowBankCamera(true)}
+                        disabled={uploading}
+                        className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                      >
+                        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                        {uploading ? 'Uploading...' : 'Take a photo'}
+                      </button>
+                      <label className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-secondary border border-border text-foreground hover:bg-secondary/80 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                        <Upload className="h-4 w-4" />
+                        Choose file
+                        <input type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" disabled={uploading} onChange={handlePreauthUpload} />
+                      </label>
+                    </div>
                   )}
                   {uploadMessage && (
                     <p className={`text-sm ${uploadMessage.type === 'success' ? 'text-primary' : 'text-destructive'}`}>{uploadMessage.text}</p>

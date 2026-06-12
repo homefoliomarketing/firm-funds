@@ -2370,6 +2370,66 @@ export async function removeEftTransfer(input: {
 }
 
 // ============================================================================
+// Auto-complete a funded deal once the brokerage's payment fully reconciles.
+//
+// Bud's rule: when a recorded/confirmed brokerage payment reconciles (confirmed
+// payments cover what the brokerage owes) the deal completes on its own, with no
+// separate "Mark Completed" click. A payment that does NOT match — a partial, or
+// a claim still short of the amount owed — leaves the deal funded/open.
+//
+// We re-check the same conditions updateDealStatus enforces as a cheap pre-check,
+// then delegate the transition itself to updateDealStatus so an auto-completion
+// and a manual completion run the EXACT same machinery (repayment date/status,
+// white-label broker share, completion-receipt PDF + agent email, audit log).
+// Strictly best-effort: any failure here is logged and never unwinds the payment
+// that was just recorded — the admin can always fall back to the manual button.
+// ============================================================================
+async function maybeAutoCompleteOnPayment(dealId: string): Promise<boolean> {
+  try {
+    const svc = createServiceRoleClient()
+    const { data: deal } = await svc
+      .from('deals')
+      .select('status, amount_due_from_brokerage, refund_owed_amount')
+      .eq('id', dealId)
+      .single()
+
+    // Only a funded deal can auto-complete. Already-completed / failed / etc. are
+    // left untouched (recording a payment on a completed deal must not re-fire).
+    if (!deal || deal.status !== 'funded') return false
+
+    const { data: pmts } = await svc
+      .from('brokerage_payments')
+      .select('amount, status')
+      .eq('deal_id', dealId)
+    const confirmedTotal = sumConfirmedPayments(pmts || [])
+    const amountDue = deal.amount_due_from_brokerage == null ? null : Number(deal.amount_due_from_brokerage)
+    // Reconciled = confirmed payments cover what's owed (cent tolerance for
+    // NUMERIC float noise). If the owed amount is unknown (legacy/null), require
+    // at least one confirmed payment. A non-matching payment leaves the deal open.
+    const reconciled =
+      amountDue != null && amountDue > 0
+        ? confirmedTotal >= amountDue - 0.01
+        : confirmedTotal > 0
+    if (!reconciled) return false
+
+    // A deal that still owes the agent a refund can't complete until it's issued.
+    if (Number(deal.refund_owed_amount ?? 0) > 0.01) return false
+
+    const { updateDealStatus } = await import('@/lib/actions/deal-actions')
+    const res = await updateDealStatus({ dealId, newStatus: 'completed' })
+    if (!res.success) {
+      console.warn(`[maybeAutoCompleteOnPayment] deal ${dealId} reconciled but completion was rejected: ${res.error}`)
+      return false
+    }
+    return true
+  } catch (err: unknown) {
+    const _msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[maybeAutoCompleteOnPayment] error for deal ${dealId}:`, _msg)
+    return false
+  }
+}
+
+// ============================================================================
 // Brokerage Payment: Record incoming payment from brokerage
 // ============================================================================
 
@@ -2496,7 +2556,21 @@ export async function recordBrokeragePayment(input: {
     // NOTE: Late settlement strikes are NOT auto-recorded here. Admin reviews
     // each overdue deal manually and records a strike via recordLateStrike()
     // if appropriate (e.g., to allow for in-transit wires admin hasn't logged yet).
-    return { success: true, data: updatedDeal }
+
+    // Auto-complete the deal if this payment makes the brokerage's confirmed
+    // total reconcile what they owe (and no agent refund is outstanding). A
+    // partial / non-matching payment leaves the deal funded. Best-effort.
+    let resultDeal = updatedDeal
+    if (await maybeAutoCompleteOnPayment(input.dealId)) {
+      const { data: completedDeal } = await supabase
+        .from('deals')
+        .select('*, brokerage_payments(*)')
+        .eq('id', input.dealId)
+        .single()
+      if (completedDeal) resultDeal = completedDeal
+    }
+
+    return { success: true, data: resultDeal }
   } catch (err: unknown) {
     const _msg = err instanceof Error ? err.message : "Unknown error"
     console.error('Brokerage payment error:', _msg)
@@ -2597,7 +2671,20 @@ async function reviewBrokeragePaymentClaim(
     },
   })
 
-  return { success: true, data: updatedDeal }
+  // On confirmation, auto-complete the deal if the brokerage's confirmed payments
+  // now reconcile what they owe — no separate "Mark Completed" click needed. A
+  // confirmed claim that still falls short leaves the deal funded/open.
+  let resultDeal = updatedDeal
+  if (decision === 'confirmed' && (await maybeAutoCompleteOnPayment(updated.deal_id))) {
+    const { data: completedDeal } = await supabase
+      .from('deals')
+      .select('*, brokerage_payments(*)')
+      .eq('id', updated.deal_id)
+      .single()
+    if (completedDeal) resultDeal = completedDeal
+  }
+
+  return { success: true, data: resultDeal }
 }
 
 export async function confirmBrokeragePaymentClaim(input: {

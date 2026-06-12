@@ -233,7 +233,12 @@ export default function AdminPaymentsPage() {
     setReviewBusy(null)
     if (r.success) {
       updateLocalPaymentEntry(dealId, paymentId, { status: 'confirmed' })
-      setReviewMsg({ type: 'success', text: 'Payment claim confirmed.' })
+      setReviewMsg({
+        type: 'success',
+        text: r.data?.status === 'completed'
+          ? 'Payment confirmed and reconciled. Deal marked complete.'
+          : 'Payment claim confirmed.',
+      })
       await loadPaymentData()
     } else {
       setReviewMsg({ type: 'error', text: r.error || 'Failed to confirm claim' })
