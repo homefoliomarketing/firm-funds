@@ -10,7 +10,7 @@ import {
   FileText, Building2, DollarSign, ChevronRight, Search, X,
   ChevronLeft, BarChart3, Shield, MessageSquare, AlertTriangle, Settings,
   CreditCard, ClipboardList, TimerReset, Inbox,
-  TrendingUp, Mail, ChevronDown, CalendarClock, Wallet,
+  TrendingUp, Mail, ChevronDown, CalendarClock, Wallet, Users,
 } from 'lucide-react'
 import { EmptyState } from '@/components/ui/empty-state'
 import { AgentVerificationDialog } from '@/components/admin/AgentVerificationDialog'
@@ -587,6 +587,10 @@ export default function AdminDashboard() {
               // so this is a one-line re-enable when the feature is picked up.
               ...(hasCapability(profile, 'deal.underwrite') ? [{ label: 'Pending Cures', icon: ClipboardList, path: '/admin/pending-elections' }] : []),
               ...(hasCapability(profile, 'money.write') ? [{ label: 'Payments', icon: DollarSign, path: '/admin/payments', badge: stats.pendingPaymentClaims }] : []),
+              // Agents list/search — find ANY agent and open their ledger, even
+              // ones with no current deal. Read-only view; visible to every
+              // internal staff tier (no capability gate).
+              { label: 'Agents', icon: Users, path: '/admin/agents' },
               // Audit Trail + Staff & Roles now live under Settings; Messages moved
               // to the Mail icon in the header.
             ].map(link => (
